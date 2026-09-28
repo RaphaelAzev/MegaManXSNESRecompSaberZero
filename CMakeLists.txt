@@ -87,7 +87,9 @@ function(add_mmx_variant TARGET GEN_DIR CFG_DIR)
 endfunction()
 set_property(SOURCE src/main.c APPEND PROPERTY COMPILE_DEFINITIONS
     SNESRECOMP_BUILD_VERSION="${SNESRECOMP_BUILD_VERSION}")
-add_mmx_variant(MegaManXSNESRecomp "${CMAKE_CURRENT_SOURCE_DIR}/src/gen"
+set(MMX_GEN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/gen" CACHE PATH
+    "Generated USA program directory (allows isolated coverage comparisons)")
+add_mmx_variant(MegaManXSNESRecomp "${MMX_GEN_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/recomp")
 add_mmx_variant(RockmanXSNESRecomp "${CMAKE_CURRENT_SOURCE_DIR}/variants/jp/gen"
     "${CMAKE_CURRENT_SOURCE_DIR}/variants/jp/config"

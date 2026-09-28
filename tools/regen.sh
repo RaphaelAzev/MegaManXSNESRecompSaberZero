@@ -81,7 +81,8 @@ regen_variant() {
       cfg_dir="recomp"
       out_dir="src/gen"
       funcs_h="recomp/funcs.h"
-      emit_extra=(--profile-manifest recomp/tier2_coverage.json)
+      emit_extra=(--historical-profile-manifest recomp/tier2_coverage.json
+                  --legacy-profile-rom-sha256 b8f70a6e7fb93819f79693578887e2c11e196bdf1ac6ddc7cb924b1ad0be2d32)
       ;;
     jp)
       rom="variants/jp/roms/rockmanx.sfc"
@@ -92,7 +93,8 @@ regen_variant() {
       # optional HLE scheduler contains region-specific addresses. Its own
       # clean LLE observations are the authoritative AOT optimization profile.
       emit_extra=(--no-host-root-scan
-                  --profile-manifest variants/jp/tier2_coverage.json)
+                  --historical-profile-manifest variants/jp/tier2_coverage.json
+                  --legacy-profile-rom-sha256 76f80cdf704a0e1daf1af5bbf564e427b425a5ee42329417de6f29219fe63e5f)
       ;;
   esac
 
