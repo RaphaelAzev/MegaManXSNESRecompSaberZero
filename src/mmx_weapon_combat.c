@@ -48,8 +48,9 @@ bool MmxWeaponsValidCombatState(const MmxWeaponCombatState *s) {
       s->enemies[i].hp>127 || s->enemies[i].active>1) return false;
   for (unsigned i = 0; i < 24; ++i) {
     const MmxWeaponShot *p = i<8 ? s->shots+i : s->effects+i-8;
-    if (i>=8 && p->active && !(p->page==2 && p->weapon==6 && p->variant>=2 && p->variant<=3) && (p->page!=1 || p->charged ||
-        !((p->weapon==8 && p->variant==4) || (p->weapon==3 && p->variant==3) ||
+    if (i>=8 && p->active && !(p->page==2 && p->weapon==6 && p->variant>=2 && p->variant<=3) &&
+        !(p->page==2 && p->weapon==8 && !p->charged && p->variant>=3 && p->variant<=4) && (p->page!=1 || p->charged ||
+        !((p->weapon==8 && (p->variant==4 || p->variant==5)) || (p->weapon==3 && p->variant==3) ||
           (p->weapon==1 && p->variant==2)))) return false;
     if (p->active > 1 || p->reserved || p->charged > 1 || p->pose >= 128 || p->animation > 8192 ||
         p->x < -0x1000000 || p->x > 0x1000000 || p->y < -0x1000000 || p->y > 0x1000000 ||
@@ -57,10 +58,11 @@ bool MmxWeaponsValidCombatState(const MmxWeaponCombatState *s) {
           (p->page == 1 && p->weapon == 3 ? (p->variant==3 ? 73 : p->variant==4 ? 74 : 72) :
            p->page == 1 && p->weapon == 5 && p->charged ? 135 :
            p->page == 1 && p->weapon == 7 ? (p->charged ? 19 : p->muzzle_pose==3 ? 8 : 15) :
-           p->page == 1 && p->weapon == 8 && p->charged ? 38 :
+           p->page == 1 && p->weapon == 8 ? (p->variant==5?23:p->charged?38:37) :
            p->page == 2 && p->weapon == 3 && p->charged && !p->variant ? 51 :
            p->page == 2 && p->weapon == 6 && p->charged && p->variant==1 ? (p->group==52?52:51) :
            p->page == 2 && p->weapon == 2 && p->variant==4 ? (p->muzzle_pose?23:8) :
+           p->page == 2 && p->weapon == 8 && i>=8 ? (p->variant==3?20:8) :
            weapon_group(p->page,p->weapon))))) return false;
     if (p->active && p->page == 1 && p->weapon == 5 &&
         (p->variant > 4 || p->radius > 2 || p->muzzle_pose > 3)) return false;
@@ -78,7 +80,7 @@ bool MmxWeaponsValidCombatState(const MmxWeaponCombatState *s) {
     if (p->active && p->page==1 && p->weapon==1 &&
         (p->variant>2 || p->muzzle_pose>(p->charged ? 1 : 6) || p->radius>32)) return false;
     if (p->active && p->page==1 && p->weapon==8 &&
-        (p->variant>(i<8 ? 3 : 4) || p->muzzle_pose>3 || p->radius>60 || p->tether_pose>1)) return false;
+        (p->variant>(i<8 ? 3 : 5) || p->muzzle_pose>3 || p->radius>60 || p->tether_pose>1)) return false;
     if (p->active && p->page == 1 && p->weapon == 4 &&
         (p->variant > (p->charged ? 7 : 0) || p->radius > (p->charged ? 6 : 30) ||
          p->muzzle_pose > (p->charged ? 1 : 6) || p->tether_pose > (p->charged ? 1 : 10))) return false;
@@ -90,7 +92,7 @@ bool MmxWeaponsValidCombatState(const MmxWeaponCombatState *s) {
         (p->variant > 2 || p->muzzle_pose > 7 ||
          p->radius > 8 || p->tether_pose > 1 || p->origin_x < 0 || p->origin_x > 360)) return false;
     if (p->active && p->page==2 && p->weapon==8 &&
-        (p->variant>(p->charged?5:2) || p->muzzle_pose>4 || p->radius>64 || p->tether_pose>7)) return false;
+        (p->variant>(i>=8?4:p->charged?5:2) || p->muzzle_pose>4 || p->radius>64 || p->tether_pose>7)) return false;
     if (p->active && p->page==2 && p->weapon==3 &&
         (p->variant>(p->charged?2:8) || p->muzzle_pose>3 || p->tether_pose>19)) return false;
     if (p->active && p->page==2 && p->weapon==6 &&
@@ -202,6 +204,12 @@ void MmxWeaponsPlayerTick(uint8_t r[0x20000]) {
   for (unsigned i=0;i<16;++i) {
     MmxWeaponShot *p=combat.effects+i;if (!p->active) continue;
     if (p->page==2 && p->weapon==6) { gravity_effect_tick(r,p);continue; }
+    if ((p->page==2 && p->weapon==8) || (p->page==1 && p->weapon==8 && p->variant==5)) {
+      if((p->flags&128) && p->timer==1) {memset(p,0,sizeof(*p));continue;}
+      ++p->age;
+      if(p->page==1) {p->vy-=16;p->y+=p->vy;}
+      animation_step(p);continue;
+    }
     if (p->weapon==1) { crystal_effect_tick(r,p);continue; }
     if (p->weapon==3) { silk_effect_tick(p);continue; }
     if (++p->age>=32) { memset(p,0,sizeof(*p));continue; }
@@ -700,6 +708,17 @@ static void speed_spark(const MmxWeaponShot *parent) {
     animation_start(t,3+(bubble_random(i+6)&1));return;
   }
 }
+static void speed_dash_bubble(const MmxWeaponShot *parent) {
+  /* X2 $82:B148 emits class $31 on alternating frames. Original group
+   * $17 sequence 0 lasts 26 ticks; velocity accelerates upward by $10. */
+  for(unsigned i=0;i<16;++i) if(!combat.effects[i].active) {
+    MmxWeaponShot *t=combat.effects+i;*t=*parent;
+    t->variant=5;t->group=23;t->charged=0;t->age=1;t->born=combat.tick;
+    t->vx=t->vy=0;t->muzzle_pose=0;t->radius=t->tether_pose=0;
+    t->x+=(bubble_random(i+2)&15)*256;t->y+=((int)(bubble_random(i+3)&31)-16)*256;
+    animation_start(t,0);return;
+  }
+}
 static void speed_water(uint8_t *r,MmxWeaponShot *s) {
   s->variant=2;s->muzzle_pose=0;animation_start(s,5);
   for (unsigned i=0;i<2;++i) {
@@ -735,6 +754,7 @@ static void speed_tick(uint8_t *r,unsigned d,MmxWeaponShot *s) {
     s->x=word(r+0xbad)*256;s->y=word(r+0xbb0)*256;
     s->tether_pose=terrain_water(r,s->x>>8,s->y>>8);
     r[0xbd8]=s->tether_pose ? 0 : 128;animation_step(s);
+    if(s->tether_pose && !(combat.tick&1)) speed_dash_bubble(s);
     if (!(s->age&1)) s->hit_slots=0;
   } else if (s->variant==3) {
     /* X2 $86:B5A7: two opposite eight-record orbits, two ticks each.
@@ -1447,6 +1467,7 @@ unsigned MmxWeaponsDamage(uint8_t r[0x20000], unsigned enemy, unsigned d, unsign
    * Preserve that neutral ratio, never transplant another game's weakness. */
   if (r[enemy+0x28]>=6) {
     if (s->page==1 && s->weapon==6) chain_contact(r,s,enemy,original);
+    if (s->page==2 && s->weapon==8) fang_contact(r,s,enemy);
     return original;
   }
   if(s->page==2 && s->weapon==2 && !s->charged && !s->variant && parasitic_contact(r,enemy,s)) return 0;
@@ -1463,6 +1484,7 @@ unsigned MmxWeaponsDamage(uint8_t r[0x20000], unsigned enemy, unsigned d, unsign
   e->remainder=(uint8_t)(scaled%3);
   unsigned damage=scaled/3;
   if (s->page==1 && s->weapon==6) chain_contact(r,s,enemy,damage);
+  if (s->page==2 && s->weapon==8) fang_contact(r,s,enemy);
   return damage>127 ? 127 : damage;
 }
 unsigned MmxWeaponsHitbox(const uint8_t r[0x20000], unsigned enemy, unsigned d, unsigned original) {

@@ -398,8 +398,10 @@ the charge command before allocating a moving/air shot. The port now captures
 that command at the common $81:94AF selection entry, before the clear.
 Both-character checks cover normal/ground fire, particles, arms/costs,
 ground/air dash motion and cleanup, private water behavior, and save/replay.
-The main flame and dash art were inspected. Source audio, underwater dash
-ambient bubbles and moving-platform ground-fire behavior remain fidelity work.
+The main flame and dash art were inspected. Underwater dash bubbles now use
+original group `$17` art, a 26-tick lifetime and source upward acceleration;
+their emission and save/replay were checked. Source audio and moving-platform
+ground-fire behavior remain fidelity work.
 Native X1 still limits damaging actors to eight, compared with X2's nine.
 
 ## Further integrated weapons
@@ -430,12 +432,13 @@ All sixteen weapons have normal and charged gameplay implemented. Crystal
 Hunter, Gravity Well and Parasitic Bomb complete the earlier thirteen ports.
 Charging retains X1's arm-upgrade gate; utility attacks have explicit X1 enemy
 adapters instead of treating special response bytes as damage. The extractor
-reads 669 source poses (491,317 bytes in the combined local cache).
+reads 691 source poses (501,828 bytes in the combined local cache).
 
 This is a playable implementation checkpoint, not a claim of identical game
-engines or finished audio. Follow-ups include original SPC effects, the small
-shared Tornado Fang impact debris, Speed Burner's underwater ambient bubbles,
-and the stage-specific object interactions documented per weapon. Ordinary
+engines or finished audio. Tornado Fang impact debris and Speed Burner's
+underwater ambient bubbles are also implemented with original assets.
+Follow-ups include original SPC effects and stage-specific object interactions
+documented per weapon. Ordinary
 damage keeps source-to-buster ratios without imported boss weaknesses.
 Co-op remains a later, separate mod. Private fixtures must never be loaded into
 the owner's running playtest.

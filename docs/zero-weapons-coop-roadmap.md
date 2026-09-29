@@ -116,8 +116,8 @@ requirement (owner clarification, 2026-09-29).
 Current checkpoint: all sixteen weapons have normal and charged gameplay
 implemented, including source-relative damage and the three utility weapons.
 See [port status and remaining fidelity work](x-weapons-port.md) before treating
-this as a finished release. Cosmetic/source-audio follow-ups remain; the co-op
-dependency is still open.
+this as a finished release. Source-audio and stage-compatibility follow-ups
+remain; the co-op release dependency is still open.
 
 ## Later: separate simultaneous co-op mod
 

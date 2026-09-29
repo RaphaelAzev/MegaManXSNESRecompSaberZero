@@ -17,6 +17,20 @@ static void fang_player(uint8_t *r) {
    * Y is still held. Let X1's native full-release path allocate it. */
   if (combat.held && (r[0x1f99]&2) && r[0xc03]==1) r[0xbdf]&=(uint8_t)~64;
 }
+static void fang_contact(const uint8_t *r,const MmxWeaponShot *s,unsigned enemy) {
+  /* X3 $81:ABDC/$C046: class $10, group $13 sequence 11. The last
+   * normal contact uses $84:D6E0's shared puff instead. No attack slot. */
+  for(unsigned i=0;i<16;++i) if(!combat.effects[i].active) {
+    MmxWeaponShot *t=combat.effects+i;*t=*s;
+    bool exhausted=!s->charged && s->tether_pose==1;
+    t->variant=exhausted?4:3;t->group=exhausted?8:20;t->charged=0;
+    t->age=1;t->born=combat.tick;t->vx=t->vy=0;t->radius=t->tether_pose=t->muzzle_pose=0;
+    t->facing=s->facing^64;
+    t->x=(s->charged?(s->x>>8)+(s->facing?4:-4):(int)word(r+enemy+5))*256;
+    t->y=(s->charged?(s->y>>8)-4:(int)word(r+enemy+8))*256;
+    animation_start(t,exhausted?5:11);return;
+  }
+}
 static void fang_route(MmxWeaponShot *s) {
   /* $86:BA36 records are duration/VX/VY, upward-positive source Y. */
   static const uint8_t duration[3][3]={{4,4,0},{4,6,8},{2,0,0}};

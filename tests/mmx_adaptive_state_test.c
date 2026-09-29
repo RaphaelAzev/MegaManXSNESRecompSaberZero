@@ -719,6 +719,9 @@ static void weapon_fang_checks(const char *assets,const char *fixture,uint8 *sta
       if(g_ram[d] && (g_ram[d+0x27]&127) && (g_ram[d+0x20]|g_ram[d+0x21])) {victim=d;break;}
   }
   check(victim!=0,"native enemy available for drill contact");
+  unsigned fx=(g_ram[0xbad]|g_ram[0xbae]<<8)+64,fy=(g_ram[0xbb0]|g_ram[0xbb1]<<8)-32;
+  g_ram[victim+5]=(uint8_t)fx;g_ram[victim+6]=(uint8_t)(fx>>8);
+  g_ram[victim+8]=(uint8_t)fy;g_ram[victim+9]=(uint8_t)(fy>>8);
   MmxWeaponsState w=MmxWeaponsGetState();w.page=2;w.weapon=8;MmxWeaponsSetState(w);
   frame(0);frame(SNES_PAD_Y);frame(0);MmxWeaponCombatState c=MmxWeaponsGetCombatState();unsigned slot=8;
   for(unsigned i=0;i<8;++i) if(c.shots[i].active) {
@@ -730,6 +733,12 @@ static void weapon_fang_checks(const char *assets,const char *fixture,uint8 *sta
   zero_replay(3);c=MmxWeaponsGetCombatState();
   check((g_ram[victim+0x27]&127)==31 && c.shots[slot].muzzle_pose==3 && c.shots[slot].tether_pose==6,
       "real enemy contact applies scaled damage and original impact pause");
+  bool debris=false;for(unsigned i=0;i<16;++i) debris|=c.effects[i].active && c.effects[i].group==20;
+  check(debris,"native drill contact emits original sixteen-tick impact debris");
+  zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),".fang-debris.cap");
+  size_t n=RtlSaveSnapshotToMemory(start,cap);zero_replay(8);size_t en=RtlSaveSnapshotToMemory(expected,cap);
+  check(RtlLoadSnapshotFromMemory(start,n),"restore drill impact debris");zero_replay(8);
+  size_t an=RtlSaveSnapshotToMemory(actual,cap);same(expected,en,actual,an,"drill contact debris replays exactly");
   unsigned d=0x1228+slot*64;
   for(unsigned contact=0;contact<6;++contact) {
     c=MmxWeaponsGetCombatState();c.shots[slot].muzzle_pose=2;c.shots[slot].radius=0;
@@ -813,6 +822,13 @@ static void weapon_speed_checks(const char *assets,const char *fixture,uint8 *st
   for(unsigned i=0;i<8;++i) if(c.shots[i].active && c.shots[i].charged) dash=i;
   check(dash<8 && c.shots[dash].tether_pose && !g_ram[0xbd8] &&
       !(g_ram[0x1228+dash*64+0x20]|g_ram[0x1228+dash*64+0x21]),"water dash retains movement but loses flames, attack box and damage guard");
+  bool bubbles=false;for(unsigned i=0;i<16;++i) bubbles|=c.effects[i].active && c.effects[i].variant==5 &&
+      c.effects[i].group==23 && c.effects[i].vy<0;
+  check(bubbles,"underwater charged dash emits original accelerating bubble particles");
+  zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),".speed-dash-bubbles.cap");
+  n=RtlSaveSnapshotToMemory(start,cap);zero_replay(10);en=RtlSaveSnapshotToMemory(expected,cap);
+  check(RtlLoadSnapshotFromMemory(start,n),"restore underwater dash bubbles");zero_replay(10);
+  an=RtlSaveSnapshotToMemory(actual,cap);same(expected,en,actual,an,"underwater dash bubbles replay exactly");
   for(unsigned i=0;i<changed;++i) g_snes->cart->rom[offsets[i]]=properties[i];
   MmxWeaponsCancelShots(g_ram);
   puts("MMX SPEED BURNER CHECKS PASSED");

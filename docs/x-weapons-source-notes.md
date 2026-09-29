@@ -778,4 +778,22 @@ The final three normal/charged ports have dedicated source records:
 All sixteen weapons now have normal and charged gameplay paths. These records
 separate observed source behavior from X1 enemy/stage and Zero-body adaptations.
 The shared combat state stays 1,028 bytes; no new snapshot ABI is required by
-these three ports. Remaining cosmetic/audio work is listed in the port document.
+these three ports. Remaining audio/stage compatibility work is listed in the port document.
+
+## Final source particle pass
+
+Speed Burner underwater dash emitter X2 `$82:B148..B191` spawns class `$31`
+every second frame. X is offset by source RNG &15; Y by (RNG &31)-16. A private
+native-runtime trace confirms group `$17` sequence 0, poses 3..7/31, 26 display
+ticks and upward acceleration `$10/256` from rest. Source resource `$0A` supplies
+the inherited tiles at OBJ `$6800`; the original runtime palette matches ROM
+`$2B220`. These bubbles now render in independent saved visual slots, without
+the normal fire sparkle's alternating-frame flicker. Deterministic saved tick/
+slot sampling replaces the source RNG stream, consistent with other particles.
+
+Fang's original contact debris and final puff are described in
+[its source record](weapons/tornado-fang.md#contact-particles). All eight debris
+poses match source live VRAM. Both particle families have focused gameplay and
+snapshot-replay checks and inspected original/port renders. Native/Python
+extraction parity passes with 691 populated source poses and a 501,828-byte
+combined local cache. No ROM or generated graphics are committed.

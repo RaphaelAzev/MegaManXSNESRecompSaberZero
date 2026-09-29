@@ -1105,7 +1105,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       }
       if (s->page==2 && s->weapon==3 && s->charged && (!s->variant || !s->muzzle_pose)) continue;
       if (s->page==1 && s->weapon==1 && s->charged) continue;
-      if (i>=8 && s->page==1 && (s->weapon==1 ? s->age==1 || !((s->age-1+s->tether_pose)&1) :
+      if (i>=8 && s->page==1 && !(s->weapon==8 && s->variant==5) && (s->weapon==1 ? s->age==1 || !((s->age-1+s->tether_pose)&1) :
           !(frame_weapon_combat.tick&1))) continue; /* Original debris/sparkle flicker. */
       if (i<8 && s->page==1 && s->weapon==1 && s->muzzle_pose==5) continue;
       if (s->page==1 && s->weapon==8 && s->charged && s->tether_pose) continue;

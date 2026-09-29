@@ -103,7 +103,24 @@ damage and impact transition; controlled continuation checks seven-contact
 retirement. Source extraction checks cover copier headers, wrong ROM rejection
 and cache preservation on failure. Original charged art was visually inspected.
 
-Remaining fidelity work: source drill motor/impact audio, the small shared
-impact debris effect, broader wall-grip/ladder pose playtests and compatibility
+Remaining fidelity work: source drill motor/impact audio,
+broader wall-grip/ladder pose playtests and compatibility
 with stage-specific moving/destructible objects. No source armor/chip bonus is
 imported in this boss-weapon scope.
+
+## Contact particles
+
+Normal `$81:ABDC` and charged `$81:C046` spawn source class `$10`, group `$13`,
+sequence 11: poses 20..27, two ticks each. These stationary impact fragments
+now use independent saved visual slots. Normal contact uses the target center;
+charged contact uses the drill origin shifted four pixels forward and upward,
+and both reverse horizontal facing as in X3. Normalized zero-HP contacts still
+produce the effect: the source hit occurred even when fractional damage rounds
+to zero. The seventh normal contact uses `$84:D6E0`'s group `$08`, sequence 5 puff.
+
+The extractor aliases the debris group as 20 to keep its reference gray
+palette `$66948` separate from the drill's own palette. All eight extracted
+debris poses compare byte-for-byte with the original X3 runtime's live VRAM.
+The shared puff uses original resource `$0A` graphics. No new game/capture ABI
+or damaging actor slot is required. Native contact, particle save/replay and
+visual captures were checked along with the existing Fang gameplay suite.
