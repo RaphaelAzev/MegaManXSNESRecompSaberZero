@@ -3,7 +3,8 @@
 Owner requirements recorded 2026-09-28. This is the durable scope document;
 implementation status and findings are tracked in the central Beads database
 at `F:\Software\beads\issues`, under `beads-8wg.1` (Mega Man X / SNES).
-Work branch: `feat/x3-zero-port`, worktree: `../_wt_mmx_zero`.
+Zero 0.0.1 is released separately to main. Weapon branch: `feat/x2-x3-weapons`,
+worktree: `../_wt_mmx_zero`. Co-op starts only after that expansion is complete.
 
 ## Order of work
 

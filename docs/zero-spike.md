@@ -1,5 +1,7 @@
 # X3 Zero in X1: bounded feasibility experiment
 
+Historical prototype. See [Zero 0.0.1](zero-0.0.1.md) and [current handoff](zero-port.md).
+
 Implemented on `experiment/x3-zero-spike`, based on X1 commit `975b126`.
 Tracking: central Beads `beads-110f`, under the X1 game epic and related to
 the X3 game epic. This is an experimental playable prototype, not the finished

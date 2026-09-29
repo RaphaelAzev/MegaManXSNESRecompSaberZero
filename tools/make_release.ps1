@@ -26,6 +26,7 @@ param(
   [Parameter(Mandatory = $true)][string]$Version,
   [string]$BuildDir = 'build-recompui',
   [string]$RuntimeBinDir = 'C:\msys64\mingw64\bin',
+  [string]$FrameworkDir = '',
   [ValidateSet('SDL3', 'SDL2')][string]$SdlBackend = 'SDL3'
 )
 
@@ -34,7 +35,9 @@ $root = Split-Path -Parent $PSScriptRoot
 $build = Join-Path $root $BuildDir
 $exe = Join-Path $build 'MegaManXSNESRecomp.exe'
 $assets = Join-Path $build 'assets'
-$mods = Join-Path $build 'mods'
+# Stage the checked-in catalog, never a player's writable mods/state/cache.
+$mods = Join-Path $root 'mods'
+if (-not $FrameworkDir) { $FrameworkDir = Join-Path $root 'snesrecomp' }
 
 if (-not (Test-Path -LiteralPath $exe)) {
   throw "Release executable missing: $exe"
@@ -72,12 +75,17 @@ if (Test-Path -LiteralPath $mods) {
   Copy-Item -LiteralPath $mods -Destination $stage -Recurse
 }
 
-# keybinds.ini is user-generated (PSR-style rebind UI) and only exists next
-# to the exe once someone has actually rebound a key; ship it if present.
-$kb = Join-Path $build 'keybinds.ini'
-if (Test-Path -LiteralPath $kb) {
-  Copy-Item -LiteralPath $kb -Destination $stage
+# Key bindings, ROM selections and private extraction caches are user data.
+# Only tracked catalog files are permitted in the mod release tree.
+$trackedMods = @(& git -C $root ls-files -- mods)
+foreach ($file in Get-ChildItem -LiteralPath (Join-Path $stage 'mods') -File -Recurse) {
+  $relative = 'mods/' + $file.FullName.Substring((Join-Path $stage 'mods').Length + 1).Replace('\','/')
+  if ($relative -notin $trackedMods -or $file.Name -eq 'state.toml' -or
+      $file.Extension -in '.sfc','.smc','.bin','.sav','.cap') {
+    throw "Private or untracked mod data in release: $relative"
+  }
 }
+Copy-Item -LiteralPath (Join-Path $root 'docs/zero-0.0.1.md') -Destination $stage
 
 # Runtime DLLs are NOT enumerated by hand. A hardcoded list is a snapshot of
 # the import graph on the day it was written, and it silently omits anything a
@@ -92,7 +100,7 @@ if (Test-Path -LiteralPath $kb) {
 # fails the release rather than shipping. Builds that link the MinGW runtime
 # statically (SNESRECOMP_STATIC_RUNTIME, the default) correctly ship no
 # libgcc/libstdc++/libwinpthread at all.
-. (Join-Path $root 'snesrecomp\tools\release\RuntimeDllClosure.ps1')
+. (Join-Path $FrameworkDir 'tools\release\RuntimeDllClosure.ps1')
 
 $sdlDll = "$SdlBackend.dll"
 $sdlSource = Join-Path $build $sdlDll

@@ -36,7 +36,7 @@ function(add_mmx_variant TARGET GEN_DIR CFG_DIR)
         src/mmx_spc_player.c src/mods/mmx_diagnostics_plugin.c
         src/mods/mmx_widescreen_plugin.c src/mods/mmx_msu1_plugin.c
         src/mods/mmx_password_plugin.c src/mmx_password_save.cpp
-        src/mods/mmx_zero_plugin.c src/mmx_zero.c)
+        src/mods/mmx_zero_plugin.c src/mmx_zero.c src/mmx_source_assets.cpp)
     target_include_directories(${TARGET} PRIVATE
         ${CFG_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_BINARY_DIR} ${SNESRECOMP_RUNNER_INCLUDE_DIRS})
@@ -101,6 +101,10 @@ add_mmx_variant(RockmanXSNESRecomp "${CMAKE_CURRENT_SOURCE_DIR}/variants/jp/gen"
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(mmx_source_assets_test tests/mmx_source_assets_test.cpp src/mmx_source_assets.cpp
+        ${SNESRECOMP_ROOT}/runner/src/sha256.c)
+    target_include_directories(mmx_source_assets_test PRIVATE src ${SNESRECOMP_ROOT}/runner/src)
+    target_compile_features(mmx_source_assets_test PRIVATE cxx_std_17)
     add_executable(mmx_zero_test tests/mmx_zero_test.c src/mmx_zero.c)
     target_include_directories(mmx_zero_test PRIVATE src)
     add_test(NAME mmx_zero_character COMMAND mmx_zero_test)
@@ -145,6 +149,7 @@ include(${SNESRECOMP_ROOT}/runner/cmake/mmx_state_tests.cmake)
 snesrecomp_target_mmx_state_tests(MegaManXSNESRecomp "${CMAKE_CURRENT_SOURCE_DIR}/src/main.c")
 
 if(TARGET mmx_state_tests)
+    add_dependencies(mmx_state_tests MegaManXSNESRecomp_widescreen_overrides)
     target_compile_definitions(mmx_state_tests PRIVATE
         MMX_ZERO_COMBAT_REFERENCE_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/tests/data/zero_x3_combat.csv"
         MMX_ZERO_MOTION_REFERENCE_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/tests/data/zero_x3_motion.csv")

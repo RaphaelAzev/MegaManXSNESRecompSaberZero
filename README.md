@@ -60,11 +60,12 @@ image. It is disabled by default and enabled from the launcher's **Mods** page.
 See [Adaptive widescreen support](#adaptive-widescreen-support) for
 availability and controls.
 
-This branch also includes the disabled-by-default [X3 Zero experiment](docs/zero-spike.md).
-It requires locally extracted X3 USA assets. The prototype supports the two-shot
-and saber combo, plus Select to exchange X and Zero while standing on the ground.
-The exchange uses original teleport sprites and pauses stage simulation.
-Complete campaign validation is unfinished.
+The disabled-by-default **X3 Zero 0.0.1 mod** adds playable Zero, his
+buster/saber combo, and grounded Select exchange with X. Both characters have
+separate current health; pickups heal only the active character. Enable it in
+**Mods** and select your **Mega Man X3 USA ROM**. Assets are prepared locally
+automatically. See [setup and release notes](docs/zero-0.0.1.md) and the
+[technical handoff](docs/zero-port.md). X2/X3 boss weapons are a separate follow-up.
 
 <p align="center">
   <img src="docs/screenshots/widescreen-ocean.png" width="32%" alt="Mega Man X experimental widescreen rendering in an ocean scene">

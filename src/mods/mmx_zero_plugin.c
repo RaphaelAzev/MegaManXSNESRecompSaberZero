@@ -4,6 +4,8 @@
 #include "snes/interp_bridge.h"
 #include "mmx_renderer.h"
 #include "mmx_zero.h"
+#include "mmx_source_assets.h"
+#include "sdl_compat.h"
 #include <stdio.h>
 
 extern uint8_t g_ram[0x20000];
@@ -93,15 +95,20 @@ static void activate(void) {
   char path[4096];
   const RecompLauncherCModProvider *provider = snes_mod_runtime_launcher_provider_c();
   RecompLauncherCModResource resource = {0};
-  if (provider && provider->feature_resource_get &&
-      provider->feature_resource_get(provider->ctx, "megaman-x.character.zero", "zero", 0, &resource) && resource.path[0])
-    snprintf(path, sizeof(path), "%s", resource.path);
-  else if (!snesrecomp_exe_dir_path("zero-x3.bin", path, sizeof(path))) return;
+  if (!provider || !provider->feature_resource_get ||
+      !provider->feature_resource_get(provider->ctx,"megaman-x.character.zero","zero",0,&resource) || !resource.path[0]) return;
+  if (!snesrecomp_exe_dir_path("cache/mmx-source/x3-zero-v6.bin",path,sizeof(path))) return;
+  char error[512];
+  if (!MmxSourceAssetsBuild(resource.path,3,1,path,error,sizeof(error))) {
+    fprintf(stderr,"[mmx-source] %s\n",error);
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,"Cannot prepare Zero mod",error,NULL);
+    return;
+  }
   if (!MmxZeroLoad(path)) {
     fprintf(stderr, "[mmx-zero] Cannot load extracted Zero assets: %s\n", path); return;
   }
   MmxZeroRegisterHooks();
-  fprintf(stderr, "[mmx-zero] Experimental original-size Zero enabled\n");
+  fprintf(stderr, "[mmx-zero] Zero 0.0.1 enabled\n");
 }
 static void reset(void) { MmxZeroCancel(g_ram); MmxZeroDisable(); }
 SNES_MOD_CONSTRUCTOR(mmx_register_zero_plugin) {
