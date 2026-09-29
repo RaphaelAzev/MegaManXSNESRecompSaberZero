@@ -1,5 +1,10 @@
 # X3 Zero in X1: bounded feasibility experiment
 
+**Historical experiment and progress log.** For the audited current
+implementation, original-art requirements, source addresses, state formats,
+validation and remaining work, start with [Zero port handoff](zero-port.md).
+Early state sizes, build paths and prototype descriptions below are historical.
+
 Implemented on `experiment/x3-zero-spike`, based on X1 commit `975b126`.
 Tracking: central Beads `beads-110f`, under the X1 game epic and related to
 the X3 game epic. This is an experimental playable prototype, not the finished

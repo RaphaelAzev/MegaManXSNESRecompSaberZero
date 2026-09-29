@@ -4,6 +4,7 @@ Owner requirement, recorded 2026-09-29. Applies to the Zero/Select mod, the
 X2/X3 weapon expansion, and the later mutually exclusive co-op mod. Scope:
 [roadmap](zero-weapons-coop-roadmap.md). Technical findings:
 [source notebook](x-weapons-source-notes.md).
+Zero implementation/provenance: [Zero port handoff](zero-port.md).
 
 ## Distribution contract
 

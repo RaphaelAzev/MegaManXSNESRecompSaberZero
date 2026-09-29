@@ -25,6 +25,11 @@ Static recompilation of *Mega Man X* (SNES) into native C, using the
 is the per-game side: the runtime, the recompiled C output, the
 per-game `.cfg`, and the build glue.
 
+The in-development X3 Zero/character-exchange mod is documented in the
+[Zero implementation handoff](docs/zero-port.md), including source findings,
+validation and remaining work. Its [public release requirements](docs/mod-source-roms.md)
+require user-supplied source ROMs and local asset extraction.
+
 ## What "static recompilation" means here
 
 The 65816 CPU code from the ROM is statically translated to C — every
