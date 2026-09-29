@@ -456,6 +456,70 @@ static unsigned acid_variants(unsigned variant, bool charged) {
     c.shots[i].variant==variant && c.shots[i].charged==charged;
   return n;
 }
+static unsigned ray_births(void) {
+  MmxWeaponCombatState c=MmxWeaponsGetCombatState();unsigned count=0;
+  for(unsigned i=0;i<8;++i) count+=c.shots[i].active && c.shots[i].weapon==5 &&
+    c.shots[i].variant==2 && c.shots[i].born==c.tick;
+  return count;
+}
+static void weapon_ray_checks(const char *assets, const char *fixture, uint8 *start,
+                              uint8 *expected, uint8 *actual, size_t cap) {
+  check(MmxWeaponsLoad(assets),"Ray Splasher original assets load");
+  for(unsigned character=0;character<2;++character) {
+    check(RtlLoadSnapshot(fixture),"restore Ray Splasher fixture");
+    if(character) zero_health_swap();
+    MmxWeaponsState w=MmxWeaponsGetState();w.page=2;w.weapon=5;MmxWeaponsSetState(w);
+    frame(SNES_PAD_Y);unsigned rays=0;
+    for(unsigned i=0;i<65;++i) {
+      frame(0);rays+=ray_births();
+      if(i==19) zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-ray.cap":".zero-ray.cap");
+    }
+    check(rays==7 && MmxWeaponsEnergyAmount(2,5)==27*256,"normal Ray Splasher emits seven spread rays for one energy");
+    zero_replay(40);check(!extended_shots(false) && !g_ram[0xbdd] && !g_ram[0xc25],"ray burst releases slots without leaking native charged-beam count");
+    g_ram[0x1f99]|=2;
+    for(unsigned i=0;i<150;++i) frame(SNES_PAD_Y);
+    frame(0);zero_replay(10);
+    check(extended_shots(true)==1 && MmxWeaponsEnergyAmount(2,5)==23*256+128,
+          "charged Ray Splasher deploys its turret for exactly two and a half energy");
+    check(!(g_ram[0xc2f]&64),"charged Ray Splasher stops charge audio");
+    size_t n=RtlSaveSnapshotToMemory(start,cap);zero_replay(95);size_t en=RtlSaveSnapshotToMemory(expected,cap);
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-ray-turret.cap":".zero-ray-turret.cap");
+    check(RtlLoadSnapshotFromMemory(start,n),"restore Ray turret deployment");
+    zero_replay(95);size_t an=RtlSaveSnapshotToMemory(actual,cap);
+    same(expected,en,actual,an,"turret rise and radial firing replay exactly");
+    check(RtlLoadSnapshotFromMemory(start,n),"restore for turret lifetime check");
+    rays=0;bool left=false,right=false,up=false,down=false;
+    for(unsigned i=0;i<300;++i) {
+      frame(0);rays+=ray_births();MmxWeaponCombatState c=MmxWeaponsGetCombatState();
+      for(unsigned j=0;j<8;++j) if(c.shots[j].active && c.shots[j].variant==2) {
+        left|=c.shots[j].vx<0;right|=c.shots[j].vx>0;up|=c.shots[j].vy<0;down|=c.shots[j].vy>0;
+      }
+    }
+    check(rays==22 && left && right && up && down,"original Ray turret cycles radial directions for twenty-two shots");
+    check(!extended_shots(true) && !g_ram[0xbdd] && !g_ram[0xc25],"turret and ray trails retire cleanly");
+    check(MmxWeaponsEnergyAmount(2,5)==23*256+128,"turret child rays do not consume extra energy");
+  }
+  check(RtlLoadSnapshot(fixture),"restore Ray native-enemy encounter");unsigned victim=0;
+  for(unsigned i=0;i<400 && !victim;++i) {
+    frame(SNES_PAD_RIGHT);
+    for(unsigned d=0xe68;d<0x1228;d+=64)
+      if(g_ram[d] && (g_ram[d+0x27]&127) && (g_ram[d+0x20]|g_ram[d+0x21])) {victim=d;break;}
+  }
+  check(victim!=0,"native enemy available for Ray Splasher collision");
+  MmxWeaponsState w=MmxWeaponsGetState();w.page=2;w.weapon=5;MmxWeaponsSetState(w);
+  frame(0);frame(SNES_PAD_Y);zero_replay(9);
+  MmxWeaponCombatState c=MmxWeaponsGetCombatState();unsigned projectile=8;
+  for(unsigned i=0;i<8;++i) if(c.shots[i].active && c.shots[i].variant==2) {
+    c.shots[i].x=(g_ram[victim+5]|g_ram[victim+6]<<8)*256-c.shots[i].vx;
+    c.shots[i].y=(g_ram[victim+8]|g_ram[victim+9]<<8)*256-c.shots[i].vy;
+    projectile=i;break;
+  }
+  check(projectile<8,"Ray projectile available for native collision");
+  MmxWeaponsSetCombatState(c);unsigned hp=g_ram[victim+0x27]&127;zero_replay(3);
+  check((g_ram[victim+0x27]&127)+1==hp,"Ray Splasher deals ordinary native enemy damage");
+  zero_replay(3);check(!MmxWeaponsGetCombatState().shots[projectile].active,"Ray hit drains original trail and releases its slot");
+  puts("MMX RAY SPLASHER CHECKS PASSED");
+}
 static void weapon_acid_checks(const char *assets, const char *fixture, uint8 *start,
                                uint8 *expected, uint8 *actual, size_t cap) {
   check(MmxWeaponsLoad(assets),"Acid Burst original assets load");
@@ -551,7 +615,7 @@ static void weapon_combat_checks(const char *assets, const char *fixture, uint8 
     check(RtlLoadSnapshotFromMemory(start,n),"restore rotating charged blade");
     zero_replay(30); an=RtlSaveSnapshotToMemory(actual,cap);
     same(expected,en,actual,an,"rotating blade save and replay");
-    zero_replay(80); check(!extended_shots(true),"charged blade retracts and releases native projectile slot");
+    zero_replay(80); check(!extended_shots(true) && !g_ram[0xc25],"charged blade retracts without leaking native charged-beam count");
   }
   check(RtlLoadSnapshot(fixture),"restore native enemy encounter");
   unsigned victim=0;
@@ -590,7 +654,8 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
   check(w == 256 && g_mmx_custom_renderer, "Zero activates native-width compositor");
   const char *weapons=getenv("MMX_WEAPONS_TEST_ASSETS");
   if (weapons) {
-    if (getenv("MMX_WEAPON_ACID_TEST")) weapon_acid_checks(weapons,fixture,start,expected,actual,cap);
+    if (getenv("MMX_WEAPON_RAY_TEST")) weapon_ray_checks(weapons,fixture,start,expected,actual,cap);
+    else if (getenv("MMX_WEAPON_ACID_TEST")) weapon_acid_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_ENERGY_TEST")) weapon_energy_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_COMBAT_TEST")) weapon_combat_checks(weapons,fixture,start,expected,actual,cap);
     else weapon_menu_checks(weapons,fixture,start,expected,actual,cap);

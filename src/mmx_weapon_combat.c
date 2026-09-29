@@ -15,7 +15,7 @@ static bool slot_valid(unsigned d) { return d >= 0x1228 && d < 0x1428 && (d & 63
 static bool owned(const uint8_t *r, unsigned d) { return slot_valid(d) && r[d] && word(r + d + 0x3e) == 0x5758; }
 static unsigned slot_index(unsigned d) { return (d - 0x1228) / 64; }
 static unsigned weapon_group(unsigned page, unsigned weapon) {
-  return page == 2 ? (weapon == 1 ? 5 : weapon == 4 ? 12 : 0) : 0;
+  return page == 2 ? (weapon == 1 ? 5 : weapon == 4 ? 12 : weapon == 5 ? 13 : 0) : 0;
 }
 static void sound(uint8_t *r, unsigned command) {
   unsigned i = r[0xba3] & 30; r[0xb72 + i] = (uint8_t)command; r[0xb73 + i] = 0; r[0xba3] = (uint8_t)((i + 2) & 30);
@@ -35,6 +35,7 @@ bool MmxWeaponsValidCombatState(const MmxWeaponCombatState *s) {
     if (p->active && p->page == 2 && p->weapon == 1 &&
         (p->muzzle_pose > 2 || p->radius > 10 ||
          (p->variant > 2 && p->variant != 128 && p->variant != 129 && p->variant != 130))) return false;
+    if (p->active && p->page == 2 && p->weapon == 5 && (p->variant > 3 || p->radius > 16)) return false;
   }
   return true;
 }
@@ -95,7 +96,13 @@ void MmxWeaponsPlayerTick(uint8_t r[0x20000]) {
       combat.shots[i].page == 2 && combat.shots[i].weapon == 4) {
     /* A second press controls the extended blade, not a second buster shot. */
     stop_charge(r); r[0xbdf] &= (uint8_t)~64; r[0xbe3] &= (uint8_t)~64;
-    if (r[0xc25] < 2) r[0xc25] = 2;
+  }
+  for (unsigned i=0;i<8;++i) {
+    const MmxWeaponShot *p = combat.shots+i;
+    if (p->active && p->page == 2 && p->weapon == 5 && p->variant < 2) {
+      /* The normal burst owns one muzzle; holding can still build a charge. */
+      if (!p->charged) r[0xbe3] &= (uint8_t)~64;
+    }
   }
   /* Pause owns extended-page selection. Do not let native shoulder cycling
    * replace the underlying buster with an unrelated X1 special mid-shot. */
@@ -116,6 +123,9 @@ static void shot_bounds(const MmxWeaponShot *s, unsigned *rx, unsigned *ry) {
   if (s->page == 2 && s->weapon == 1) {
     *rx = *ry = s->charged ? 4 : s->variant == 2 ? 4 : 6;
     if (s->variant >= 128) *rx = *ry = s->charged ? 8 : 4;
+  }
+  if (s->page == 2 && s->weapon == 5) {
+    *rx = s->charged && s->variant < 2 ? 16 : 8; *ry = 8;
   }
 }
 static void collision_box(unsigned index, const MmxWeaponShot *s) {
@@ -292,6 +302,78 @@ static void acid_tick(uint8_t *r, unsigned d, MmxWeaponShot *s) {
   native_object(r,d,s);
   if (s->variant >= 129 || (!s->charged && s->variant == 128)) putword(r+d+0x20,0);
 }
+static int ray_vector(unsigned angle) {
+  /* Original X3 $06:E18E 32-direction vectors, quarter-wave symmetry. */
+  static const int16_t quarter[9] = {0,124,228,307,361,409,457,496,512};
+  angle &= 31; int sign = angle >= 16 ? -1 : 1; angle &= 15;
+  return sign * quarter[angle > 8 ? 16-angle : angle] * 8;
+}
+static void ray_emit(uint8_t *r, MmxWeaponShot *s) {
+  static const uint8_t forward[8] = {7,9,8,7,9,6,10,0};
+  static const uint8_t radial[16] = {2,20,12,24,8,10,18,30,28,14,4,16,0,26,6,22};
+  MmxWeaponShot *t = spawn_child(r,s); if (!t) return;
+  unsigned angle;
+  if (s->charged) { s->radius = (s->radius+1)&15; angle = radial[s->radius]; }
+  else angle = forward[(s->radius++)&7] + (s->facing ? 0 : 16);
+  t->variant = 2; t->vx = (int16_t)ray_vector(angle); t->vy = (int16_t)-ray_vector(angle+8);
+  t->radius = 0; t->origin_x = (int16_t)(t->x>>8); t->origin_y = (int16_t)(t->y>>8);
+  animation_start(t,3);
+}
+static void ray_tick(uint8_t *r, unsigned d, MmxWeaponShot *s) {
+  /* Variants 0 muzzle/deploy/rise, 1 deployed turret, 2 ray, 3 draining trail.
+   * Turret phase age is stored in origin_x; radius is the emission direction. */
+  if (!s->age) {
+    for (unsigned i=0;i<8;++i) if (combat.shots+i != s && combat.shots[i].active &&
+        combat.shots[i].page == 2 && combat.shots[i].weapon == 5 &&
+        combat.shots[i].variant < 2 && combat.shots[i].charged == s->charged) { retire(r,d); return; }
+    if (!MmxWeaponsSpend(2,5,s->charged ? 0x280 : 0x100)) { retire(r,d); return; }
+    s->age = 1; s->born = combat.tick;
+    muzzle_origin(r,d,s); animation_start(s,s->charged ? 0 : 10);
+    if (s->charged) {
+      s->x = ((int)word(r+0xbad) + (s->facing ? -2 : 2))*256;
+      s->y = ((int)word(r+0xbb0) - (MmxZeroActive() ? 52 : 44))*256;
+      s->vy = -768; s->origin_x = 0;
+    } else {
+      s->origin_x = (int16_t)(((s->x>>8)-(int)word(r+0xbad))*(s->facing ? 1 : -1));
+      s->origin_y = (int16_t)((s->y>>8)-(int)word(r+0xbb0));
+    }
+    native_object(r,d,s); putword(r+d+0x20,0); return;
+  }
+  if (s->age == 1 && s->born == combat.tick) return;
+  if (s->variant == 3) {
+    if (++s->radius >= 3) { retire(r,d); return; }
+  } else if (s->variant == 2) {
+    if (r[d+1] >= 8) { s->variant = 3; s->radius = 0; }
+    else { s->x += s->vx; s->y += s->vy; }
+  } else if (!s->charged) {
+    if (s->age >= 60 || r[0xbaa] == 10 || r[0xbaa] == 12 || r[0x1f0c]) { retire(r,d); return; }
+    s->facing = r[0xbb9] & 64;
+    /* Keep the firing origin after the brief native firing overlay finishes;
+     * movement-specific Zero poses can still supply updated arm coordinates. */
+    int dx = (int8_t)MmxZeroMuzzle(r,d,r[d+0x3c],0,(uint8_t)s->origin_x);
+    int dy = (int8_t)MmxZeroMuzzle(r,d,r[d+0x3c],1,(uint8_t)s->origin_y);
+    s->x = ((int)word(r+0xbad)+(s->facing ? dx : -dx))*256;
+    s->y = ((int)word(r+0xbb0)+dy)*256;
+    if (!(s->age & 7)) ray_emit(r,s);
+    animation_step(s);
+  } else if (!s->variant) {
+    if (s->age >= 36) {
+      s->vy += 32;
+      if (s->vy >= 0) {
+        s->vy = 0; s->variant = 1; s->origin_x = 0; animation_start(s,1);
+      } else { s->y += s->vy; animation_step(s); }
+    }
+  } else {
+    if (++s->origin_x >= 180 || r[d+1] >= 8) { retire(r,d); return; }
+    if (!(s->origin_x & 7)) ray_emit(r,s);
+    animation_step(s);
+  }
+  if (++s->age > 300 || s->x/256 < (int)word(r+0x1e4d)-96 ||
+      s->x/256 > (int)word(r+0x1e4d)+352 || s->y/256 < (int)word(r+0x1e50)-160 ||
+      s->y/256 > (int)word(r+0x1e50)+320 || !s->active) { retire(r,d); return; }
+  native_object(r,d,s);
+  if (s->variant == 3 || (s->variant < 2 && (!s->charged || !s->variant))) putword(r+d+0x20,0);
+}
 unsigned MmxWeaponsProjectileTick(uint8_t r[0x20000], unsigned d, unsigned active) {
   if (!owned(r,d)) {
     if (slot_valid(d)) memset(combat.shots+slot_index(d),0,sizeof(MmxWeaponShot));
@@ -300,6 +382,7 @@ unsigned MmxWeaponsProjectileTick(uint8_t r[0x20000], unsigned d, unsigned activ
   MmxWeaponShot *s = combat.shots + slot_index(d);
   if (!MmxWeaponsEnabled() || !s->active) { retire(r,d); return 0; }
   if (s->page == 2 && s->weapon == 1) { acid_tick(r,d,s); return 0; }
+  if (s->page == 2 && s->weapon == 5) { ray_tick(r,d,s); return 0; }
   if (!s->charged && s->age && (r[d+1] >= 8 || s->variant == 128)) {
     if (s->variant != 128) { s->variant = 128; s->vy = 26; animation_start(s,1); }
     if (!s->vy || !s->active) { retire(r,d); return 0; }

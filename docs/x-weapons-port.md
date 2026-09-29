@@ -185,9 +185,35 @@ Remaining Acid fidelity work: underwater dissolution, moving-platform contact,
 source sound import, and representative non-flat terrain playtests. Addresses
 and measured behaviors are in the [source notebook](x-weapons-source-notes.md).
 
+## Third combat checkpoint: Ray Splasher
+
+Ray Splasher now emits seven spread rays over its normal burst, using the
+original muzzle animation and ray/trail poses. The muzzle follows the active
+character, preserving its firing offset after X1's brief firing overlay ends.
+The charged attack deploys the original floating turret, launches upward and
+cycles the source sixteen-direction pattern for twenty-two shots over 180
+active frames. Both characters pay one energy normally and exactly 2.5 for
+charged release; child rays do not consume additional energy.
+
+Ray projectiles retain ordinary native damage; their original trails drain
+after impact. Focused checks cover both characters, shot counts/directions,
+fractional cost, charge sound cleanup, native enemy damage/retirement, complete
+slot cleanup and exact save/replay from deployment through radial firing.
+Normal and turret renders were inspected. Blade's regression passes, including
+a fix for an old adapter mistake: RAM `$0C25` is the native charged-beam count,
+not a firing-pose timer. The adapter no longer pins it to two while the charged
+blade is active, avoiding a leak into later attacks. Desktop/tools build.
+
+Remaining Ray fidelity work: full character deployment/firing body poses and
+their movement/air transitions, turret destruction effects/interactions,
+source audio, and visual comparison of trails at contact/offscreen edges.
+The current deployment uses a 36-frame wait measured from the reference;
+the original waits on its body-animation event. This is a practical adapter,
+not a claim that the source body-action state machine has been fully ported.
+
 ## Remaining implementation
 
-Implement the other fourteen weapons' normal and charged attacks, native
+Implement the other thirteen weapons' normal and charged attacks, native
 sound/effect cleanup, X/Zero firing origins, terrain/enemy interaction and
 meaningful special behaviors. Gate charging on X1's arm upgrade. Keep ordinary
 damage and existing X1 progression. Co-op remains a later, separate mod. The

@@ -163,7 +163,7 @@ X1. Revisit moving-platform contact and broader slopes/ceiling/wall playtests
 alongside the other terrain-sensitive weapons. Those are open fidelity items,
 not facts already established by the highway floor test.
 
-## Next weapon investigation: Ray Splasher (not implemented yet)
+## X3 Ray Splasher
 
 Normal class `$0B`, sprite group `$0D`: `$81:A19C..A20F` attaches its muzzle
 effect to the player for 60 frames, emitting a ray every eight frames (seven
@@ -198,3 +198,24 @@ passes only the remaining whole pickup ticks to auto-refill. Verified port
 example: selected 27.5 + small pickup becomes 28; reserve 10.25 becomes 11.25.
 The selected weapon's discarded half is original native behavior, not a
 fractional-state bug. HUD/menu energy still uses the pair's high byte.
+
+Normal/charged Ray combat is now implemented. Trail history offsets are
+`$06:B7DA` values `-8/-12` bytes; four bytes represent a position and the head
+index advances after writing, giving the first/second prior recorded positions.
+The port reconstructs these constant-velocity positions from saved ray state,
+using original poses 14/15. It does not allocate cosmetic native projectiles.
+Normal source angles are 7,9,8,7,9,6,10; left-facing adds 16 modulo 32. Charged
+direction indexing increments before lookup. Turret launch uses Y `-44` for
+X; Zero adapts that to `-52` to preserve the shared eight-pixel foot-origin
+translation. Exact source body-event deployment, destruction effects, source
+audio and contact-edge trail comparison remain open fidelity work.
+
+## X1 charged-beam counter correction
+
+RAM `$0C25` increments at `$81:A2E9` and decrements at `$81:A407` when a native
+class-3 full-charge beam finishes its disappearance. It is **not** a general
+firing-pose timer. The earlier Blade adapter pinned it to two as an attempted
+pose hold, leaving a stale count after the host-owned blade retired. That
+write is removed. Ray/Blade runtime checks now require zero native charged-beam
+count after the extended attacks finish. Own projectile count remains `$0BDD`;
+do not confuse these counters.

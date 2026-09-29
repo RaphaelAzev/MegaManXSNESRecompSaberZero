@@ -1004,6 +1004,18 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
         weapon_sprite_row(s,s->tether_pose,ox,oy,y,view,objects,object_colors);
         weapon_sprite_row(s,s->muzzle_pose,ox,oy,y,view,objects,object_colors);
       }
+      if (s->page == 2 && s->weapon == 5 && s->variant >= 2) {
+        /* Original X3 trail actors use poses 14/15 and delayed positions.
+         * Rays have constant velocity, so their history is reconstructed
+         * exactly without extra transient slots or unsaved renderer state. */
+        for (int delay=2;delay>=1;--delay) {
+          int remaining = delay - (s->variant == 3 ? s->radius : 0);
+          if (remaining > 0 && s->age > (unsigned)delay+1)
+            weapon_sprite_row(s,13+delay,((s->x-s->vx*remaining)>>8)-word(frame.ram,0x1e4d),
+                ((s->y-s->vy*remaining)>>8)-word(frame.ram,0x1e50),y,view,objects,object_colors);
+        }
+        if (s->variant == 3) continue;
+      }
       weapon_sprite_row(s,s->pose,(s->x>>8)-word(frame.ram,0x1e4d),
           (s->y>>8)-word(frame.ram,0x1e50),y,view,objects,object_colors);
     }

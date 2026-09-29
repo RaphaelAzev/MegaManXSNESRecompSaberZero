@@ -317,8 +317,8 @@ Open Zero acceptance work after the weapon priority:
 4. Public source-ROM setup, all-asset packaging audit, mod/save compatibility
    UX and release validation. See the mandatory distribution contract above.
 
-Next implementation remains the fourteen unimplemented X2/X3 boss weapons and
-the documented polish on Spinning Blade/Acid Burst; see the
+Next implementation remains the thirteen unimplemented X2/X3 boss weapons and
+the documented polish on Spinning Blade/Acid Burst/Ray Splasher; see the
 [weapon notebook](x-weapons-source-notes.md). Co-op is a later, separate,
 mutually exclusive mod after weapons are complete, not part of this Zero
 documentation checkpoint.
