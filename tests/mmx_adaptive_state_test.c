@@ -1452,8 +1452,23 @@ static void weapon_combat_checks(const char *assets, const char *fixture, uint8 
     for (unsigned i=0;i<205;++i) frame(SNES_PAD_Y);
     frame(0); zero_replay(25);
     check(extended_shots(true)==1,"arms-upgraded release creates charged blade");
+    check(g_ram[0xbf8]!=0,"attached Blade retains the native firing overlay");
     check(MmxWeaponsGetState().energy[11]==22 && !(g_ram[0xc2f]&64),"charged blade costs three energy and stops charge audio");
     zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-blade-charged.cap":".zero-blade-charged.cap");
+    MmxWeaponCombatState blade=MmxWeaponsGetCombatState();unsigned charged_slot=8;
+    for(unsigned i=0;i<8;++i) if(blade.shots[i].active && blade.shots[i].charged) {charged_slot=i;break;}
+    check(charged_slot<8,"charged Blade controller is present");
+    n=RtlSaveSnapshotToMemory(start,cap);
+    zero_replay(140-blade.shots[charged_slot].age);
+    blade=MmxWeaponsGetCombatState();
+    check(blade.shots[charged_slot].radius==80,"source charged Blade remains extended through local tick 140");
+    zero_replay(10);blade=MmxWeaponsGetCombatState();
+    check(blade.shots[charged_slot].radius==48,"source timeout retracts to 48 pixels by local tick 150");
+    zero_replay(16);check(!extended_shots(true),"source timed retraction releases the charged Blade");
+    check(RtlLoadSnapshotFromMemory(start,n),"restore held Blade for control checks");
+    frame(SNES_PAD_Y);zero_replay(4);blade=MmxWeaponsGetCombatState();
+    check(blade.shots[charged_slot].variant==5 && extended_shots(true)==1,
+          "fire does not rotate the original charged Blade or create another shot");
     frame(SNES_PAD_UP); zero_replay(10);
     zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-blade-turn.cap":".zero-blade-turn.cap");
     n=RtlSaveSnapshotToMemory(start,cap); zero_replay(30); en=RtlSaveSnapshotToMemory(expected,cap);
@@ -1470,6 +1485,7 @@ static void weapon_combat_checks(const char *assets, const char *fixture, uint8 
       if (g_ram[d] && (g_ram[d+0x27]&127) && (g_ram[d+0x20]|g_ram[d+0x21])) { victim=d; break; }
   }
   check(victim!=0,"native highway enemy supplies collision target");
+  uint8_t blade_enemy[64];memcpy(blade_enemy,g_ram+victim,64);
   MmxWeaponsState w=MmxWeaponsGetState(); w.page=2;w.weapon=4;MmxWeaponsSetState(w);
   frame(0); frame(SNES_PAD_Y); frame(0);
   MmxWeaponCombatState c=MmxWeaponsGetCombatState(); unsigned projectile=0;
@@ -1485,6 +1501,33 @@ static void weapon_combat_checks(const char *assets, const char *fixture, uint8 
   check((g_ram[victim+0x27]&127)+3==hp,"blade uses three buster hits of damage against a real enemy");
   zero_replay(30);
   check(!MmxWeaponsGetCombatState().shots[(projectile-0x1228)/64].active,"native enemy hit plays original impact animation and retires blade");
+  for(unsigned character=0;character<2;++character) {
+    check(RtlLoadSnapshot(fixture),"restore charged Blade contact fixture");
+    if(character) zero_health_swap();
+    w=MmxWeaponsGetState();w.page=2;w.weapon=4;MmxWeaponsSetState(w);g_ram[0x1f99]|=2;
+    for(unsigned i=0;i<205;++i) frame(SNES_PAD_Y);
+    frame(0);zero_replay(30);c=MmxWeaponsGetCombatState();unsigned slot=8;
+    for(unsigned i=0;i<8;++i) if(c.shots[i].active && c.shots[i].charged) {slot=i;break;}
+    check(slot<8,"charged Blade available for surviving-enemy contact");
+    memcpy(g_ram+victim,blade_enemy,64);g_ram[victim+0x27]=64;g_ram[victim+0x30]=0;
+    unsigned x=(unsigned)(c.shots[slot].x>>8),y=(unsigned)(c.shots[slot].y>>8);
+    g_ram[victim+5]=(uint8_t)x;g_ram[victim+6]=(uint8_t)(x>>8);
+    g_ram[victim+8]=(uint8_t)y;g_ram[victim+9]=(uint8_t)(y>>8);
+    zero_replay(3);c=MmxWeaponsGetCombatState();
+    check((g_ram[victim+0x27]&127)==54,"charged Blade deals ten buster hits once to a surviving enemy");
+    check(c.shots[slot].active && c.shots[slot].variant==4 && !c.shots[slot].muzzle_pose && !c.shots[slot].tether_pose,
+          "source surviving hit throws charged Blade away and removes the tether");
+    check(c.shots[slot].vy==-2048 && c.shots[slot].vx==-(c.shots[slot].facing?1:-1)*2048-224,
+          "charged Blade recoil matches the original contact-state velocities");
+    check(!(g_ram[0x1228+slot*64+0x20]|g_ram[0x1228+slot*64+0x21]),"recoiling Blade no longer has a damage box");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-blade-recoil.cap":".zero-blade-recoil.cap");
+    size_t n=RtlSaveSnapshotToMemory(start,cap);
+    zero_replay(20);size_t en=RtlSaveSnapshotToMemory(expected,cap);
+    check((g_ram[victim+0x27]&127)==54,"charged Blade does not apply the old periodic repeat hit");
+    check(RtlLoadSnapshotFromMemory(start,n),"restore charged Blade recoil");
+    zero_replay(20);size_t an=RtlSaveSnapshotToMemory(actual,cap);
+    same(expected,en,actual,an,"charged Blade contact recoil replays exactly");
+  }
   puts("MMX EXTENDED WEAPON COMBAT CHECKS PASSED");
 }
 static void weapon_damage_checks(const char *assets,const char *fixture,uint8 *start,size_t cap) {

@@ -93,11 +93,15 @@ are `(0,0,13,10)`. A normal pair costs one energy; repeated presses while the
 pair is active do not create more pairs in the source runtime.
 
 Charged actor class `$13`, same group: extends 80 pixels from the muzzle in
-four-pixel steps, can make a full 64-step orbit, then retracts. Normal stationary
-source muzzle measured at player `(14,-4)`, blade fully extended at `(94,-4)`.
-Idle extension times out around frame 141 and retracts; exact transition/control
-timing still needs a final fidelity pass. A charged release costs three energy.
+eight-pixel steps every other tick, holds for 120 ticks, then retracts with the
+same cadence. Up/Down starts a full orbit of 32 original positions held for two
+ticks each; fire does not start the orbit. Normal stationary source muzzle
+measured at player `(14,-4)`, blade fully extended at `(94,-4)`. A charged release costs three energy.
 The initial press used to begin charging can separately emit a one-energy pair.
+
+The contact/timing follow-up is recorded in [weapons/spinning-blade.md](weapons/spinning-blade.md).
+A surviving-enemy hit dislodges the charged blade and removes its tether;
+the earlier port's periodic 16-tick hit reset was incorrect and is removed.
 
 Animation sequences: 0 normal spin; 1 impact; 4 charged spin; 5 tether extension;
 6 tether retraction; 7 muzzle; 8/9 tether rotations. Tether pose 66 points left

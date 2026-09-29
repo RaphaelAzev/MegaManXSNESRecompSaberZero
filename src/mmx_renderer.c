@@ -1149,7 +1149,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
               (s->y>>8)-word(frame.ram,0x1e50),y,view,objects,object_colors);
         }
       }
-      if (s->charged && s->page == 2 && s->weapon == 4) {
+      if (s->charged && s->page == 2 && s->weapon == 4 && s->variant!=4) {
         int ox=s->origin_x-word(frame.ram,0x1e4d), oy=s->origin_y-word(frame.ram,0x1e50);
         weapon_sprite_row(s,s->tether_pose,ox,oy,y,view,objects,object_colors);
         weapon_sprite_row(s,s->muzzle_pose,ox,oy,y,view,objects,object_colors);

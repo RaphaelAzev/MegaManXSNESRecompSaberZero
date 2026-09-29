@@ -87,6 +87,9 @@ bool MmxWeaponsValidCombatState(const MmxWeaponCombatState *s) {
     if (p->active && p->page == 2 && p->weapon == 1 &&
         (p->muzzle_pose > 2 || p->radius > 10 ||
          (p->variant > 2 && p->variant != 128 && p->variant != 129 && p->variant != 130))) return false;
+    if (p->active && p->page==2 && p->weapon==4 &&
+        ((p->charged ? p->variant>5 : p->variant>1 && p->variant!=128) || p->radius>80 ||
+         (p->charged && p->variant==5 && (p->vy<1 || p->vy>120)))) return false;
     if (p->active && p->page == 2 && p->weapon == 5 && (p->variant > 3 || p->radius > 16)) return false;
     if (p->active && p->page == 2 && p->weapon == 7 &&
         (p->variant > 2 || p->muzzle_pose > 7 ||
@@ -273,9 +276,11 @@ void MmxWeaponsPlayerTick(uint8_t r[0x20000]) {
   for (unsigned i=0;i<8;++i) if (combat.shots[i].active && combat.shots[i].charged &&
       combat.shots[i].page == 2 && (combat.shots[i].weapon == 4 ||
         (combat.shots[i].weapon == 7 && combat.shots[i].muzzle_pose < 3))) {
-    /* A second press controls the extended blade, not a second buster shot. */
+    /* Attached Blade and Frost Shield suppress another buster/charge. */
     stop_charge(r); r[0xbdf] &= (uint8_t)~64; r[0xbe3] &= (uint8_t)~64;
-    if (combat.shots[i].weapon==7 && r[0xbaa]!=14 && r[0xbaa]!=12 && !r[0x1f0c]) r[0xbf8]=2;
+    /* X3 $81:B574/$B5B8 retains the firing overlay while Blade is attached. */
+    if ((combat.shots[i].weapon==7 || combat.shots[i].variant!=4) &&
+        r[0xbaa]!=14 && r[0xbaa]!=12 && !r[0x1f0c]) r[0xbf8]=2;
   }
   for (unsigned i=0;i<8;++i) {
     const MmxWeaponShot *p = combat.shots+i;
@@ -1336,6 +1341,7 @@ static void ray_tick(uint8_t *r, unsigned d, MmxWeaponShot *s) {
 #include "mmx_weapon_crystal.inc"
 #include "mmx_weapon_gravity.inc"
 #include "mmx_weapon_parasitic.inc"
+#include "mmx_weapon_blade.inc"
 unsigned MmxWeaponsProjectileTick(uint8_t r[0x20000], unsigned d, unsigned active) {
   if (!owned(r,d)) {
     if (slot_valid(d)) memset(combat.shots+slot_index(d),0,sizeof(MmxWeaponShot));
@@ -1358,73 +1364,10 @@ unsigned MmxWeaponsProjectileTick(uint8_t r[0x20000], unsigned d, unsigned activ
   if (s->page == 2 && s->weapon == 7) { frost_tick(r,d,s); return 0; }
   if (s->page == 2 && s->weapon == 8) { fang_tick(r,d,s); return 0; }
   if (s->page == 2 && s->weapon == 3) { triad_tick(r,d,s); return 0; }
-  if (!s->charged && s->age && (r[d+1] >= 8 || s->variant == 128)) {
-    if (s->variant != 128) { s->variant = 128; s->vy = 26; animation_start(s,1); }
-    if (!s->vy || !s->active) { retire(r,d); return 0; }
-    --s->vy; animation_step(s); native_object(r,d,s); putword(r+d+0x20,0);
-    return 0;
-  }
-  int direction = s->facing ? 1 : -1;
-  if (!s->age) {
-    if (!MmxWeaponsSpend(s->page,s->weapon,(s->charged ? 3 : 1)*256)) { retire(r,d); return 0; }
-    muzzle_origin(r,d,s); s->vx = (int16_t)(direction * 1024); s->vy = 0;
-    animation_start(s,s->charged ? 4 : 0); s->born = combat.tick;
-    if (!s->charged) {
-      unsigned other = free_slot(r);
-      if (other) {
-        MmxWeaponShot *t = combat.shots + slot_index(other); *t = *s;
-        t->variant = 1; t->age = 1;
-        memset(r+other,0,64); native_object(r,other,t); ++r[0xbdd];
-      }
-      s->age = 1; native_object(r,d,s); return 0;
-    }
-  }
-  if (!s->charged && s->age == 1 && s->born == combat.tick) return 0;
-  if (s->charged) {
-    /* Native charged Blade extends to 80px. Up/down initiates a complete
-     * 64-step turn; after that turn the blade retracts to the arm. */
-    static const int8_t circle[64] = {0,7,15,23,30,37,44,50,56,61,66,70,73,76,78,79,
-      80,79,78,76,73,70,66,61,56,50,44,37,30,23,15,7,0,-7,-15,-23,-30,-37,-44,-50,-56,-61,-66,-70,-73,-76,-78,-79,
-      -80,-79,-78,-76,-73,-70,-66,-61,-56,-50,-44,-37,-30,-23,-15,-7};
-    muzzle_origin(r,d,s);
-    static const uint8_t muzzle[4] = {39,40,41,40};
-    s->muzzle_pose = muzzle[(s->age / 2) & 3];
-    if (!s->variant && s->radius >= 80 && (combat.direction || combat.pressed)) {
-      s->variant = (combat.direction & 4) ? 2 : 1; s->vx = 0;
-    }
-    int dx, dy;
-    if (s->variant == 1 || s->variant == 2) {
-      unsigned angle = (unsigned)s->vx & 63;
-      dx = circle[(angle + 16) & 63]; dy = circle[angle] * (s->variant == 1 ? -1 : 1);
-      /* Pose 66 points left in the source art; the actor facing flip makes
-       * that right. Advance through the original 32 orientations accordingly. */
-      s->tether_pose = (uint8_t)(42 + ((24 + (s->variant == 1 ? (int)(angle / 2) : -(int)(angle / 2))) & 31));
-      if (++s->vx >= 64) s->variant = 3;
-    } else {
-      if (s->variant == 3 || s->age > 140) {
-        if (s->radius <= 4) { retire(r,d); return 0; }
-        s->radius -= 4;
-      } else if (s->radius < 80) s->radius += 4;
-      s->tether_pose = (uint8_t)(30 + (s->radius >= 72 ? 8 : s->radius / 8));
-      dx = s->radius; dy = 0;
-    }
-    s->x += direction * dx * 256; s->y += dy * 256;
-  } else {
-    s->vx -= (int16_t)(direction * 32);
-    s->vy += s->variant ? -16 : 16;
-    if (s->vy > 192) s->vy = 192;
-    if (s->vy < -192) s->vy = -192;
-    s->x += s->vx; s->y += s->vy;
-  }
-  if (++s->age > 240 || s->x / 256 < (int)word(r+0x1e4d)-256 ||
-      s->x / 256 > (int)word(r+0x1e4d)+512 || s->y / 256 < (int)word(r+0x1e50)-256 ||
-      s->y / 256 > (int)word(r+0x1e50)+480) { retire(r,d); return 0; }
-  if (!(s->age % 16)) s->hit_slots = 0;
-  animation_step(s);
-  if (!s->active) { retire(r,d); return 0; }
-  native_object(r,d,s);
+  blade_tick(r,d,s);
   return 0;
 }
+
 void MmxWeaponsCollisionRom(uint8_t *rom, size_t size) {
   collision_rom = rom; collision_rom_size = size; collision_patch = false;
   uint8_t empty[32]; memset(empty,255,32);
