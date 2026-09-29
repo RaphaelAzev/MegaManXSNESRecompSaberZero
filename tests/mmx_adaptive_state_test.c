@@ -567,6 +567,89 @@ static unsigned frost_slot(bool charged) {
   for(unsigned i=0;i<8;++i) if(c.shots[i].active && c.shots[i].weapon==7 && c.shots[i].charged==charged) return i;
   return 8;
 }
+static void weapon_bubble_checks(const char *assets,const char *fixture,uint8 *start,
+                                uint8 *expected,uint8 *actual,size_t cap) {
+  check(MmxWeaponsLoad(assets),"Bubble Splash original assets load");
+  for(unsigned character=0;character<2;++character) {
+    check(RtlLoadSnapshot(fixture),"restore Bubble Splash fixture");
+    if(character) zero_health_swap();
+    MmxWeaponsState w=MmxWeaponsGetState();w.page=1;w.weapon=2;MmxWeaponsSetState(w);
+    frame(SNES_PAD_Y);frame(0);
+    check(extended_shots(false)==1 && MmxWeaponsEnergyAmount(1,2)==28*256-32,
+        "tap creates one original bubble for one-eighth energy");
+    for(unsigned i=0;i<18;++i) frame(SNES_PAD_Y);
+    check(extended_shots(false)==7 && MmxWeaponsEnergyAmount(1,2)==28*256-7*32,
+        "held fire fills source seven-bubble limit with fractional costs");
+    frame(0);zero_replay(15);MmxWeaponCombatState c=MmxWeaponsGetCombatState();
+    unsigned rising=0;
+    for(unsigned i=0;i<8;++i) rising+=c.shots[i].active && c.shots[i].vy<0;
+    check(rising>0,"normal bubbles grow and accelerate upward");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-bubble.cap":".zero-bubble.cap");
+    size_t n=RtlSaveSnapshotToMemory(start,cap);zero_replay(40);size_t en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"restore rising bubbles");zero_replay(40);
+    size_t an=RtlSaveSnapshotToMemory(actual,cap);same(expected,en,actual,an,"bubble motion and popping replay exactly");
+    zero_replay(220);check(!g_ram[0xbdd] && !extended_shots(false),"released bubbles pop and free every slot");
+    for(unsigned i=0;i<205;++i) frame(SNES_PAD_Y);
+    frame(0);zero_replay(20);check(!extended_shots(true),"Bubble Splash charged form requires X1 arms");
+    MmxWeaponsCancelShots(g_ram);zero_replay(10);g_ram[0x1f99]|=2;
+    for(unsigned i=0;i<120;++i) frame(SNES_PAD_Y);
+    frame(0);zero_replay(5);check(!extended_shots(true),"intermediate buster tier remains a normal special-weapon release");
+    MmxWeaponsCancelShots(g_ram);zero_replay(10);
+    for(unsigned i=0;i<250;++i) frame(SNES_PAD_Y);
+    frame(0);zero_replay(80);c=MmxWeaponsGetCombatState();
+    unsigned controller=0,children=0,moving=0;
+    for(unsigned i=0;i<8;++i) if(c.shots[i].active && c.shots[i].charged) {
+      controller+=!c.shots[i].variant;children+=c.shots[i].variant!=0;
+      moving+=c.shots[i].variant!=0 && c.shots[i].muzzle_pose==1;
+    }
+    check(controller==1 && children==7 && moving,"charged bubbles form the original renewing seven-bubble cloud");
+    check(!(g_ram[0xc2f]&64),"charged cloud stops charge audio");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-bubble-charged.cap":".zero-bubble-charged.cap");
+    n=RtlSaveSnapshotToMemory(start,cap);unsigned energy=MmxWeaponsEnergyAmount(1,2);
+    zero_replay(110);en=RtlSaveSnapshotToMemory(expected,cap);
+    check(MmxWeaponsEnergyAmount(1,2)<energy,"renewing charged bubbles consume fractional energy");
+    check(RtlLoadSnapshotFromMemory(start,n),"restore charged cloud");zero_replay(110);
+    an=RtlSaveSnapshotToMemory(actual,cap);same(expected,en,actual,an,"charged routes, renewal and drain replay exactly");
+    /* Resolve a real X1 water property in the private runtime, then check
+     * the source's three-pixel lift while the native player is airborne. */
+    unsigned px=g_ram[0xbad]|g_ram[0xbae]<<8,py=g_ram[0xbb0]|g_ram[0xbb1]<<8;
+    unsigned screen=g_ram[0xe800+(py>>8)*32+(px>>8)];
+    unsigned cell=0x2000+((screen*512+((py&240)<<1)+((px&240)>>3))&65535);
+    unsigned address=(g_ram[0xb92]|g_ram[0xb93]<<8|g_ram[0xb94]<<16)+(g_ram[cell]|g_ram[cell+1]<<8);
+    size_t offset=((address>>16)&127)*32768+(address&32767);
+    uint8_t property=g_snes->cart->rom[offset];g_snes->cart->rom[offset]=13;g_ram[0xbaa]=6;
+    c=MmxWeaponsGetCombatState();
+    for(unsigned i=0;i<8;++i) if(c.shots[i].active && c.shots[i].charged && !c.shots[i].variant)
+      MmxWeaponsProjectileTick(g_ram,0x1228+i*64,1);
+    check((unsigned)(g_ram[0xbb0]|g_ram[0xbb1]<<8)==py-3,"charged bubbles supply the source underwater lift");
+    g_snes->cart->rom[offset]=property;
+    check(RtlLoadSnapshotFromMemory(start,n),"restore after private water check");
+    frame(SNES_PAD_R);zero_replay(3);
+    check(MmxWeaponsGetState().weapon==3 && !g_ram[0xbdd],"shoulder cycle cancels the persistent bubble cloud cleanly");
+    check(RtlLoadSnapshotFromMemory(start,n),"restore for empty-energy cleanup");
+    w=MmxWeaponsGetState();w.energy[1]=0;w.fraction[1]=31;MmxWeaponsSetState(w);
+    zero_replay(220);check(!g_ram[0xbdd] && !extended_shots(true),"insufficient energy ends cloud and all bubbles");
+  }
+  check(RtlLoadSnapshot(fixture),"restore bubble enemy encounter");unsigned victim=0;
+  for(unsigned i=0;i<400 && !victim;++i) {
+    frame(SNES_PAD_RIGHT);
+    for(unsigned d=0xe68;d<0x1228;d+=64)
+      if(g_ram[d] && (g_ram[d+0x27]&127) && (g_ram[d+0x20]|g_ram[d+0x21])) {victim=d;break;}
+  }
+  check(victim!=0,"native enemy available for bubble contact");
+  MmxWeaponsState w=MmxWeaponsGetState();w.page=1;w.weapon=2;MmxWeaponsSetState(w);
+  frame(0);frame(SNES_PAD_Y);frame(0);
+  MmxWeaponCombatState c=MmxWeaponsGetCombatState();unsigned slot=8;
+  for(unsigned i=0;i<8;++i) if(c.shots[i].active) {
+    c.shots[i].x=(g_ram[victim+5]|g_ram[victim+6]<<8)*256;
+    c.shots[i].y=(g_ram[victim+8]|g_ram[victim+9]<<8)*256;
+    c.shots[i].vx=c.shots[i].vy=0;slot=i;break;
+  }
+  check(slot<8,"bubble available for native collision");g_ram[victim+0x27]=32;MmxWeaponsSetCombatState(c);
+  zero_replay(3);check((g_ram[victim+0x27]&127)==31,"native bubble hit applies rounded source two-thirds damage");
+  check(MmxWeaponsGetCombatState().shots[slot].muzzle_pose==3,"enemy contact starts original bubble pop");
+  puts("MMX BUBBLE SPLASH CHECKS PASSED");
+}
 static void weapon_frost_checks(const char *assets,const char *fixture,uint8 *start,
                                uint8 *expected,uint8 *actual,size_t cap) {
   check(MmxWeaponsLoad(assets),"Frost Shield source assets load");
@@ -592,11 +675,11 @@ static void weapon_frost_checks(const char *assets,const char *fixture,uint8 *st
     check((phases&60)==60,"ice core falls onto native terrain, lands, grows and plants a spike");
     zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-frost-spike.cap":".zero-frost-spike.cap");
     zero_replay(300);check(!extended_shots(false) && !g_ram[0xbdd],"planted ice expires and frees its slot");
-    for(unsigned i=0;i<150;++i) frame(SNES_PAD_Y);
+    for(unsigned i=0;i<205;++i) frame(SNES_PAD_Y);
     frame(0);zero_replay(12);check(!extended_shots(true),"charged Frost Shield requires X1 arms");
     MmxWeaponsCancelShots(g_ram);zero_replay(5);g_ram[0x1f99]|=2;
     unsigned energy=MmxWeaponsEnergyAmount(2,7);
-    for(unsigned i=0;i<150;++i) frame(SNES_PAD_Y);
+    for(unsigned i=0;i<205;++i) frame(SNES_PAD_Y);
     frame(0);zero_replay(50);slot=frost_slot(true);
     check(slot<8 && MmxWeaponsEnergyAmount(2,7)==energy-4*256,"charged shield costs three after its initial normal shot");
     c=MmxWeaponsGetCombatState();
@@ -642,7 +725,7 @@ static void weapon_frost_checks(const char *assets,const char *fixture,uint8 *st
     check(changed<256,"private water properties fit fixture storage");
     offsets[changed]=offset;properties[changed++]=g_snes->cart->rom[offset];g_snes->cart->rom[offset]=13;
   }
-  for(unsigned i=0;i<150;++i) frame(SNES_PAD_Y);
+  for(unsigned i=0;i<205;++i) frame(SNES_PAD_Y);
   frame(0);zero_replay(24);unsigned slot=frost_slot(true);
   check(slot<8,"underwater charged ice is present");MmxWeaponCombatState c=MmxWeaponsGetCombatState();
   check(c.shots[slot].muzzle_pose==5 && c.shots[slot].variant==1,"water produces the rising original ice platform");
@@ -687,12 +770,12 @@ static void weapon_wheel_checks(const char *assets,const char *fixture,uint8 *st
     same(expected,en,actual,an,"Spin Wheel ground delay and rolling replay exactly");
     zero_replay(400);
     check(!extended_shots(false) && !g_ram[0xbdd],"normal wheel releases native slot");
-    for(unsigned i=0;i<150;++i) frame(SNES_PAD_Y);
+    for(unsigned i=0;i<205;++i) frame(SNES_PAD_Y);
     frame(0);zero_replay(20);
     check(!extended_shots(true),"charged Spin Wheel remains gated by X1 arms");
     MmxWeaponsCancelShots(g_ram);zero_replay(5);g_ram[0x1f99]|=2;
     unsigned energy=MmxWeaponsEnergyAmount(1,4);
-    for(unsigned i=0;i<150;++i) frame(SNES_PAD_Y);
+    for(unsigned i=0;i<205;++i) frame(SNES_PAD_Y);
     frame(0);zero_replay(5);
     check(extended_shots(true)==1,"charged wheel begins with original formation");
     n=RtlSaveSnapshotToMemory(start,cap);zero_replay(14);
@@ -775,12 +858,12 @@ static void weapon_sonic_checks(const char *assets, const char *fixture, uint8 *
     check(!MmxWeaponsGetCombatState().shots[shot].active,"third vertical ricochet retires normal Sonic Slicer");
     zero_replay(180);
     check(!extended_shots(false) && !g_ram[0xbdd],"Sonic normal blades release native slots");
-    for(unsigned i=0;i<150;++i) frame(SNES_PAD_Y);
+    for(unsigned i=0;i<205;++i) frame(SNES_PAD_Y);
     frame(0);zero_replay(15);
     check(!extended_shots(true),"Sonic charged attack remains locked without X1 arms");
     zero_replay(180);g_ram[0x1f99]|=2;
     unsigned energy=MmxWeaponsEnergyAmount(1,5);
-    for(unsigned i=0;i<150;++i) frame(SNES_PAD_Y);
+    for(unsigned i=0;i<205;++i) frame(SNES_PAD_Y);
     frame(0);zero_replay(19);
     check(extended_shots(true)==5 && MmxWeaponsEnergyAmount(1,5)==energy-0x280,
           "charged Sonic Slicer launches five blades for two energy after the initial half-unit shot");
@@ -851,7 +934,7 @@ static void weapon_ray_checks(const char *assets, const char *fixture, uint8 *st
     check(g_ram[0xbf8]==255 && !(g_ram[0xbbf]&127),"Ray returns to idle after the source burst ends");
     zero_replay(40);check(!extended_shots(false) && !g_ram[0xbdd] && !g_ram[0xc25],"ray burst releases slots without leaking native charged-beam count");
     g_ram[0x1f99]|=2;
-    for(unsigned i=0;i<150;++i) frame(SNES_PAD_Y);
+    for(unsigned i=0;i<205;++i) frame(SNES_PAD_Y);
     frame(0);zero_replay(10);
     check(extended_shots(true)==1 && MmxWeaponsEnergyAmount(2,5)==23*256+128,
           "charged Ray Splasher deploys its turret for exactly two and a half energy");
@@ -920,7 +1003,7 @@ static void weapon_acid_checks(const char *assets, const char *fixture, uint8 *s
     zero_replay(170);
     check(!extended_shots(false) && !g_ram[0xbdd],"acid and droplets release all native slots");
     g_ram[0x1f99]|=2;
-    for(unsigned i=0;i<150;++i) frame(SNES_PAD_Y);
+    for(unsigned i=0;i<205;++i) frame(SNES_PAD_Y);
     frame(0);zero_replay(25);
     check(extended_shots(true)==2 && MmxWeaponsGetState().energy[8]==24,
           "charged Acid Burst releases two growing blobs and costs two energy");
@@ -976,11 +1059,11 @@ static void weapon_combat_checks(const char *assets, const char *fixture, uint8 
     zero_replay(12); size_t an=RtlSaveSnapshotToMemory(actual,cap);
     same(expected,en,actual,an,"active blade save and replay");
     MmxWeaponsCancelShots(g_ram); zero_replay(30);
-    for (unsigned i=0;i<150;++i) frame(SNES_PAD_Y);
+    for (unsigned i=0;i<205;++i) frame(SNES_PAD_Y);
     frame(0); zero_replay(6);
     check(!extended_shots(true),"extended charging requires actual X1 arm upgrade");
     MmxWeaponsCancelShots(g_ram); zero_replay(30); g_ram[0x1f99]|=2;
-    for (unsigned i=0;i<150;++i) frame(SNES_PAD_Y);
+    for (unsigned i=0;i<205;++i) frame(SNES_PAD_Y);
     frame(0); zero_replay(25);
     check(extended_shots(true)==1,"arms-upgraded release creates charged blade");
     check(MmxWeaponsGetState().energy[11]==22 && !(g_ram[0xc2f]&64),"charged blade costs three energy and stops charge audio");
@@ -1087,6 +1170,7 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
     if (getenv("MMX_WEAPON_DAMAGE_TEST")) weapon_damage_checks(weapons,fixture,start,cap);
     else if (getenv("MMX_WEAPON_CYCLE_TEST")) weapon_cycle_checks(weapons,fixture,start,cap);
     else if (getenv("MMX_WEAPON_FROST_TEST")) weapon_frost_checks(weapons,fixture,start,expected,actual,cap);
+    else if (getenv("MMX_WEAPON_BUBBLE_TEST")) weapon_bubble_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_WHEEL_TEST")) weapon_wheel_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_SONIC_TEST")) weapon_sonic_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_RAY_TEST")) weapon_ray_checks(weapons,fixture,start,expected,actual,cap);

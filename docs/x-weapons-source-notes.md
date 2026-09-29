@@ -266,6 +266,7 @@ adaptation, not a transplant of every enemy-specific response.
 
 | Attack | Source class | Raw ordinary damage | Buster ratio |
 | --- | --- | --- | --- |
+| Bubble Splash normal / charged | $08 / $11 | 2 / 5 | 2/3 / 5/3 |
 | Spin Wheel normal / charged | $0A / $13 | 25 / 50 | 25/3 / 50/3 |
 | Sonic Slicer normal / charged | $0B / $14 | 4 / 1 | 4/3 / 1/3 |
 | Acid Burst blob / charged blob | $07 / $10 | 9 / 9 | 3 / 3 |
@@ -528,3 +529,65 @@ Focused ROM checks cover both characters, terrain phases, charge gate/costs,
 shield blocking/contact responses, expiry/cleanup, and a private controlled
 water fixture for native platform landing, riding, jump-off and exact replay.
 Full water-stage traversal and original audio remain follow-up fidelity work.
+
+## X2 Bubble Splash: continuous fire and charged movement records
+
+Normal class $08, group $44, DMA `$85:9D7A`, animation `$2F:ECE0`, 32 poses.
+Entry `$81:8FDB`, init `$8FEC..9087`, update `$908B..90E4`, pop `$90E5..9123`.
+Body helper `$88:C452..C474` creates a fire edge every two ticks while held,
+unless full-charge palette state +$5B is 1. `$1F64` bits 1..7 enforce seven
+bubbles; `$81:9155` allocates the lowest free identity. Source private capture
+confirmed seven normal bubbles and 8.8 energy decrements of $20 per bubble.
+
+Initial horizontal magnitude is $100 + RNG byte + half the player's actual
+horizontal displacement ($81:9026..904D); initial VY is zero. Sequence 1's
+end flag starts a varied sequence selected by `$86:B6B2` (2..10). Upward
+acceleration is $0C in air, $40 in water ($81:9170..9180); formation initially
+moves horizontally only. After growth's end flag, hold for RNG($0F)+6 ticks,
+then pop using `$86:B6C2` (sequences 11/12/13). Damage bounds `$86:B6AE`
+are (0,0,7,7). Source normal update has no solid-terrain clipping. Enemy
+contact states 4/6 go to pop, as does timeout. Cosmetic class-$31 spray on
+early contact is not yet ported; actual pop art is.
+
+Charged class $11 manager `$81:9F1D..A019`, child `$81:A01A..A121`.
+Manager emits at most one child per tick, replenishing the seven source
+identity bits. `$9FC5..9FDF` subtracts $20 for each child. Private capture:
+release consumes $20 activation + $20 first child; six subsequent child
+creations subtract $20 each, then replacements continue to drain energy.
+Manager persists until depletion, death or weapon cancellation.
+
+Children start at parent (8,16), hidden for RNG($3F) ticks, then follow the
+shared `$86:B85D..B90B` path. Twenty-nine six-byte records each specify two
+ticks, display flags, signed VX and upward-positive VY. All seven pointers at
+`$86:B84F` select the same route. Source growth sequences `$86:B841` are
+2/3/5/6/8/9/8; impact sequences `$86:B848` are 13/11/12/13/11/12/13. Child
+movement includes parent displacement (`$81:A06E..A088`), permitting running
+and jumping with the cloud. Completion retires the child and frees its identity.
+
+`$81:9FF3..A00D` lifts an airborne underwater player three pixels per tick.
+The port uses X1's water class lookup and actual airborne action 6, with a
+ceiling probe for the translated X/Zero terrain box. Persistent cloud can
+be canceled through the selected page's shoulder cycle. Hidden manager and
+delayed/popped bubbles have no damage hitbox. Actual source bounds are 7x7.
+
+Saved fields: normal `variant` growth sequence, `radius` final hold,
+`tether_pose` identity; charged `variant` manager 0/child 1..7, `radius`
+initial delay or route index, `tether_pose` two-tick route timer,
+`origin_x/y` previous parent position. `muzzle_pose` tracks formation/wait,
+growth/route, normal final hold and pop. Inventory `cooldown` holds repeat-fire
+cadence. Existing 40-byte shot / 388-byte combat layout remains unchanged.
+RNG uses `$88:CB42` arithmetic seeded from saved port tick/identity; identical
+source RNG consumption is not claimed. Original art/palettes remain ROM-derived.
+
+### Full special-weapon charge is a player marker, not a buster class
+
+X1 `$81:98A7..98AC` writes player +$59 from `$86:BA71`; `$81:94FD..951F`
+explicitly compares that field to 4 to choose a charged special weapon.
+At player $BA8 this is `$C01`. The previous port checked buster class 3;
+that class occurs at the intermediate arm-upgraded tier (about 100..179
+held ticks). A full 180+ hold instead produces buster class 2, so the prior
+check incorrectly reverted extended weapons to normal on a longer hold.
+Use `$C01 == 4 && ($1F99 & 2)` at the pre-dispatch allocation hook. Native
+pose, charge effects and release cleanup continue to run. Charged checks for
+all implemented weapons now use 205+ ticks, plus a 120-tick normal-release
+check. This change applies only to extended weapons, not Zero's base combo.

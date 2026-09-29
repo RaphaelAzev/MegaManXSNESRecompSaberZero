@@ -89,7 +89,7 @@ and X1 ownership filtering after returning to its page.
 Bounded generated/interpreter hooks virtualize the pause inventory reads and
 selection. X1 progression/energy stays untouched. An extended selection uses
 native buster resources as a safe underlying actor. The current
-implementation includes six combat weapons; remaining entries
+implementation includes seven combat weapons; remaining entries
 are still unfinished.
 
 The game save chunk is version 12 when extended weapons are enabled; legacy
@@ -102,7 +102,7 @@ Game versions 9/10 and capture versions 8/9 retain their original 24-byte
 inventory prefix; new loads initialize the sixteen appended fraction bytes
 to zero. New inventory state is 40 bytes and preserves source 8.8 precision.
 
-The six playable weapons now use source ordinary-enemy damage divided by
+The seven playable weapons now use source ordinary-enemy damage divided by
 their source buster value (3), multiplied by the X1 target's buster damage.
 Fractions carry between contacts to preserve ratios, including weak individual
 pellets and strong sustained weapons. Special encounter/armored profiles keep
@@ -313,9 +313,39 @@ stage/camera traversal still needs playtesting. Source sounds, source RNG
 ordering for cosmetic shards and interactions with moving stage actors remain
 fidelity work. Cosmetic shards share X1's finite projectile slots.
 
+## Seventh combat checkpoint: Bubble Splash and full-charge detection
+
+Normal fire reproduces X2's two-tick held-fire cadence, seven-bubble limit,
+one-eighth energy cost, varied growth/pop sequences, initial speed range and
+upward acceleration. Water increases acceleration. Original bubbles pass
+through terrain; enemy contact plays the original popping animation. Normal
+damage is 2/3 of a buster hit, with fractional carry across contacts.
+
+Charged release creates the renewing seven-bubble cloud. Each bubble follows
+X2's 29-record movement path, with source delays, growth art and parent motion.
+Activation and each replacement cost one-eighth energy; charged contact is
+5/3 buster damage. The source three-pixel underwater lift is included with
+an X1 ceiling check. Shoulder cycling cancels the persistent cloud. Original
+32-pose art is already extracted; no new asset or save format is needed.
+
+This exposed a shared charge bug: buster class 3 represents the intermediate
+arm-upgraded beam, not the full special-weapon release. Imported attacks now
+use X1's own full-release marker `$C01 == 4`, gated by arms. Holding beyond
+full charge therefore retains the charged attack. Earlier 150-tick test
+releases exercised the wrong tier; charged checks now hold for 205+ ticks,
+and Bubble Splash also checks that an intermediate release stays normal.
+
+Focused checks exercise both characters, continuous fire/energy, growth/pop,
+full/intermediate charge and arm gate, renewing cloud/drain, native enemy
+contact, private water lift, shoulder cancellation, empty-energy cleanup and
+exact save/replay. Original-art captures were inspected. RNG is deterministic
+from port state using the source arithmetic, rather than the source game's
+whole RNG call stream. Source audio and full water-stage traversal remain
+fidelity work.
+
 ## Remaining implementation
 
-Implement the other ten weapons' normal and charged attacks, native
+Implement the other nine weapons' normal and charged attacks, native
 sound/effect cleanup, X/Zero firing origins, terrain/enemy interaction and
 meaningful special behaviors. Gate charging on X1's arm upgrade. Keep ordinary
 damage and existing X1 progression. Co-op remains a later, separate mod. The
