@@ -73,7 +73,10 @@ static unsigned slash_pose(const MmxZeroState *s) {
   return 0;
 }
 const uint8_t *MmxZeroPose(const uint8_t ram[0x20000], const MmxZeroState *s) {
-  if (!poses || !ram || !ram[0xbb6]) return NULL;
+  /* Visibility belongs to the submitted sprite list, not this RAM snapshot.
+   * During invulnerability the next update can hide the player while OAM
+   * still contains the preceding visible frame. The compositor owns blinking. */
+  if (!poses || !ram) return NULL;
   /* The shared early-X animation vocabulary includes idle, run, jump,
    * dash and firing poses. X1-specific states remain a validation item. */
   unsigned pose = ram[0xbbf] & 127;
