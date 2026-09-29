@@ -1145,7 +1145,10 @@ static void zero_blink_submission(void) {
     assert(output[40 * 256 + 40] == 0xff0000);
     assert(output[40 * 256 + 41] == 0); /* Native X tile is fully suppressed. */
   }
-  /* An actual blink submits no body; the renderer must preserve that gap. */
+  /* A menu fade repeats OAM without rebuilding the object list. */
+  MmxRendererLatchSprites(); capture();
+  assert(MmxRendererDraw(output,view,false) && output[40 * 256 + 40] == 0xff0000);
+  /* An actual blink hides OAM; stale attribution must preserve that gap. */
   ppu.oam[32] = 0xe000; MmxRendererLatchSprites(); capture();
   assert(MmxRendererDraw(output,view,false) && output[40 * 256 + 40] == 0);
   MmxZeroDisable(); g_mmx_custom_renderer = false; g_mmx_render_asset_repairs = true;
