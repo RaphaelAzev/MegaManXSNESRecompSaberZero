@@ -1065,26 +1065,46 @@ static void weapon_wheel_checks(const char *assets,const char *fixture,uint8 *st
       if(g_ram[d] && (g_ram[d+0x27]&127) && (g_ram[d+0x20]|g_ram[d+0x21])) {victim=d;break;}
   }
   check(victim!=0,"native enemy available for Spin Wheel contact");
-  MmxWeaponsState w=MmxWeaponsGetState();w.page=1;w.weapon=4;MmxWeaponsSetState(w);
-  frame(0);frame(SNES_PAD_Y);zero_replay(40);
-  MmxWeaponCombatState c=MmxWeaponsGetCombatState();unsigned shot=8;
-  for(unsigned i=0;i<8;++i) if(c.shots[i].active) {
-    c.shots[i].x=(g_ram[victim+5]|g_ram[victim+6]<<8)*256;
-    c.shots[i].y=(g_ram[victim+8]|g_ram[victim+9]<<8)*256;
-    shot=i;break;
+  size_t encounter=RtlSaveSnapshotToMemory(start,cap);
+  for(unsigned falling=0;falling<2;++falling) {
+    check(RtlLoadSnapshotFromMemory(start,encounter),"restore wheel contact setup");
+    MmxWeaponsState w=MmxWeaponsGetState();w.page=1;w.weapon=4;MmxWeaponsSetState(w);
+    frame(0);frame(SNES_PAD_Y);zero_replay(falling ? 40 : 5);
+    MmxWeaponCombatState c=MmxWeaponsGetCombatState();unsigned shot=8;
+    for(unsigned i=0;i<8;++i) if(c.shots[i].active) {
+      c.shots[i].x=(g_ram[victim+5]|g_ram[victim+6]<<8)*256;
+      c.shots[i].y=(g_ram[victim+8]|g_ram[victim+9]<<8)*256;
+      shot=i;break;
+    }
+    check(shot<8,"Spin Wheel available for native enemy contact");
+    if(falling) {c.shots[shot].muzzle_pose=1;c.shots[shot].vy=768;}
+    else check(!c.shots[shot].muzzle_pose,"contact regression starts while Spin Wheel is still forming");
+    g_ram[victim+0x27]=32; /* Keep the target alive through the stronger wheel. */
+    MmxWeaponsSetCombatState(c);unsigned hp=g_ram[victim+0x27]&127;zero_replay(3);
+    c=MmxWeaponsGetCombatState();
+    check((g_ram[victim+0x27]&127)+8==hp && c.shots[shot].active && c.shots[shot].tether_pose,
+        "Spin Wheel deals normalized source damage and pauses on contact without disappearing");
+    check(!c.shots[shot].vy,"wheel clears falling velocity on native enemy contact");
+    int32_t contact_x=c.shots[shot].x,contact_y=c.shots[shot].y;
+    unsigned hits=1,last_hp=g_ram[victim+0x27]&127;
+    bool stayed=true;
+    for(unsigned i=0;i<40 && g_ram[victim] && g_ram[victim+1]!=4;++i) {
+      /* Keep this mobile highway enemy in range. Its original AI, collision,
+       * hit reaction, damage and death still execute normally. */
+      g_ram[victim+5]=(uint8)(contact_x>>8);g_ram[victim+6]=(uint8)(contact_x>>16);
+      g_ram[victim+8]=(uint8)(contact_y>>8);g_ram[victim+9]=(uint8)(contact_y>>16);
+      frame(0);c=MmxWeaponsGetCombatState();
+      unsigned now=g_ram[victim+0x27]&127;
+      if(now<last_hp) {++hits;last_hp=now;}
+      stayed&=c.shots[shot].active && c.shots[shot].x==contact_x && c.shots[shot].y==contact_y;
+    }
+    check(stayed,"wheel hangs at the contact position through repeated native enemy hits");
+    check(hits==4 && (!g_ram[victim] || g_ram[victim+1]==4),
+        "wheel repeatedly damages the same native enemy through its native death state");
+    zero_replay(45);c=MmxWeaponsGetCombatState();
+    check(c.shots[shot].active && c.shots[shot].y!=contact_y,
+        "wheel drops and resumes travel after its target dies");
   }
-  check(shot<8,"Spin Wheel available for native enemy contact");
-  g_ram[victim+0x27]=32; /* Keep the target alive through the stronger wheel. */
-  MmxWeaponsSetCombatState(c);unsigned hp=g_ram[victim+0x27]&127;zero_replay(3);
-  c=MmxWeaponsGetCombatState();
-  check((g_ram[victim+0x27]&127)+8==hp && c.shots[shot].active && c.shots[shot].tether_pose,
-      "Spin Wheel deals normalized source damage and pauses on contact without disappearing");
-  bool resumed=false;
-  for(unsigned i=0;i<12;++i) {
-    frame(0);c=MmxWeaponsGetCombatState();
-    resumed|=c.shots[shot].active && !c.shots[shot].tether_pose;
-  }
-  check(resumed,"Spin Wheel resumes after its contact pause even when a surviving target is hit again");
   puts("MMX SPIN WHEEL CHECKS PASSED");
 }
 static void weapon_sonic_checks(const char *assets, const char *fixture, uint8 *start,

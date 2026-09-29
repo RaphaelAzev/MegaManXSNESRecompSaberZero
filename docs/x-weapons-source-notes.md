@@ -467,6 +467,21 @@ is direction 0..7, `origin_x/y` retain the center, and direction 0's `radius`
 drives the six-frame original flash. Charged `tether_pose` retains the original
 center facing. These fields are saved already, preserving the 40/328-byte ABI.
 
+Enemy-contact correction (owner playtest, 2026-09-29): `$87:849E` dispatches
+contact states 4 and 6 to `$87:87D3`, and state 8 to `$87:8823` (which also
+enters `$87:87D3` while momentum remains). This overrides **every** movement
+phase, including formation. `$87:87EA..87FA` clears vertical velocity and
+initializes the ten-tick pause; the following ten updates consume eight
+momentum each and restore collision at `$87:8818..8820`. Thus the contact
+entry plus countdown occupies eleven updates, and another overlapping hit
+can immediately restart it without falling or rolling in between. The old
+port excluded formation, never cleared vertical velocity, and consumed the
+first countdown tick on entry. Its first-hit-only test did not cover the
+reported repeated-hit failure. Private original-runtime trace
+`wheel-contact-source.json` injects the original surviving-hit state from
+`$88:DB11..DB23` in the empty reference room, verifying both phase entry and
+the eleven-update timing; native X1 enemy regression covers real collisions.
+
 ## X3 Frost Shield: verified phases and X1 platform adaptation
 
 Normal dispatch `$81:A672`, table `$A677`: handlers A683/A702/A80E/A80E/

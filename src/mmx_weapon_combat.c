@@ -964,11 +964,16 @@ static void wheel_tick(uint8_t *r,unsigned d,MmxWeaponShot *s) {
     }
   } else {
     unsigned previous_speed=wheel_spin_sequence(s);
-    if (s->muzzle_pose && s->muzzle_pose!=6 && !s->tether_pose && r[d+1]>=8)
-      s->tether_pose=10;
+    /* X2 $87:87EA applies even during formation. The entry update clears
+     * vertical speed, then ten following updates consume momentum. Retain
+     * the movement phase so contact can retrigger before it resumes. */
+    bool contact=s->muzzle_pose!=6 && !s->tether_pose && r[d+1]>=4;
+    if (contact) { s->tether_pose=10;s->vy=0; }
     if (s->tether_pose) {
-      s->origin_x-=8;
-      if (!--s->tether_pose) s->hit_slots=0;
+      if (!contact) {
+        s->origin_x-=8;
+        if (!--s->tether_pose) s->hit_slots=0;
+      }
     } else if (!s->muzzle_pose) {
       if (s->flags&128) { s->muzzle_pose=1;animation_start(s,1); }
     } else if (s->muzzle_pose==2 || s->muzzle_pose==5) {
