@@ -2,6 +2,7 @@
 #include "mmx_display.h"
 #include "mmx_wide_policy.h"
 #include "mmx_render_assets.h"
+#include "mmx_zero.h"
 #include <math.h>
 
 /* Mode-1 decode/composition follows SuperMetroidRecomp's sm_renderer.c.
@@ -29,6 +30,7 @@ typedef struct Frame {
   bool expand;
 } Frame;
 static Frame frame;
+static MmxZeroState frame_zero;
 static Piece building[MAX_PIECES], latched[MAX_PIECES];
 static unsigned building_count, latched_count;
 static uint8_t building_stage, latched_stage;
@@ -78,6 +80,7 @@ void MmxRendererSetRom(const uint8_t *bytes, size_t length) {
   rom = bytes; rom_size = length; MmxRenderAssetsSetRom(bytes, length);
 }
 void MmxRendererReset(void) {
+  memset(&frame_zero, 0, sizeof(frame_zero));
   frame.valid = false; frame.captured = 0;
   building_count = latched_count = 0;
   building_stage = latched_stage = 0xff;
@@ -246,6 +249,7 @@ void MmxRendererBeginFrame(const uint8_t ram[0x20000]) {
   trace_objects(ram);
   frame.valid = false; frame.captured = 0;
   memcpy(frame.ram, ram, sizeof(frame.ram));
+  frame_zero = MmxZeroGetState();
   frame.piece_count = latched_stage == ram[0x1f7a] ? latched_count : 0;
   memcpy(frame.pieces, latched, frame.piece_count * sizeof(*latched));
   frame.expanded_count = latched_stage == ram[0x1f7a] ? expanded_latched_count : 0;
@@ -273,8 +277,9 @@ bool MmxRendererSaveCapture(const char *path) {
   if (!frame.valid || !path) return false;
   FILE *f = fopen(path, "wb");
   if (!f) return false;
-  uint32_t header[] = {0x4d4d5843, 2, sizeof(frame)};
-  bool ok = fwrite(header, sizeof(header), 1, f) == 1 && fwrite(&frame, sizeof(frame), 1, f) == 1;
+  uint32_t header[] = {0x4d4d5843, 3, sizeof(frame) + sizeof(frame_zero)};
+  bool ok = fwrite(header, sizeof(header), 1, f) == 1 && fwrite(&frame, sizeof(frame), 1, f) == 1 &&
+      fwrite(&frame_zero, sizeof(frame_zero), 1, f) == 1;
   return fclose(f) == 0 && ok;
 }
 bool MmxRendererLoadCapture(const char *path) {
@@ -283,9 +288,13 @@ bool MmxRendererLoadCapture(const char *path) {
   if (!f) return false;
   uint32_t h[3];
   frame.valid = false;
+  memset(&frame_zero, 0, sizeof(frame_zero));
   bool ok = fread(h, sizeof(h), 1, f) == 1 && h[0] == 0x4d4d5843 &&
-      h[1] == 2 && h[2] == sizeof(frame) && fread(&frame, sizeof(frame), 1, f) == 1 &&
-      frame.captured == 224 && frame.piece_count <= MAX_PIECES && frame.expanded_count <= MAX_PIECES && frame.valid && fgetc(f) == EOF;
+      ((h[1] == 2 && h[2] == sizeof(frame)) || (h[1] == 3 && h[2] == sizeof(frame) + sizeof(frame_zero))) &&
+      fread(&frame, sizeof(frame), 1, f) == 1 &&
+      frame.captured == 224 && frame.piece_count <= MAX_PIECES && frame.expanded_count <= MAX_PIECES && frame.valid;
+  if (ok && h[1] == 3) ok = fread(&frame_zero, sizeof(frame_zero), 1, f) == 1 && frame_zero.slash <= 46 && frame_zero.air <= 1;
+  ok = ok && fgetc(f) == EOF;
   fclose(f); frame.valid = ok; return ok;
 }
 
@@ -641,6 +650,8 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       MmxRenderAssetsDeathPaletteFade(frame.ram, frame.lines[0].palette) : 0;
   const Piece *pieces = frame.expand && g_mmx_render_asset_repairs ? frame.expanded : frame.pieces;
   unsigned piece_count = frame.expand && g_mmx_render_asset_repairs ? frame.expanded_count : frame.piece_count;
+  const uint8_t *zero = stage ? MmxZeroPose(frame.ram, &frame_zero) : NULL;
+  const uint8_t *blade = zero ? MmxZeroBlade(&frame_zero) : NULL;
   Piece waiting[128];
   unsigned waiting_count = stage && g_mmx_render_asset_repairs ?
       fortress_waiting_pieces(waiting, pieces, piece_count) : 0;
@@ -690,6 +701,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       sprite(&p, r, s.x, s.y, s.attr, s.size, y, view, objects, true, asset, s.tile, object_colors, true);
     }
     bool replaced[128] = {false};
+    bool zero_drawn = false;
     for (int i = (int)piece_count - 1; i >= 0; --i) {
       Piece s = pieces[i]; const MmxSpriteAsset *asset = piece_assets[i];
       if (g_mmx_render_asset_repairs && fortress_sound_actor(s.object) &&
@@ -698,7 +710,8 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
        * their entire footprint, including x=255 which native D76A clips.
        * Only the explicit expanded list can add pieces beyond that budget. */
       bool center = g_mmx_render_asset_repairs;
-      if (g_mmx_render_asset_repairs) for (int slot = 16; slot < 128; ++slot) {
+      bool zero_armor = zero && (s.object == 0xc38 || s.object == 0xc58 || s.object == 0xc78);
+      if (g_mmx_render_asset_repairs || (zero && s.object == 0xba8) || zero_armor) for (int slot = 16; slot < 128; ++slot) {
         unsigned pos = r->oam[slot * 2], hi = r->high_oam[slot / 4] >> (slot % 4 * 2);
         int ox = (pos & 255) | ((hi & 1) << 8); if (ox >= 256) ox -= 512;
         if (ox == s.x && (pos >> 8) == ((unsigned)s.y & 255) && r->oam[slot * 2 + 1] == s.attr) {
@@ -712,6 +725,29 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       unsigned attr = asset ? (s.attr & 0xf000) | ((asset->attributes & 15) << 8) |
           (asset->live_tiles ? s.attr & 255 : 0) : s.attr;
       if (asset && asset->live_colors) attr = (attr & ~0x0e00u) | (s.attr & 0x0e00u);
+      if (zero_armor) continue;
+      if (zero && s.object == 0xba8) {
+        if (!zero_drawn) {
+          zero_drawn = true;
+          int zx = (int16_t)(word(frame.ram, 0xbad) - word(frame.ram, 0x1e4d));
+          int zy = (int16_t)(word(frame.ram, 0xbb0) - word(frame.ram, 0x1e50)) - 8;
+          int row = y - zy + 64;
+          if (row >= 0 && row < MMX_ZERO_HEIGHT) {
+            const uint16_t *colors = MmxZeroColors();
+            unsigned z = ((((s.attr >> 12) & 3) * 4 + 2) << 12) | 0x680;
+            for (int col = 0; col < MMX_ZERO_WIDTH; ++col) {
+              unsigned pixel = zero[row * MMX_ZERO_WIDTH + col];
+              if (blade && blade[row * MMX_ZERO_WIDTH + col]) pixel = blade[row * MMX_ZERO_WIDTH + col];
+              int dx = zx + ((frame.ram[0xbb9] & 64) ? 63 - col : col - 64) + view.extra;
+              if (pixel && dx >= 0 && dx < view.width) {
+                objects[dx] = (uint16_t)(z | (pixel & 15));
+                object_colors[dx] = colors[pixel];
+              }
+            }
+          }
+        }
+        continue;
+      }
       sprite(&p, r, s.x, s.y, attr, s.size, y, view, objects, !center, asset, s.tile, object_colors, true);
     }
     int bar_first = -1, bar_count = 0;

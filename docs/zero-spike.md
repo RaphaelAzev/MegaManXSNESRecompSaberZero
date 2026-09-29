@@ -1,0 +1,179 @@
+# X3 Zero in X1: bounded feasibility experiment
+
+Implemented on `experiment/x3-zero-spike`, based on X1 commit `975b126`.
+Tracking: central Beads `beads-110f`, under the X1 game epic and related to
+the X3 game epic. This is an experimental playable prototype, not the finished
+full-character port.
+
+**Verdict:** the important integration points work with targeted investigation.
+Neither game needed a near-complete disassembly or an engine rewrite. The spike
+uses the existing X1 host/compositor and the local X3 project's original USA ROM.
+Zero keeps his original dimensions; no resizing was needed in the tested area.
+Full-stage clearance remains a playtest task, with changes justified by actual
+failures rather than an assumption that he will not fit.
+
+## Run it
+
+Use the normal X1 source-build procedure in the repository README. The CMake
+build installs the disabled-by-default **X3 Zero Experiment** package alongside
+the existing mods. The package targets the original X1 USA ROM only.
+
+Extract the local asset cache from the original X3 USA ROM:
+
+```powershell
+python tools/extract_zero.py ../MegamanX3SNESRecomp/mmx3.sfc build-zero/zero-x3.bin
+```
+
+The extractor accepts an optional 512-byte copier header and checks the
+normalized X3 SHA-256:
+`65b03268afac296330e8ff8d60dd0825879e13ed658b37713c034a3bd074f1d7`.
+It extracts 117 body, 21 saber-body and 14 blade poses, palettes and the ground/air
+saber bounds. `--sheet path.png` also writes a labeled contact sheet if Pillow
+is installed. ROMs, generated code and extracted graphics stay local.
+
+In the launcher's Mods page, enable **Play as Zero (experimental)**. The asset
+picker can point to the cache elsewhere; its default is `zero-x3.bin` beside the
+executable. Missing/invalid assets leave Zero inactive and produce a log message.
+Enable the existing widescreen mod separately if desired. The native-width view
+also uses the compositor while Zero is enabled.
+
+The local spike executable is `build-zero/MegaManXSNESRecomp.exe`. Its development
+mod state already enables Zero. It uses that build directory's config and saves.
+Use experimental saves separately from normal play: enabled saves contain Zero
+state and require the same mod/assets. The package's `requires-same-mods` label
+is descriptive; the shared runtime does not enforce save isolation.
+
+Controls use X1's button mappings:
+
+- Dash is immediately available; no equipment is granted.
+- With the buster selected, hold fire for 180 gameplay updates, then release for
+  the first full shot. After the short recovery, press fire for the second shot,
+  then again for the saber. Ground and aerial swings are supported.
+- Switching to a special weapon cancels the stored combo and uses X1's weapon
+  logic. Charged specials still require the actual arm upgrade.
+
+## What the spike implements
+
+`src/mmx_zero.c` owns a small character state, asset cache and combat adapter.
+The renderer replaces only the player object's pieces and suppresses X1's armor
+overlays; story NPC Zero remains a separate actor. Stage scripts, inventory,
+boss progression and special-weapon behavior continue through X1.
+
+X3's normal/dash body bounds are translated eight pixels vertically to X1's
+player origin, aligning the feet. Terrain and damage bounds retain X3's sizes.
+The normal and dash terrain heights are both 21 pixels; their damage half-heights
+are 18 and 11 pixels. The live cartridge copy is patched only after matching
+the expected X1 bytes, and disabling restores those bytes. Source ROM files
+are never modified.
+
+The first two attacks are X1's native full-charge projectile class. A narrowly
+scoped second-shot allocation bypasses X1's one-charge-shot restriction while
+leaving projectile initialization, travel and retirement to X1. The saber has
+X3's body/blade sequences and changing ground/air hitboxes. It uses a transient
+projectile slot and X1's collision/damage response. Positive damage becomes 16;
+native immunity/reflection paths remain. A target slot can be damaged only once
+per swing. This damage value is a prototype balance choice, not a claim that
+every X3/X1 enemy interaction is equivalent.
+
+Interpreter hooks support the normal faithful execution path. A checked,
+idempotent generated-code patcher covers the same seven capability/combat sites.
+The mod adds no framework changes. Optional 12-byte character state is appended
+to enabled saves (game chunk v4); disabled saves retain v3. Mid-swing renderer
+captures also retain the character state, with old capture v2 still readable.
+
+## Validation
+
+Release build and all five CTests pass. The ROM-backed state test additionally
+passes these checks using an unupgraded standing-highway fixture:
+
+| Check | Observed result |
+| --- | --- |
+| Player replacement | Original-size Zero at 256px native and 342px widescreen; captures inspected |
+| Dash | Native dash speed without changing the equipment byte |
+| Ground combo | Two full-charge native projectiles coexist, then a timed saber swing |
+| Aerial saber | Jump/gravity continue; Zero returns to the same floor height |
+| Homing Torpedo | Native weapon selection, projectile creation and energy consumption |
+| Charged special gate | Unavailable without arms; five charged Torpedo projectiles with arms |
+| Snapshot | Complete immediate mid-saber restore and byte-identical 10-frame replay |
+| Rollback | Byte-identical eight-frame replay from a mid-saber rollback state |
+| Rewind | The actual rewind path restores the complete mid-saber state |
+| Cleanup | Saber/projectile count retires; disabling returns to stock presentation |
+
+Separate live combat probes use copied fixtures, position the player and seed a
+stored saber; they do not write enemy HP. In the Armored Armadillo fixture, HP
+goes from 8 to 0 at the active arc and X1 enters its boss-death sequence. On the
+highway wheel enemy, HP goes from 2 to 1 and X1 enters its shell-break response;
+the same swing does not repeatedly hit its exposed core. These prove damage
+integration, not a complete boss battle or campaign playthrough.
+
+Asset extraction is deterministic; passing X1 to the X3 extractor is rejected.
+The generated hooks were checked for coverage and idempotence. Local evidence
+is in `_research/` (ignored): `state-check/run.log`, `boss-proof-final.log`,
+`enemy-proof-final.log`, `zero-saber-native.bmp`, `zero-saber-wide.bmp`,
+`zero-air-final.bmp`, `zero-dash-final.bmp`, and `zero-torpedo-final.bmp`.
+
+To rerun the ROM-backed checks, build with `-DMMX_STATE_TESTS=ON` and launch
+`mmx_state_tests` from an empty scratch directory. Supply absolute paths:
+
+```powershell
+$env:MMX_ZERO_TEST_ASSETS = '.../build-zero/zero-x3.bin'
+$env:MMX_ZERO_TEST_FIXTURE = '.../build-zero/saves/save0.sav'
+$env:MMX_ZERO_TEST_CAPTURE = '.../artifacts/saber.cap' # optional
+& '.../build-zero/mmx_state_tests.exe' '.../mmx.sfc'
+```
+
+The fixture must be a complete runtime save at a safe standing highway position,
+using the buster and no upgrades. The test grants Torpedo inventory and arms only
+inside its special-weapon fixtures. Without these environment variables, the
+existing state tests run normally. The debugger's `savestate`/`loadstate` commands
+use the complete state format; its differently named `save_state`/`load_state`
+commands contain only emulated-machine state and cannot validate this mod's
+host-side combo state.
+
+Replay a capture with the assets to see the replacement character:
+
+```powershell
+build-zero/mmx_render_capture.exe artifacts/saber.cap mmx.sfc 16:9 0 artifacts/saber.bmp build-zero/zero-x3.bin
+```
+
+The replay tool returns 1 for differences from the stock PPU, which are expected
+for Zero, and 2 for an error. The debug server's plain `screenshot` command captures
+the stock PPU before character replacement; use compositor captures or the
+presented frame for visual proof.
+
+## Remaining work for the full port
+
+1. Audit the complete animation/state mapping: wall slide/jump, ladders, damage,
+   death, teleport, capsules, ride armor and scripted player poses. The prototype
+   reuses the shared early-game pose numbering; unsupported indices fall back to
+   idle. Extracting all 152 poses does not prove that every gameplay state selects
+   the correct pose or timing.
+2. Match X3 movement/charge timing and projectile presentation where required.
+   Current movement physics, dash effects and the first two projectile graphics
+   are X1's. Charge/hit palette effects and saber audio still need adaptation.
+3. Adapt and validate all eight X1 weapons in their normal and charged forms,
+   including body/arm poses, emission points and weapon palettes. Only Homing
+   Torpedo received runtime acceptance in this spike.
+4. Play through representative tight spaces, moving platforms, doors, water,
+   ride armor and all bosses, then the full campaign in native and widescreen.
+   Story/NPC behavior is preserved by the scope of the hooks but has not received
+   an end-to-end playthrough with Zero enabled. Tune geometry only where those
+   tests demonstrate a problem.
+5. Finish mod/save UX, incompatible-mod handling and packaging before release.
+
+This result supports a staged full port. Exact fidelity and campaign acceptance
+remain substantial work, but the experiment did not uncover a requirement to
+reverse-engineer both games in their entirety.
+
+## Targeted research trail
+
+The investigation was limited to asset tables, player update/input gates,
+projectile allocation and damage handling. Useful X3 islands were `$04:A63C`
+(body selection), `$04:BCA2` (graphics transfers), `$01:805B` (palettes), and
+`$86:B40E/B422/B837/B84B` (body/saber bounds). X1 integration sites are recorded
+in `tools/apply_zero_hooks.py` and `src/mods/mmx_zero_plugin.c`.
+
+Public [MMX3 Zero Project](https://github.com/justin3009/MMX3-ZeroProject) and
+[MegaED X](https://github.com/rbrummett/megaedx_v1.3) sources supplied format/address
+leads. The asset decoder here is independently implemented and verifies the
+original ROM; this mod does not require installing the Zero Project ROM hack.

@@ -19,7 +19,7 @@ def sprite_matches(data):
     ram_offset = 12 + 224 * 66656
     pieces_offset = ram_offset + 0x20000 + 256 * 224 * 4
     version = struct.unpack_from('<I', data, 4)[0]
-    stride = 12 if version == 2 else 8
+    stride = 12 if version >= 2 else 8
     count = struct.unpack_from('<I', data, pieces_offset + 2048 * stride)[0]
     # OAM is stable in these fixture samples. Raster 100 avoids setup lines.
     raster = 12 + 100 * 66656
@@ -39,7 +39,7 @@ def sprite_matches(data):
             if (x, y & 255, attr, size) in expected: matched += 1
             else: missing += 1
     result = dict(native_piece_matches=matched, native_piece_unmatched=missing)
-    if version == 2:
+    if version >= 2:
         expanded = pieces_offset + 2048 * stride + 10
         expanded_count = struct.unpack_from('<I', data, expanded + 2048 * stride + 2)[0]
         enabled = bool(data[expanded + 2048 * stride + 6])

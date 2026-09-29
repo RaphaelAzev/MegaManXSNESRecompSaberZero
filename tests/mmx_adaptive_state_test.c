@@ -26,6 +26,106 @@ static void same(const void *a, size_t an, const void *b, size_t bn, const char 
   }
   check(an && an == bn && !memcmp(a, b, an), what);
 }
+static void zero_replay(int n) { for (int i=0;i<n;++i) frame(0); }
+static void rewind_six_frames(void) {
+  /* The framework harness requests interval 1; the game's default is 6. */
+  for (int i=0;i<6 && snes_rewind_selected_seconds() < 0.0999f;++i)
+    snes_rewind_step(-1);
+}
+static unsigned zero_projectiles(unsigned kind) {
+  unsigned count = 0;
+  for (unsigned d=0x1228;d<0x1428;d+=64) count += g_ram[d] && g_ram[d+10] == kind;
+  return count;
+}
+static void zero_capture(const char *base, const char *suffix) {
+  if (!base) return;
+  char path[4096]; snprintf(path, sizeof(path), "%s%s", base, suffix);
+  check(MmxRendererSaveCapture(path), "Zero renderer capture saved");
+}
+static void zero_state_checks(const char *assets, const char *fixture, uint8 *start,
+                              uint8 *expected, uint8 *actual, size_t cap) {
+  check(fixture != NULL && MmxZeroLoad(assets), "Zero local assets load");
+  MmxZeroRegisterHooks();
+  check(RtlLoadSnapshot(fixture), "Zero gameplay fixture loads");
+  MmxZeroCancel(g_ram);
+  check(g_ram[0xba9] == 2 && g_ram[0xbaa] == 0 && g_ram[0xbdb] == 0 &&
+        !g_ram[0x1f99] && (g_ram[0xbd3] & 4), "fixture is standing, unupgraded buster");
+  g_config.widescreen = false;
+  int w,h; MmxPrepareFrame(1280,720,&w,&h);
+  check(w == 256 && g_mmx_custom_renderer, "Zero activates native-width compositor");
+  for (int i=0;i<181;++i) frame(SNES_PAD_Y);
+  frame(0);
+  check(MmxZeroGetState().combo == 1, "full charge stores two follow-ups");
+  zero_replay(19); frame(SNES_PAD_Y);
+  check(zero_projectiles(3) == 2 && MmxZeroGetState().combo == 2, "two native charged shots coexist");
+  zero_replay(20); frame(SNES_PAD_Y); zero_replay(12);
+  MmxZeroState state = MmxZeroGetState();
+  check(state.slash > 7 && state.projectile && !state.combo, "saber reaches active frames");
+  check(g_ram[0x1f99] == 0, "combo does not grant X1 upgrades");
+  const char *capture = getenv("MMX_ZERO_TEST_CAPTURE");
+  zero_capture(capture, "");
+  size_t n = RtlSaveSnapshotToMemory(start,cap);
+  zero_replay(10); size_t en = RtlSaveSnapshotToMemory(expected,cap);
+  check(RtlLoadSnapshotFromMemory(start,n), "mid-saber memory load");
+  size_t an = RtlSaveSnapshotToMemory(actual,cap);
+  same(start,n,actual,an,"mid-saber complete immediate restore");
+  zero_replay(10); an = RtlSaveSnapshotToMemory(actual,cap);
+  same(expected,en,actual,an,"mid-saber deterministic replay");
+  check(RtlLoadSnapshotFromMemory(start,n), "restore before rollback probe");
+  size_t rn = RtlRollbackSaveToMemory(start,cap);
+  zero_replay(8); en = RtlRollbackSaveToMemory(expected,cap);
+  check(RtlRollbackLoadFromMemory(start,rn), "mid-saber rollback load");
+  zero_replay(8); an = RtlRollbackSaveToMemory(actual,cap);
+  same(expected,en,actual,an,"mid-saber rollback replay");
+  check(RtlRollbackLoadFromMemory(start,rn), "restore before rewind probe");
+  snes_rewind_configure();
+  for (int i=0;i<12;++i) { frame(0); snes_rewind_note_frame(); }
+  en = RtlSaveSnapshotToMemory(expected,cap);
+  for (int i=0;i<6;++i) { frame(0); snes_rewind_note_frame(); }
+  check(snes_rewind_open(), "mid-saber rewind opens");
+  rewind_six_frames(); snes_rewind_commit();
+  an = RtlSaveSnapshotToMemory(actual,cap);
+  same(expected,en,actual,an,"rewind restores complete mid-saber state");
+  snes_rewind_shutdown();
+  zero_replay(60);
+  check(!MmxZeroGetState().slash && !MmxZeroGetState().projectile && !g_ram[0xbdd], "saber and projectile counts retire");
+  check(RtlLoadSnapshot(fixture), "restore for dash probe");
+  unsigned x = g_ram[0xbad] | g_ram[0xbae] << 8;
+  for (int i=0;i<8;++i) frame(SNES_PAD_A | SNES_PAD_RIGHT);
+  unsigned dx = (g_ram[0xbad] | g_ram[0xbae] << 8) - x;
+  check(dx >= 24 && !g_ram[0x1f99], "unupgraded dash moves at dash speed");
+  zero_capture(capture, ".dash.cap");
+  check(RtlLoadSnapshot(fixture), "restore for aerial saber probe");
+  unsigned floor = g_ram[0xbb0] | g_ram[0xbb1] << 8;
+  MmxZeroSetState((MmxZeroState){.combo=2});
+  for (int i=0;i<6;++i) frame(SNES_PAD_B);
+  frame(SNES_PAD_B | SNES_PAD_Y); zero_replay(12);
+  check(MmxZeroGetState().air && MmxZeroGetState().slash > 7 &&
+        (g_ram[0xbb0] | g_ram[0xbb1] << 8) < floor, "aerial saber retains jump and gravity");
+  zero_capture(capture, ".air.cap");
+  zero_replay(100);
+  check((g_ram[0xbb0] | g_ram[0xbb1] << 8) == floor && !MmxZeroGetState().slash,
+        "original-size Zero lands on the same floor");
+  check(RtlLoadSnapshot(fixture), "restore for special weapon probe");
+  /* Fixture inventory grant only: production code never grants weapons. */
+  g_ram[0x1f87] = 0; g_ram[0x1f88] = 0xdc;
+  for (int i=0;i<6;++i) frame(SNES_PAD_R);
+  zero_replay(1);
+  check(g_ram[0xbdb] == 2, "native weapon switch selects Homing Torpedo");
+  frame(SNES_PAD_Y); zero_replay(8);
+  check(zero_projectiles(7) && g_ram[0x1f88] != 0xdc, "normal Torpedo spawns and spends energy");
+  for (int i=0;i<181;++i) frame(SNES_PAD_Y);
+  frame(0); zero_replay(8);
+  check(!zero_projectiles(0x10) && !g_ram[0x1f99], "charged special remains unavailable without arms");
+  zero_replay(60); g_ram[0x1f99] = 2;
+  for (int i=0;i<181;++i) frame(SNES_PAD_Y);
+  frame(0); zero_replay(8);
+  check(zero_projectiles(0x10) == 5, "arm upgrade permits five charged Torpedo projectiles");
+  zero_capture(capture, ".torpedo.cap");
+  MmxZeroDisable(); MmxBeforeFrame(); MmxPrepareFrame(1280,720,&w,&h);
+  check(!g_mmx_custom_renderer && !MmxZeroEnabled(), "disabling returns to stock presentation");
+  puts("MMX ZERO RUNTIME CHECKS PASSED");
+}
 int main(int argc, char **argv) {
   check(argc == 2 || argc == 3, "ROM supplied");
   SDL_SetMainReady();
@@ -111,6 +211,11 @@ int main(int argc, char **argv) {
   MkDir("saves");
   size_t cap = 2u * 1024u * 1024u;
   uint8 *start = malloc(cap), *expected = malloc(cap), *actual = malloc(cap);
+  const char *zero_assets = getenv("MMX_ZERO_TEST_ASSETS");
+  if (zero_assets) {
+    zero_state_checks(zero_assets, getenv("MMX_ZERO_TEST_FIXTURE"), start, expected, actual, cap);
+    return 0;
+  }
   if (argc == 3) {
     check(RtlLoadSnapshot("saves/save11.sav"), "file loads in new process");
     replay(10);
@@ -158,7 +263,7 @@ int main(int argc, char **argv) {
   size_t n = RtlSaveSnapshotToMemory(start, cap);
   for (int i = 0; i < 6; ++i) { frame(SNES_PAD_RIGHT); snes_rewind_note_frame(); }
   check(snes_rewind_open(), "rewind opens");
-  snes_rewind_step(-1); /* default interval is six simulated frames */
+  rewind_six_frames();
   snes_rewind_commit();
   size_t an = RtlSaveSnapshotToMemory(actual, cap);
   same(start, n, actual, an, "rewind restores selected frame");
