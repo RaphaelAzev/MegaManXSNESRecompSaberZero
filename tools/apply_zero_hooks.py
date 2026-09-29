@@ -6,7 +6,7 @@ import re
 
 MARKER = '/*MMX-ZERO*/'
 PCS = {0x81971c, 0x819793, 0x8198fc}
-REQUIRED = PCS | {0x81815c, 0x00d3e5, 0x849e73, 0x849c16}
+REQUIRED = PCS | {0x81815c, 0x00d3e5, 0x849e73, 0x849c16, 0x848f07, 0x848eea}
 
 
 def apply(text):
@@ -17,6 +17,12 @@ def apply(text):
         if block:
             pc = int(block[1], 16)
         output.append(line)
+        if pc in (0x848f07, 0x848eea) and 'cpu->coprocessor_master_cycles = cpu->master_cycles;' in line:
+            if pc == 0x848f07:
+                output.append(f'    {MARKER} {{ extern void MmxZeroAnimationStart(unsigned, unsigned); MmxZeroAnimationStart(cpu->D, cpu->A & 255); }}\n')
+            else:
+                output.append(f'    {MARKER} {{ extern void MmxZeroAnimationAdvance(unsigned); MmxZeroAnimationAdvance(cpu->D); }}\n')
+            found.add(pc)
         if pc == 0x849c16:
             load = re.search(r'uint16 (_v\d+) = cpu_read16\(cpu,', line) if '0x0020' in line and 'cpu->X' in line else None
             if load:

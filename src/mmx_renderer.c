@@ -71,6 +71,10 @@ MmxDisplayViewport MmxRendererDestination(MmxRenderView view, int width, int hei
   return SnesDisplayAspect_FitViewport(view.aspect, width, height);
 }
 static unsigned word(const uint8_t *p, unsigned a) { return p[a] | (p[a + 1] << 8); }
+static bool zero_weapons_menu(void) {
+  return MmxZeroEnabled() && frame.ram[0xd1] == 2 && frame.ram[0xd2] == 4 &&
+      (frame.ram[0x1f10] == 6 || frame.ram[0x1f10] == 8) && (frame.ram[0xc3] & 128);
+}
 static const uint8_t *rom_at(unsigned address, size_t length) {
   if ((address & 0xffff) < 0x8000) return NULL;
   size_t offset = ((address >> 16) & 0x7f) * 0x8000 + (address & 0x7fff);
@@ -277,7 +281,7 @@ bool MmxRendererSaveCapture(const char *path) {
   if (!frame.valid || !path) return false;
   FILE *f = fopen(path, "wb");
   if (!f) return false;
-  uint32_t header[] = {0x4d4d5843, 3, sizeof(frame) + sizeof(frame_zero)};
+  uint32_t header[] = {0x4d4d5843, 4, sizeof(frame) + sizeof(frame_zero)};
   bool ok = fwrite(header, sizeof(header), 1, f) == 1 && fwrite(&frame, sizeof(frame), 1, f) == 1 &&
       fwrite(&frame_zero, sizeof(frame_zero), 1, f) == 1;
   return fclose(f) == 0 && ok;
@@ -290,10 +294,12 @@ bool MmxRendererLoadCapture(const char *path) {
   frame.valid = false;
   memset(&frame_zero, 0, sizeof(frame_zero));
   bool ok = fread(h, sizeof(h), 1, f) == 1 && h[0] == 0x4d4d5843 &&
-      ((h[1] == 2 && h[2] == sizeof(frame)) || (h[1] == 3 && h[2] == sizeof(frame) + sizeof(frame_zero))) &&
+      ((h[1] == 2 && h[2] == sizeof(frame)) || (h[1] == 3 && h[2] == sizeof(frame) + MMX_ZERO_LEGACY_STATE_SIZE) ||
+       (h[1] == 4 && h[2] == sizeof(frame) + sizeof(frame_zero))) &&
       fread(&frame, sizeof(frame), 1, f) == 1 &&
       frame.captured == 224 && frame.piece_count <= MAX_PIECES && frame.expanded_count <= MAX_PIECES && frame.valid;
-  if (ok && h[1] == 3) ok = fread(&frame_zero, sizeof(frame_zero), 1, f) == 1 && frame_zero.slash <= 46 && frame_zero.air <= 1;
+  if (ok && h[1] >= 3) ok = fread(&frame_zero, h[1] == 3 ? MMX_ZERO_LEGACY_STATE_SIZE : sizeof(frame_zero), 1, f) == 1 &&
+      frame_zero.slash <= 46 && frame_zero.air <= 1 && frame_zero.anim_valid <= 1 && frame_zero.anim_pose < 117;
   ok = ok && fgetc(f) == EOF;
   fclose(f); frame.valid = ok; return ok;
 }
@@ -494,9 +500,18 @@ static uint16_t background(const Ppu *p, const Raster *r, unsigned layer, int x,
   int cx = px & (size - 1), cy = py & (size - 1);
   if (tile & 0x4000) cx = size - 1 - cx;
   if (tile & 0x8000) cy = size - 1 - cy;
+  int life_color = -1;
+  if (!stage && layer == 1 && size == 8 && zero_weapons_menu() && (tile & 0xfc00) == 0x0400) {
+    unsigned number = tile & 1023;
+    if ((number >= 0xea && number <= 0xec) || (number >= 0xfa && number <= 0xfc)) {
+      unsigned col = (number & 15) - 10, row = number >= 0xfa;
+      life_color = MmxZeroLifeColor(col * 8 + cx - 4, row * 8 + cy);
+      tile = 0x080f; /* The menu's own empty panel tile supplies the backdrop. */
+    }
+  }
   unsigned number = ((tile & 1023) + cx / 8 + cy / 8 * 16) & 1023;
   unsigned address = (PPU_bgTileAdr(p, layer) + number * bpp * 4) & 0x7fff;
-  const uint8_t *bits = g_mmx_render_asset_repairs && bpp == 4 && !(frame.ram[0x1f7a] == 1 && layer == 1) ?
+  const uint8_t *bits = stage && g_mmx_render_asset_repairs && bpp == 4 && !(frame.ram[0x1f7a] == 1 && layer == 1) ?
       MmxRenderAssetsBackgroundTile(frame.ram, asset_x, address) : NULL;
   unsigned pixel;
   if (bits) {
@@ -505,9 +520,10 @@ static uint16_t background(const Ppu *p, const Raster *r, unsigned layer, int x,
     pixel = ((bits[0] >> shift) & 1) | (((bits[1] >> shift) & 1) << 1) |
         (((bits[16] >> shift) & 1) << 2) | (((bits[17] >> shift) & 1) << 3);
   } else pixel = tile_pixel(r->vram, address, cx & 7, cy & 7, bpp);
+  if (life_color >= 0) { pixel = 1; *private_color = life_color; }
   if (!pixel) return 0;
   unsigned index = (((tile >> 10) & 7) << bpp) | pixel;
-  const MmxBackgroundPalette *palette = g_mmx_render_asset_repairs ?
+  const MmxBackgroundPalette *palette = stage && g_mmx_render_asset_repairs ?
       (armadillo_lower_shaft ? MmxRenderAssetsBackgroundPalettePhase(frame.ram, 1) :
        MmxRenderAssetsBackgroundPalette(frame.ram, asset_x)) : NULL;
   if (palette && palette->valid[index]) *private_color = palette->colors[index];
@@ -517,7 +533,7 @@ static uint16_t background(const Ppu *p, const Raster *r, unsigned layer, int x,
 static void sprite(const Ppu *p, const Raster *r, int x, int sy, unsigned attr, int size,
                     int y, MmxRenderView view, uint16_t *out, bool margins_only,
                     const MmxSpriteAsset *asset, unsigned raw_tile, int *object_color,
-                    bool full_coordinates, bool zero_icon) {
+                    bool full_coordinates, unsigned zero_icon) {
   int row = full_coordinates ? y - sy : (y - sy) & 255;
   if (row < 0 || row >= size) return;
   if (attr & 0x8000) row = size - 1 - row;
@@ -538,7 +554,7 @@ static void sprite(const Ppu *p, const Raster *r, int x, int sy, unsigned attr, 
       pixel = ((bits[0] >> shift) & 1) | (((bits[1] >> shift) & 1) << 1) |
           (((bits[16] >> shift) & 1) << 2) | (((bits[17] >> shift) & 1) << 3);
     } else pixel = tile_pixel(r->vram, base + tile * 16, cx & 7, row & 7, 4);
-    int hud_color = zero_icon ? MmxZeroHudColor(cx, row) : -1;
+    int hud_color = zero_icon == 1 ? MmxZeroHudColor(cx, row) : zero_icon == 2 ? MmxZeroLifeColor(cx, row) : -1;
     if (hud_color >= 0) pixel = 1;
     else if (hud_color == -2) pixel = 0;
     if (pixel) {
@@ -647,6 +663,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
   memset(door_cache, 0, sizeof(door_cache));
   memset(out, 0, (size_t)view.width * 224 * sizeof(*out));
   bool stage = MmxWidePolicy_IsStageScene(frame.ram);
+  bool zero_menu = zero_weapons_menu();
   prepare_stage_planes();
   LightBeam beams[2];
   unsigned beam_count = stage ? spark_lights(beams, view.extra) : 0;
@@ -654,8 +671,8 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       MmxRenderAssetsDeathPaletteFade(frame.ram, frame.lines[0].palette) : 0;
   const Piece *pieces = frame.expand && g_mmx_render_asset_repairs ? frame.expanded : frame.pieces;
   unsigned piece_count = frame.expand && g_mmx_render_asset_repairs ? frame.expanded_count : frame.piece_count;
-  const uint8_t *zero = stage ? MmxZeroPose(frame.ram, &frame_zero) : NULL;
-  const uint8_t *blade = zero ? MmxZeroBlade(&frame_zero) : NULL;
+  const uint8_t *zero = zero_menu ? MmxZeroMenuPose() : stage ? MmxZeroPose(frame.ram, &frame_zero) : NULL;
+  const uint8_t *blade = stage && zero ? MmxZeroBlade(&frame_zero) : NULL;
   Piece waiting[128];
   unsigned waiting_count = stage && g_mmx_render_asset_repairs ?
       fortress_waiting_pieces(waiting, pieces, piece_count) : 0;
@@ -680,7 +697,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
     const Raster *r = &frame.lines[y]; Ppu p;
     memcpy(&p, r->registers, PPU_SAVESTATE_REGS_SIZE);
     if (beam_count) p.cgwsel = (p.cgwsel & 0xcf) | 0x20;
-    if ((p.bgmode & 7) != 1 || !stage) {
+    if ((p.bgmode & 7) != 1 || (!stage && !zero_menu)) {
       memcpy(out + y * view.width + view.extra, frame.stock + y * 256, 256 * sizeof(*out));
       ++stats.fallback_lines; continue;
     }
@@ -705,6 +722,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       sprite(&p, r, s.x, s.y, s.attr, s.size, y, view, objects, true, asset, s.tile, object_colors, true, false);
     }
     bool replaced[128] = {false};
+    bool life_drawn[256] = {false};
     bool zero_drawn = false;
     for (int i = (int)piece_count - 1; i >= 0; --i) {
       Piece s = pieces[i]; const MmxSpriteAsset *asset = piece_assets[i];
@@ -714,8 +732,15 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
        * their entire footprint, including x=255 which native D76A clips.
        * Only the explicit expanded list can add pieces beyond that budget. */
       bool center = g_mmx_render_asset_repairs;
-      bool zero_armor = zero && (s.object == 0xc38 || s.object == 0xc58 || s.object == 0xc78);
-      if (g_mmx_render_asset_repairs || (zero && s.object == 0xba8) || zero_armor) for (int slot = 16; slot < 128; ++slot) {
+      bool zero_body = zero && s.object == (zero_menu ? 0x1988 : 0xba8);
+      /* Native group $11 is the four-piece life pickup ($81:E33A). Keep its
+       * real object, flashing submissions, terrain and collection behavior. */
+      bool zero_life = stage && MmxZeroEnabled() && s.animation == 0x11 &&
+          s.object >= 0x1628 && s.object < 0x1928 && (s.object - 0x1628) % 48 == 0 &&
+          frame.ram[s.object + 10] == 4;
+      bool zero_armor = zero && (zero_menu ? (s.object == 0x1928 || s.object == 0x1948 || s.object == 0x1968) :
+                                              (s.object == 0xc38 || s.object == 0xc58 || s.object == 0xc78));
+      if (g_mmx_render_asset_repairs || zero_body || zero_armor || zero_life) for (int slot = 16; slot < 128; ++slot) {
         unsigned pos = r->oam[slot * 2], hi = r->high_oam[slot / 4] >> (slot % 4 * 2);
         int ox = (pos & 255) | ((hi & 1) << 8); if (ox >= 256) ox -= 512;
         if (ox == s.x && (pos >> 8) == ((unsigned)s.y & 255) && r->oam[slot * 2 + 1] == s.attr) {
@@ -730,11 +755,20 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
           (asset->live_tiles ? s.attr & 255 : 0) : s.attr;
       if (asset && asset->live_colors) attr = (attr & ~0x0e00u) | (s.attr & 0x0e00u);
       if (zero_armor) continue;
-      if (zero && s.object == 0xba8) {
+      if (zero_life) {
+        if (!life_drawn[s.object >> 5]) {
+          life_drawn[s.object >> 5] = true;
+          int lx = (int16_t)(word(frame.ram,s.object + 5) - word(frame.ram,0x1e4d)) - 8;
+          int ly = (int16_t)(word(frame.ram,s.object + 8) - word(frame.ram,0x1e50)) - 8;
+          sprite(&p,r,lx,ly,s.attr & 0x3fff,16,y,view,objects,false,NULL,0,object_colors,true,2);
+        }
+        continue;
+      }
+      if (zero_body) {
         if (!zero_drawn) {
           zero_drawn = true;
-          int zx = (int16_t)(word(frame.ram, 0xbad) - word(frame.ram, 0x1e4d));
-          int zy = (int16_t)(word(frame.ram, 0xbb0) - word(frame.ram, 0x1e50)) - 8;
+          int zx = zero_menu ? 128 : (int16_t)(word(frame.ram, 0xbad) - word(frame.ram, 0x1e4d));
+          int zy = zero_menu ? 152 : (int16_t)(word(frame.ram, 0xbb0) - word(frame.ram, 0x1e50)) - 8;
           int row = y - zy + 64;
           if (row >= 0 && row < MMX_ZERO_HEIGHT) {
             const uint16_t *colors = MmxZeroColors();
@@ -742,7 +776,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
             for (int col = 0; col < MMX_ZERO_WIDTH; ++col) {
               unsigned pixel = zero[row * MMX_ZERO_WIDTH + col];
               if (blade && blade[row * MMX_ZERO_WIDTH + col]) pixel = blade[row * MMX_ZERO_WIDTH + col];
-              int dx = zx + ((frame.ram[0xbb9] & 64) ? 63 - col : col - 64) + view.extra;
+              int dx = zx + ((!zero_menu && (frame.ram[0xbb9] & 64)) ? 63 - col : col - 64) + view.extra;
               if (pixel && dx >= 0 && dx < view.width) {
                 objects[dx] = (uint16_t)(z | (pixel & 15));
                 object_colors[dx] = colors[pixel];
@@ -776,12 +810,13 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
        * This remains visible while the player blinks or has no body pieces. */
       bool zero_icon = stage && MmxZeroEnabled() && slot == 0 &&
           x == 8 && sy == 80 && attr == 0x3486 && size == 16;
-      bool anchored = hud && sy < 96 && (slot < 16 || (bar_count >= 4 && slot >= bar_first && slot < bar_first + bar_count));
+      bool anchored = stage && hud && sy < 96 && (slot < 16 || (bar_count >= 4 && slot >= bar_first && slot < bar_first + bar_count));
       if (anchored) { if (x < 25) x -= view.extra; else if (x >= 216) x += view.extra; }
       sprite(&p, r, x, sy, attr, size, y, view, objects, false, NULL, 0, object_colors, false, zero_icon);
     }
     for (int sx = 0; sx < view.width; ++sx) {
       int x = sx - view.extra;
+      if (zero_menu && (x < 0 || x >= 256)) { out[y * view.width + sx] = 0; continue; }
       uint16_t screens[2] = {0x500, 0x500}, bg[3] = {0};
       int bg_colors[3] = {-1, -1, -1};
       for (int layer = 0; layer < 3; ++layer) if ((p.screenEnabled[0] | p.screenEnabled[1]) & (1 << layer)) {
