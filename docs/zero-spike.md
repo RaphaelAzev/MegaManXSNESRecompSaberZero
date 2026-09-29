@@ -143,6 +143,20 @@ presented frame for visual proof.
 
 ## Remaining work for the full port
 
+Owner playtest follow-up: projectile origins do not yet line up with Zero's arm,
+and some hurt/invulnerability flashes still show X. These confirmed issues are
+tracked in `beads-8wg.1.29`. The health-bar badge now uses a red Z while Zero is
+active, including when the player body is hidden; the native frame, health meter
+and weapon icon are retained (`beads-8wg.1.28`). Native and widescreen capture
+comparisons change only 50 badge pixels, and disabled-mod captures are identical.
+The updated local executable is `build-zero/hud-update/MegaManXSNESRecomp.exe`;
+it was built separately to leave the owner's running session intact.
+
+An optional Select-button X/Zero swap is a longer-term direction, tracked in
+`beads-8wg.1.30`. That feature will need an explicit active-character state
+separate from loaded assets, with the body, abilities, collision and HUD changing
+together. Swapping is not implemented by this HUD update.
+
 1. Audit the complete animation/state mapping: wall slide/jump, ladders, damage,
    death, teleport, capsules, ride armor and scripted player poses. The prototype
    reuses the shared early-game pose numbering; unsupported indices fall back to

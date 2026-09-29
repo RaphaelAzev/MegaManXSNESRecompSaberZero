@@ -517,7 +517,7 @@ static uint16_t background(const Ppu *p, const Raster *r, unsigned layer, int x,
 static void sprite(const Ppu *p, const Raster *r, int x, int sy, unsigned attr, int size,
                     int y, MmxRenderView view, uint16_t *out, bool margins_only,
                     const MmxSpriteAsset *asset, unsigned raw_tile, int *object_color,
-                    bool full_coordinates) {
+                    bool full_coordinates, bool zero_icon) {
   int row = full_coordinates ? y - sy : (y - sy) & 255;
   if (row < 0 || row >= size) return;
   if (attr & 0x8000) row = size - 1 - row;
@@ -538,9 +538,12 @@ static void sprite(const Ppu *p, const Raster *r, int x, int sy, unsigned attr, 
       pixel = ((bits[0] >> shift) & 1) | (((bits[1] >> shift) & 1) << 1) |
           (((bits[16] >> shift) & 1) << 2) | (((bits[17] >> shift) & 1) << 3);
     } else pixel = tile_pixel(r->vram, base + tile * 16, cx & 7, row & 7, 4);
+    int hud_color = zero_icon ? MmxZeroHudColor(cx, row, r->palette + 128 + ((attr >> 9) & 7) * 16) : -1;
+    if (hud_color >= 0) pixel = 1;
     if (pixel) {
       out[dest] = (uint16_t)(z | pixel);
-      object_color[dest] = asset && !asset->live_colors ? asset->colors[pixel] : -1;
+      object_color[dest] = hud_color >= 0 ? hud_color :
+          asset && !asset->live_colors ? asset->colors[pixel] : -1;
       if (x + c < 0 || x + c >= 256) ++stats.margin_sprite_pixels;
     }
   }
@@ -698,7 +701,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
     for (int i = (int)waiting_count - 1; i >= 0; --i) {
       Piece s = waiting[i];
       const MmxSpriteAsset *asset = s.animation == 0x53 ? waiting_zero : NULL;
-      sprite(&p, r, s.x, s.y, s.attr, s.size, y, view, objects, true, asset, s.tile, object_colors, true);
+      sprite(&p, r, s.x, s.y, s.attr, s.size, y, view, objects, true, asset, s.tile, object_colors, true, false);
     }
     bool replaced[128] = {false};
     bool zero_drawn = false;
@@ -748,7 +751,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
         }
         continue;
       }
-      sprite(&p, r, s.x, s.y, attr, s.size, y, view, objects, !center, asset, s.tile, object_colors, true);
+      sprite(&p, r, s.x, s.y, attr, s.size, y, view, objects, !center, asset, s.tile, object_colors, true, false);
     }
     int bar_first = -1, bar_count = 0;
     if (hud) for (int slot = 16; slot <= 48; ++slot) {
@@ -768,9 +771,13 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       if (x >= 256) x -= 512;
       int size = sizes[p.obsel >> 5][(hi >> 1) & 1];
       if (x + size <= 0 || x >= 256) continue;
+      /* Only the player's HUD badge: not weapon icons, bosses or actors.
+       * This remains visible while the player blinks or has no body pieces. */
+      bool zero_icon = stage && MmxZeroEnabled() && slot == 0 &&
+          x == 8 && sy == 80 && attr == 0x3486 && size == 16;
       bool anchored = hud && sy < 96 && (slot < 16 || (bar_count >= 4 && slot >= bar_first && slot < bar_first + bar_count));
       if (anchored) { if (x < 25) x -= view.extra; else if (x >= 216) x += view.extra; }
-      sprite(&p, r, x, sy, attr, size, y, view, objects, false, NULL, 0, object_colors, false);
+      sprite(&p, r, x, sy, attr, size, y, view, objects, false, NULL, 0, object_colors, false, zero_icon);
     }
     for (int sx = 0; sx < view.width; ++sx) {
       int x = sx - view.extra;
