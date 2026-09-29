@@ -12,10 +12,17 @@ typedef struct MmxWeaponShot {
   uint8_t charged, radius, active, reserved;
   uint8_t tether_pose, muzzle_pose;
 } MmxWeaponShot;
+/* X1 has integer HP; retain thirds so source ratios do not round every ray
+ * up or turn every sub-buster contact into a full buster hit. */
+typedef struct MmxWeaponDamageState {
+  uint8_t remainder, kind, hp, active;
+} MmxWeaponDamageState;
+#define MMX_WEAPON_COMBAT_LEGACY_SIZE 328u
 typedef struct MmxWeaponCombatState {
   MmxWeaponShot shots[8];
   uint16_t tick;
   uint8_t stage, valid, held, pressed, direction, reserved;
+  MmxWeaponDamageState enemies[15];
 } MmxWeaponCombatState;
 MmxWeaponCombatState MmxWeaponsGetCombatState(void);
 bool MmxWeaponsValidCombatState(const MmxWeaponCombatState *state);

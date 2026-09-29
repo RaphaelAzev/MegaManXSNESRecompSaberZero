@@ -512,9 +512,10 @@ static void weapon_energy_checks(const char *assets, const char *fixture, uint8 
   for(size_t i=n-8;i>8;--i) {uint32_t magic;memcpy(&magic,start+i,4);if(magic==0x4d4d5854u) {chunk=i;break;}}
   check(chunk!=0,"fractional inventory game chunk located");
   size_t end_inventory=n-sizeof(MmxWeaponCombatState);
-  memmove(start+end_inventory-16,start+end_inventory,sizeof(MmxWeaponCombatState));
+  memmove(start+end_inventory-16,start+end_inventory,MMX_WEAPON_COMBAT_LEGACY_SIZE);
   uint32_t legacy=10;memcpy(start+chunk+4,&legacy,4);
-  check(RtlLoadSnapshotFromMemory(start,n-16),"legacy v10 whole-unit weapon save loads");
+  check(RtlLoadSnapshotFromMemory(start,n-16-(sizeof(MmxWeaponCombatState)-MMX_WEAPON_COMBAT_LEGACY_SIZE)),
+        "legacy v10 whole-unit weapon save loads");
   check(MmxWeaponsEnergyAmount(1,1)==11*256 && MmxWeaponsEnergyAmount(2,5)==28*256,
         "legacy weapon save retains whole units and initializes zero fractions");
   puts("MMX EXTENDED ENERGY CHECKS PASSED");
@@ -627,12 +628,17 @@ static void weapon_wheel_checks(const char *assets,const char *fixture,uint8 *st
     shot=i;break;
   }
   check(shot<8,"Spin Wheel available for native enemy contact");
+  g_ram[victim+0x27]=32; /* Keep the target alive through the stronger wheel. */
   MmxWeaponsSetCombatState(c);unsigned hp=g_ram[victim+0x27]&127;zero_replay(3);
   c=MmxWeaponsGetCombatState();
-  check((g_ram[victim+0x27]&127)+1==hp && c.shots[shot].active && c.shots[shot].tether_pose,
-      "Spin Wheel deals native damage and pauses on contact without disappearing");
-  zero_replay(12);c=MmxWeaponsGetCombatState();
-  check(c.shots[shot].active && !c.shots[shot].tether_pose,"Spin Wheel resumes after its contact pause");
+  check((g_ram[victim+0x27]&127)+8==hp && c.shots[shot].active && c.shots[shot].tether_pose,
+      "Spin Wheel deals normalized source damage and pauses on contact without disappearing");
+  bool resumed=false;
+  for(unsigned i=0;i<12;++i) {
+    frame(0);c=MmxWeaponsGetCombatState();
+    resumed|=c.shots[shot].active && !c.shots[shot].tether_pose;
+  }
+  check(resumed,"Spin Wheel resumes after its contact pause even when a surviving target is hit again");
   puts("MMX SPIN WHEEL CHECKS PASSED");
 }
 static void weapon_sonic_checks(const char *assets, const char *fixture, uint8 *start,
@@ -782,8 +788,9 @@ static void weapon_ray_checks(const char *assets, const char *fixture, uint8 *st
     projectile=i;break;
   }
   check(projectile<8,"Ray projectile available for native collision");
+  g_ram[victim+0x27]=32;
   MmxWeaponsSetCombatState(c);unsigned hp=g_ram[victim+0x27]&127;zero_replay(3);
-  check((g_ram[victim+0x27]&127)+1==hp,"Ray Splasher deals ordinary native enemy damage");
+  check((g_ram[victim+0x27]&127)+2==hp,"Ray Splasher deals normalized source damage to a native enemy");
   zero_replay(3);check(!MmxWeaponsGetCombatState().shots[projectile].active,"Ray hit drains original trail and releases its slot");
   puts("MMX RAY SPLASHER CHECKS PASSED");
 }
@@ -845,8 +852,9 @@ static void weapon_acid_checks(const char *assets, const char *fixture, uint8 *s
     c.shots[i].vx=c.shots[i].vy=0;projectile=i;break;
   }
   check(projectile<8,"acid actor available for native collision");
+  g_ram[victim+0x27]=32;
   MmxWeaponsSetCombatState(c);unsigned hp=g_ram[victim+0x27]&127;zero_replay(3);
-  check((g_ram[victim+0x27]&127)+1==hp,"Acid Burst deals ordinary native damage to a real enemy");
+  check((g_ram[victim+0x27]&127)+3==hp,"Acid Burst deals three buster hits of damage to a real enemy");
   zero_replay(35);
   check(!MmxWeaponsGetCombatState().shots[projectile].active,"acid enemy impact retires without creating floor droplets");
   puts("MMX ACID BURST CHECKS PASSED");
@@ -901,12 +909,50 @@ static void weapon_combat_checks(const char *assets, const char *fixture, uint8 
     projectile=0x1228+i*64; break;
   }
   check(projectile!=0,"blade actor available for native collision");
+  g_ram[victim+0x27]=32;
   MmxWeaponsSetCombatState(c); unsigned hp=g_ram[victim+0x27]&127;
   zero_replay(3);
-  check((g_ram[victim+0x27]&127)+1==hp,"blade uses ordinary native buster damage against real enemy");
+  check((g_ram[victim+0x27]&127)+3==hp,"blade uses three buster hits of damage against a real enemy");
   zero_replay(30);
   check(!MmxWeaponsGetCombatState().shots[(projectile-0x1228)/64].active,"native enemy hit plays original impact animation and retires blade");
   puts("MMX EXTENDED WEAPON COMBAT CHECKS PASSED");
+}
+static void weapon_damage_checks(const char *assets,const char *fixture,uint8 *start,size_t cap) {
+  check(MmxWeaponsLoad(assets) && RtlLoadSnapshot(fixture),"restore source damage fixture");
+  MmxWeaponsState w=MmxWeaponsGetState();w.page=2;w.weapon=5;MmxWeaponsSetState(w);
+  frame(SNES_PAD_Y);zero_replay(9);
+  MmxWeaponCombatState c=MmxWeaponsGetCombatState();unsigned slot=8;
+  for(unsigned i=0;i<8;++i) if(c.shots[i].active && c.shots[i].variant==2) {slot=i;break;}
+  check(slot<8,"original Ray projectile available for damage scaling");
+  unsigned d=0x1228+slot*64,enemy=0xe68;
+  g_ram[enemy]=1;g_ram[enemy+1]=2;g_ram[enemy+10]=0x1f;
+  g_ram[enemy+0x27]=32;g_ram[enemy+0x28]=3;
+  check(MmxWeaponsDamage(g_ram,enemy,d,0)==0 && MmxWeaponsDamage(g_ram,enemy,d,128)==128,
+        "native immunity and reflection remain authoritative");
+  check(MmxWeaponsDamage(g_ram,enemy,d,1)==2,"first 5/3 ray contact rounds cumulative damage");
+  check(MmxWeaponsDamage(g_ram,enemy,d,1)==0,"same ray cannot hit the same enemy twice");
+  size_t n=RtlSaveSnapshotToMemory(start,cap);
+  unsigned total=2;
+  for(unsigned i=0;i<2;++i) {
+    c=MmxWeaponsGetCombatState();c.shots[slot].hit_slots=0;MmxWeaponsSetCombatState(c);
+    total+=MmxWeaponsDamage(g_ram,enemy,d,1);
+  }
+  check(total==5,"three rays equal exactly five X1 buster hits, without per-ray rounding inflation");
+  check(RtlLoadSnapshotFromMemory(start,n),"damage fraction survives save/load");
+  c=MmxWeaponsGetCombatState();c.shots[slot].hit_slots=0;MmxWeaponsSetCombatState(c);
+  check(MmxWeaponsDamage(g_ram,enemy,d,1)==1,"restored fractional carry gives the same next contact");
+  c=MmxWeaponsGetCombatState();c.shots[slot].hit_slots=0;MmxWeaponsSetCombatState(c);
+  g_ram[enemy+0x28]=6;
+  check(MmxWeaponsDamage(g_ram,enemy,d,1)==1,"boss receives neutral source damage without imported weakness");
+  /* A v11 snapshot ends at the old combat prefix. */
+  size_t chunk=0;
+  for(size_t i=n-8;i>8;--i) {uint32_t magic;memcpy(&magic,start+i,4);if(magic==0x4d4d5854u) {chunk=i;break;}}
+  check(chunk!=0,"damage snapshot chunk found");
+  uint32_t legacy=11;memcpy(start+chunk+4,&legacy,4);
+  check(RtlLoadSnapshotFromMemory(start,n-(sizeof(c)-MMX_WEAPON_COMBAT_LEGACY_SIZE)),
+        "v11 projectile snapshot migrates without damage carry");
+  c=MmxWeaponsGetCombatState();check(!c.enemies[0].active,"legacy damage carry initializes empty");
+  puts("MMX SOURCE DAMAGE CHECKS PASSED");
 }
 static void zero_half_charge_checks(const char *fixture) {
   for (unsigned arms=0;arms<2;++arms) {
@@ -937,7 +983,8 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
   const char *weapons=getenv("MMX_WEAPONS_TEST_ASSETS");
   if (getenv("MMX_SOURCE_PACK_TEST")) { weapon_source_pack_checks(fixture,start,expected,actual,cap);return; }
   if (weapons) {
-    if (getenv("MMX_WEAPON_CYCLE_TEST")) weapon_cycle_checks(weapons,fixture,start,cap);
+    if (getenv("MMX_WEAPON_DAMAGE_TEST")) weapon_damage_checks(weapons,fixture,start,cap);
+    else if (getenv("MMX_WEAPON_CYCLE_TEST")) weapon_cycle_checks(weapons,fixture,start,cap);
     else if (getenv("MMX_WEAPON_WHEEL_TEST")) weapon_wheel_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_SONIC_TEST")) weapon_sonic_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_RAY_TEST")) weapon_ray_checks(weapons,fixture,start,expected,actual,cap);

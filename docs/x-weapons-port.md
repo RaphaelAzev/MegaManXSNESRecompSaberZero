@@ -92,15 +92,25 @@ native buster resources as a safe underlying actor. The current
 implementation includes five combat weapons; remaining entries
 are still unfinished.
 
-The game save chunk is version 11 when extended weapons are enabled; legacy
+The game save chunk is version 12 when extended weapons are enabled; legacy
 saves initialize full energy without changing X1 inventory. Zero-only saves
-remain version 8 and stock saves version 3. Renderer capture version 10 also
+remain version 8 and stock saves version 3. Renderer capture version 11 also
 stores the displayed weapon page and the active projectile simulation. Existing
 older captures still load. Version 9 game states initialize an empty projectile
 simulation; their weapon selection and energy remain intact.
 Game versions 9/10 and capture versions 8/9 retain their original 24-byte
 inventory prefix; new loads initialize the sixteen appended fraction bytes
 to zero. New inventory state is 40 bytes and preserves source 8.8 precision.
+
+The five playable attacks now use source ordinary-enemy damage divided by
+their source buster value (3), multiplied by the X1 target's buster damage.
+Fractions carry between contacts to preserve ratios, including weak individual
+pellets and strong sustained weapons. Special encounter/armored profiles keep
+neutral buster damage; native immunity remains unchanged. No boss weaknesses
+are added. See the source notebook for the exact per-phase values. Combat state
+is 388 bytes; v10/v11 game saves and v9/v10 captures migrate their old 328-byte
+projectile prefix with empty damage carry. Earlier checkpoint references to
+one-HP placeholder damage below describe the original implementation only.
 
 Focused ROM-backed checks exercise all sixteen menu choices while X1 weapons
 are locked, forward/backward page cycling, X/Zero selection, native cleanup,

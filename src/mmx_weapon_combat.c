@@ -8,7 +8,8 @@ static uint8_t *collision_rom;
 static size_t collision_rom_size;
 static bool collision_patch;
 static uint8_t previous_boxes[32];
-_Static_assert(sizeof(MmxWeaponShot) == 40 && sizeof(MmxWeaponCombatState) == 328, "Weapon combat save ABI");
+_Static_assert(sizeof(MmxWeaponShot) == 40 && offsetof(MmxWeaponCombatState,enemies) == MMX_WEAPON_COMBAT_LEGACY_SIZE &&
+    sizeof(MmxWeaponCombatState) == 388, "Weapon combat save ABI");
 static unsigned word(const uint8_t *p) { return p[0] | (p[1] << 8); }
 static void putword(uint8_t *p, unsigned value) { p[0] = (uint8_t)value; p[1] = (uint8_t)(value >> 8); }
 static bool slot_valid(unsigned d) { return d >= 0x1228 && d < 0x1428 && (d & 63) == 0x28; }
@@ -28,6 +29,8 @@ static void stop_charge(uint8_t *r) {
 MmxWeaponCombatState MmxWeaponsGetCombatState(void) { return combat; }
 bool MmxWeaponsValidCombatState(const MmxWeaponCombatState *s) {
   if (!s || s->valid > 1 || s->held > 1 || s->pressed > 1 || s->reserved) return false;
+  for (unsigned i=0;i<15;++i) if (s->enemies[i].remainder>2 ||
+      s->enemies[i].hp>127 || s->enemies[i].active>1) return false;
   for (unsigned i = 0; i < 8; ++i) {
     const MmxWeaponShot *p = s->shots + i;
     if (p->active > 1 || p->reserved || p->charged > 1 || p->pose >= 128 || p->animation > 8192 ||
@@ -109,6 +112,13 @@ void MmxWeaponsPlayerTick(uint8_t r[0x20000]) {
     MmxWeaponsCancelShots(r); combat.valid = 1; combat.stage = r[0x1f7a];
   }
   ++combat.tick;
+  for (unsigned i=0;i<15;++i) {
+    unsigned d=0xe68+i*64,hp=r[d+0x27]&127;
+    MmxWeaponDamageState *e=combat.enemies+i;
+    if (!r[d] || !r[d+1] || !hp || e->kind!=r[d+10] || hp>e->hp)
+      memset(e,0,sizeof(*e));
+    if (e->active) e->hp=(uint8_t)hp;
+  }
   combat.held = (r[0xbdf] & 64) != 0; combat.pressed = (r[0xbe3] & 64) != 0;
   combat.direction = r[0xbe3] & 12;
   if (!MmxWeaponsCombatActive()) return;
@@ -670,13 +680,44 @@ void MmxWeaponsCollisionRom(uint8_t *rom, size_t size) {
 static unsigned enemy_bit(unsigned enemy) {
   return enemy >= 0xe68 && enemy < 0x1228 && (enemy & 63) == 0x28 ? 1u << ((enemy-0xe68)/64) : 0;
 }
+static unsigned source_damage(const MmxWeaponShot *s) {
+  /* Neutral ordinary-enemy rows: X2 $86:F4C8, X3 $86:E55D.
+   * Both use buster=3. Classes are determined by the projectile phase,
+   * not by the menu ID (Ray children are $1C, Acid droplets are $18).
+   * Special-response weapons are added with their own behavior handlers. */
+  if (s->page==1) {
+    if (s->weapon==4) return s->charged ? 50 : 25;
+    if (s->weapon==5) return s->charged ? 1 : 4;
+  } else if (s->page==2) {
+    if (s->weapon==1) return s->variant==2 ? 5 : 9;
+    if (s->weapon==4) return s->charged ? 30 : 9;
+    if (s->weapon==5) return s->variant>=2 ? 5 : 9;
+  }
+  return 3;
+}
 unsigned MmxWeaponsDamage(uint8_t r[0x20000], unsigned enemy, unsigned d, unsigned original) {
   if (!owned(r,d) || !original || (original & 128)) return original;
   MmxWeaponShot *s = combat.shots + slot_index(d);
   unsigned bit = enemy_bit(enemy);
+  if (!bit || !s->active) return original;
   if (s->hit_slots & bit) return 0;
   s->hit_slots |= (uint16_t)bit;
-  return original; /* Native buster damage/immunity; no new weakness table. */
+  /* X1 categories 0..5 are ordinary enemies; 6..19 contain the eight
+   * Maverick and special encounter/armored response rows at $86:EF37.
+   * Source bosses mostly take one from these attacks and one from buster.
+   * Preserve that neutral ratio, never transplant another game's weakness. */
+  if (r[enemy+0x28]>=6) return original;
+  MmxWeaponDamageState *e=combat.enemies+(enemy-0xe68)/64;
+  unsigned hp=r[enemy+0x27]&127;
+  if (!e->active || e->kind!=r[enemy+10] || hp>e->hp) {
+    e->remainder=1; /* Round the cumulative total to nearest whole HP. */
+    e->kind=r[enemy+10];e->active=1;
+  }
+  e->hp=(uint8_t)hp;
+  unsigned scaled=original*source_damage(s)+e->remainder;
+  e->remainder=(uint8_t)(scaled%3);
+  unsigned damage=scaled/3;
+  return damage>127 ? 127 : damage;
 }
 unsigned MmxWeaponsHitbox(const uint8_t r[0x20000], unsigned enemy, unsigned d, unsigned original) {
   if (owned(r,d) && (combat.shots[slot_index(d)].hit_slots & enemy_bit(enemy))) return 0;

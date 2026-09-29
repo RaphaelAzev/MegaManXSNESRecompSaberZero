@@ -253,7 +253,45 @@ that actually hit. Source ordinary/boss damage distinctions and multi-hit
 cooldowns must be adapted deliberately to X1's enemy HP scale. The stats goal
 requests source-based weapon strength; new boss-weakness tables remain out of
 scope. The owner was offered normalized buster ratios versus raw source HP
-numbers; normalized ratios are the stated default pending a preference.
+numbers; the owner explicitly selected normalized buster ratios.
+
+### Normalized source damage implementation
+
+The ordinary profile uses X2 row `$86:F4C8` (categories 3/4/17/18/19,
+also selected by ordinary object initializers, e.g. `$82:B968` and `$84:94E2`)
+and X3 row `$86:E55D` (category 2; categories 3..6 agree for the attacks
+below). Both use basic buster damage 3. This is a neutral cross-game
+adaptation, not a transplant of every enemy-specific response.
+
+| Attack | Source class | Raw ordinary damage | Buster ratio |
+| --- | --- | --- | --- |
+| Spin Wheel normal / charged | $0A / $13 | 25 / 50 | 25/3 / 50/3 |
+| Sonic Slicer normal / charged | $0B / $14 | 4 / 1 | 4/3 / 1/3 |
+| Acid Burst blob / charged blob | $07 / $10 | 9 / 9 | 3 / 3 |
+| Acid droplet | $18 | 5 | 5/3 |
+| Spinning Blade normal / charged | $0A / $13 | 9 / 30 | 3 / 10 |
+| Ray Splasher ray / turret contact | $1C / $14 | 5 / 9 | 5/3 / 3 |
+
+Multiply by the positive X1 basic-buster value for that enemy. Keep a
+remainder in thirds per enemy slot, initially 1, so the cumulative result
+rounds to nearest HP without inflating rapid/sub-buster attacks. Rays on a
+one-damage-buster target deal 2,1,2 over three contacts; three charged Sonic
+contacts total one HP. A fractional contact can flash without removing an
+integer HP. Fractions reset on a recycled/healed enemy, stage/reset or
+explicit projectile cancellation, and are serialized.
+
+X1's directory `$86:EF37` has ordinary categories 0..5 and special
+encounter/armored categories 6..19. Keep the latter's native positive buster
+damage as a neutral 1:1 ratio: the usual nonweak source boss profile is one
+for these attacks and one for buster. Native zero/special immunity responses
+remain authoritative. No new weakness, armor-breaking or special-response
+matrix is imported by this scalar damage change.
+
+Combat state appends fifteen four-byte damage records after the old 328-byte
+prefix (388 bytes total). Game chunk v12 / renderer capture v11 store them;
+older game v10/v11 and capture v9/v10 read the original prefix and initialize
+empty carry. Original graphics cache stays MMXWEAP4. The source table's first
+pointer is **not** its directory length: X2 has 32 entries and X3 has 35.
 
 ### Prior charged-beam counter finding
 
