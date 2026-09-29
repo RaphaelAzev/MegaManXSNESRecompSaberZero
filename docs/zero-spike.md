@@ -216,8 +216,15 @@ ignored. Save/load preserves the full exchange and restores the frozen sprite
 queues. Both directions have focused runtime checks, including a live projectile
 and mid-exchange deterministic replay. Tracked in `beads-8wg.1.30`.
 
-This first swap build shares the existing X1 health and weapon pools. Separate
-character HP and the requested X2/X3 ability pages are subsequent work.
+X and Zero now retain separate current HP across exchanges. Native health
+pickups and subtanks heal only the active character. Heart tanks increase the
+shared maximum; native stage/checkpoint initialization refills both pools.
+Death still costs a life normally. Game save chunk v8 and capture v7 append
+the two HP pools, and prior character/swap saves remain readable. Focused
+runtime checks cover asymmetric HP, both sizes of native pickup, full-health
+pickup behavior, exchange replay, and native death/life loss/respawn.
+Weapon energy remains shared in this mode. The X2/X3 weapon and later co-op
+requirements are recorded in [the roadmap](zero-weapons-coop-roadmap.md).
 
 1. Audit the complete animation/state mapping: wall slide/jump, ladders, damage,
    death, teleport, capsules, ride armor and scripted player poses. The full-port

@@ -263,6 +263,60 @@ static void zero_swap_checks(const char *fixture, uint8 *start, uint8 *expected,
   check(!MmxZeroSwapping(),"Select cannot swap in midair");
   check(RtlLoadSnapshot(fixture),"restore after Select checks");
 }
+static void zero_health_swap(void) {
+  frame(SNES_PAD_SELECT);
+  check(MmxZeroSwapping(),"HP exchange begins");
+  for(unsigned i=0;i<160 && MmxZeroSwapping();++i) frame(0);
+  check(!MmxZeroSwapping(),"HP exchange completes");
+  zero_replay(3);
+}
+static void zero_health_pickup(unsigned small) {
+  /* Retail health actor (item kind 2), collected through native collision. */
+  memset(g_ram+0x1628,0,48); g_ram[0x1628]=1;
+  g_ram[0x1632]=2; g_ram[0x1633]=(uint8_t)(128|small);
+  memcpy(g_ram+0x162d,g_ram+0xbad,2);
+  unsigned y=(g_ram[0xbb0] | g_ram[0xbb1]<<8)-16;
+  g_ram[0x1630]=(uint8_t)y; g_ram[0x1631]=(uint8_t)(y>>8);
+  zero_replay(55);
+  check(!g_ram[0x1628],"native health pickup finishes collection");
+}
+static void zero_health_checks(const char *fixture, uint8 *start, uint8 *expected, uint8 *actual, size_t cap) {
+  check(RtlLoadSnapshot(fixture),"restore for separate HP");
+  zero_replay(10);
+  g_ram[0xbcf]=7|128; frame(0);
+  check(MmxZeroGetState().hp[0]==7 && MmxZeroGetState().hp[1]==16,"damage affects only active Zero");
+  zero_health_swap();
+  check(!MmxZeroActive() && (g_ram[0xbcf]&127)==16,"X arrives with his independent HP");
+  g_ram[0xbcf]=9|128; frame(0);
+  zero_health_pickup(1);
+  check((g_ram[0xbcf]&127)==11 && MmxZeroGetState().hp[0]==7,"small health pickup heals X only");
+  zero_health_pickup(0);
+  check((g_ram[0xbcf]&127)==16 && MmxZeroGetState().hp[0]==7,"large health pickup clamps X without healing Zero");
+  zero_health_pickup(1);
+  check(MmxZeroGetState().hp[0]==7,"full active pool never redirects pickup healing to reserve");
+  zero_health_swap();
+  check(MmxZeroActive() && (g_ram[0xbcf]&127)==7,"Zero returns with his previous HP");
+  g_ram[0x1f9a]=18; g_ram[0xbcf]=9|128; frame(0);
+  check(MmxZeroGetState().hp_max==18 && MmxZeroGetState().hp[1]==16,"heart-tank maximum is shared without refilling reserve HP");
+  size_t n=RtlSaveSnapshotToMemory(start,cap);
+  zero_health_swap(); size_t en=RtlSaveSnapshotToMemory(expected,cap);
+  check(RtlLoadSnapshotFromMemory(start,n),"separate HP save loads");
+  zero_health_swap(); size_t an=RtlSaveSnapshotToMemory(actual,cap);
+  same(expected,en,actual,an,"separate HP and exchange replay deterministically");
+  unsigned lives=g_ram[0x1f80];
+  /* State produced by native lethal damage at $84:9D60. Let the real death
+   * animation, life decrement and checkpoint initializer perform the rest. */
+  g_ram[0xbcf]=128; g_ram[0xbaa]=0x0c; g_ram[0xbab]=0;
+  bool respawned=false;
+  for(unsigned i=0;i<1000;++i) {
+    frame(0); MmxZeroState s=MmxZeroGetState();
+    if(g_ram[0x1f80]+1==lives && s.hp_valid && s.hp[0]==18 && s.hp[1]==18 && g_ram[0xba9]==2) {
+      respawned=true; break;
+    }
+  }
+  check(respawned,"native death loses one life and respawn refills both HP pools");
+  check(RtlLoadSnapshot(fixture),"restore after separate HP checks");
+}
 static void zero_state_checks(const char *assets, const char *fixture, uint8 *start,
                               uint8 *expected, uint8 *actual, size_t cap) {
   check(fixture != NULL && MmxZeroLoad(assets), "Zero local assets load");
@@ -276,6 +330,8 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
   check(w == 256 && g_mmx_custom_renderer, "Zero activates native-width compositor");
   zero_swap_checks(fixture,start,expected,actual,cap);
   if(getenv("MMX_ZERO_SWAP_ONLY")) { puts("MMX SELECT SWAP CHECKS PASSED"); return; }
+  zero_health_checks(fixture,start,expected,actual,cap);
+  if(getenv("MMX_ZERO_HEALTH_ONLY")) { puts("MMX CHARACTER HP CHECKS PASSED"); return; }
   zero_motion_checks(fixture);
   zero_combat_checks(fixture);
   check(RtlLoadSnapshot(fixture), "restore for burst state replay");
@@ -310,6 +366,10 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
   check(RtlLoadSnapshotFromMemory(start,burst_n-sizeof(MmxZeroState)+MMX_ZERO_COMBAT_STATE_SIZE),
         "pre-swap v6 save retains combat prefix");
   check(MmxZeroActive() && !MmxZeroSwapping(),"pre-swap save defaults to Zero without an exchange");
+  uint32_t v7=7; memcpy(start+chunk+4,&v7,4);
+  check(RtlLoadSnapshotFromMemory(start,burst_n-sizeof(MmxZeroState)+MMX_ZERO_SWAP_STATE_SIZE),
+        "pre-HP v7 save retains character/swap prefix");
+  check(!MmxZeroGetState().hp_valid,"pre-HP save seeds separate pools from native HP on first update");
   check(RtlLoadSnapshot(fixture), "restore for combo probe");
   for (int i=0;i<201;++i) frame(SNES_PAD_Y);
   frame(0);
