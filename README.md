@@ -66,7 +66,7 @@ separate current health; pickups heal only the active character. Enable it in
 **Mods** and select your **Mega Man X3 USA ROM**. Assets are prepared locally
 automatically. See [setup and release notes](docs/zero-0.0.1.md) and the
 [technical handoff](docs/zero-port.md). This branch contains the [X2/X3 weapon follow-up](docs/x-weapons-port.md),
-with ten weapons implemented and six still using the development fallback.
+with thirteen weapons implemented and three still using the development fallback.
 
 <p align="center">
   <img src="docs/screenshots/widescreen-ocean.png" width="32%" alt="Mega Man X experimental widescreen rendering in an ocean scene">

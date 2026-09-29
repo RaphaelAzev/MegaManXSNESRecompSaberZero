@@ -18,9 +18,9 @@ graphics remain local.
 python tools/extract_x_weapons.py ../MegamanX2Recomp/mmx2.sfc ../MegamanX3SNESRecomp/mmx3.sfc build-zero/port-work/x-weapons.bin
 ```
 
-The current cache contains 624 projectile/effect poses, sixteen original pause-menu
+The current cache contains 646 projectile/effect poses, sixteen original pause-menu
 icons, sixteen gameplay HUD footers and the original animation sequences
-(451,225 bytes). This is an asset foundation, not a
+(464,830 bytes). This is an asset foundation, not a
 claim that the weapons are already playable in X1.
 
 Sources were checked in the local recomp projects using private, paused
@@ -48,9 +48,11 @@ roots are in `tools/data/x_weapon_assets.json`.
 Triad Thunder also loads its normal lightning graphics from `$86:9976` when
 fired; the ground-wave frames replace that region through their own pose DMA.
 Crystal Hunter's inherited frames use its original setup CHR transfer.
-Silk Shot currently extracts its original scrap form (poses `$13-$1D` plus the
-icon). Its other forms borrow stage graphics and require a separate X1 terrain
-adaptation. Tornado Fang includes the 36 frames covered by its player weapon
+Silk Shot extracts all five original material forms and their palettes from
+its explicit source DMA table; the earlier assumption that it required borrowed
+stage CHR was incorrect. Triad also extracts X3's original base-X ground-punch
+poses and animation, with existing Zero strike poses used for Zero's adaptation.
+Tornado Fang includes the 36 frames covered by its player weapon
 DMA table plus 24 charged drill frames combining six arm layouts with four
 original CHR rotation phases; see [Tornado Fang source notes](weapons/tornado-fang.md).
 
@@ -58,7 +60,7 @@ The binary stores sixteen weapon entries, each with game/weapon IDs, original
 X body and weapon palettes, the original 16x16 menu icon and its palette, then
 groups of cropped indexed sprite frames.
 Every frame retains its signed position relative to the actor origin. Empty
-entries retain native pose numbering for explicitly omitted Silk Shot forms.
+entries retain native pose numbering for poses not used by an extracted group.
 
 The menu icons come from each game's compressed graphics resource `$4C`.
 Its five-byte record is in X2 `$86:FA01` / X3 `$86:F732`; the extractor decodes
@@ -90,7 +92,7 @@ and X1 ownership filtering after returning to its page.
 Bounded generated/interpreter hooks virtualize the pause inventory reads and
 selection. X1 progression/energy stays untouched. An extended selection uses
 native buster resources as a safe underlying actor. The current
-implementation includes ten combat weapons; remaining entries
+implementation includes thirteen combat weapons; remaining entries
 are still unfinished.
 
 The game save chunk is version 13 when extended weapons are enabled; legacy
@@ -103,7 +105,7 @@ Game versions 9/10 and capture versions 8/9 retain their original 24-byte
 inventory prefix; new loads initialize the sixteen appended fraction bytes
 to zero. New inventory state is 40 bytes and preserves source 8.8 precision.
 
-The ten playable weapons now use source ordinary-enemy damage divided by
+The thirteen playable weapons now use source ordinary-enemy damage divided by
 their source buster value (3), multiplied by the X1 target's buster damage.
 Fractions carry between contacts to preserve ratios, including weak individual
 pellets and strong sustained weapons. Special encounter/armored profiles keep
@@ -396,9 +398,28 @@ The main flame and dash art were inspected. Source audio, underwater dash
 ambient bubbles and moving-platform ground-fire behavior remain fidelity work.
 Native X1 still limits damaging actors to eight, compared with X2's nine.
 
+## Further integrated weapons
+
+| Weapon | Implemented behavior and source notes |
+| --- | --- |
+| [Tornado Fang](weapons/tornado-fang.md) | Staged normal drills, repeat-fire pair, enemy contact pauses, rotating charged drill, held drain and wall grip |
+| [Silk Shot](weapons/silk-shot.md) | All five materials, normal bounce/fragments, original leaf trails, eight-piece charged gathering and release |
+| [Triad Thunder](weapons/triad-thunder.md) | Three-orb formation, connecting arcs and bolts, repeat-input inversion, charged punch/quake and terrain-following waves |
+| [Strike Chain](weapons/strike-chain.md) | Original hook/links, normal and charged extension/retraction, wall pull, pickup retrieval and charged kill rewards |
+
+Spin Wheel's contact correction accepts hits during formation as well as
+falling/rolling, clears falling velocity, and restores X2's pause entry plus
+ten-tick countdown. A native enemy test now covers repeated hits at a fixed
+position and resumed travel after the target's death, rather than only one hit.
+
+These implementations retain the existing combat/save ABI. Original SPC sound
+effects are not yet imported; each weapon's notes identify remaining audio and
+stage-specific adaptations. X's Triad punch currently uses original base-X art,
+so X1 armor overlays are hidden for that action.
+
 ## Remaining implementation
 
-Implement the other six weapons' normal and charged attacks, native
+Implement Crystal Hunter, Parasitic Bomb and Gravity Well normal and charged attacks, native
 sound/effect cleanup, X/Zero firing origins, terrain/enemy interaction and
 meaningful special behaviors. Gate charging on X1's arm upgrade. Keep ordinary
 damage and existing X1 progression. Co-op remains a later, separate mod. The
