@@ -8,7 +8,7 @@ Public release contract: [user-supplied source ROMs](mod-source-roms.md).
 
 ## Asset extraction foundation
 
-`tools/extract_x_weapons.py` builds a local `MMXWEAP3` cache from both original
+`tools/extract_x_weapons.py` builds a local `MMXWEAP4` cache from both original
 USA ROMs. It validates normalized ROM hashes, accepts copier headers, reads
 the original sprite layouts and DMA lists, and preserves original palettes.
 The source-controlled descriptor contains addresses only; ROMs and extracted
@@ -19,7 +19,8 @@ python tools/extract_x_weapons.py ../MegamanX2Recomp/mmx2.sfc ../MegamanX3SNESRe
 ```
 
 The current cache contains 591 projectile poses, sixteen original pause-menu
-icons and the original animation sequences (429,227 bytes). This is an asset foundation, not a
+icons, sixteen gameplay HUD footers and the original animation sequences
+(433,323 bytes). This is an asset foundation, not a
 claim that the weapons are already playable in X1.
 
 Sources were checked in the local recomp projects using private, paused
@@ -126,7 +127,7 @@ ordinary pair, as it does in the source game.
 
 The cache additionally stores original animation directories and records from
 X2 root $2F:A000 and X3 root $3F:8000: duration, flags, pose and relative loops.
-MMXWEAP3 is 429,227 bytes for the current descriptor. Only addresses and the
+MMXWEAP4 is 433,323 bytes for the current descriptor. Only addresses and the
 extractor are committed, never the ROM or extracted art.
 
 Focused ROM-backed checks cover both characters, twin-shot creation, normal
@@ -144,12 +145,19 @@ charge/firing sounds are reused; X2/X3 sound-bank import is not implemented.
 
 ## Energy integration
 
-Extended selections use X1's original vertical weapon-energy bar and its
-rounded white footer. Only the source icon's colored symbol is copied: its
-menu border and black padding are removed, then its visible bounds are
-centered inside the footer's 12x11 inset. Original pixels remain unscaled
-unless the symbol is taller than that inset. Pause icons remain unchanged.
-HUD inventory reads are virtualized; they never change the X1 inventory.
+Extended selections use X1's vertical energy segments and the selected
+weapon's **original X2/X3 gameplay footer**, extracted independently of the
+pause icon. Native X2 tile $28 and X3 tile $AC are 16x16 sprites loaded by each
+weapon's bulk DMA list. Their source pixels, frame, transparency and weapon
+palette are used unchanged, with no crop, scaling or borrowed X1 frame.
+The earlier cropped-menu approximation was rejected and removed.
+All sixteen rendered footers were compared pixel for pixel against private
+original-game screenshots; the corresponding DMA bytes and palettes also match
+live source VRAM/CGRAM. Pause icons remain unchanged. Native/Python extraction
+parity and focused menu/energy runtime checks pass. MMXWEAP4 adds these 256
+indexed pixels to each entry; automatic ROM extraction regenerates old caches.
+Gameplay save/capture layouts are unchanged. HUD inventory reads are virtualized;
+they never change the X1 inventory.
 
 The native weapon-energy pickup actor (item kind 1) retains its collection
 collision, gameplay freeze, incremental refill and sounds. Small pickups add

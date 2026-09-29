@@ -15,7 +15,6 @@ typedef struct WeaponArt {
   uint16_t icon_colors[16];
   MmxWeaponPose icon;
   MmxWeaponPose hud_icon;
-  uint8_t hud_pixels[12 * 11];
   unsigned groups;
   WeaponGroup group[GROUPS];
 } WeaponArt;
@@ -54,32 +53,6 @@ void MmxWeaponsDisable(void) {
   free(asset); asset = NULL; memset(art, 0, sizeof(art)); memset(&state, 0, sizeof(state));
   for (unsigned i=0;i<2;++i) { free(page_assets[i]);page_assets[i]=NULL; }
 }
-static void prepare_hud_icon(WeaponArt *w) {
-  /* Source menu icons have a frame of their own at x/y 0,1,14,15.
-   * Keep only the colored symbol, then center its visible bounds inside
-   * X1's 12x11 HUD inset. Most symbols retain their original pixel size. */
-  int left=14,top=14,right=1,bottom=1;
-  for (int y=2;y<14;++y) for (int x=2;x<14;++x) {
-    unsigned pixel=w->icon.pixels[y*16+x];
-    if (!pixel || !(w->icon_colors[pixel]&0x7fff)) continue;
-    if (x<left) left=x;
-    if (x>right) right=x;
-    if (y<top) top=y;
-    if (y>bottom) bottom=y;
-  }
-  memset(w->hud_pixels,0,sizeof(w->hud_pixels));
-  w->hud_icon=(MmxWeaponPose){0,0,12,11,w->hud_pixels};
-  if (right<left || bottom<top) return;
-  int width=right-left+1,height=bottom-top+1;
-  int draw_width=width,draw_height=height;
-  if (height>11) { draw_height=11; draw_width=(width*11+height/2)/height; }
-  int ox=(12-draw_width)/2,oy=(11-draw_height)/2;
-  for (int y=0;y<draw_height;++y) for (int x=0;x<draw_width;++x) {
-    unsigned pixel=w->icon.pixels[(top+(2*y+1)*height/(2*draw_height))*16+
-        left+(2*x+1)*width/(2*draw_width)];
-    if (pixel && (w->icon_colors[pixel]&0x7fff)) w->hud_pixels[(oy+y)*12+ox+x]=(uint8_t)pixel;
-  }
-}
 static bool load(const char *path, unsigned page) {
   FILE *f = path ? fopen(path, "rb") : NULL;
   if (!f) return false;
@@ -92,10 +65,10 @@ static bool load(const char *path, unsigned page) {
   fclose(f);
   if (!ok) { free(data); free(candidate); return false; }
   unsigned count=page ? 8 : 16,first=page ? (page-1)*8 : 0;
-  ok = !memcmp(data, "MMXWEAP3", 8) && word(data+8)==count && !word(data+10);
+  ok = !memcmp(data, "MMXWEAP4", 8) && word(data+8)==count && !word(data+10);
   size_t pos = 12;
   for (unsigned i = first; i < first+count && ok; ++i) {
-    if (pos + 356 > (size_t)size) { ok = false; break; }
+    if (pos + 612 > (size_t)size) { ok = false; break; }
     const uint8_t *p = data + pos;
     WeaponArt *w = candidate + i;
     ok = p[0] == 2 + i / 8 && p[1] == 1 + i % 8 && p[2] >= 1 && p[2] <= GROUPS && !p[3];
@@ -103,8 +76,9 @@ static bool load(const char *path, unsigned page) {
     for (unsigned c = 0; c < 16; ++c) { w->body[c] = (uint16_t)word(p + 4 + c * 2); w->colors[c] = (uint16_t)word(p + 36 + c * 2); }
     for (unsigned c = 0; c < 16; ++c) w->icon_colors[c] = (uint16_t)word(p + 68 + c * 2);
     w->icon = (MmxWeaponPose){-8,-8,16,16,p + 100};
-    for (unsigned n = 0; n < 256; ++n) if (p[100 + n] > 15) ok = false;
-    pos += 356;
+    w->hud_icon = (MmxWeaponPose){0,0,16,16,p + 356};
+    for (unsigned n = 0; n < 512; ++n) if (p[100 + n] > 15) ok = false;
+    pos += 612;
     for (unsigned g = 0; g < w->groups && ok; ++g) {
       if (pos + 6 > (size_t)size) { ok = false; break; }
       WeaponGroup *group = w->group + g;
@@ -132,7 +106,6 @@ static bool load(const char *path, unsigned page) {
     if (!page) { MmxWeaponsDisable(); asset = data; }
     else { free(page_assets[page-1]);page_assets[page-1]=data; }
     memcpy(art+first,candidate+first,count*sizeof(*art));initialize();
-    for (unsigned i=first;i<first+count;++i) prepare_hud_icon(art+i);
   }
   else free(data);
   free(candidate); return ok;

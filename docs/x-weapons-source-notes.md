@@ -270,6 +270,10 @@ contacts in the current tick; the source consumes its preceding contact flags.
 
 ## X1 gameplay weapon HUD footer (2026-09-29)
 
+**Superseded by original source HUD extraction below.** The initial repair
+described here cropped menu art into X1's border and was rejected by the owner.
+It is retained only to explain the mistaken approach; it is no longer used.
+
 The extended weapon proxy submits slot 7 at (24,80), attribute $3620. Its
 buster-loaded tile $20 contains unrelated graphics, so simply drawing the
 pause icon lost the gameplay meter enclosure. Reuse the live X1 health footer
@@ -282,6 +286,34 @@ only within source x/y 2..13, center them in the 12x11 inset, and reduce only
 oversize symbols with centered nearest samples. Derived HUD pixels are built
 after asset loading; cache format and original 16x16 pause art are unchanged.
 The corrected native-width replay capture was inspected visually.
+
+### Original X2/X3 gameplay footer correction
+
+Native OAM slot 7 is (24,80), attribute **$3628 in X2 / $36AC in X3**.
+Both are full 16x16 gameplay-specific sprites using sprite palette 3 (CGRAM
+entries 176..191), which matches each descriptor's weapon palette exactly.
+These are different artwork from the pause icons. Their four tiles already
+appear in the weapon-selection bulk DMA lists ($86:9664 / $86:97AD, indexed
+by $3E + native weapon ID * 2):
+
+| Game | Top-row VRAM words | Bottom-row VRAM words | ROM source rows |
+| --- | --- | --- | --- |
+| X2 | $6280..629F | $6380..639F | Per-weapon seven-byte bulk records |
+| X3 | $6AC0..6ADF | $6BC0..6BDF | $2C:87A0 + (ID-1)*$40 / $2C:89A0 + (ID-1)*$40 |
+
+Decode all four tiles directly from the validated bulk transfer buffer before
+per-pose DMA modifies it. Preserve every indexed pixel, including its frame
+and transparent corners; render with the source weapon palette, no resizing.
+MMXWEAP4 appends 256 pixels after each 356-byte entry prefix (612 bytes before
+the groups). It replaces the inferred 12x11 glyph and borrowed X1 border.
+User ROM extraction remains automatic and no extracted graphics are committed.
+
+Validation: all sixteen pairs of top/bottom source DMA rows match live VRAM
+from separate paused X2/X3 reference runs; all sixteen palettes match their
+source CGRAM. Rendered port footers match every nontransparent pixel of the
+original source screenshots exactly. Native/reference extraction parity,
+copier-header normalization and wrong-ROM rejection pass, as do the focused
+menu and energy/pickup/save checks. X/Zero health emblems remain independent.
 
 ### X1 shoulder cycle reference
 

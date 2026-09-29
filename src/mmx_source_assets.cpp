@@ -169,7 +169,7 @@ Bytes menu(const Rom& r,unsigned game) {
   return b;
 }
 Bytes weapon_assets(const Rom& r,unsigned game) {
-  Bytes out{'M','M','X','W','E','A','P','3'};put(out,8,4);Bytes graphics=menu(r,game);
+  Bytes out{'M','M','X','W','E','A','P','4'};put(out,8,4);Bytes graphics=menu(r,game);
   for (const auto& w : weapon_sources) if (w.game==game) {
     put(out,game,1);put(out,w.id,1);put(out,w.groups,1);put(out,0,1);
     append(out,r.raw(w.body,32));append(out,r.raw(w.palette,32));append(out,r.raw(game==2?0x2cee0:0x62da0,32));
@@ -182,6 +182,18 @@ Bytes weapon_assets(const Rom& r,unsigned game) {
     }
     Tiles base;bulk(r,0x860000|r.integer((game==2?0x869664:0x8697ad) + 0x3e + w.id*2),base);
     if (w.extra) bulk(r,w.extra,base);
+    // Original gameplay footer, including its frame. Palette is the weapon
+    // palette already stored above, matching source OAM palette 3.
+    unsigned hud_tile=game==2 ? 0x28 : 0xac;
+    for (unsigned y=0;y<16;++y) for (unsigned x=0;x<16;++x) {
+      unsigned start=(hud_tile+x/8+y/8*16)*32+(y&7)*2,color=0;
+      for (unsigned plane=0;plane<4;++plane) {
+        unsigned offset=start+plane/2*16+plane%2;
+        require(base.known[offset],"Unresolved source gameplay HUD graphics.");
+        color|=((base.bytes[offset]>>(7-(x&7)))&1)<<plane;
+      }
+      out.push_back(uint8_t(color));
+    }
     for (unsigned j=0;j<w.groups;++j) {
       const auto& g=w.group[j];Tiles t=base;if (g.setup>=0) transfer(r,g.dma,unsigned(g.setup),t);
       Bytes a=animations(r,game,g.id);put(out,g.id);put(out,g.frames);put(out,unsigned(a.size()));append(out,a);

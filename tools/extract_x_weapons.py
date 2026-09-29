@@ -145,6 +145,22 @@ def menu_icon(rom, game, weapon, graphics):
     return colors + pixels
 
 
+def hud_icon(game, tiles, known):
+    # Native OAM slot 7: X2 $3628, X3 $36AC. These are dedicated 16x16
+    # gameplay footers uploaded by the weapon-selection bulk DMA list.
+    tile = 0x28 if game == 2 else 0xac
+    pixels = bytearray()
+    for y in range(16):
+        for x in range(16):
+            start = (tile + x // 8 + y // 8 * 16) * 32 + (y & 7) * 2
+            offsets = (start, start + 1, start + 16, start + 17)
+            if not all(known[o] for o in offsets):
+                raise ValueError('Unresolved original gameplay HUD graphics')
+            pixels.append(sum(((tiles[o] >> (7 - (x & 7))) & 1) << p
+                              for p, o in enumerate(offsets)))
+    return pixels
+
+
 def animation_group(rom, game, group):
     root = 0x2fa000 if game == 2 else 0x3f8000
     base = rom.integer(root + group * 3, 3)
@@ -179,7 +195,7 @@ def extract(x2, x3):
     roms = {game: Rom(path, next(e['sha256'] for e in entries if e['game'] == game))
             for game, path in ((2, x2), (3, x3))}
     menus = {game: menu_graphics(rom, game) for game, rom in roms.items()}
-    result = bytearray(struct.pack('<8sI', b'MMXWEAP3', len(entries)))
+    result = bytearray(struct.pack('<8sI', b'MMXWEAP4', len(entries)))
     sheets = []
     for entry in entries:
         rom = roms[entry['game']]
@@ -193,6 +209,7 @@ def extract(x2, x3):
         bulk_transfers(rom, bulk, base, base_known)
         for address in entry.get('additional_dma', []):
             bulk_transfers(rom, int(address, 16), base, base_known)
+        result.extend(hud_icon(entry['game'], base, base_known))
         for group in entry['groups']:
             tiles, known = bytearray(base), bytearray(base_known)
             for pose in group.get('setup_poses', []):
