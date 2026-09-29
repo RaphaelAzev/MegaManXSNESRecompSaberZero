@@ -227,13 +227,20 @@ def extract(x2, x3):
             result.extend(group_colors)
             result.extend(animation)
             for pose in range(group['frames']):
-                if 'poses' in group and pose not in group['poses']:
+                animated = 'animated_frame_start' in group and pose >= group['animated_frame_start']
+                if not animated and 'poses' in group and pose not in group['poses']:
                     result.extend(bytes(8))
                     continue
                 try:
-                    if pose not in group.get('inherited_poses', []):
+                    layout = pose
+                    if animated:
+                        phase, orientation = divmod(pose-group['animated_frame_start'], group['animated_layout_count'])
+                        tiles, known = bytearray(base), bytearray(base_known)
+                        bulk_transfers(rom, 0x860000 | rom.integer(int(group['animated_dma_table'],16)+phase*2),tiles,known)
+                        layout = group['animated_layout_start']+orientation
+                    elif pose not in group.get('inherited_poses', []):
                         transfers(rom, int(group['dma'], 16), pose, tiles, known)
-                    left, top, width, height, pixels = pose_art(rom, group['group'], pose, tiles, known)
+                    left, top, width, height, pixels = pose_art(rom, group['group'], layout, tiles, known)
                 except ValueError as error:
                     raise ValueError(f"X{entry['game']} {entry['name']} {group['group']:02x}/{pose:02x}: {error}") from error
                 result.extend(struct.pack('<hhHH', left, top, width, height) + pixels)

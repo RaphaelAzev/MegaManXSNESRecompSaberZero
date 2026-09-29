@@ -580,6 +580,78 @@ static unsigned frost_slot(bool charged) {
   for(unsigned i=0;i<8;++i) if(c.shots[i].active && c.shots[i].weapon==7 && c.shots[i].charged==charged) return i;
   return 8;
 }
+static void weapon_fang_checks(const char *assets,const char *fixture,uint8 *start,
+                              uint8 *expected,uint8 *actual,size_t cap) {
+  check(MmxWeaponsLoad(assets),"Tornado Fang original assets load");
+  check(MmxWeaponsPose(2,8,19,65)!=NULL,"charged Fang includes all four original CHR phases");
+  for(unsigned character=0;character<2;++character) {
+    check(RtlLoadSnapshot(fixture),"restore Fang fixture");if(character) zero_health_swap();
+    MmxWeaponsState w=MmxWeaponsGetState();w.page=2;w.weapon=8;MmxWeaponsSetState(w);
+    frame(SNES_PAD_Y);frame(0);MmxWeaponCombatState c=MmxWeaponsGetCombatState();unsigned slot=8;
+    for(unsigned i=0;i<8;++i) if(c.shots[i].active) {slot=i;break;}
+    check(slot<8 && c.shots[slot].vx==512 && MmxWeaponsEnergyAmount(2,8)==27*256,
+        "normal drill starts at two pixels per tick and costs one energy");
+    zero_replay(20);c=MmxWeaponsGetCombatState();
+    check(c.shots[slot].active && c.shots[slot].muzzle_pose==1 && !c.shots[slot].vx,
+        "normal drill pauses after eight-tick launch route");
+    frame(SNES_PAD_Y);frame(0);zero_replay(15);c=MmxWeaponsGetCombatState();
+    unsigned top=8,bottom=8;for(unsigned i=0;i<8;++i) if(c.shots[i].active) {
+      if(c.shots[i].variant==1) top=i;if(c.shots[i].variant==2) bottom=i;
+    }
+    check(top<8 && bottom<8 && c.shots[bottom].y-c.shots[top].y==36*256 &&
+        MmxWeaponsEnergyAmount(2,8)==26*256,"second press launches two separated drills for one energy");
+    size_t n=RtlSaveSnapshotToMemory(start,cap);zero_replay(40);size_t en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"restore staged drill salvo");zero_replay(40);
+    size_t an=RtlSaveSnapshotToMemory(actual,cap);same(expected,en,actual,an,"drill staging and acceleration replay exactly");
+    c=MmxWeaponsGetCombatState();check(c.shots[slot].muzzle_pose==2 && c.shots[slot].vx>0,
+        "drill accelerates after its original sixty-tick delay");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-fang.cap":".zero-fang.cap");
+    zero_replay(180);check(!extended_shots(false) && !g_ram[0xbdd],"normal drills leave the screen and release slots");
+    for(unsigned i=0;i<205;++i) frame(SNES_PAD_Y);frame(0);
+    check(!extended_shots(true),"Fang charge requires X1 arms");
+    check(RtlLoadSnapshot(fixture),"restore charged Fang fixture");if(character) zero_health_swap();
+    w=MmxWeaponsGetState();w.page=2;w.weapon=8;MmxWeaponsSetState(w);g_ram[0x1f99]|=2;
+    for(unsigned i=0;i<205;++i) frame(SNES_PAD_Y);
+    c=MmxWeaponsGetCombatState();slot=8;
+    for(unsigned i=0;i<8;++i) if(c.shots[i].active && c.shots[i].charged) slot=i;
+    check(slot<8 && c.shots[slot].pose>=42 && c.shots[slot].pose<66 &&
+        MmxWeaponsEnergyAmount(2,8)==24*256,"full held charge automatically deploys the rotating drill for three energy");
+    check(g_ram[0xbf8] && !(g_ram[0xc2f]&64),"held drill retains firing pose without lingering charge audio");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-fang-held.cap":".zero-fang-held.cap");
+    n=RtlSaveSnapshotToMemory(start,cap);for(unsigned i=0;i<20;++i) frame(SNES_PAD_Y|SNES_PAD_RIGHT);
+    en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"restore held Fang");for(unsigned i=0;i<20;++i) frame(SNES_PAD_Y|SNES_PAD_RIGHT);
+    an=RtlSaveSnapshotToMemory(actual,cap);same(expected,en,actual,an,"held drill follows moving player and replays exactly");
+    for(unsigned i=0;i<44;++i) frame(SNES_PAD_Y);
+    check(MmxWeaponsEnergyAmount(2,8)==21*256,"sustained drill costs three energy each sixty-four ticks");
+    frame(0);zero_replay(2);check(!extended_shots(true) && !(g_ram[0xc2f]&64),"release removes held drill and its charge sound");
+  }
+  check(RtlLoadSnapshot(fixture),"restore Fang enemy encounter");unsigned victim=0;
+  for(unsigned i=0;i<400 && !victim;++i) {
+    frame(SNES_PAD_RIGHT);
+    for(unsigned d=0xe68;d<0x1228;d+=64)
+      if(g_ram[d] && (g_ram[d+0x27]&127) && (g_ram[d+0x20]|g_ram[d+0x21])) {victim=d;break;}
+  }
+  check(victim!=0,"native enemy available for drill contact");
+  MmxWeaponsState w=MmxWeaponsGetState();w.page=2;w.weapon=8;MmxWeaponsSetState(w);
+  frame(0);frame(SNES_PAD_Y);frame(0);MmxWeaponCombatState c=MmxWeaponsGetCombatState();unsigned slot=8;
+  for(unsigned i=0;i<8;++i) if(c.shots[i].active) {
+    c.shots[i].x=(g_ram[victim+5]|g_ram[victim+6]<<8)*256;
+    c.shots[i].y=(g_ram[victim+8]|g_ram[victim+9]<<8)*256;
+    c.shots[i].muzzle_pose=1;c.shots[i].vx=c.shots[i].vy=0;slot=i;break;
+  }
+  check(slot<8,"drill is available for native contact");g_ram[victim+0x27]=32;MmxWeaponsSetCombatState(c);
+  zero_replay(3);c=MmxWeaponsGetCombatState();
+  check((g_ram[victim+0x27]&127)==31 && c.shots[slot].muzzle_pose==3 && c.shots[slot].tether_pose==6,
+      "real enemy contact applies scaled damage and original impact pause");
+  unsigned d=0x1228+slot*64;
+  for(unsigned contact=0;contact<6;++contact) {
+    c=MmxWeaponsGetCombatState();c.shots[slot].muzzle_pose=2;c.shots[slot].radius=0;
+    MmxWeaponsSetCombatState(c);g_ram[d+1]=6;MmxWeaponsProjectileTick(g_ram,d,1);
+  }
+  check(!MmxWeaponsGetCombatState().shots[slot].active,"seventh damage contact consumes normal drill durability");
+  puts("MMX TORNADO FANG CHECKS PASSED");
+}
 static void weapon_speed_checks(const char *assets,const char *fixture,uint8 *start,
                                uint8 *expected,uint8 *actual,size_t cap) {
   check(MmxWeaponsLoad(assets),"Speed Burner original assets load");
@@ -1367,6 +1439,7 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
     else if (getenv("MMX_WEAPON_FROST_TEST")) weapon_frost_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_BUBBLE_TEST")) weapon_bubble_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_MAGNET_TEST")) weapon_magnet_checks(weapons,fixture,start,expected,actual,cap);
+    else if (getenv("MMX_WEAPON_FANG_TEST")) weapon_fang_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_SPEED_TEST")) weapon_speed_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_WHEEL_TEST")) weapon_wheel_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_SONIC_TEST")) weapon_sonic_checks(weapons,fixture,start,expected,actual,cap);
