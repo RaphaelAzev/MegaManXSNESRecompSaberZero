@@ -818,6 +818,7 @@ static void weapon_speed_checks(const char *assets,const char *fixture,uint8 *st
   puts("MMX SPEED BURNER CHECKS PASSED");
 }
 #include "mmx_weapon_silk_test.inc"
+#include "mmx_weapon_chain_test.inc"
 static void weapon_magnet_checks(const char *assets,const char *fixture,uint8 *start,
                                 uint8 *expected,uint8 *actual,size_t cap) {
   check(MmxWeaponsLoad(assets),"Magnet Mine and original explosion assets load");
@@ -1548,6 +1549,7 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
     else if (getenv("MMX_WEAPON_MAGNET_TEST")) weapon_magnet_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_TRIAD_TEST")) weapon_triad_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_FANG_TEST")) weapon_fang_checks(weapons,fixture,start,expected,actual,cap);
+    else if (getenv("MMX_WEAPON_CHAIN_TEST")) weapon_chain_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_SILK_TEST")) weapon_silk_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_SPEED_TEST")) weapon_speed_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_WHEEL_TEST")) weapon_wheel_checks(weapons,fixture,start,expected,actual,cap);

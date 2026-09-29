@@ -1058,6 +1058,15 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
               (s->y>>8)+8-word(frame.ram,0x1e50),y,view,objects,object_colors);
         }
       }
+      if (s->page==1 && s->weapon==6 && s->variant) {
+        /* X2 $81:849D and $9ABF: nine links, every eighth of the span. */
+        unsigned pose=(s->charged ? 20 : 5)+s->tether_pose/3;
+        for (int link=8;link>=0;--link) {
+          int x=(s->origin_x*(8-link)+(s->x>>8)*link)/8;
+          weapon_sprite_row(s,pose,x-word(frame.ram,0x1e4d),
+              (s->y>>8)-word(frame.ram,0x1e50),y,view,objects,object_colors);
+        }
+      }
       if (s->charged && s->page == 2 && s->weapon == 4) {
         int ox=s->origin_x-word(frame.ram,0x1e4d), oy=s->origin_y-word(frame.ram,0x1e50);
         weapon_sprite_row(s,s->tether_pose,ox,oy,y,view,objects,object_colors);
