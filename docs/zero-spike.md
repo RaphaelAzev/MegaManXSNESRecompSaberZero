@@ -161,11 +161,10 @@ Full-port progress on `feat/x3-zero-port`:
   mismatch that let X's tiles reappear. A renderer regression covers both the
   visible transition and the actual hidden frame.
 - The pause menu uses Zero's original standing body, including with all armor
-  upgrades owned. Menu and pickup life heads use a new front-facing 17x16 sprite
-  with pupils and a blue crystal; vanilla X3 itself retains X's life icon.
-  See [the life-head asset](../assets/zero/life-head.png). Native 1-up
-  collection increments the life count normally. Menu pixel comparisons change
-  only the character and head areas, including the fully upgraded menu.
+  upgrades owned. Menu and pickup life heads retain X's original art, as
+  requested after the custom icon was rejected. Native 1-up collection increments
+  the life count normally. Menu pixel comparisons change only the character
+  area, including the fully upgraded menu; the life head matches stock exactly.
 - The title-screen cursor also uses Zero's original standing/firing poses.
   Native selection handling and its confirmation projectile are preserved.
 - Combo release and cancellation stop X1's looping charge voice through the
@@ -180,8 +179,8 @@ Full-port progress on `feat/x3-zero-port`:
   X1 still owns facing, spread patterns, trajectories and weapon effects.
   All eight special weapons produce their expected normal/charged native
   projectile classes and spend energy; both firing directions are checked.
-- Saves now use game chunk v6 for Zero's firing phase and stored charge tier,
-  retaining v4/v5 saves and older formats. Captures use v5, with v2/v3/v4 still readable. Disabled
+- Saves now use game chunk v7 for character identity and teleport phase,
+  retaining v4/v5/v6 saves and older formats. Captures use v6, with v2-v5 still readable. Disabled
   saves remain v3. Complete snapshot, replay, rollback and rewind checks pass.
 
 Owner playtest follow-up: projectile origins and the reported X tiles during
@@ -196,10 +195,29 @@ visible while Zero blinks; X1's health amount and weapon icon are retained.
 The current development executable is `build-zero/port-work/MegaManXSNESRecomp.exe`;
 the owner's earlier screenshot session remains in `build-zero/hud-update`.
 
-An optional Select-button X/Zero swap is a longer-term direction, tracked in
-`beads-8wg.1.30`. That feature will need an explicit active-character state
-separate from loaded assets, with the body, abilities, collision and HUD changing
-together. Swapping is not implemented by this HUD update.
+Select now exchanges X and Zero while the player stands still on solid ground,
+outside menus, damage, ladders, ride armor and scripted transitions. The body,
+abilities, collision, menu and HUD follow the active character. Loaded assets
+remain independent of that identity, so X uses his native upgrade rules.
+
+The exchange uses original X3 Zero group `$4A` poses `$3C-$42`, and original
+X1 body layouts at `$8D:8000` with CHR DMA lists at `$85:A597` and the buster
+palette list `$0100`. Morph timing follows X1 sequences `$49/$48` and X3
+`$7F/$7E`; column travel follows X1's `$0AA6/$0800` departure/arrival speeds.
+The between-character delay is X3's `$1E` frames (`$84:8DBF`). X1's original
+teleport sounds `$0F/$0E` play through its SPC command ring. No replacement
+teleport art is drawn or generated.
+
+All cooperative game tasks pause during the exchange, including enemies,
+projectiles, items, animation and stage/camera scripts. NMI, input polling,
+rendering and audio continue. Only the presentation moves vertically: the
+player's real feet stay fixed. Held Select cannot retrigger; midair Select is
+ignored. Save/load preserves the full exchange and restores the frozen sprite
+queues. Both directions have focused runtime checks, including a live projectile
+and mid-exchange deterministic replay. Tracked in `beads-8wg.1.30`.
+
+This first swap build shares the existing X1 health and weapon pools. Separate
+character HP and the requested X2/X3 ability pages are subsequent work.
 
 1. Audit the complete animation/state mapping: wall slide/jump, ladders, damage,
    death, teleport, capsules, ride armor and scripted player poses. The full-port

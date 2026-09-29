@@ -12,7 +12,7 @@ static void hook(CpuState *cpu, uint32_t pc) {
   switch (pc & 0x7fffff) {
     case 0x00d6a7: MmxRendererObserveObject(g_ram, (uint16_t)(cpu->D + cpu->X)); break;
     case 0x00d76a: MmxRendererRecordPiece(g_ram, cpu->D); break;
-    case 0x01971f: case 0x019796: case 0x0198ff: cpu->A |= 8; break;
+    case 0x01971f: case 0x019796: case 0x0198ff: if (MmxZeroActive()) cpu->A |= 8; break;
     case 0x01815c: MmxZeroPlayerTick(g_ram); break;
     case 0x018165: MmxZeroPlayerEnd(g_ram); break;
     case 0x048f07: MmxZeroAnimationStart(cpu->D, cpu->A & 255); break;

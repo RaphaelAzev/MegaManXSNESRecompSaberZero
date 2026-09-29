@@ -4,9 +4,9 @@
 #include <stdint.h>
 
 enum { MMX_ZERO_WIDTH = 128, MMX_ZERO_HEIGHT = 128, MMX_ZERO_POSES = 152,
-       MMX_ZERO_LIFE_WIDTH = 17, MMX_ZERO_LIFE_HEIGHT = 16,
        MMX_ZERO_ANIMATION_BYTES = 0x474, MMX_ZERO_MUZZLE_BYTES = 196,
-       MMX_ZERO_LEGACY_STATE_SIZE = 12, MMX_ZERO_ANIMATION_STATE_SIZE = 18 };
+       MMX_ZERO_LEGACY_STATE_SIZE = 12, MMX_ZERO_ANIMATION_STATE_SIZE = 18,
+       MMX_ZERO_COMBAT_STATE_SIZE = 30 };
 typedef struct MmxZeroState {
   uint16_t charge, slash, projectile;
   uint8_t combo, cooldown, air, facing;
@@ -17,15 +17,23 @@ typedef struct MmxZeroState {
   uint8_t burst_timer, burst, burst_end, saber_ready, shot_mask, held_gravity;
   uint16_t held_vy;
   uint8_t burst_transition, burst_fired;
+  /* Zero remains the default for legacy saves and initial mod activation. */
+  uint8_t active_x, swap_phase, swap_tick, swap_fraction;
+  int16_t swap_y;
 } MmxZeroState;
 bool MmxZeroLoad(const char *path);
 void MmxZeroDisable(void);
 bool MmxZeroEnabled(void);
+bool MmxZeroActive(void);
+bool MmxZeroSwapping(void);
+/* Called after native NMI input polling; true suspends the game scheduler. */
+bool MmxZeroSwapTick(uint8_t ram[0x20000]);
+unsigned MmxZeroSwapPose(const MmxZeroState *snapshot);
+const uint8_t *MmxZeroTeleportPose(unsigned pose);
 const uint8_t *MmxZeroPose(const uint8_t ram[0x20000], const MmxZeroState *snapshot);
 const uint8_t *MmxZeroBlade(const MmxZeroState *snapshot);
 const uint16_t *MmxZeroColors(void);
 const uint8_t *MmxZeroMenuPose(void);
-int MmxZeroLifeColor(unsigned x, unsigned y);
 /* Original X3 BGR555 badge pixel; -2 is transparent, -1 retains native art. */
 int MmxZeroHudColor(unsigned x, unsigned y);
 void MmxZeroSetCollisionRom(uint8_t *rom, size_t size);

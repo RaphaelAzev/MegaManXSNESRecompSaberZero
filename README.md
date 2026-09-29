@@ -62,7 +62,9 @@ availability and controls.
 
 This branch also includes the disabled-by-default [X3 Zero experiment](docs/zero-spike.md).
 It requires locally extracted X3 USA assets. The prototype supports the two-shot
-and saber combo; complete animation, weapon and campaign validation is unfinished.
+and saber combo, plus Select to exchange X and Zero while standing on the ground.
+The exchange uses original teleport sprites and pauses stage simulation.
+Complete campaign validation is unfinished.
 
 <p align="center">
   <img src="docs/screenshots/widescreen-ocean.png" width="32%" alt="Mega Man X experimental widescreen rendering in an ocean scene">
