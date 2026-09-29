@@ -9,6 +9,7 @@ static uint8_t saber_bounds[40];
 static uint8_t hud_tiles[128];
 static uint16_t hud_colors[16];
 static uint8_t animation[MMX_ZERO_ANIMATION_BYTES];
+static uint8_t muzzle[MMX_ZERO_MUZZLE_BYTES];
 static MmxZeroState state;
 _Static_assert(offsetof(MmxZeroState, anim_offset) == MMX_ZERO_LEGACY_STATE_SIZE,
                "Keep the v4 combat-state prefix readable");
@@ -34,16 +35,18 @@ bool MmxZeroLoad(const char *path) {
   FILE *f = path ? fopen(path, "rb") : NULL;
   if (!f) return false;
   uint8_t header[20], palette[256], bounds[40], hud[160], anim[MMX_ZERO_ANIMATION_BYTES];
+  uint8_t emission[MMX_ZERO_MUZZLE_BYTES];
   size_t size = (size_t)MMX_ZERO_POSES * MMX_ZERO_WIDTH * MMX_ZERO_HEIGHT;
   uint8_t *data = NULL;
   bool ok = fread(header, 1, sizeof(header), f) == sizeof(header) &&
-      !memcmp(header, "MMXZERO5", 8) && word(header + 8) == MMX_ZERO_WIDTH &&
+      !memcmp(header, "MMXZERO6", 8) && word(header + 8) == MMX_ZERO_WIDTH &&
       word(header + 10) == MMX_ZERO_HEIGHT && word(header + 12) == 64 &&
       word(header + 14) == 64 && word(header + 16) == 117 && word(header + 18) == 35 &&
       fread(palette, 1, sizeof(palette), f) == sizeof(palette) &&
       fread(bounds, 1, sizeof(bounds), f) == sizeof(bounds) &&
       fread(hud, 1, sizeof(hud), f) == sizeof(hud) &&
-      fread(anim, 1, sizeof(anim), f) == sizeof(anim);
+      fread(anim, 1, sizeof(anim), f) == sizeof(anim) &&
+      fread(emission, 1, sizeof(emission), f) == sizeof(emission);
   if (ok) { data = malloc(size); ok = data && fread(data, 1, size, f) == size && fgetc(f) == EOF; }
   fclose(f);
   if (ok) for (unsigned i = 0; i < sizeof(bounds); i += 4)
@@ -53,10 +56,13 @@ bool MmxZeroLoad(const char *path) {
     unsigned p = word(anim + i * 2);
     if (p < 272 || p + 3 > sizeof(anim) || !anim[p] || anim[p + 2] >= 117) { ok = false; break; }
   }
+  if (ok) for (unsigned i = 0; i < 117; ++i)
+    if ((emission[i] & 1) || emission[i] > 74) { ok = false; break; }
   if (!ok) { free(data); return false; }
   MmxZeroDisable(); poses = data;
   memcpy(saber_bounds, bounds, sizeof(bounds));
   memcpy(animation, anim, sizeof(animation));
+  memcpy(muzzle, emission, sizeof(muzzle));
   memcpy(hud_tiles, hud, sizeof(hud_tiles));
   for (unsigned i = 0; i < 16; ++i) hud_colors[i] = (uint16_t)(word(hud + 128 + 2 * i) & 0x7fff);
   for (unsigned i = 0; i < 128; ++i) colors[i] = (uint16_t)(word(palette + 2 * i) & 0x7fff);
@@ -81,8 +87,7 @@ static void animation_record(unsigned offset) {
   state.anim_timer = animation[offset]; state.anim_flags = animation[offset + 1];
   state.anim_pose = animation[offset + 2]; state.anim_valid = 1;
 }
-void MmxZeroAnimationStart(unsigned object, unsigned sequence) {
-  if (!poses || object != 0xba8) return;
+static unsigned sequence_offset(unsigned sequence) {
   /* X1 group 0 -> original X3 group $4A. Aliases are kept: firing overlays
    * resume at interior records, not at the beginning of a movement cycle.
    * X1's two Hadouken actions use Zero's forward buster/recovery poses. */
@@ -94,8 +99,11 @@ void MmxZeroAnimationStart(unsigned object, unsigned sequence) {
     0x76,0x77,0x78,0x79,0x7a,0x7b,0x7c,0x7d,0x7e,0x7f,0x80,0x81,0x82,0x83,0x84,0x30,
     0x34
   };
-  if (sequence >= sizeof(map)) { state.anim_valid = 0; return; }
-  animation_record(word(animation + map[sequence] * 2));
+  return sequence < sizeof(map) ? word(animation + map[sequence] * 2) : 0;
+}
+void MmxZeroAnimationStart(unsigned object, unsigned sequence) {
+  if (!poses || object != 0xba8) return;
+  animation_record(sequence_offset(sequence));
 }
 void MmxZeroAnimationAdvance(unsigned object) {
   if (!poses || object != 0xba8 || !state.anim_valid) return;
@@ -106,6 +114,25 @@ void MmxZeroAnimationAdvance(unsigned object) {
     next = (unsigned)((int)next + (int16_t)word(animation + next));
   }
   animation_record(next);
+}
+unsigned MmxZeroMuzzle(const uint8_t r[0x20000], unsigned object,
+                      unsigned native_index, unsigned axis, unsigned original) {
+  if (!poses || !r || object < 0x1228 || object >= 0x1428 ||
+      (object & 63) != 0x28 || axis > 1) return original;
+  unsigned pose = state.anim_valid ? state.anim_pose : r[0xbbf] & 127;
+  unsigned offset = pose < 117 ? muzzle[pose] : 0;
+  if (!offset) {
+    /* Delayed/formation projectiles can initialize after the firing overlay
+     * ends. X1 retains its firing sequence index in the projectile's $3C. */
+    unsigned record = sequence_offset(native_index / 2);
+    if (!record) return original;
+    pose = animation[record + 2]; offset = muzzle[pose];
+  }
+  if (!offset) return original;
+  /* X3 stores signed Y then left-facing X. X1's native helpers mirror a
+   * positive X and sign-extend Y. Keep their later spread/trajectory offsets. */
+  return axis ? (unsigned)(uint8_t)(muzzle[120 + offset] - 8) :
+                (unsigned)(uint8_t)(-(int8_t)muzzle[121 + offset]);
 }
 int MmxZeroHudColor(unsigned x, unsigned y) {
   /* Original X3 tile/palette data, independent of body visibility. */

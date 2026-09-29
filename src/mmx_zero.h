@@ -4,7 +4,8 @@
 #include <stdint.h>
 
 enum { MMX_ZERO_WIDTH = 128, MMX_ZERO_HEIGHT = 128, MMX_ZERO_POSES = 152,
-       MMX_ZERO_ANIMATION_BYTES = 0x474, MMX_ZERO_LEGACY_STATE_SIZE = 12 };
+       MMX_ZERO_ANIMATION_BYTES = 0x474, MMX_ZERO_MUZZLE_BYTES = 196,
+       MMX_ZERO_LEGACY_STATE_SIZE = 12 };
 typedef struct MmxZeroState {
   uint16_t charge, slash, projectile;
   uint8_t combo, cooldown, air, facing;
@@ -27,6 +28,8 @@ unsigned MmxZeroUpgradeBits(unsigned pc, unsigned original);
 void MmxZeroPlayerTick(uint8_t ram[0x20000]);
 void MmxZeroAnimationStart(unsigned object, unsigned sequence);
 void MmxZeroAnimationAdvance(unsigned object);
+unsigned MmxZeroMuzzle(const uint8_t ram[0x20000], unsigned object,
+                      unsigned native_index, unsigned axis, unsigned original);
 unsigned MmxZeroWeaponTick(uint8_t ram[0x20000], unsigned object, unsigned active);
 unsigned MmxZeroDamage(uint8_t ram[0x20000], unsigned enemy, unsigned projectile, unsigned original);
 unsigned MmxZeroHitbox(const uint8_t ram[0x20000], unsigned enemy, unsigned projectile, unsigned original);

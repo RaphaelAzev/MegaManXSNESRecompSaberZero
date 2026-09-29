@@ -16,6 +16,20 @@ static void hook(CpuState *cpu, uint32_t pc) {
     case 0x01815c: MmxZeroPlayerTick(g_ram); break;
     case 0x048f07: MmxZeroAnimationStart(cpu->D, cpu->A & 255); break;
     case 0x048eea: MmxZeroAnimationAdvance(cpu->D); break;
+    case 0x01a57d: case 0x038b6f: case 0x038d87: case 0x038ed7:
+    case 0x03951d: case 0x039841: case 0x039993: case 0x03a3cd:
+    case 0x01a589: case 0x038b7b: case 0x038d93: case 0x038ee3:
+    case 0x039529: case 0x03984d: case 0x03999f: case 0x03a3d9: {
+      unsigned axis = (pc & 0xffff) == 0xa589 || (pc & 0xffff) == 0x8b7b ||
+          (pc & 0xffff) == 0x8d93 || (pc & 0xffff) == 0x8ee3 ||
+          (pc & 0xffff) == 0x9529 || (pc & 0xffff) == 0x984d ||
+          (pc & 0xffff) == 0x999f || (pc & 0xffff) == 0xa3d9;
+      unsigned value = MmxZeroMuzzle(g_ram,cpu->D,cpu->X,axis,cpu->A & 255);
+      cpu->A = (cpu->A & 0xff00) | value;
+      cpu->_flag_Z = !value; cpu->_flag_N = (value & 128) != 0;
+      cpu->P = (cpu->P & ~0x82) | (cpu->_flag_Z ? 2 : 0) | (cpu->_flag_N ? 128 : 0);
+      break;
+    }
     case 0x00d3e7: {
       unsigned value = MmxZeroWeaponTick(g_ram, cpu->D, cpu->A & 255);
       cpu->A = (cpu->A & 0xff00) | value;
@@ -59,7 +73,9 @@ static void hook(CpuState *cpu, uint32_t pc) {
 }
 void MmxZeroRegisterHooks(void) {
   const unsigned pcs[] = {0x00d6a7, 0x00d76a, 0x01971f, 0x019796, 0x0198ff,
-                          0x01815c, 0x00d3e7, 0x049e76, 0x049c19, 0x048f07, 0x048eea};
+                          0x01815c, 0x00d3e7, 0x049e76, 0x049c19, 0x048f07, 0x048eea,
+                          0x01a57d,0x038b6f,0x038d87,0x038ed7,0x03951d,0x039841,0x039993,0x03a3cd,
+                          0x01a589,0x038b7b,0x038d93,0x038ee3,0x039529,0x03984d,0x03999f,0x03a3d9};
   for (unsigned i = 0; i < sizeof(pcs) / sizeof(pcs[0]); ++i)
     interp_bridge_set_pre_opcode_hook(pcs[i], hook);
 }

@@ -119,8 +119,10 @@ def extract(path):
     # Group $4A's 136 sequence offsets and duration/flags/pose records, up to
     # group $4B. The host mirrors these independently of X1's gameplay flags.
     animation = rom.read(0x3fcc74, 0x474)
-    header = struct.pack('<8s6H', b'MMXZERO5', WIDTH, HEIGHT, ORIGIN_X, ORIGIN_Y, 117, 35)
-    return header + struct.pack('<128H', *colors) + bounds + hud + animation + b''.join(poses), colors, poses
+    # Original Zero firing-pose map and signed Y/X pairs ($81:8BA9).
+    muzzle = rom.read(0x399161, 120) + rom.read(0x3991d9, 76)
+    header = struct.pack('<8s6H', b'MMXZERO6', WIDTH, HEIGHT, ORIGIN_X, ORIGIN_Y, 117, 35)
+    return header + struct.pack('<128H', *colors) + bounds + hud + animation + muzzle + b''.join(poses), colors, poses
 
 
 def main():
