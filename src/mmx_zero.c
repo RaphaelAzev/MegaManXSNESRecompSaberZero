@@ -47,6 +47,27 @@ bool MmxZeroLoad(const char *path) {
   return true;
 }
 const uint16_t *MmxZeroColors(void) { return colors; }
+int MmxZeroHudColor(unsigned x, unsigned y, const uint16_t palette[16]) {
+  /* A red Z in the existing X1 badge. Keep the surrounding bar/frame live;
+   * character identity is resolved here, independently of player visibility. */
+  if (!MmxZeroEnabled() || x < 2 || x > 13 || y < 3 || y > 11) return -1;
+  static const char badge[9][13] = {
+    ".##########.",
+    ".#rrrrrrrr#.",
+    "..#####rr#..",
+    ".....#rr#...",
+    "....#rr#....",
+    "...#rr#.....",
+    "..#rr#####..",
+    ".#rrrrrrrr#.",
+    ".##########.",
+  };
+  switch (badge[y - 3][x - 2]) {
+    case '#': return palette[15];
+    case 'r': return 31 | (5 << 5) | (4 << 10);
+    default: return palette[1];
+  }
+}
 static unsigned slash_pose(const MmxZeroState *s) {
   /* Vanilla X3 group $4B actions $00/$0E: duration, frame. */
   static const uint8_t duration[] = {3,3,1,2,3,3,6,16,3,3,3};
