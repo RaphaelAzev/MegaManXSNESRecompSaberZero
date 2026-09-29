@@ -267,6 +267,7 @@ adaptation, not a transplant of every enemy-specific response.
 | Attack | Source class | Raw ordinary damage | Buster ratio |
 | --- | --- | --- | --- |
 | Bubble Splash normal / charged | $08 / $11 | 2 / 5 | 2/3 / 5/3 |
+| Magnet Mine normal / charged | $0D / $16 | 5 / 5 | 5/3 / 5/3 |
 | Spin Wheel normal / charged | $0A / $13 | 25 / 50 | 25/3 / 50/3 |
 | Sonic Slicer normal / charged | $0B / $14 | 4 / 1 | 4/3 / 1/3 |
 | Acid Burst blob / charged blob | $07 / $10 | 9 / 9 | 3 / 3 |
@@ -591,3 +592,76 @@ Use `$C01 == 4 && ($1F99 & 2)` at the pre-dispatch allocation hook. Native
 pose, charge effects and release cleanup continue to run. Charged checks for
 all implemented weapons now use 205+ ticks, plus a 120-tick normal-release
 check. This change applies only to extended weapons, not Zero's base combo.
+
+## Original shared effects and group palettes (MMXWEAP5)
+
+Magnet Mine's blast switches from group $0F to the shared X2 group $08,
+sequence 5 (`$82:AD19..AD1F`). The weapon sheet alone cannot draw that art.
+Its nine used poses 5..13 live in the persistent object CHR at VRAM
+$D000..DFFF, decoded from compressed resource $0A in the `$86:FA01` directory.
+The resource expands to 4096 bytes and exactly matches the original runtime's
+corresponding CHR. All nine decoded poses were compared against that runtime
+capture. Palette 2 is ROM file offset $2B220, rather than Magnet Mine's
+palette 3 ($2B3A0). No hand-drawn explosion or menu-image substitution is used.
+
+Address-only descriptors now support `static_resource`/`static_offset` and
+an optional group palette address. Both extractors decode the common LZ
+resource before weapon transfers. The mine gains a third group; unused poses
+0..4 remain empty, while animation sequence 5's nine original poses are kept.
+
+MMXWEAP5 retains the 612-byte entry prefix (body/weapon/menu palettes and
+menu/HUD pixels). Each group has its existing six-byte header, then 32 bytes
+of source palette, followed by the animation bytes and pose records. The
+loader supports three groups per weapon. This is an asset-cache revision,
+with no change to game saves or renderer captures. Automatic extraction
+writes `x2-weapons-v5.bin` / `x3-weapons-v5.bin` from the user's original ROMs.
+The combined cache is 440,617 bytes with 600 nonempty extracted poses.
+Native/reference extraction parity, copier headers, wrong-ROM rejection and
+preservation of an existing cache on extraction failure pass.
+
+## X2 Magnet Mine: steering, planting, chains and absorption
+
+Normal class $0D dispatch `$82:AC08`, table `$AC0D` contains
+AC19/AC5E/ACDC/ACDC/ACDC/AD36 for states 0/2/4/6/8/10. All hit outcomes
+therefore enter the explosion routine. Initial horizontal speed is $200,
+vertical zero, group $0F sequence 1. `$88:E6C4..E6F8` steers by $80 per tick
+to vertical caps +/-$400 and does not damp after release. `$82:AC81..AC9E`
+tests other projectiles (`$AD86`) and static terrain (`$88:CD5E`); contact
+stops translation and starts sequence 2. At its end flag, +$37 becomes $3C
+and source player +$35 decrements, freeing the one-flying-mine limit while
+the planted slot stays occupied. Private source body +$67 confirms limit 1.
+
+The 60-tick planted delay enters `$ACDC`; `$AD00..AD23` switches to group
+$08/sequence 5 and damage box `$86:B7B0` = (0,-8,17,18). Flying box `$B7A6`
+is (0,0,4,4). Explosion phase survives repeated contacts via source +$3A.
+`$AD44..AD85` checks overlapping player projectiles at blast completion and
+starts their impact states, creating a delayed chain reaction. The port chains
+adjacent mines and permits further normal fire after planting, while keeping
+X1's native slot count balanced. Damage contact is enabled on alternating
+ticks, with hit deduplication reset between eligible contacts.
+
+Charged class $16, group $13, entry `$88:E57E`, init `$E590..E5DC` uses
+horizontal $80 and zero VY. It reuses the same steering helper, passes through
+terrain and survives enemy contact. `$E67A..E6C3` pulls each destructible enemy
+projectile by signed 5/3 pixels toward the mine. `$88:D81F..D864` consumes
+at most one colliding eligible projectile on alternating active-contact ticks.
+`$E623..E64D` grows at 16 and 32 absorptions, selecting sequences 1/2 and
+boxes `$86:BA2D/$BA31/$BA35` = radii 8/16/24. Counter/size, animation and
+position serialize. Source armor bit `$1FD0 & 4` can convert absorptions to
+another weapon's energy; that armor feature is outside this boss-weapon pass.
+
+Private X2 left-facing capture confirmed VX -512 normal, -128 charged;
+ten UP ticks reached upward 1024 and retained it. Energy `$1FC6` went
+28 -> 27 normal and 28 -> 24 for normal initial press plus charged release,
+confirming costs 1/3. Both damage classes read 5 against ordinary buster 3.
+Source display bounds `$80:D859` remove origin outside camera X [-32,288)
+or Y [-16,240); the port uses those same bounds for this slow attack.
+
+Port saved fields: normal `muzzle_pose` flight/arming/planted/blast (0..3),
+`radius` planted timer; charged `variant` size tier, `radius` absorbed count.
+Normal group changes $0F->$08 for explosion; charged uses $13 throughout.
+No gameplay save-size change. Focused checks validate X/Zero steering/inertia,
+native terrain planting, additional fire after planting, chain timing, arms
+gate/costs, 5/3 attraction, immune projectile exclusion, 16/32 growth, native
+enemy damage, deterministic replay and cleanup. Moving stage actors and source
+audio remain fidelity follow-up work.

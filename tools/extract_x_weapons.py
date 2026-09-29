@@ -103,10 +103,10 @@ def pose_art(rom, group, pose, tiles, known):
     return left, top, width, height, bytes(pixels)
 
 
-def menu_graphics(rom, game):
+def menu_graphics(rom, game, resource=0x4c):
     # Original resource $4C; X2 $80:B25E and X3 $80:B730 decode these LZ records.
     table = 0x86fa01 if game == 2 else 0x86f732
-    record = table + 0x4c * 5
+    record = table + resource * 5
     source, length = rom.integer(record, 3), rom.integer(record + 3)
     pos = ((source >> 16) & 127) * 32768 + (source & 32767)
     result = bytearray()
@@ -195,7 +195,7 @@ def extract(x2, x3):
     roms = {game: Rom(path, next(e['sha256'] for e in entries if e['game'] == game))
             for game, path in ((2, x2), (3, x3))}
     menus = {game: menu_graphics(rom, game) for game, rom in roms.items()}
-    result = bytearray(struct.pack('<8sI', b'MMXWEAP4', len(entries)))
+    result = bytearray(struct.pack('<8sI', b'MMXWEAP5', len(entries)))
     sheets = []
     for entry in entries:
         rom = roms[entry['game']]
@@ -204,6 +204,13 @@ def extract(x2, x3):
         result.extend(rom.raw(int(entry['body_palette'], 16), 32) + colors)
         result.extend(menu_icon(rom, entry['game'], entry['weapon'], menus[entry['game']]))
         base, base_known = bytearray(8192), bytearray(8192)
+        if 'static_resource' in entry:
+            common = menu_graphics(rom, entry['game'], entry['static_resource'])
+            offset = entry['static_offset']
+            if offset + len(common) > len(base):
+                raise ValueError('Static source graphics exceed tile bank')
+            base[offset:offset+len(common)] = common
+            base_known[offset:offset+len(common)] = b'\1' * len(common)
         bulk_root = 0x869664 if entry['game'] == 2 else 0x8697ad
         bulk = 0x860000 | rom.integer(bulk_root + 0x3e + entry['weapon'] * 2)
         bulk_transfers(rom, bulk, base, base_known)
@@ -216,6 +223,8 @@ def extract(x2, x3):
                 transfers(rom, int(group['dma'], 16), pose, tiles, known)
             animation = animation_group(rom, entry['game'], group['group'])
             result.extend(struct.pack('<HHH', group['group'], group['frames'], len(animation)))
+            group_colors = rom.raw(int(group.get('palette', entry['weapon_palette']), 16), 32)
+            result.extend(group_colors)
             result.extend(animation)
             for pose in range(group['frames']):
                 if 'poses' in group and pose not in group['poses']:
@@ -229,7 +238,7 @@ def extract(x2, x3):
                     raise ValueError(f"X{entry['game']} {entry['name']} {group['group']:02x}/{pose:02x}: {error}") from error
                 result.extend(struct.pack('<hhHH', left, top, width, height) + pixels)
                 sheets.append((entry['game'], entry['weapon'], group['group'], pose,
-                               left, top, width, height, pixels, colors))
+                               left, top, width, height, pixels, group_colors))
     return bytes(result), sheets
 
 

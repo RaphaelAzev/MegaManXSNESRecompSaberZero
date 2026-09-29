@@ -135,8 +135,8 @@ Bytes zero_assets(const Rom& r) {
   for (auto& g : groups) { Tiles t;for (unsigned i=0;i<g[1];++i) { transfer(r,g[2],i,t);append(out,pose(r,g[0],i,t,true).pixels); } }
   return out;
 }
-struct GroupSource { unsigned id,frames,dma,restricted; uint64_t poses,inherited; int setup; };
-struct WeaponSource { unsigned game,id,body,palette,extra,groups; GroupSource group[2]; };
+struct GroupSource { unsigned id,frames,dma,restricted; uint64_t poses,inherited; int setup; unsigned palette; };
+struct WeaponSource { unsigned game,id,body,palette,extra,groups; int resource; unsigned offset; GroupSource group[3]; };
 #include "mmx_weapon_sources.h"
 Bytes animations(const Rom& r,unsigned game,unsigned group) {
   unsigned base=r.integer((game==2?0x2fa000:0x3f8000)+group*3,3),header=r.integer(base),extent=header;
@@ -153,8 +153,8 @@ Bytes animations(const Rom& r,unsigned game,unsigned group) {
   }
   return r.at(base,extent);
 }
-Bytes menu(const Rom& r,unsigned game) {
-  unsigned rec=(game==2?0x86fa01:0x86f732)+0x4c*5,length=r.integer(rec+3);
+Bytes menu(const Rom& r,unsigned game,unsigned resource=0x4c) {
+  unsigned rec=(game==2?0x86fa01:0x86f732)+resource*5,length=r.integer(rec+3);
   size_t p=r.offset(r.integer(rec,3));Bytes b;
   while (b.size()<length) {
     unsigned control=r.raw(p++,1)[0];
@@ -169,7 +169,7 @@ Bytes menu(const Rom& r,unsigned game) {
   return b;
 }
 Bytes weapon_assets(const Rom& r,unsigned game) {
-  Bytes out{'M','M','X','W','E','A','P','4'};put(out,8,4);Bytes graphics=menu(r,game);
+  Bytes out{'M','M','X','W','E','A','P','5'};put(out,8,4);Bytes graphics=menu(r,game);
   for (const auto& w : weapon_sources) if (w.game==game) {
     put(out,game,1);put(out,w.id,1);put(out,w.groups,1);put(out,0,1);
     append(out,r.raw(w.body,32));append(out,r.raw(w.palette,32));append(out,r.raw(game==2?0x2cee0:0x62da0,32));
@@ -180,7 +180,13 @@ Bytes weapon_assets(const Rom& r,unsigned game) {
       for (unsigned plane=0;plane<4;++plane) color|=((graphics[start+plane/2*16+plane%2]>>(7-(x&7)))&1)<<plane;
       out.push_back(uint8_t(color));
     }
-    Tiles base;bulk(r,0x860000|r.integer((game==2?0x869664:0x8697ad) + 0x3e + w.id*2),base);
+    Tiles base;
+    if (w.resource>=0) {
+      Bytes common=menu(r,game,unsigned(w.resource));
+      require(w.offset+common.size()<=base.bytes.size(),"Static source graphics exceed tile bank.");
+      for (unsigned i=0;i<common.size();++i) {base.bytes[w.offset+i]=common[i];base.known[w.offset+i]=1;}
+    }
+    bulk(r,0x860000|r.integer((game==2?0x869664:0x8697ad) + 0x3e + w.id*2),base);
     if (w.extra) bulk(r,w.extra,base);
     // Original gameplay footer, including its frame. Palette is the weapon
     // palette already stored above, matching source OAM palette 3.
@@ -196,7 +202,8 @@ Bytes weapon_assets(const Rom& r,unsigned game) {
     }
     for (unsigned j=0;j<w.groups;++j) {
       const auto& g=w.group[j];Tiles t=base;if (g.setup>=0) transfer(r,g.dma,unsigned(g.setup),t);
-      Bytes a=animations(r,game,g.id);put(out,g.id);put(out,g.frames);put(out,unsigned(a.size()));append(out,a);
+      Bytes a=animations(r,game,g.id);put(out,g.id);put(out,g.frames);put(out,unsigned(a.size()));
+      append(out,r.raw(g.palette,32));append(out,a);
       for (unsigned i=0;i<g.frames;++i) {
         if (g.restricted && (i>=64 || !(g.poses&(uint64_t(1)<<i)))) { out.insert(out.end(),8,0);continue; }
         if (i>=64 || !(g.inherited&(uint64_t(1)<<i))) transfer(r,g.dma,i,t);

@@ -800,7 +800,7 @@ static uint32_t colour(const Ppu *p, const uint16_t *palette, const uint8_t brig
 static void weapon_sprite_row(const MmxWeaponShot *s, unsigned pose, int x, int sy,
                               int y, MmxRenderView view, uint16_t *objects, int *colors) {
   const MmxWeaponPose *p = MmxWeaponsPose(s->page,s->weapon,s->group,pose);
-  const uint16_t *palette = MmxWeaponsPalette(s->page,s->weapon,false);
+  const uint16_t *palette = MmxWeaponsGroupPalette(s->page,s->weapon,s->group);
   if (!p || !palette) return;
   int row = y - sy - p->top;
   if (row < 0 || row >= p->height) return;

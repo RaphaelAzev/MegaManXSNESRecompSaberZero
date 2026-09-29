@@ -50,17 +50,20 @@ ROM SHA-256 is checked after stripping an optional 512-byte copier header:
 `src/mmx_source_assets.cpp` performs native extraction at activation. There is
 no Python/runtime tool installation or user extraction step. It validates the
 ROM again and atomically writes private caches in `cache/mmx-source/` beside
-the executable: `x3-zero-v6.bin`, `x2-weapons-v4.bin`, `x3-weapons-v4.bin`.
+the executable: `x3-zero-v6.bin`, `x2-weapons-v5.bin`, `x3-weapons-v5.bin`.
 Each launch regenerates from the selected ROM, so stale/developer caches are
 never an implicit fallback. Native extraction matches the reference tools
 byte for byte. Copier headers produce identical output; wrong ROMs are rejected.
 
 The weapon descriptor compiles into address-only C++ tables during the normal
 developer build. Zero uses the same verified source addresses as the reference
-extractor. Separate eight-entry weapon caches use `MMXWEAP4`; the loader also
+extractor. Separate eight-entry weapon caches use `MMXWEAP5`; the loader also
 accepts the combined sixteen-entry development cache in that format. Version 4
-adds each source game's dedicated 16x16 gameplay HUD footer, separate from its
-pause-menu icon. Old weapon caches are regenerated from the selected ROMs.
+added each source game's dedicated 16x16 gameplay HUD footer, separate from its
+pause-menu icon. Version 5 adds a palette per sprite group and up to three
+groups, allowing original shared explosion art with its own source palette.
+Compressed static graphics are decoded from the selected ROM using address-only
+descriptors. Old weapon caches are regenerated from the selected ROMs.
 Source pack selection and this artwork change do not alter gameplay saves.
 
 Shared framework support originated in `795fc99` and is integrated at

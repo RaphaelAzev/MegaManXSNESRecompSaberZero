@@ -16,7 +16,7 @@ static bool slot_valid(unsigned d) { return d >= 0x1228 && d < 0x1428 && (d & 63
 static bool owned(const uint8_t *r, unsigned d) { return slot_valid(d) && r[d] && word(r + d + 0x3e) == 0x5758; }
 static unsigned slot_index(unsigned d) { return (d - 0x1228) / 64; }
 static unsigned weapon_group(unsigned page, unsigned weapon) {
-  return page == 1 ? (weapon == 2 ? 68 : weapon == 4 ? 70 : weapon == 5 ? 65 : 0) :
+  return page == 1 ? (weapon == 2 ? 68 : weapon == 4 ? 70 : weapon == 5 ? 65 : weapon == 7 ? 15 : 0) :
     page == 2 ? (weapon == 1 ? 5 : weapon == 4 ? 12 : weapon == 5 ? 13 : weapon == 7 ? 16 : 0) : 0;
 }
 static void sound(uint8_t *r, unsigned command) {
@@ -36,12 +36,16 @@ bool MmxWeaponsValidCombatState(const MmxWeaponCombatState *s) {
     if (p->active > 1 || p->reserved || p->charged > 1 || p->pose >= 128 || p->animation > 8192 ||
         p->x < -0x1000000 || p->x > 0x1000000 || p->y < -0x1000000 || p->y > 0x1000000 ||
         (p->active && (!weapon_group(p->page,p->weapon) || p->group !=
-          (p->page == 1 && p->weapon == 5 && p->charged ? 135 : weapon_group(p->page,p->weapon))))) return false;
+          (p->page == 1 && p->weapon == 5 && p->charged ? 135 :
+           p->page == 1 && p->weapon == 7 ? (p->charged ? 19 : p->muzzle_pose==3 ? 8 : 15) :
+           weapon_group(p->page,p->weapon))))) return false;
     if (p->active && p->page == 1 && p->weapon == 5 &&
         (p->variant > 4 || p->radius > 2 || p->muzzle_pose > 3)) return false;
     if (p->active && p->page==1 && p->weapon==2 &&
         (p->variant>(p->charged ? 7 : 10) || p->muzzle_pose>3 || p->radius>63 ||
          p->tether_pose>(p->charged ? 2 : 7))) return false;
+    if (p->active && p->page==1 && p->weapon==7 &&
+        (p->variant>2 || p->muzzle_pose>3 || p->radius>(p->charged ? 32 : 60))) return false;
     if (p->active && p->page == 1 && p->weapon == 4 &&
         (p->variant > (p->charged ? 7 : 0) || p->radius > (p->charged ? 6 : 30) ||
          p->muzzle_pose > (p->charged ? 1 : 6) || p->tether_pose > (p->charged ? 1 : 10))) return false;
@@ -136,6 +140,7 @@ void MmxWeaponsPlayerTick(uint8_t r[0x20000]) {
   MmxZeroCancel(r); r[0xc0f] = 2;
   if (!(r[0x1f99] & 2)) stop_charge(r);
   MmxWeaponsState s = MmxWeaponsGetState();
+  if (s.page==1 && s.weapon==7) r[0xc0f]=8; /* Planted mines release the source firing limit. */
   if (s.page==1 && s.weapon==2) {
     bool shield=false;
     for (unsigned i=0;i<8;++i) if (combat.shots[i].active && combat.shots[i].page==1 &&
@@ -183,12 +188,17 @@ void MmxWeaponsMarkShot(uint8_t r[0x20000], unsigned d) {
    * using that class inverted medium/full releases after a longer hold. */
   s->charged = r[0xc01] == 4 && (r[0x1f99] & 2);
   if (s->page == 1 && s->weapon == 5 && s->charged) s->group = 135;
+  if (s->page == 1 && s->weapon == 7 && s->charged) s->group = 19;
   s->facing = r[0xbb9] & 64;
   r[d + 10] = 0; putword(r+d+0x3e,0x5758);
 }
 static void shot_bounds(const MmxWeaponShot *s, unsigned *rx, unsigned *ry) {
   *rx = 13; *ry = 10;
   if (s->page==1 && s->weapon==2) *rx=*ry=7;
+  if (s->page==1 && s->weapon==7) {
+    *rx=*ry=s->charged ? 8*(s->variant+1) : 4;
+    if (!s->charged && s->muzzle_pose==3) { *rx=17;*ry=18; }
+  }
   if (s->page == 1 && s->weapon == 4) *rx = *ry = s->charged ? (s->muzzle_pose ? 6 : 7) : 9;
   if (s->page == 1 && s->weapon == 5) {
     *rx = s->charged ? 10 : 12; *ry = s->charged ? 11 : 8;
@@ -216,6 +226,7 @@ static void collision_box(unsigned index, const MmxWeaponShot *s) {
   uint8_t *box = previous_boxes + index*4;
   box[0] = box[1] = 0; box[2] = (uint8_t)rx; box[3] = (uint8_t)ry;
   if (s->page == 1 && s->weapon == 5 && s->charged) box[1] = 254;
+  if (s->page==1 && s->weapon==7 && !s->charged && s->muzzle_pose==3) box[1]=248;
   if (s->page == 2 && s->weapon == 7) {
     if (s->charged && s->muzzle_pose<3) box[0]=(uint8_t)-3;
     else if (!s->charged && s->muzzle_pose==1) box[0]=(uint8_t)(s->variant ? -13 : -7);
@@ -231,6 +242,7 @@ static void native_object(uint8_t *r, unsigned d, const MmxWeaponShot *s) {
   r[d+0x30] = 0;
   if (s->page==2 && s->weapon==7 && s->variant!=2)
     r[d+0x30]=(uint8_t)(s->charged ? s->muzzle_pose<2 : s->age<3);
+  if (s->page==1 && s->weapon==7 && (s->charged || s->muzzle_pose==3)) r[d+0x30]=s->age&1;
   collision_box(slot_index(d),s);
 }
 static unsigned free_slot(const uint8_t *r) {
@@ -448,6 +460,91 @@ static void bubble_tick(uint8_t *r,unsigned d,MmxWeaponShot *s) {
       (s->y>>8)>(int)word(r+0x1e50)+320) { retire(r,d);return; }
   native_object(r,d,s);
   if (s->muzzle_pose==3 || (s->charged && !s->muzzle_pose)) putword(r+d+0x20,0);
+}
+static void magnet_explode(MmxWeaponShot *s) {
+  s->muzzle_pose=3;s->group=8;s->vx=s->vy=0;s->hit_slots=0;animation_start(s,5);
+}
+static bool magnet_projectiles(uint8_t *r,const MmxWeaponShot *s) {
+  /* X2 $88:E67A pulls destructible enemy shots by 5/3 pixels, then
+   * $88:D81F absorbs at most one overlapping shot on alternating ticks. */
+  for (unsigned d=0x1428;d<0x1628;d+=64) if (r[d] && !(r[d]&64) && r[d+0x28]) {
+    int x=word(r+d+5),y=word(r+d+8);
+    putword(r+d+5,x+((x<(s->x>>8)) ? 5 : -5));
+    putword(r+d+8,y+((y<(s->y>>8)) ? 3 : -3));
+  }
+  if (s->age&1) return false;
+  int radius=8*(s->variant+1);
+  for (unsigned d=0x1428;d<0x1628;d+=64) {
+    unsigned box=word(r+d+0x20);
+    if (!r[d] || (r[d]&64) || !r[d+0x28] || box<0x8000 || !collision_rom) continue;
+    size_t offset=0x30000+(box&32767);if (offset+4>collision_rom_size) continue;
+    const uint8_t *b=collision_rom+offset;
+    int x=(int)word(r+d+5)+(int8_t)b[0]*((r[d+17]&64) ? -1 : 1)-(s->x>>8);
+    int y=(int)word(r+d+8)+(int8_t)b[1]-(s->y>>8);
+    if (x < -radius-b[2] || x > radius+b[2] || y < -radius-b[3] || y > radius+b[3]) continue;
+    memset(r+d,0,4);putword(r+d+14,0);putword(r+d+0x2c,0);return true;
+  }
+  return false;
+}
+static void magnet_tick(uint8_t *r,unsigned d,MmxWeaponShot *s) {
+  if (!s->age) {
+    /* Source normal limit is one flying/arming mine. Once planted, +$35
+     * is released while its native slot stays live until the explosion. */
+    for (unsigned i=0;i<8;++i) if (combat.shots+i!=s && combat.shots[i].active &&
+        combat.shots[i].page==1 && combat.shots[i].weapon==7 &&
+        (combat.shots[i].charged || combat.shots[i].muzzle_pose<2)) { retire(r,d);return; }
+    if (!MmxWeaponsSpend(1,7,s->charged ? 768 : 256)) { retire(r,d);return; }
+    muzzle_origin(r,d,s);s->age=1;s->born=combat.tick;s->vy=0;
+    s->vx=(int16_t)((s->facing ? 1 : -1)*(s->charged ? 128 : 512));
+    animation_start(s,s->charged ? 0 : 1);native_object(r,d,s);return;
+  }
+  if (s->charged) {
+    if (magnet_projectiles(r,s) && s->radius<32) {
+      ++s->radius;
+      if (!(s->radius&15)) { ++s->variant;animation_start(s,s->variant); }
+    }
+  } else if (s->muzzle_pose!=3 && r[d+1]>=6) magnet_explode(s);
+  if (s->charged || !s->muzzle_pose) {
+    /* $88:E6C4 steering has inertia: releasing up/down retains VY. */
+    if (r[0xbdf]&8) { s->vy-=128;if (s->vy < -1024) s->vy=-1024; }
+    if (r[0xbdf]&4) { s->vy+=128;if (s->vy > 1024) s->vy=1024; }
+    unsigned hit=0;
+    if (s->charged) { s->x+=s->vx;s->y+=s->vy; }
+    else {
+      hit=terrain_move(r,s,4,4);
+      for (unsigned i=0;i<8 && !hit;++i) {
+        const MmxWeaponShot *t=combat.shots+i;
+        if (t==s || !t->active || t->page!=1 || t->weapon!=7 || t->charged) continue;
+        int dx=(t->x-s->x)>>8,dy=(t->y-s->y)>>8;
+        if (dx>=-8 && dx<=8 && dy>=-8 && dy<=8) hit=1;
+      }
+    }
+    if (hit) { s->muzzle_pose=1;s->vx=s->vy=0;animation_start(s,2); }
+    else animation_step(s);
+  } else if (s->muzzle_pose==1) {
+    if (s->flags&128) { s->muzzle_pose=2;s->radius=60;animation_start(s,3); }
+    else animation_step(s);
+  } else if (s->muzzle_pose==2) {
+    if (!--s->radius) magnet_explode(s);
+  } else {
+    if (s->flags&128) {
+      /* Source $82:AD44 detonates intersecting mines at the end of the
+       * blast, preserving the visible delay in a chain reaction. */
+      for (unsigned i=0;i<8;++i) {
+        MmxWeaponShot *t=combat.shots+i;
+        if (t==s || !t->active || t->page!=1 || t->weapon!=7 || t->charged || t->muzzle_pose==3) continue;
+        int dx=(t->x-s->x)>>8,dy=((t->y-s->y)>>8)+8;
+        if (dx>=-21 && dx<=21 && dy>=-22 && dy<=22) magnet_explode(t);
+      }
+      retire(r,d);return;
+    }
+    animation_step(s);
+  }
+  if (++s->age>1600 || !s->active || (s->x>>8)<(int)word(r+0x1e4d)-32 ||
+      (s->x>>8)>=(int)word(r+0x1e4d)+288 || (s->y>>8)<(int)word(r+0x1e50)-16 ||
+      (s->y>>8)>=(int)word(r+0x1e50)+240) { retire(r,d);return; }
+  if (!(s->age&1) && (s->charged || s->muzzle_pose==3)) s->hit_slots=0;
+  native_object(r,d,s);
 }
 static void frost_shards(uint8_t *r,const MmxWeaponShot *parent) {
   /* X3 $81:A93A/$BD9E selects four class-$37 particles. Its shared
@@ -964,6 +1061,7 @@ unsigned MmxWeaponsProjectileTick(uint8_t r[0x20000], unsigned d, unsigned activ
   MmxWeaponShot *s = combat.shots + slot_index(d);
   if (!MmxWeaponsEnabled() || !s->active) { retire(r,d); return 0; }
   if (s->page == 1 && s->weapon == 2) { bubble_tick(r,d,s); return 0; }
+  if (s->page == 1 && s->weapon == 7) { magnet_tick(r,d,s); return 0; }
   if (s->page == 1 && s->weapon == 4) { wheel_tick(r,d,s); return 0; }
   if (s->page == 1 && s->weapon == 5) { sonic_tick(r,d,s); return 0; }
   if (s->page == 2 && s->weapon == 1) { acid_tick(r,d,s); return 0; }
@@ -1054,6 +1152,7 @@ static unsigned source_damage(const MmxWeaponShot *s) {
    * Special-response weapons are added with their own behavior handlers. */
   if (s->page==1) {
     if (s->weapon==2) return s->charged ? 5 : 2;
+    if (s->weapon==7) return 5;
     if (s->weapon==4) return s->charged ? 50 : 25;
     if (s->weapon==5) return s->charged ? 1 : 4;
   } else if (s->page==2) {

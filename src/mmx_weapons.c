@@ -4,10 +4,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { WEAPONS = 16, GROUPS = 2, POSES = 128 };
+enum { WEAPONS = 16, GROUPS = 3, POSES = 128 };
 typedef struct WeaponGroup {
   unsigned id, count, animation_size;
   const uint8_t *animation;
+  uint16_t colors[16];
   MmxWeaponPose pose[POSES];
 } WeaponGroup;
 typedef struct WeaponArt {
@@ -65,7 +66,7 @@ static bool load(const char *path, unsigned page) {
   fclose(f);
   if (!ok) { free(data); free(candidate); return false; }
   unsigned count=page ? 8 : 16,first=page ? (page-1)*8 : 0;
-  ok = !memcmp(data, "MMXWEAP4", 8) && word(data+8)==count && !word(data+10);
+  ok = !memcmp(data, "MMXWEAP5", 8) && word(data+8)==count && !word(data+10);
   size_t pos = 12;
   for (unsigned i = first; i < first+count && ok; ++i) {
     if (pos + 612 > (size_t)size) { ok = false; break; }
@@ -80,10 +81,12 @@ static bool load(const char *path, unsigned page) {
     for (unsigned n = 0; n < 512; ++n) if (p[100 + n] > 15) ok = false;
     pos += 612;
     for (unsigned g = 0; g < w->groups && ok; ++g) {
-      if (pos + 6 > (size_t)size) { ok = false; break; }
+      if (pos + 38 > (size_t)size) { ok = false; break; }
       WeaponGroup *group = w->group + g;
       group->id = word(data + pos); group->count = word(data + pos + 2);
       group->animation_size = word(data + pos + 4); pos += 6;
+      for (unsigned c=0;c<16;++c) group->colors[c]=(uint16_t)word(data+pos+c*2);
+      pos+=32;
       if (group->animation_size < 5 || group->animation_size > 8192 || pos + group->animation_size > (size_t)size) { ok = false; break; }
       group->animation = data + pos; pos += group->animation_size;
       if (group->count > POSES || !group->count) { ok = false; break; }
@@ -126,6 +129,12 @@ const uint16_t *MmxWeaponsPalette(unsigned page, unsigned weapon, bool body) {
 }
 const MmxWeaponPose *MmxWeaponsIcon(unsigned page, unsigned weapon) {
   return MmxWeaponsPageEnabled(page) && valid_weapon(page, weapon) ? &art[weapon_index(page, weapon)].icon : NULL;
+}
+const uint16_t *MmxWeaponsGroupPalette(unsigned page,unsigned weapon,unsigned group) {
+  if (!MmxWeaponsPageEnabled(page) || !valid_weapon(page,weapon)) return NULL;
+  const WeaponArt *w=art+weapon_index(page,weapon);
+  for (unsigned i=0;i<w->groups;++i) if(w->group[i].id==group) return w->group[i].colors;
+  return NULL;
 }
 const MmxWeaponPose *MmxWeaponsHudIcon(unsigned page, unsigned weapon) {
   return MmxWeaponsPageEnabled(page) && valid_weapon(page, weapon) ? &art[weapon_index(page, weapon)].hud_icon : NULL;

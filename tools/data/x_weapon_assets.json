@@ -119,6 +119,8 @@
     "weapon": 7,
     "name": "Magnet Mine",
     "sha256": "f3246755f608a1e1dc9c848b61da3b824c7853b29b3be40df6fc7f2793a887ed",
+    "static_resource": 10,
+    "static_offset": 4096,
     "groups": [
       {
         "group": 15,
@@ -129,6 +131,14 @@
         "group": 19,
         "frames": 12,
         "dma": "85a0b1"
+      },
+      {
+        "group": 8,
+        "frames": 14,
+        "dma": "859bfc",
+        "palette": "2b220",
+        "poses": [5, 6, 7, 8, 9, 10, 11, 12, 13],
+        "inherited_poses": [5, 6, 7, 8, 9, 10, 11, 12, 13]
       }
     ],
     "body_palette": "2cc20",

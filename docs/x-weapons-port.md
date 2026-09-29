@@ -8,7 +8,7 @@ Public release contract: [user-supplied source ROMs](mod-source-roms.md).
 
 ## Asset extraction foundation
 
-`tools/extract_x_weapons.py` builds a local `MMXWEAP4` cache from both original
+`tools/extract_x_weapons.py` builds a local `MMXWEAP5` cache from both original
 USA ROMs. It validates normalized ROM hashes, accepts copier headers, reads
 the original sprite layouts and DMA lists, and preserves original palettes.
 The source-controlled descriptor contains addresses only; ROMs and extracted
@@ -18,9 +18,9 @@ graphics remain local.
 python tools/extract_x_weapons.py ../MegamanX2Recomp/mmx2.sfc ../MegamanX3SNESRecomp/mmx3.sfc build-zero/port-work/x-weapons.bin
 ```
 
-The current cache contains 591 projectile poses, sixteen original pause-menu
+The current cache contains 600 projectile/effect poses, sixteen original pause-menu
 icons, sixteen gameplay HUD footers and the original animation sequences
-(433,323 bytes). This is an asset foundation, not a
+(440,617 bytes). This is an asset foundation, not a
 claim that the weapons are already playable in X1.
 
 Sources were checked in the local recomp projects using private, paused
@@ -89,7 +89,7 @@ and X1 ownership filtering after returning to its page.
 Bounded generated/interpreter hooks virtualize the pause inventory reads and
 selection. X1 progression/energy stays untouched. An extended selection uses
 native buster resources as a safe underlying actor. The current
-implementation includes seven combat weapons; remaining entries
+implementation includes eight combat weapons; remaining entries
 are still unfinished.
 
 The game save chunk is version 12 when extended weapons are enabled; legacy
@@ -102,7 +102,7 @@ Game versions 9/10 and capture versions 8/9 retain their original 24-byte
 inventory prefix; new loads initialize the sixteen appended fraction bytes
 to zero. New inventory state is 40 bytes and preserves source 8.8 precision.
 
-The seven playable weapons now use source ordinary-enemy damage divided by
+The eight playable weapons now use source ordinary-enemy damage divided by
 their source buster value (3), multiplied by the X1 target's buster damage.
 Fractions carry between contacts to preserve ratios, including weak individual
 pellets and strong sustained weapons. Special encounter/armored profiles keep
@@ -343,9 +343,34 @@ from port state using the source arithmetic, rather than the source game's
 whole RNG call stream. Source audio and full water-stage traversal remain
 fidelity work.
 
+## Eighth combat checkpoint: Magnet Mine
+
+Normal mines travel at two pixels per tick, steer with source acceleration
+and retain vertical momentum after releasing up/down. Terrain or another mine
+starts the original arming animation and 60-tick planted wait. Native enemy
+contact or timeout starts X2's original shared explosion; blast completion
+detonates nearby mines. One flying/arming mine is allowed; planting frees
+the firing limit while retaining its physical slot. Normal cost is one energy.
+
+Charged mines travel at half a pixel per tick and steer the same way. They
+pull destructible enemy projectiles five pixels horizontally and three
+vertically each tick, absorb contacting shots on alternating ticks, and grow
+at 16/32 absorptions through the three original animations and 8/16/24-radius
+hitboxes. Native immunity is respected. Charged cost is three energy; both
+forms deal 5/3 buster damage with source-style repeated explosion/charged
+contacts. X2's separate armor energy-conversion bonus is outside this pass.
+
+Both-character checks cover speed/steering, source firing limit, native terrain
+planting, timed explosion, chain reaction, arms/costs, projectile attraction,
+immunity/absorption, both growth thresholds, native enemy damage, save/replay
+and cleanup. Normal blast and charged art were inspected. Original blast CHR
+and its separate palette are extracted from the user's X2 ROM (MMXWEAP5),
+not recolored weapon sprites. Moving-platform attachment and source audio
+remain fidelity work.
+
 ## Remaining implementation
 
-Implement the other nine weapons' normal and charged attacks, native
+Implement the other eight weapons' normal and charged attacks, native
 sound/effect cleanup, X/Zero firing origins, terrain/enemy interaction and
 meaningful special behaviors. Gate charging on X1's arm upgrade. Keep ordinary
 damage and existing X1 progression. Co-op remains a later, separate mod. The

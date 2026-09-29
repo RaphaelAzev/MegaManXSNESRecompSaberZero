@@ -158,7 +158,7 @@ static int prepare(const char *package, const char *feature, unsigned game, int 
   char leaf[100],error[512];
   if (!provider || !provider->feature_resource_get ||
       !provider->feature_resource_get(provider->ctx,package,feature,0,&resource) || !resource.path[0]) return 0;
-  snprintf(leaf,sizeof(leaf),"cache/mmx-source/x%u-%s.bin",game,zero?"zero-v6":"weapons-v4");
+  snprintf(leaf,sizeof(leaf),"cache/mmx-source/x%u-%s.bin",game,zero?"zero-v6":"weapons-v5");
   if (!snesrecomp_exe_dir_path(leaf,path,4096)) return 0;
   if (MmxSourceAssetsBuild(resource.path,game,zero,path,error,sizeof(error))) return 1;
   fprintf(stderr,"[mmx-source] %s\n",error);

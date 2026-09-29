@@ -567,6 +567,103 @@ static unsigned frost_slot(bool charged) {
   for(unsigned i=0;i<8;++i) if(c.shots[i].active && c.shots[i].weapon==7 && c.shots[i].charged==charged) return i;
   return 8;
 }
+static void weapon_magnet_checks(const char *assets,const char *fixture,uint8 *start,
+                                uint8 *expected,uint8 *actual,size_t cap) {
+  check(MmxWeaponsLoad(assets),"Magnet Mine and original explosion assets load");
+  check(MmxWeaponsPose(1,7,8,8) && memcmp(MmxWeaponsGroupPalette(1,7,8),MmxWeaponsPalette(1,7,false),32),
+      "mine blast has its original separate effect palette");
+  for(unsigned character=0;character<2;++character) {
+    check(RtlLoadSnapshot(fixture),"restore Magnet Mine fixture");if(character) zero_health_swap();
+    MmxWeaponsState w=MmxWeaponsGetState();w.page=1;w.weapon=7;MmxWeaponsSetState(w);
+    frame(SNES_PAD_Y);frame(0);MmxWeaponCombatState c=MmxWeaponsGetCombatState();unsigned slot=8;
+    for(unsigned i=0;i<8;++i) if(c.shots[i].active) {slot=i;break;}
+    check(slot<8 && c.shots[slot].vx==512 && MmxWeaponsEnergyAmount(1,7)==27*256,
+        "normal mine uses source speed and one-energy cost");
+    for(unsigned i=0;i<8;++i) frame(SNES_PAD_UP);
+    c=MmxWeaponsGetCombatState();check(c.shots[slot].vy==-1024,"up steers mine to source vertical speed cap");
+    frame(0);check(MmxWeaponsGetCombatState().shots[slot].vy==-1024,"mine retains vertical momentum after steering release");
+    frame(SNES_PAD_Y);frame(0);check(extended_shots(false)==1,"one flying mine at a time matches source limit");
+    size_t n=RtlSaveSnapshotToMemory(start,cap);zero_replay(12);size_t en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"restore steering mine");zero_replay(12);
+    size_t an=RtlSaveSnapshotToMemory(actual,cap);same(expected,en,actual,an,"steered mine replay is exact");
+    check(RtlLoadSnapshot(fixture),"restore planted-mine fixture");if(character) zero_health_swap();
+    w=MmxWeaponsGetState();w.page=1;w.weapon=7;MmxWeaponsSetState(w);frame(SNES_PAD_Y);frame(0);
+    c=MmxWeaponsGetCombatState();for(unsigned i=0;i<8;++i) if(c.shots[i].active) {slot=i;break;}
+    unsigned phases=0,linked=8;bool blast=false,chain=false;
+    for(unsigned i=0;i<165;++i) {
+      frame(i<20 ? SNES_PAD_DOWN : 0);c=MmxWeaponsGetCombatState();
+      if(linked<8 && !c.shots[slot].active && c.shots[linked].active && c.shots[linked].muzzle_pose==3) chain=true;
+      if(c.shots[slot].active) {
+        phases|=1u<<c.shots[slot].muzzle_pose;
+        if(c.shots[slot].muzzle_pose==3 && !blast) {
+          blast=true;zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-magnet-blast.cap":".zero-magnet-blast.cap");
+          check(c.shots[slot].group==8,"mine detonates with original shared explosion art");
+          frame(SNES_PAD_Y);frame(0);c=MmxWeaponsGetCombatState();
+          for(unsigned k=0;k<8;++k) if(k!=slot && c.shots[k].active) {linked=k;break;}
+          check(linked<8,"planted mine releases the one-mine firing limit");
+          c.shots[linked].x=c.shots[slot].x+16*256;c.shots[linked].y=c.shots[slot].y;
+          c.shots[linked].muzzle_pose=2;c.shots[linked].radius=60;c.shots[linked].vx=c.shots[linked].vy=0;
+          MmxWeaponsSetCombatState(c);
+        }
+      }
+    }
+    check((phases&14)==14 && blast && !g_ram[0xbdd],"mine arms on native terrain, waits, explodes and cleans up");
+    check(chain,"blast end detonates the adjacent mine before its timer expires");
+    for(unsigned i=0;i<205;++i) frame(SNES_PAD_Y);frame(0);zero_replay(10);
+    check(!extended_shots(true),"charged Magnet Mine requires X1 arms");
+    MmxWeaponsCancelShots(g_ram);zero_replay(5);g_ram[0x1f99]|=2;
+    unsigned energy=MmxWeaponsEnergyAmount(1,7);
+    for(unsigned i=0;i<205;++i) frame(SNES_PAD_Y);frame(0);zero_replay(12);
+    c=MmxWeaponsGetCombatState();slot=8;
+    for(unsigned i=0;i<8;++i) if(c.shots[i].active && c.shots[i].charged) {slot=i;break;}
+    check(slot<8 && c.shots[slot].group==19 && c.shots[slot].vx==128 &&
+        MmxWeaponsEnergyAmount(1,7)==energy-4*256,"charged mine uses original group, slow speed and three-energy cost");
+    unsigned d=0x1228+slot*64,bullet=0x1428;
+    unsigned x=(unsigned)(c.shots[slot].x>>8),y=(unsigned)(c.shots[slot].y>>8);
+    memset(g_ram+bullet,0,64);g_ram[bullet]=1;g_ram[bullet+0x28]=1;
+    g_ram[bullet+5]=(uint8_t)(x+50);g_ram[bullet+6]=(uint8_t)((x+50)>>8);
+    g_ram[bullet+8]=(uint8_t)(y+40);g_ram[bullet+9]=(uint8_t)((y+40)>>8);
+    MmxWeaponsProjectileTick(g_ram,d,1);
+    check((unsigned)(g_ram[bullet+5]|g_ram[bullet+6]<<8)==x+45 &&
+          (unsigned)(g_ram[bullet+8]|g_ram[bullet+9]<<8)==y+37,"charged mine pulls enemy shots by source 5/3-pixel steps");
+    g_ram[bullet+0x28]=0;MmxWeaponsProjectileTick(g_ram,d,1);
+    check((unsigned)(g_ram[bullet+5]|g_ram[bullet+6]<<8)==x+45,"immune enemy shots are not made magnetic");
+    for(unsigned absorbed=0;absorbed<32;++absorbed) {
+      memset(g_ram+bullet,0,64);g_ram[bullet]=1;g_ram[bullet+0x28]=1;
+      memcpy(g_ram+bullet+5,g_ram+d+5,2);memcpy(g_ram+bullet+8,g_ram+d+8,2);
+      memcpy(g_ram+bullet+0x20,g_ram+d+0x20,2);
+      MmxWeaponsProjectileTick(g_ram,d,1);if(g_ram[bullet]) MmxWeaponsProjectileTick(g_ram,d,1);
+      check(!g_ram[bullet],"charged mine absorbs contacting enemy shot");
+      if(absorbed==15) check(MmxWeaponsGetCombatState().shots[slot].variant==1,"sixteen absorbed shots grow the middle mine");
+    }
+    c=MmxWeaponsGetCombatState();check(c.shots[slot].variant==2 && c.shots[slot].radius==32,
+        "thirty-two absorbed shots grow original largest mine and hitbox");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-magnet-charged.cap":".zero-magnet-charged.cap");
+    n=RtlSaveSnapshotToMemory(start,cap);zero_replay(20);en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"restore grown charged mine");zero_replay(20);
+    an=RtlSaveSnapshotToMemory(actual,cap);same(expected,en,actual,an,"charged mine size, animation and motion replay exactly");
+    for(unsigned i=0;i<80;++i) frame(SNES_PAD_UP);
+    check(!extended_shots(true) && !g_ram[0xbdd] && !(g_ram[0xc2f]&64),"charged mine leaves the screen without audio or slot leaks");
+  }
+  check(RtlLoadSnapshot(fixture),"restore mine enemy encounter");unsigned victim=0;
+  for(unsigned i=0;i<400 && !victim;++i) {
+    frame(SNES_PAD_RIGHT);
+    for(unsigned d=0xe68;d<0x1228;d+=64)
+      if(g_ram[d] && (g_ram[d+0x27]&127) && (g_ram[d+0x20]|g_ram[d+0x21])) {victim=d;break;}
+  }
+  check(victim!=0,"native enemy available for mine collision");
+  MmxWeaponsState w=MmxWeaponsGetState();w.page=1;w.weapon=7;MmxWeaponsSetState(w);
+  frame(0);frame(SNES_PAD_Y);frame(0);MmxWeaponCombatState c=MmxWeaponsGetCombatState();unsigned slot=8;
+  for(unsigned i=0;i<8;++i) if(c.shots[i].active) {
+    c.shots[i].x=(g_ram[victim+5]|g_ram[victim+6]<<8)*256;
+    c.shots[i].y=(g_ram[victim+8]|g_ram[victim+9]<<8)*256;
+    c.shots[i].vx=c.shots[i].vy=0;slot=i;break;
+  }
+  check(slot<8,"mine is available for native contact");g_ram[victim+0x27]=32;MmxWeaponsSetCombatState(c);
+  zero_replay(3);check((g_ram[victim+0x27]&127)<=30,"native mine impact deals source-scaled damage");
+  check(MmxWeaponsGetCombatState().shots[slot].muzzle_pose==3,"native enemy contact starts mine explosion");
+  puts("MMX MAGNET MINE CHECKS PASSED");
+}
 static void weapon_bubble_checks(const char *assets,const char *fixture,uint8 *start,
                                 uint8 *expected,uint8 *actual,size_t cap) {
   check(MmxWeaponsLoad(assets),"Bubble Splash original assets load");
@@ -1171,6 +1268,7 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
     else if (getenv("MMX_WEAPON_CYCLE_TEST")) weapon_cycle_checks(weapons,fixture,start,cap);
     else if (getenv("MMX_WEAPON_FROST_TEST")) weapon_frost_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_BUBBLE_TEST")) weapon_bubble_checks(weapons,fixture,start,expected,actual,cap);
+    else if (getenv("MMX_WEAPON_MAGNET_TEST")) weapon_magnet_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_WHEEL_TEST")) weapon_wheel_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_SONIC_TEST")) weapon_sonic_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_RAY_TEST")) weapon_ray_checks(weapons,fixture,start,expected,actual,cap);
