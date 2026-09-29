@@ -44,8 +44,8 @@ Zero content and the later weapon/co-op mods. Users provide the supported X1
 ROM and their own X3 ROM for Zero; the complete weapon set additionally needs
 X2. Extract assets locally. Public packages must not bundle ROMs, `zero-x3.bin`,
 `x-weapons.bin`, decoded art/audio, private fixtures or research captures.
-Public source-ROM selection, cache provenance/versioning and packaging audits
-are release prerequisites, not completed features.
+Source-ROM selection and automatic native extraction are implemented; Zero and
+X3 weapons share the same ROM path. Packaging audits remain release prerequisites.
 
 `tools/extract_zero.py` validates original USA X3 SHA-256
 `65b03268afac296330e8ff8d60dd0825879e13ed658b37713c034a3bd074f1d7`
@@ -245,9 +245,11 @@ python tools/extract_zero.py ../MegamanX3SNESRecomp/mmx3.sfc build-zero/port-wor
 ```
 
 Package: `mods/preloaded/packages/megaman-x.character.zero/0.1.0/manifest.toml`.
-Activation plugin is `megaman-x.zero`; the resource picker can select a cache,
-otherwise it reads `zero-x3.bin` beside the executable. The plugin optionally
-loads `x-weapons.bin` there. The development executable is
+Activation plugin is `megaman-x.zero`; its picker selects the original X3 USA
+ROM, shared with the X3 weapons option. Native extraction produces the cache
+automatically under `cache/mmx-source/`. X2/X3 weapons have independent launcher
+options and use their respective ROMs. See [ROM setup](mod-source-roms.md).
+The development executable is
 `build-zero/port-work/MegaManXSNESRecomp.exe`. The owner's preserved swap/HP
 playtest is `build-zero/playtest-combat/MegaManXSNESRecomp.exe`; it predates
 the new weapon attacks. Do not confuse these builds.

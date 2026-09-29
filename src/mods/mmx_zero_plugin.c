@@ -6,6 +6,8 @@
 #include "mmx_zero.h"
 #include "mmx_weapons.h"
 #include "mmx_weapon_combat.h"
+#include "mmx_source_assets.h"
+#include <SDL3/SDL.h>
 #include <stdio.h>
 
 extern uint8_t g_ram[0x20000];
@@ -53,7 +55,7 @@ static void weapon_menu_hook(CpuState *cpu, uint32_t pc) {
   cpu->P = (cpu->P & ~0x82) | (cpu->_flag_Z ? 2 : 0) | (cpu->_flag_N ? 128 : 0);
 }
 static void hook(CpuState *cpu, uint32_t pc) {
-  if (!MmxZeroEnabled()) return;
+  if (!MmxZeroEnabled() && !MmxWeaponsEnabled()) return;
   switch (pc & 0x7fffff) {
     case 0x009dca: MmxZeroHealthRespawn(g_ram); break;
     case 0x00d6a7: MmxRendererObserveObject(g_ram, (uint16_t)(cpu->D + cpu->X)); break;
@@ -149,22 +151,41 @@ void MmxZeroRegisterHooks(void) {
   for (unsigned i=0;i<sizeof(energy_pcs)/sizeof(energy_pcs[0]);++i)
     interp_bridge_set_pre_opcode_hook(energy_pcs[i],weapon_energy_hook);
 }
-static void activate(void) {
-  char path[4096];
+static int prepare(const char *package, const char *feature, unsigned game, int zero, char path[4096]) {
   const RecompLauncherCModProvider *provider = snes_mod_runtime_launcher_provider_c();
   RecompLauncherCModResource resource = {0};
-  if (provider && provider->feature_resource_get &&
-      provider->feature_resource_get(provider->ctx, "megaman-x.character.zero", "zero", 0, &resource) && resource.path[0])
-    snprintf(path, sizeof(path), "%s", resource.path);
-  else if (!snesrecomp_exe_dir_path("zero-x3.bin", path, sizeof(path))) return;
+  char leaf[100],error[512];
+  if (!provider || !provider->feature_resource_get ||
+      !provider->feature_resource_get(provider->ctx,package,feature,0,&resource) || !resource.path[0]) return 0;
+  snprintf(leaf,sizeof(leaf),"cache/mmx-source/x%u-%s.bin",game,zero?"zero-v6":"weapons-v3");
+  if (!snesrecomp_exe_dir_path(leaf,path,4096)) return 0;
+  if (MmxSourceAssetsBuild(resource.path,game,zero,path,error,sizeof(error))) return 1;
+  fprintf(stderr,"[mmx-source] %s\n",error);
+  SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,"Cannot prepare Mega Man mod",error,NULL);
+  return 0;
+}
+static void activate(void) {
+  char path[4096];
+  if (!prepare("megaman-x.character.zero","zero",3,1,path)) return;
   if (!MmxZeroLoad(path)) {
     fprintf(stderr, "[mmx-zero] Cannot load extracted Zero assets: %s\n", path); return;
   }
   MmxZeroRegisterHooks();
-  if (snesrecomp_exe_dir_path("x-weapons.bin", path, sizeof(path)) && MmxWeaponsLoad(path))
-    fprintf(stderr, "[mmx-weapons] Original X2/X3 weapon assets loaded\n");
   fprintf(stderr, "[mmx-zero] Experimental original-size Zero enabled\n");
 }
+static void activate_weapons(unsigned game) {
+  char path[4096];
+  const char *package=game==2?"megaman-x.weapons.x2":"megaman-x.weapons.x3";
+  if (!prepare(package,"weapons",game,0,path)) return;
+  if (!MmxWeaponsLoadPage(path,game-1)) {
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,"Cannot prepare Mega Man mod","Cannot load the generated weapon data.",NULL);
+    return;
+  }
+  MmxZeroRegisterHooks();
+  fprintf(stderr,"[mmx-weapons] X%u weapons loaded from the selected source ROM\n",game);
+}
+static void activate_x2(void) { activate_weapons(2); }
+static void activate_x3(void) { activate_weapons(3); }
 static void reset(void) {
   if (MmxWeaponsEnabled()) g_ram[0x1f12] = 0;
   MmxWeaponsCancelShots(g_ram); MmxZeroCancel(g_ram); MmxZeroDisable(); MmxWeaponsDisable();
@@ -172,4 +193,6 @@ static void reset(void) {
 SNES_MOD_CONSTRUCTOR(mmx_register_zero_plugin) {
   (void)snes_mod_register_reset_callback(reset);
   (void)snes_mod_register_activation_plugin("megaman-x.zero", activate);
+  (void)snes_mod_register_activation_plugin("megaman-x.weapons.x2",activate_x2);
+  (void)snes_mod_register_activation_plugin("megaman-x.weapons.x3",activate_x3);
 }

@@ -19,6 +19,7 @@ typedef struct WeaponArt {
 } WeaponArt;
 static WeaponArt art[WEAPONS];
 static uint8_t *asset;
+static uint8_t *page_assets[2];
 static MmxWeaponsState state;
 _Static_assert(sizeof(MmxWeaponsState) == 40 && offsetof(MmxWeaponsState,fraction) == MMX_WEAPONS_LEGACY_STATE_SIZE, "Weapon save ABI");
 static unsigned word(const uint8_t *p) { return p[0] | (p[1] << 8); }
@@ -27,8 +28,9 @@ static bool valid_weapon(unsigned page, unsigned weapon) { return page >= 1 && p
 static void initialize(void) {
   if (!state.initialized) { memset(&state, 0, sizeof(state)); memset(state.energy, 28, 16); state.initialized = 1; }
 }
-bool MmxWeaponsEnabled(void) { return asset != NULL; }
-bool MmxWeaponsActive(void) { return asset && valid_weapon(state.page, state.weapon); }
+bool MmxWeaponsEnabled(void) { return asset || page_assets[0] || page_assets[1]; }
+bool MmxWeaponsPageEnabled(unsigned page) { return page>=1 && page<=2 && art[(page-1)*8].groups; }
+bool MmxWeaponsActive(void) { return MmxWeaponsPageEnabled(state.page) && valid_weapon(state.page, state.weapon); }
 MmxWeaponsState MmxWeaponsGetState(void) { return state; }
 bool MmxWeaponsValidState(const MmxWeaponsState *s) {
   if (!s || s->page > 2 || s->weapon > 8 || s->menu_page > 2 || s->initialized > 1 ||
@@ -39,13 +41,18 @@ bool MmxWeaponsValidState(const MmxWeaponsState *s) {
 void MmxWeaponsSetState(MmxWeaponsState s) {
   memset(&state, 0, sizeof(state));
   if (MmxWeaponsValidState(&s)) state = s;
-  if (asset) initialize();
+  if (MmxWeaponsEnabled()) {
+    initialize();
+    if (state.page && !MmxWeaponsPageEnabled(state.page)) state.page=state.weapon=0;
+    if (state.menu_page && !MmxWeaponsPageEnabled(state.menu_page)) state.menu_page=0;
+  }
 }
 void MmxWeaponsDisable(void) {
   MmxWeaponsCancelShots(NULL);
   free(asset); asset = NULL; memset(art, 0, sizeof(art)); memset(&state, 0, sizeof(state));
+  for (unsigned i=0;i<2;++i) { free(page_assets[i]);page_assets[i]=NULL; }
 }
-bool MmxWeaponsLoad(const char *path) {
+static bool load(const char *path, unsigned page) {
   FILE *f = path ? fopen(path, "rb") : NULL;
   if (!f) return false;
   if (fseek(f, 0, SEEK_END)) { fclose(f); return false; }
@@ -56,9 +63,10 @@ bool MmxWeaponsLoad(const char *path) {
   bool ok = data && candidate && fread(data, (size_t)size, 1, f) == 1;
   fclose(f);
   if (!ok) { free(data); free(candidate); return false; }
-  ok = !memcmp(data, "MMXWEAP3\20\0\0\0", 12);
+  unsigned count=page ? 8 : 16,first=page ? (page-1)*8 : 0;
+  ok = !memcmp(data, "MMXWEAP3", 8) && word(data+8)==count && !word(data+10);
   size_t pos = 12;
-  for (unsigned i = 0; i < WEAPONS && ok; ++i) {
+  for (unsigned i = first; i < first+count && ok; ++i) {
     if (pos + 356 > (size_t)size) { ok = false; break; }
     const uint8_t *p = data + pos;
     WeaponArt *w = candidate + i;
@@ -92,12 +100,18 @@ bool MmxWeaponsLoad(const char *path) {
     }
   }
   ok = ok && pos == (size_t)size;
-  if (ok) { MmxWeaponsDisable(); asset = data; memcpy(art, candidate, sizeof(art)); initialize(); }
+  if (ok) {
+    if (!page) { MmxWeaponsDisable(); asset = data; }
+    else { free(page_assets[page-1]);page_assets[page-1]=data; }
+    memcpy(art+first,candidate+first,count*sizeof(*art));initialize();
+  }
   else free(data);
   free(candidate); return ok;
 }
+bool MmxWeaponsLoad(const char *path) { return load(path,0); }
+bool MmxWeaponsLoadPage(const char *path,unsigned page) { return page>=1 && page<=2 && load(path,page); }
 const MmxWeaponPose *MmxWeaponsPose(unsigned page, unsigned weapon, unsigned group, unsigned pose) {
-  if (!asset || !valid_weapon(page, weapon)) return NULL;
+  if (!MmxWeaponsPageEnabled(page) || !valid_weapon(page, weapon)) return NULL;
   const WeaponArt *w = art + weapon_index(page, weapon);
   /* UINT_MAX asks for the weapon's primary group (including its native icon). */
   for (unsigned i = 0; i < w->groups; ++i) if ((group == UINT32_MAX || w->group[i].id == group) && pose < w->group[i].count)
@@ -105,14 +119,14 @@ const MmxWeaponPose *MmxWeaponsPose(unsigned page, unsigned weapon, unsigned gro
   return NULL;
 }
 const uint16_t *MmxWeaponsPalette(unsigned page, unsigned weapon, bool body) {
-  if (!asset || !valid_weapon(page, weapon)) return NULL;
+  if (!MmxWeaponsPageEnabled(page) || !valid_weapon(page, weapon)) return NULL;
   const WeaponArt *w = art + weapon_index(page, weapon); return body ? w->body : w->colors;
 }
 const MmxWeaponPose *MmxWeaponsIcon(unsigned page, unsigned weapon) {
-  return asset && valid_weapon(page, weapon) ? &art[weapon_index(page, weapon)].icon : NULL;
+  return MmxWeaponsPageEnabled(page) && valid_weapon(page, weapon) ? &art[weapon_index(page, weapon)].icon : NULL;
 }
 const uint8_t *MmxWeaponsAnimation(unsigned page, unsigned weapon, unsigned group, unsigned *size) {
-  if (!asset || !size || !valid_weapon(page, weapon)) return NULL;
+  if (!MmxWeaponsPageEnabled(page) || !size || !valid_weapon(page, weapon)) return NULL;
   const WeaponArt *w = art + weapon_index(page, weapon);
   for (unsigned i = 0; i < w->groups; ++i) if (w->group[i].id == group) {
     *size = w->group[i].animation_size; return w->group[i].animation;
@@ -120,7 +134,7 @@ const uint8_t *MmxWeaponsAnimation(unsigned page, unsigned weapon, unsigned grou
   return NULL;
 }
 const uint16_t *MmxWeaponsIconPalette(unsigned page, unsigned weapon) {
-  return asset && valid_weapon(page, weapon) ? art[weapon_index(page, weapon)].icon_colors : NULL;
+  return MmxWeaponsPageEnabled(page) && valid_weapon(page, weapon) ? art[weapon_index(page, weapon)].icon_colors : NULL;
 }
 const char *MmxWeaponsLabel(unsigned page, unsigned weapon) {
   static const char *labels[16] = {"C.HUNTER", "B.SPLASH", "S.SHOT", "S.WHEEL", "S.SLICER", "S.CHAIN", "M.MINE", "S.BURNER",
@@ -139,10 +153,10 @@ static void set_energy(unsigned i, unsigned value) {
   state.energy[i] = (uint8_t)(value >> 8); state.fraction[i] = (uint8_t)value;
 }
 unsigned MmxWeaponsEnergyAmount(unsigned page, unsigned weapon) {
-  return asset && valid_weapon(page,weapon) ? energy_amount(weapon_index(page,weapon)) : 0;
+  return MmxWeaponsPageEnabled(page) && valid_weapon(page,weapon) ? energy_amount(weapon_index(page,weapon)) : 0;
 }
 bool MmxWeaponsSpend(unsigned page, unsigned weapon, unsigned cost) {
-  if (!asset || !valid_weapon(page,weapon)) return false;
+  if (!MmxWeaponsPageEnabled(page) || !valid_weapon(page,weapon)) return false;
   unsigned i = weapon_index(page,weapon), value = energy_amount(i);
   if (cost > value) return false;
   set_energy(i,value-cost); return true;
@@ -157,9 +171,10 @@ bool MmxWeaponsEnergyStore(unsigned value, bool pickup) {
 void MmxWeaponsEnergyOverflow(uint8_t r[0x20000], unsigned index) {
   /* Native auto-refill has already scanned X1's owned weapons. Only the
    * unconsumed remainder after that complete scan can fill new inventory. */
-  if (!asset || index < 18) return;
+  if (!MmxWeaponsEnabled() || index < 18) return;
   unsigned amount = word(r), initial = amount;
   for (unsigned i=0;i<16 && amount;++i) {
+    if (!MmxWeaponsPageEnabled(i/8+1)) continue;
     unsigned value = energy_amount(i), add = 28*256-value; if (add > amount) add = amount;
     set_energy(i,value+add); amount -= add;
   }
@@ -169,19 +184,20 @@ void MmxWeaponsEnergyOverflow(uint8_t r[0x20000], unsigned index) {
   }
 }
 void MmxWeaponsRefill(void) {
-  if (asset) { memset(state.energy,28,sizeof(state.energy)); memset(state.fraction,0,sizeof(state.fraction)); }
+  if (MmxWeaponsEnabled()) { memset(state.energy,28,sizeof(state.energy)); memset(state.fraction,0,sizeof(state.fraction)); }
 }
 bool MmxWeaponsMenuVisible(const uint8_t r[0x20000]) {
-  return asset && r && r[0xd1] == 2 && r[0xd2] == 4 &&
+  return MmxWeaponsEnabled() && r && r[0xd1] == 2 && r[0xd2] == 4 &&
       (((r[0x1f10] == 6 || r[0x1f10] == 8) && (r[0xc3] & 128)) ||
        (r[0x1989] == 1 && word(r + 0x198d) == 128 && word(r + 0x1990) == 160 &&
         (r[0x199e] == 0 || r[0x199e] == 0x18)));
 }
 void MmxWeaponsMenuTick(uint8_t r[0x20000], unsigned dp) {
-  if (!asset || !r || dp > 0x1ff00) return;
+  if (!MmxWeaponsEnabled() || !r || dp > 0x1ff00) return;
   unsigned button = r[0xbe2] & 0x30;
   if (button != 0x10 && button != 0x20) return;
-  state.menu_page = (uint8_t)((state.menu_page + (button == 0x10 ? 1 : 2)) % 3);
+  do { state.menu_page = (uint8_t)((state.menu_page + (button == 0x10 ? 1 : 2)) % 3); }
+  while (state.menu_page && !MmxWeaponsPageEnabled(state.menu_page));
   unsigned cursor = r[dp + 10];
   if (!state.menu_page && cursor >= 1 && cursor <= 8 && !(r[0x1f86 + cursor * 2] & 64)) r[dp + 10] = 0;
   /* Use the native menu movement sound and its existing SPC command ring. */
@@ -190,7 +206,7 @@ void MmxWeaponsMenuTick(uint8_t r[0x20000], unsigned dp) {
   r[0xbe2] &= (uint8_t)~0x30;
 }
 unsigned MmxWeaponsMenuRead(uint8_t r[0x20000], unsigned pc, unsigned dp, unsigned index, unsigned original) {
-  if (!asset || !r || dp > 0x1ff00) return original;
+  if (!MmxWeaponsEnabled() || !r || dp > 0x1ff00) return original;
   switch (pc & 0xffff) {
     case 0xc484:
       state.menu_page = state.page;

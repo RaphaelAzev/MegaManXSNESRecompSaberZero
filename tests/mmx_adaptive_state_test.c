@@ -456,6 +456,37 @@ static unsigned acid_variants(unsigned variant, bool charged) {
     c.shots[i].variant==variant && c.shots[i].charged==charged;
   return n;
 }
+static void weapon_source_pack_checks(const char *fixture,uint8 *start,uint8 *expected,uint8 *actual,size_t cap) {
+  const char *x2=getenv("MMX_SOURCE_X2_CACHE"),*x3=getenv("MMX_SOURCE_X3_CACHE");
+  check(x2 && x3,"native source cache paths supplied");
+  MmxZeroDisable();MmxWeaponsDisable();
+  for(unsigned page=1;page<=2;++page) {
+    check(MmxWeaponsLoadPage(page==1?x2:x3,page),"independent source weapon pack loads");
+    check(RtlLoadSnapshot(fixture),"restore source pack fixture");
+    check(!MmxZeroEnabled() && !MmxZeroActive(),"source weapon pack works with Zero disabled");
+    int width,height;MmxPrepareFrame(1280,720,&width,&height);
+    check(width==256 && g_mmx_custom_renderer,"weapon pack alone enables native-width compositor");
+    check(MmxWeaponsPageEnabled(page) && !MmxWeaponsPageEnabled(3-page),"only selected source pack is available");
+    frame(SNES_PAD_START);zero_replay(75);frame(SNES_PAD_R);zero_replay(3);
+    check(MmxWeaponsGetState().menu_page==page,"pause skips source pack that is not enabled");
+    frame(SNES_PAD_R);zero_replay(3);check(!MmxWeaponsGetState().menu_page,"pause wraps to X1 with one source pack");
+    frame(SNES_PAD_L);zero_replay(3);check(MmxWeaponsGetState().menu_page==page,"backward pause selects enabled source pack");
+    frame(SNES_PAD_DOWN);zero_replay(3);
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),page==1?".x2-only-menu.cap":".x3-only-menu.cap");
+    frame(SNES_PAD_START);zero_replay(75);
+    MmxWeaponsState w=MmxWeaponsGetState();w.page=page;w.weapon=page==1?5:1;MmxWeaponsSetState(w);
+    frame(SNES_PAD_Y);zero_replay(35);check(extended_shots(false)>0,"X fires ported weapon without Zero mod");
+    size_t n=RtlSaveSnapshotToMemory(start,cap);zero_replay(10);size_t en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"source-pack-only save loads");
+    zero_replay(10);size_t an=RtlSaveSnapshotToMemory(actual,cap);
+    same(expected,en,actual,an,"source-pack-only projectiles replay exactly");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),page==1?".x2-only-shot.cap":".x3-only-shot.cap");
+    MmxWeaponsCancelShots(g_ram);MmxWeaponsDisable();
+  }
+  check(MmxWeaponsLoadPage(x2,1) && MmxWeaponsLoadPage(x3,2),"both independently extracted packs load together");
+  check(MmxWeaponsPageEnabled(1) && MmxWeaponsPageEnabled(2) && MmxWeaponsPose(1,5,135,11),"second pack preserves first pack art");
+  puts("MMX SOURCE PACK CHECKS PASSED");
+}
 static void weapon_sonic_checks(const char *assets, const char *fixture, uint8 *start,
                                 uint8 *expected, uint8 *actual, size_t cap) {
   check(MmxWeaponsLoad(assets),"Sonic Slicer normal and charged assets load");
@@ -734,6 +765,7 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
   int w,h; MmxPrepareFrame(1280,720,&w,&h);
   check(w == 256 && g_mmx_custom_renderer, "Zero activates native-width compositor");
   const char *weapons=getenv("MMX_WEAPONS_TEST_ASSETS");
+  if (getenv("MMX_SOURCE_PACK_TEST")) { weapon_source_pack_checks(fixture,start,expected,actual,cap);return; }
   if (weapons) {
     if (getenv("MMX_WEAPON_SONIC_TEST")) weapon_sonic_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_RAY_TEST")) weapon_ray_checks(weapons,fixture,start,expected,actual,cap);

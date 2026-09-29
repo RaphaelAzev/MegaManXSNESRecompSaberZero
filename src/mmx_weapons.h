@@ -17,6 +17,8 @@ typedef struct MmxWeaponPose {
   const uint8_t *pixels;
 } MmxWeaponPose;
 bool MmxWeaponsLoad(const char *path);
+bool MmxWeaponsLoadPage(const char *path, unsigned page);
+bool MmxWeaponsPageEnabled(unsigned page);
 void MmxWeaponsDisable(void);
 bool MmxWeaponsEnabled(void);
 bool MmxWeaponsActive(void);

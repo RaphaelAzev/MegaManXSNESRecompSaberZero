@@ -1,9 +1,9 @@
 format_version = 1
-id = "megaman-x.character.zero"
+id = "megaman-x.weapons.x3"
 version = "0.1.0"
-name = "X3 Zero Experiment"
+name = "X3 Weapons (experimental)"
 author = "mstan"
-description = "Experimental playable-character port from Mega Man X3. Work in progress."
+description = "Adds Mega Man X3 boss weapons to X1. Weapon implementation is in progress."
 license = "MIT"
 resolver = "declarative"
 save_compatibility = "requires-same-mods"
@@ -13,17 +13,17 @@ game_id = "megaman-x-us"
 rom_sha256 = "b8f70a6e7fb93819f79693578887e2c11e196bdf1ac6ddc7cb924b1ad0be2d32"
 
 [[feature]]
-id = "zero"
-name = "Play as Zero (experimental)"
-description = "Start as Zero and press Select while standing on the ground to exchange with X. Requires your Mega Man X3 USA ROM."
-group = "Characters"
+id = "weapons"
+name = "X3 boss weapons"
+description = "Unlock X3 weapons for X and Zero. Cycle pause pages with L/R. Charged attacks require X1's arm upgrade."
+group = "Weapons"
 default_enabled = false
 
 [[resource]]
-feature = "zero"
+feature = "weapons"
 id = "x3-rom"
 label = "Mega Man X3 ROM"
-description = "Select your original Mega Man X3 USA ROM. This selection is shared with X3 weapons."
+description = "Select your original Mega Man X3 USA ROM. This selection is shared with Zero."
 format = "file"
 file_patterns = "*.sfc,*.smc"
 file_description = "Mega Man X3 USA ROM"
@@ -32,5 +32,5 @@ normalized_sha256 = "65b03268afac296330e8ff8d60dd0825879e13ed658b37713c034a3bd07
 required = true
 
 [[plugin]]
-feature = "zero"
-id = "megaman-x.zero"
+feature = "weapons"
+id = "megaman-x.weapons.x3"

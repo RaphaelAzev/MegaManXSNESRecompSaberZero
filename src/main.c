@@ -13,6 +13,7 @@
 #include "mmx_renderer.h"
 #include "mmx_zero.h"
 #include "mmx_weapon_combat.h"
+#include "mmx_weapons.h"
 #include "snes/cart.h"
 #include "mmx_spc_player.h"
 #include "mmx_default_config.h"
@@ -36,7 +37,7 @@ static void MmxRomLoaded(const uint8_t *rom, size_t size) {
 }
 
 static void MmxPrepareFrame(int dw, int dh, int *w, int *h) {
-  g_mmx_custom_renderer = !MMX_VARIANT_JP && (g_config.widescreen || MmxZeroEnabled());
+  g_mmx_custom_renderer = !MMX_VARIANT_JP && (g_config.widescreen || MmxZeroEnabled() || MmxWeaponsEnabled());
   g_mmx_custom_view = MmxRendererViewport(g_mmx_custom_aspect, dw, dh,
       SnesDisplayAspect_Clamp(g_config.display_aspect));
   if (!g_config.widescreen) {

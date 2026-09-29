@@ -66,17 +66,20 @@ mapped back to its actual weapon IDs (Frost Shield is ID 2, Parasitic Bomb 7).
 
 ## Pause selection and persistence
 
-`mmx_weapons.c` validates and owns the optional local cache, separate selection,
-and sixteen energy pools. While the cache is loaded beside the executable,
+`mmx_weapons.c` validates and owns local caches, separate selection,
+and sixteen energy pools. The launcher exposes independent X2/X3 weapon options
+with source ROM pickers and native automatic extraction; see [setup](mod-source-roms.md).
+The X3 ROM path is shared with Zero. Either weapon pack also works with X alone.
+Disabled packs are skipped when
 L/R cycles X1/X2/X3 pages within native pause navigation. The compositor uses
 X1's font and energy-bar tiles with the source games' actual menu icons.
 No instructional UI text is added. Both X and Zero can select the new entries.
 
 Bounded generated/interpreter hooks virtualize the pause inventory reads and
 selection. X1 progression/energy stays untouched. An extended selection uses
-native buster resources as a safe underlying actor. The first combat checkpoint
-below is implemented, but this is not yet a weapon playtest build. The owner's current
-playtest has not been replaced with this intermediate implementation.
+native buster resources as a safe underlying actor. The current
+playtest executable includes the four implemented weapons; remaining entries
+are still unfinished.
 
 The game save chunk is version 11 when extended weapons are enabled; legacy
 saves initialize full energy without changing X1 inventory. Zero-only saves
