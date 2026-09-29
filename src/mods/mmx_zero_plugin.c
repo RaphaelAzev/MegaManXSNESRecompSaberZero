@@ -14,6 +14,8 @@ static void hook(CpuState *cpu, uint32_t pc) {
     case 0x00d76a: MmxRendererRecordPiece(g_ram, cpu->D); break;
     case 0x01971f: case 0x019796: case 0x0198ff: cpu->A |= 8; break;
     case 0x01815c: MmxZeroPlayerTick(g_ram); break;
+    case 0x048f07: MmxZeroAnimationStart(cpu->D, cpu->A & 255); break;
+    case 0x048eea: MmxZeroAnimationAdvance(cpu->D); break;
     case 0x00d3e7: {
       unsigned value = MmxZeroWeaponTick(g_ram, cpu->D, cpu->A & 255);
       cpu->A = (cpu->A & 0xff00) | value;
@@ -57,7 +59,7 @@ static void hook(CpuState *cpu, uint32_t pc) {
 }
 void MmxZeroRegisterHooks(void) {
   const unsigned pcs[] = {0x00d6a7, 0x00d76a, 0x01971f, 0x019796, 0x0198ff,
-                          0x01815c, 0x00d3e7, 0x049e76, 0x049c19};
+                          0x01815c, 0x00d3e7, 0x049e76, 0x049c19, 0x048f07, 0x048eea};
   for (unsigned i = 0; i < sizeof(pcs) / sizeof(pcs[0]); ++i)
     interp_bridge_set_pre_opcode_hook(pcs[i], hook);
 }

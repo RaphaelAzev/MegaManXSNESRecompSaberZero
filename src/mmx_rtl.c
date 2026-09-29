@@ -328,7 +328,7 @@ void mmx_host_yield(uint8_t countdown) {
 #include "snes/saveload.h"
 
 #define MMX_SAV_CHUNK_MAGIC   0x4D4D5854u  /* "MMXT" */
-#define MMX_SAV_CHUNK_VERSION 4u /* Optional experimental Zero state. */
+#define MMX_SAV_CHUNK_VERSION 5u /* Zero combat plus independent X3 animation. */
 
 typedef struct MmxSavChunk {
   uint32_t magic, version;
@@ -412,8 +412,9 @@ void MmxStateLoadExtra(struct SaveLoadInfo *sli, uint32_t version) {
     MmxWideStateLoad(sli);
     if (!RtlLoadExecutionState(sli)) g_load_chunk_ok = 0;
     if (g_load_chunk.version >= 4) {
-      if (RtlStateBytesRemaining(sli) >= sizeof(g_load_zero))
-        sli->func(sli, &g_load_zero, sizeof(g_load_zero));
+      size_t zero_size = g_load_chunk.version == 4 ? MMX_ZERO_LEGACY_STATE_SIZE : sizeof(g_load_zero);
+      if (RtlStateBytesRemaining(sli) >= zero_size)
+        sli->func(sli, &g_load_zero, zero_size);
       else g_load_chunk_ok = 0;
     }
   }

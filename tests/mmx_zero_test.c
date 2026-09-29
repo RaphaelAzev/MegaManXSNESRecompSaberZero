@@ -7,7 +7,7 @@
 static uint8_t ram[0x20000], before[0x20000], rom[0x180000], clean[0x180000];
 static void asset(const char *path) {
   FILE *f = fopen(path, "wb"); assert(f);
-  const uint8_t header[] = {'M','M','X','Z','E','R','O','4',128,0,128,0,64,0,64,0,117,0,35,0};
+  const uint8_t header[] = {'M','M','X','Z','E','R','O','5',128,0,128,0,64,0,64,0,117,0,35,0};
   uint8_t page[16384] = {0};
   assert(fwrite(header, sizeof(header), 1, f) == 1);
   assert(fwrite(page, 256, 1, f) == 1);
@@ -15,6 +15,10 @@ static void asset(const char *path) {
   for (unsigned i = 0; i < 40; i += 4) { bounds[i] = 0; bounds[i+1] = 248; bounds[i+2] = 12; bounds[i+3] = 10; }
   assert(fwrite(bounds, sizeof(bounds), 1, f) == 1);
   assert(fwrite(page, 160, 1, f) == 1);
+  uint8_t animation[MMX_ZERO_ANIMATION_BYTES] = {0};
+  for (unsigned i = 0; i < 136; ++i) { animation[i * 2] = 0x10; animation[i * 2 + 1] = 1; }
+  animation[272] = 2; animation[273] = 128; animation[275] = 253; animation[276] = 255;
+  assert(fwrite(animation,sizeof(animation),1,f) == 1);
   for (unsigned i = 0; i < MMX_ZERO_POSES; ++i) assert(fwrite(page, sizeof(page), 1, f) == 1);
   assert(!fclose(f));
 }

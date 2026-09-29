@@ -8,7 +8,10 @@ static uint16_t colors[128];
 static uint8_t saber_bounds[40];
 static uint8_t hud_tiles[128];
 static uint16_t hud_colors[16];
+static uint8_t animation[MMX_ZERO_ANIMATION_BYTES];
 static MmxZeroState state;
+_Static_assert(offsetof(MmxZeroState, anim_offset) == MMX_ZERO_LEGACY_STATE_SIZE,
+               "Keep the v4 combat-state prefix readable");
 static unsigned word(const uint8_t *p) { return p[0] | p[1] << 8; }
 static void putword(uint8_t *p, unsigned v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
 MmxZeroState MmxZeroGetState(void) { return state; }
@@ -16,7 +19,9 @@ void MmxZeroResetState(void) { memset(&state, 0, sizeof(state)); }
 void MmxZeroSetState(MmxZeroState s) {
   MmxZeroResetState();
   if (poses && s.combo <= 2 && s.slash <= 46 && s.charge <= 180 &&
-      s.air <= 1 && (s.facing == 0 || s.facing == 64) &&
+      s.air <= 1 && (s.facing == 0 || s.facing == 64) && s.anim_valid <= 1 &&
+      (!s.anim_valid || (s.anim_offset >= 272 && s.anim_offset + 3 <= sizeof(animation) &&
+                        s.anim_timer && s.anim_pose < 117)) &&
       (!s.projectile || (s.projectile >= 0x1228 && s.projectile < 0x1428 && (s.projectile & 63) == 0x28))) state = s;
 }
 
@@ -28,30 +33,80 @@ void MmxZeroDisable(void) {
 bool MmxZeroLoad(const char *path) {
   FILE *f = path ? fopen(path, "rb") : NULL;
   if (!f) return false;
-  uint8_t header[20], palette[256], bounds[40], hud[160];
+  uint8_t header[20], palette[256], bounds[40], hud[160], anim[MMX_ZERO_ANIMATION_BYTES];
   size_t size = (size_t)MMX_ZERO_POSES * MMX_ZERO_WIDTH * MMX_ZERO_HEIGHT;
   uint8_t *data = NULL;
   bool ok = fread(header, 1, sizeof(header), f) == sizeof(header) &&
-      !memcmp(header, "MMXZERO4", 8) && word(header + 8) == MMX_ZERO_WIDTH &&
+      !memcmp(header, "MMXZERO5", 8) && word(header + 8) == MMX_ZERO_WIDTH &&
       word(header + 10) == MMX_ZERO_HEIGHT && word(header + 12) == 64 &&
       word(header + 14) == 64 && word(header + 16) == 117 && word(header + 18) == 35 &&
       fread(palette, 1, sizeof(palette), f) == sizeof(palette) &&
       fread(bounds, 1, sizeof(bounds), f) == sizeof(bounds) &&
-      fread(hud, 1, sizeof(hud), f) == sizeof(hud);
+      fread(hud, 1, sizeof(hud), f) == sizeof(hud) &&
+      fread(anim, 1, sizeof(anim), f) == sizeof(anim);
   if (ok) { data = malloc(size); ok = data && fread(data, 1, size, f) == size && fgetc(f) == EOF; }
   fclose(f);
   if (ok) for (unsigned i = 0; i < sizeof(bounds); i += 4)
     if (!bounds[i + 2] || bounds[i + 2] > 64 || !bounds[i + 3] || bounds[i + 3] > 64) { ok = false; break; }
   if (ok) for (size_t i = 0; i < size; ++i) if (data[i] >= 128) { ok = false; break; }
+  if (ok) for (unsigned i = 0; i < 136; ++i) {
+    unsigned p = word(anim + i * 2);
+    if (p < 272 || p + 3 > sizeof(anim) || !anim[p] || anim[p + 2] >= 117) { ok = false; break; }
+  }
   if (!ok) { free(data); return false; }
   MmxZeroDisable(); poses = data;
   memcpy(saber_bounds, bounds, sizeof(bounds));
+  memcpy(animation, anim, sizeof(animation));
   memcpy(hud_tiles, hud, sizeof(hud_tiles));
   for (unsigned i = 0; i < 16; ++i) hud_colors[i] = (uint16_t)(word(hud + 128 + 2 * i) & 0x7fff);
   for (unsigned i = 0; i < 128; ++i) colors[i] = (uint16_t)(word(palette + 2 * i) & 0x7fff);
   return true;
 }
 const uint16_t *MmxZeroColors(void) { return colors; }
+const uint8_t *MmxZeroMenuPose(void) { return poses; }
+int MmxZeroLifeColor(unsigned x, unsigned y) {
+  if (!poses || x >= 16 || y >= 16) return -2;
+  /* Vanilla X3 keeps X's life icon for both characters. Adapt the original
+   * Zero idle helmet/face to X1's 16px icon, excluding neck and shoulders. */
+  unsigned sx = 56 + x * 20 / 16, sy = 40 + y * 24 / 16;
+  if ((sy >= 58 && (sx < 59 || sx > 72)) || (sy >= 60 && (sx < 60 || sx > 68)) || sy >= 63) return -2;
+  unsigned pixel = poses[sy * MMX_ZERO_WIDTH + sx];
+  return pixel ? colors[pixel] : -2;
+}
+static void animation_record(unsigned offset) {
+  if (offset < 272 || offset + 3 > sizeof(animation) || !animation[offset] || animation[offset + 2] >= 117) {
+    state.anim_valid = 0; return;
+  }
+  state.anim_offset = (uint16_t)offset;
+  state.anim_timer = animation[offset]; state.anim_flags = animation[offset + 1];
+  state.anim_pose = animation[offset + 2]; state.anim_valid = 1;
+}
+void MmxZeroAnimationStart(unsigned object, unsigned sequence) {
+  if (!poses || object != 0xba8) return;
+  /* X1 group 0 -> original X3 group $4A. Aliases are kept: firing overlays
+   * resume at interior records, not at the beginning of a movement cycle.
+   * X1's two Hadouken actions use Zero's forward buster/recovery poses. */
+  static const uint8_t map[] = {
+    0x00,0x01,0x02,0x03,0x05,0x07,0x08,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,0x10,0x11,0x12,
+    0x13,0x14,0x15,0x16,0x17,0x1a,0x1e,0x1f,0x20,0x21,0x22,0x23,0x24,0x25,0x26,0x27,
+    0x28,0x29,0x50,0x51,0x52,0x53,0x55,0x57,0x58,0x5a,0x5b,0x5c,0x5d,0x5e,0x5f,0x60,
+    0x61,0x62,0x63,0x64,0x65,0x66,0x67,0x6a,0x6e,0x6f,0x70,0x71,0x72,0x73,0x74,0x75,
+    0x76,0x77,0x78,0x79,0x7a,0x7b,0x7c,0x7d,0x7e,0x7f,0x80,0x81,0x82,0x83,0x84,0x30,
+    0x34
+  };
+  if (sequence >= sizeof(map)) { state.anim_valid = 0; return; }
+  animation_record(word(animation + map[sequence] * 2));
+}
+void MmxZeroAnimationAdvance(unsigned object) {
+  if (!poses || object != 0xba8 || !state.anim_valid) return;
+  if (--state.anim_timer) return;
+  unsigned next = state.anim_offset + 3;
+  if (state.anim_flags & 128) {
+    if (next + 2 > sizeof(animation)) { state.anim_valid = 0; return; }
+    next = (unsigned)((int)next + (int16_t)word(animation + next));
+  }
+  animation_record(next);
+}
 int MmxZeroHudColor(unsigned x, unsigned y) {
   /* Original X3 tile/palette data, independent of body visibility. */
   if (!MmxZeroEnabled() || x >= 16 || y >= 16) return -1;
@@ -77,9 +132,9 @@ const uint8_t *MmxZeroPose(const uint8_t ram[0x20000], const MmxZeroState *s) {
    * During invulnerability the next update can hide the player while OAM
    * still contains the preceding visible frame. The compositor owns blinking. */
   if (!poses || !ram) return NULL;
-  /* The shared early-X animation vocabulary includes idle, run, jump,
-   * dash and firing poses. X1-specific states remain a validation item. */
-  unsigned pose = ram[0xbbf] & 127;
+  /* Old saves without mirrored animation state use the shared pose vocabulary
+   * until the next native animation start. New saves retain the exact phase. */
+  unsigned pose = s && s->anim_valid ? s->anim_pose : ram[0xbbf] & 127;
   if (pose >= 117) pose = 0;
   if (s && s->slash) pose = 117 + slash_pose(s);
   return poses + (size_t)pose * MMX_ZERO_WIDTH * MMX_ZERO_HEIGHT;
@@ -132,7 +187,9 @@ static void release_projectile(uint8_t *r) {
 }
 void MmxZeroCancel(uint8_t ram[0x20000]) {
   if (ram) release_projectile(ram);
-  MmxZeroResetState();
+  /* Combat cancellation (hurt, weapon switch, menus) must not reset the
+   * independent body animation. Full reset/load uses MmxZeroResetState. */
+  memset(&state, 0, MMX_ZERO_LEGACY_STATE_SIZE);
 }
 static unsigned free_projectile(const uint8_t *r) {
   for (unsigned d = 0x1228; d < 0x1428; d += 64)

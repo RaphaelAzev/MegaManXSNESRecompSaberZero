@@ -116,8 +116,11 @@ def extract(path):
     # transfers replace the four tiles of the 16x16 health badge at $6860/$6960.
     # $81:804A with X=$20/Y=$1C loads its palette from $8C:B0E0 into CGRAM $A0.
     hud = rom.read(0x2c8d20, 64) + rom.read(0x2c8de0, 64) + rom.read(0x8cb0e0, 32)
-    header = struct.pack('<8s6H', b'MMXZERO4', WIDTH, HEIGHT, ORIGIN_X, ORIGIN_Y, 117, 35)
-    return header + struct.pack('<128H', *colors) + bounds + hud + b''.join(poses), colors, poses
+    # Group $4A's 136 sequence offsets and duration/flags/pose records, up to
+    # group $4B. The host mirrors these independently of X1's gameplay flags.
+    animation = rom.read(0x3fcc74, 0x474)
+    header = struct.pack('<8s6H', b'MMXZERO5', WIDTH, HEIGHT, ORIGIN_X, ORIGIN_Y, 117, 35)
+    return header + struct.pack('<128H', *colors) + bounds + hud + animation + b''.join(poses), colors, poses
 
 
 def main():

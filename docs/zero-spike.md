@@ -29,7 +29,9 @@ normalized X3 SHA-256:
 `65b03268afac296330e8ff8d60dd0825879e13ed658b37713c034a3bd074f1d7`.
 It extracts 117 body, 21 saber-body and 14 blade poses, palettes, the ground/air
 saber bounds, and Zero's original X3 health-bar badge and palette. The current
-cache format is `MMXZERO4`; rerun extraction to replace older caches.
+cache format is `MMXZERO5`; rerun extraction to replace older caches. It also
+extracts the 136 original body-animation sequences, including Zero's additional
+hair, dash and jump poses.
 `--sheet path.png` also writes a labeled contact sheet if Pillow
 is installed. ROMs, generated code and extracted graphics stay local.
 
@@ -145,9 +147,29 @@ presented frame for visual proof.
 
 ## Remaining work for the full port
 
-Owner playtest follow-up: projectile origins do not yet line up with Zero's arm,
-and some hurt/invulnerability flashes still show X. These confirmed issues are
-tracked in `beads-8wg.1.29`. Full-port work is on `feat/x3-zero-port`, tracked in
+Full-port progress on `feat/x3-zero-port`:
+
+- The original Zero body animation now advances from X3's sequence records,
+  alongside X1's existing gameplay animation/events. All 81 X1 sequence entries
+  have mappings; X1's Hadouken poses use adapted Zero forward-firing poses.
+- The 248-frame [X3 movement reference](../tests/data/zero_x3_motion.md) matches
+  position, velocity and animation phase for run, full/short jump, dash and
+  dash-jump. X1/X3's 180-byte base movement tables are identical.
+- Hurt blinking follows the submitted sprite list, fixing the visibility-epoch
+  mismatch that let X's tiles reappear. A renderer regression covers both the
+  visible transition and the actual hidden frame.
+- The pause menu uses Zero's original standing body, including with all armor
+  upgrades owned. Menu and pickup life heads are adapted from original Zero
+  helmet/face pixels; vanilla X3 itself retains X's life icon. Native 1-up
+  collection increments the life count normally. Menu pixel comparisons change
+  only the character and head areas, including the fully upgraded menu.
+- Saves now use game chunk v5 for Zero's animation phase, retaining v4 combat
+  saves and older formats. Captures use v4, with v2/v3 still readable. Disabled
+  saves remain v3. Complete snapshot, replay, rollback and rewind checks pass.
+
+Owner playtest follow-up: projectile origins do not yet line up with Zero's arm.
+The reported X tiles during invulnerability are fixed as described above.
+These issues are tracked in `beads-8wg.1.29`. Full-port work is on `feat/x3-zero-port`, tracked in
 `beads-8wg.1.31`. The earlier hand-drawn red HUD letter was an approximation and
 has been replaced with the original X3 Zero badge, including its original frame
 and palette. X3's `$84:DCE6` selects DMA list `$5C` at `$86:9AB3`: four tiles from
@@ -163,9 +185,9 @@ separate from loaded assets, with the body, abilities, collision and HUD changin
 together. Swapping is not implemented by this HUD update.
 
 1. Audit the complete animation/state mapping: wall slide/jump, ladders, damage,
-   death, teleport, capsules, ride armor and scripted player poses. The prototype
-   reuses the shared early-game pose numbering; unsupported indices fall back to
-   idle. Extracting all 152 poses does not prove that every gameplay state selects
+   death, teleport, capsules, ride armor and scripted player poses. The full-port
+   branch maps all 81 native sequence entries to X3's original animations.
+   Extracting all 152 poses does not prove that every gameplay state selects
    the correct pose or timing.
 2. Match X3 movement/charge timing and projectile presentation where required.
    Current movement physics, dash effects and the first two projectile graphics

@@ -42,6 +42,52 @@ static void zero_capture(const char *base, const char *suffix) {
   char path[4096]; snprintf(path, sizeof(path), "%s%s", base, suffix);
   check(MmxRendererSaveCapture(path), "Zero renderer capture saved");
 }
+static void zero_motion_checks(const char *fixture) {
+  const char *path = getenv("MMX_ZERO_MOTION_REFERENCE");
+  if (!path) path = MMX_ZERO_MOTION_REFERENCE_DEFAULT;
+  FILE *f = fopen(path,"r"); check(f != NULL,"X3 movement reference opens");
+  char line[256], previous[32] = ""; unsigned x0 = 0, y0 = 0, checked = 0;
+  check(fgets(line,sizeof(line),f) != NULL,"X3 movement reference header");
+  while (fgets(line,sizeof(line),f)) {
+    char name[32], keys[32]; int tick,x,y,vx,vy,action,sub,pose,group,ground,visibility;
+    check(sscanf(line,"%31[^,],%d,%31[^,],%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",
+          name,&tick,keys,&x,&y,&vx,&vy,&action,&sub,&pose,&group,&ground,&visibility) == 13,
+          "X3 movement reference row");
+    if (strcmp(name,previous)) {
+      check(RtlLoadSnapshot(fixture),"restore movement fixture");
+      zero_replay(10); g_ram[0xbac] = g_ram[0xbaf] = 0;
+      x0 = g_ram[0xbad] << 8 | g_ram[0xbae] << 16;
+      y0 = g_ram[0xbb0] << 8 | g_ram[0xbb1] << 16;
+      snprintf(previous,sizeof(previous),"%s",name);
+    }
+    unsigned input = strstr(keys,"Right") ? SNES_PAD_RIGHT : 0;
+    if (strchr(keys,'A')) input |= SNES_PAD_A;
+    if (strchr(keys,'B')) input |= SNES_PAD_B;
+    frame(input);
+    int dx = (int)(g_ram[0xbac] | g_ram[0xbad] << 8 | g_ram[0xbae] << 16) - (int)x0;
+    int dy = (int)(g_ram[0xbaf] | g_ram[0xbb0] << 8 | g_ram[0xbb1] << 16) - (int)y0;
+    MmxZeroState z = MmxZeroGetState();
+    if (dx != x || dy != y || (int16_t)(g_ram[0xbc2] | g_ram[0xbc3] << 8) != vx ||
+        (int16_t)(g_ram[0xbc4] | g_ram[0xbc5] << 8) != vy ||
+        (tick > 1 && (!z.anim_valid || z.anim_pose != pose))) {
+      fprintf(stderr,"X3 reference mismatch %s/%d: xy %d,%d vs %d,%d pose %u vs %d valid %u\n",
+              name,tick,dx,dy,x,y,z.anim_pose,pose,z.anim_valid); exit(1);
+    }
+    ++checked;
+  }
+  fclose(f); printf("ok: %u original-X3 movement/animation reference frames\n",checked);
+}
+static void zero_menu_pixels(void) {
+  static uint32_t pixels[256 * 224]; unsigned body = 0, icon = 0;
+  check(MmxRendererDraw(pixels,(MmxRenderView){256,0,4.0/3.0},false),"Zero menu renders");
+  const uint32_t *stock = MmxRendererStockFrame(); check(stock != NULL,"menu stock reference exists");
+  for (int y = 0; y < 224; ++y) for (int x = 0; x < 256; ++x) if (pixels[y * 256 + x] != stock[y * 256 + x]) {
+    if (x >= 104 && x < 152 && y >= 128 && y < 184) ++body;
+    else if (x >= 192 && x < 216 && y >= 143 && y < 159) ++icon;
+    else { fprintf(stderr,"Unexpected Zero menu change at %d,%d\n",x,y); exit(1); }
+  }
+  check(body > 100 && icon > 50,"menu replaces body and life head while preserving other pixels");
+}
 static void zero_state_checks(const char *assets, const char *fixture, uint8 *start,
                               uint8 *expected, uint8 *actual, size_t cap) {
   check(fixture != NULL && MmxZeroLoad(assets), "Zero local assets load");
@@ -53,6 +99,8 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
   g_config.widescreen = false;
   int w,h; MmxPrepareFrame(1280,720,&w,&h);
   check(w == 256 && g_mmx_custom_renderer, "Zero activates native-width compositor");
+  zero_motion_checks(fixture);
+  check(RtlLoadSnapshot(fixture), "restore for combo probe");
   for (int i=0;i<181;++i) frame(SNES_PAD_Y);
   frame(0);
   check(MmxZeroGetState().combo == 1, "full charge stores two follow-ups");
@@ -122,6 +170,25 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
   frame(0); zero_replay(8);
   check(zero_projectiles(0x10) == 5, "arm upgrade permits five charged Torpedo projectiles");
   zero_capture(capture, ".torpedo.cap");
+  check(RtlLoadSnapshot(fixture), "restore for life pickup probe");
+  /* Spawn the retail 1-up actor in a copied test fixture. Collection and the
+   * life counter still execute the original game's collision/update path. */
+  memset(g_ram + 0x1628,0,48); g_ram[0x1628] = 1; g_ram[0x1632] = 4; g_ram[0x1633] = 128;
+  unsigned life_x = (g_ram[0xbad] | g_ram[0xbae] << 8) + 48;
+  unsigned life_y = (g_ram[0xbb0] | g_ram[0xbb1] << 8) - 24;
+  g_ram[0x162d] = (uint8_t)life_x; g_ram[0x162e] = (uint8_t)(life_x >> 8);
+  g_ram[0x1630] = (uint8_t)life_y; g_ram[0x1631] = (uint8_t)(life_y >> 8);
+  zero_replay(20); check(g_ram[0x163e] == 0x11,"retail life pickup submits its head animation");
+  zero_capture(capture, ".life.cap");
+  unsigned lives = g_ram[0x1f80];
+  memcpy(g_ram + 0xbad,g_ram + 0x162d,2); memcpy(g_ram + 0xbb0,g_ram + 0x1630,2);
+  zero_replay(8); check(g_ram[0x1f80] == lives + 1,"Zero collects a 1-up through native collision");
+  check(RtlLoadSnapshot(fixture), "restore for pause menu probe");
+  frame(SNES_PAD_START); zero_replay(120);
+  zero_capture(capture, ".menu.cap"); zero_menu_pixels();
+  check(RtlLoadSnapshot(fixture), "restore for upgraded menu probe");
+  g_ram[0x1f99] = 15; frame(SNES_PAD_START); zero_replay(120);
+  zero_capture(capture, ".menu-armor.cap"); zero_menu_pixels();
   MmxZeroDisable(); MmxBeforeFrame(); MmxPrepareFrame(1280,720,&w,&h);
   check(!g_mmx_custom_renderer && !MmxZeroEnabled(), "disabling returns to stock presentation");
   puts("MMX ZERO RUNTIME CHECKS PASSED");
