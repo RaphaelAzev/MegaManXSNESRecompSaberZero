@@ -128,7 +128,9 @@ static void cycle_weapon(uint8_t *r) {
   if (weapon==s.weapon) return;
   MmxZeroCancel(r); stop_charge(r); MmxWeaponsCancelShots(r);
   s.weapon=(uint8_t)weapon; s.charge=s.cooldown=0; MmxWeaponsSetState(s);
-  r[0xbdb]=0; r[0xc0f]=0; r[0x1f12]=weapon ? 0 : 4;
+  /* Native $81:9A49 restores +$67 from $86:BAB8 on a weapon change.
+   * Buster entry is three; leaving zero makes $81:93B5 reject all fire. */
+  r[0xbdb]=0; r[0xc0f]=3; r[0x1f12]=weapon ? 0 : 4;
 }
 static MmxWeaponShot *speed_dash(void) {
   for (unsigned i=0;i<8;++i) if (combat.shots[i].active && combat.shots[i].age &&
