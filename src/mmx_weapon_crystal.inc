@@ -59,7 +59,8 @@ bool MmxWeaponsFrozenEnemy(const MmxWeaponCombatState *c,unsigned enemy) {
 }
 unsigned MmxWeaponsEnemyActive(const uint8_t r[0x20000],unsigned enemy,unsigned active) {
   (void)r;
-  return MmxWeaponsEnabled() && MmxWeaponsFrozenEnemy(&combat,enemy) ? 0 : active;
+  return MmxWeaponsEnabled() && (MmxWeaponsFrozenEnemy(&combat,enemy) ||
+      MmxWeaponsMovedEnemy(&combat,enemy)) ? 0 : active;
 }
 static void crystal_contact(uint8_t *r,unsigned enemy,MmxWeaponShot *s) {
   s->origin_x=(int16_t)enemy;s->origin_y=r[enemy+10];s->muzzle_pose=1;

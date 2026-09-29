@@ -813,6 +813,30 @@ static void weapon_sprite_row(const MmxWeaponShot *s, unsigned pose, int x, int 
     }
   }
 }
+static void moved_enemy_row(const MmxWeaponShot *s,const Ppu *p,const Raster *r,int y,
+                            MmxRenderView view,uint16_t *objects,int *colors) {
+  unsigned d=(unsigned)s->origin_x;
+  if(d<0xe68 || d>=0x1228 || !frame.ram[d] || frame.ram[d+10]!=s->origin_y) return;
+  unsigned group=frame.ram[d+22];
+  const uint8_t *a=sprite_arrangement(group,frame.ram[d+23]&127);if(!a) return;
+  const MmxSpriteAsset *asset=MmxRenderAssetsObjectSprite(frame.ram,d,group);
+  int x=(s->x>>8)-(int)word(frame.ram,0x1e4d);
+  int sy=(s->y>>8)+(int8_t)frame.ram[d+25]-(int)word(frame.ram,0x1e50);
+  for(int i=(int)a[0]-1;i>=0;--i) {
+    Piece piece=make_piece(a+i*4,x,sy,frame.ram[d+17]&64,
+        frame.ram[d+17]&63,frame.ram[d+24],group,d);
+    unsigned attr=asset ? (piece.attr&0xf000)|((asset->attributes&15)<<8)|
+        (asset->live_tiles?piece.attr&255:0) : piece.attr;
+    if(y<piece.y || y>=piece.y+piece.size) continue;
+    if(!s->charged && s->muzzle_pose!=3 && s->age>30 && (s->age&1)) {
+      uint16_t flash[MMX_RENDER_MAX_WIDTH]={0};int flash_colors[MMX_RENDER_MAX_WIDTH];
+      sprite(p,r,piece.x,piece.y,attr,piece.size,y,view,flash,false,asset,piece.tile,flash_colors,true,false,false);
+      for(int x=0;x<view.width;++x) if(flash[x]) {
+        objects[x]=flash[x];colors[x]=r->palette[128+(flash[x]&15)];
+      }
+    } else sprite(p,r,piece.x,piece.y,attr,piece.size,y,view,objects,false,asset,piece.tile,colors,true,false,false);
+  }
+}
 bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
   if (!out || !frame.valid || view.width < 256 || view.width > MMX_RENDER_MAX_WIDTH ||
       view.extra != (view.width - 256) / 2 || (view.width & 1)) return false;
@@ -840,10 +864,11 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
   const uint8_t *zero = stage || zero_menu || zero_title ? MmxZeroPose(frame.ram, &frame_zero) : NULL;
   const uint8_t *blade = stage && zero ? MmxZeroBlade(&frame_zero) : NULL;
   const uint8_t *charge = stage && zero ? MmxZeroChargePose(&frame_zero) : NULL;
-  const MmxWeaponShot *triad=NULL;
+  const MmxWeaponShot *triad=NULL,*gravity=NULL;
   if (stage && !swapping) for (unsigned i=0;i<8;++i) {
     const MmxWeaponShot *s=frame_weapon_combat.shots+i;
     if (s->active && s->page==2 && s->weapon==3 && s->charged && !s->variant && s->muzzle_pose) triad=s;
+    if (s->active && s->page==2 && s->weapon==6 && s->charged && s->variant==1) gravity=s;
   }
   if (triad && zero) {
     /* X3 Zero has no ground-punch action. Reuse his original windup and
@@ -853,6 +878,16 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
         triad->pose==30?9:triad->pose==31?12:triad->pose==32?15:21;
     zero=MmxZeroPose(frame.ram,&strike);blade=NULL;
   }
+  if(gravity && zero) {
+    /* Zero never used Gravity Well in X3. Adapt original group-4A raised-arm
+     * body poses to the source cast timing, including its held pose. */
+    MmxZeroState cast=frame_zero;cast.burst=cast.slash=0;cast.anim_valid=1;
+    cast.anim_pose=gravity->pose==39 || gravity->pose==40?0:
+        gravity->pose==41 || gravity->pose==44?0x43:gravity->pose==29 || gravity->pose==45?0x44:
+        gravity->pose==35?0x45:gravity->pose==36?0x46:0x47;
+    zero=MmxZeroPose(frame.ram,&cast);blade=NULL;
+  }
+  const MmxWeaponShot *cast_body=triad?triad:gravity;
   Piece waiting[128];
   unsigned waiting_count = stage && g_mmx_render_asset_repairs ?
       fortress_waiting_pieces(waiting, pieces, piece_count) : 0;
@@ -906,7 +941,8 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
     bool zero_drawn[2] = {false,false};
     for (int i = (int)piece_count - 1; i >= 0; --i) {
       Piece s = pieces[i]; const MmxSpriteAsset *asset = piece_assets[i];
-      bool frozen_enemy=stage && MmxWeaponsFrozenEnemy(&frame_weapon_combat,s.object);
+      bool frozen_enemy=stage && (MmxWeaponsFrozenEnemy(&frame_weapon_combat,s.object) ||
+          MmxWeaponsMovedEnemy(&frame_weapon_combat,s.object));
       if (g_mmx_render_asset_repairs && fortress_sound_actor(s.object) &&
           (s.x >= 256 || s.x + s.size <= 0)) continue;
       /* Recorded pieces already obey the retail submission budget. Draw
@@ -919,8 +955,8 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
           frame.ram[0xd3]==2 && s.object==0x1ce8 && s.animation==0x19;
       bool menu_body = s.object == 0x1988 && (s.animation == 0 || s.animation == 0x18);
       bool zero_body = zero && (s.object == 0xba8 || menu_body);
-      bool triad_x_body=triad && !zero && s.object==0xba8;
-      bool triad_armor=triad && (s.object==0xc38 || s.object==0xc58 || s.object==0xc78);
+      bool triad_x_body=cast_body && !zero && s.object==0xba8;
+      bool triad_armor=cast_body && (s.object==0xc38 || s.object==0xc58 || s.object==0xc78);
       bool swap_actor = swapping && (s.object == 0xba8 || s.object == 0xc38 ||
           s.object == 0xc58 || s.object == 0xc78 || s.object == 0xc98);
       bool zero_charge = zero && stage && MmxZeroNativeChargeObject(s.object,frame.ram[s.object+10]);
@@ -947,7 +983,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       if (triad_x_body) {
         if (oam_match && !zero_drawn[0]) {
           zero_drawn[0]=true;
-          weapon_sprite_row(triad,triad->pose,
+          weapon_sprite_row(cast_body,cast_body->pose,
               (int16_t)(word(frame.ram,0xbad)-word(frame.ram,0x1e4d)),
               (int16_t)(word(frame.ram,0xbb0)-word(frame.ram,0x1e50)),y,view,objects,object_colors);
         }
@@ -1059,9 +1095,13 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
     if (stage && !swapping) for (unsigned i=0;i<24;++i) {
       const MmxWeaponShot *s=i<8 ? frame_weapon_combat.shots+i : frame_weapon_combat.effects+i-8;
       if (!s->active || !s->age) continue;
+      if(s->page==2 && s->weapon==6) {
+        if(i>=8 && s->variant==2) {moved_enemy_row(s,&p,r,y,view,objects,object_colors);continue;}
+        if(i<8 && (s->variant==1 || (s->charged && s->muzzle_pose!=1))) continue;
+      }
       if (s->page==2 && s->weapon==3 && s->charged && (!s->variant || !s->muzzle_pose)) continue;
       if (s->page==1 && s->weapon==1 && s->charged) continue;
-      if (i>=8 && (s->weapon==1 ? s->age==1 || !((s->age-1+s->tether_pose)&1) :
+      if (i>=8 && s->page==1 && (s->weapon==1 ? s->age==1 || !((s->age-1+s->tether_pose)&1) :
           !(frame_weapon_combat.tick&1))) continue; /* Original debris/sparkle flicker. */
       if (i<8 && s->page==1 && s->weapon==1 && s->muzzle_pose==5) continue;
       if (s->page==1 && s->weapon==8 && s->charged && s->tether_pose) continue;

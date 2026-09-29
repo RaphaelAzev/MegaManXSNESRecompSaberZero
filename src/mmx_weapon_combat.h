@@ -24,7 +24,7 @@ typedef struct MmxWeaponCombatState {
   uint16_t tick;
   uint8_t stage, valid, held, pressed, direction, reserved;
   MmxWeaponDamageState enemies[15];
-  MmxWeaponShot effects[16]; /* Visual particles do not consume native hit slots. */
+  MmxWeaponShot effects[16]; /* Particles/utility victims do not consume native hit slots. */
 } MmxWeaponCombatState;
 MmxWeaponCombatState MmxWeaponsGetCombatState(void);
 bool MmxWeaponsValidCombatState(const MmxWeaponCombatState *state);
@@ -35,6 +35,7 @@ void MmxWeaponsPlayerMotion(uint8_t ram[0x20000],unsigned object);
 bool MmxWeaponsFrameTick(uint8_t ram[0x20000]);
 bool MmxWeaponsTimeActive(void);
 bool MmxWeaponsFrozenEnemy(const MmxWeaponCombatState *state,unsigned object);
+const MmxWeaponShot *MmxWeaponsMovedEnemy(const MmxWeaponCombatState *state,unsigned object);
 unsigned MmxWeaponsEnemyActive(const uint8_t ram[0x20000],unsigned object,unsigned active);
 void MmxWeaponsTimeRipple(const MmxWeaponCombatState *state,int16_t lines[224]);
 void MmxWeaponsTerrainEnd(uint8_t ram[0x20000],unsigned object);

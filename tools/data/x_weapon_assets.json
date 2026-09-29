@@ -298,10 +298,28 @@
         "group": 15,
         "frames": 31,
         "dma": "85e31d"
+      },
+      {
+        "group": 51,
+        "frames": 42,
+        "dma": "85d334",
+        "poses": [29,35,36,37,38,39,41],
+        "animation_sequence": 35,
+        "palette": "62520"
+      },
+      {
+        "group": 52,
+        "source_group": 51,
+        "frames": 48,
+        "dma": "85d334",
+        "poses": [40,44,45,46,47],
+        "animation_sequence": 36,
+        "palette": "62520"
       }
     ],
     "body_palette": "62520",
-    "weapon_palette": "63040"
+    "weapon_palette": "63040",
+    "additional_dma": ["869976"]
   },
   {
     "game": 3,

@@ -412,6 +412,7 @@ Native X1 still limits damaging actors to eight, compared with X2's nine.
 | [Triad Thunder](weapons/triad-thunder.md) | Three-orb formation, connecting arcs and bolts, repeat-input inversion, charged punch/quake and terrain-following waves |
 | [Strike Chain](weapons/strike-chain.md) | Original hook/links, normal and charged extension/retraction, wall pull, pickup retrieval and charged kill rewards |
 | [Crystal Hunter](weapons/crystal-hunter.md) | Falling projectile, enemy crystallization, solid platform, dash shatter/original debris, charged distortion and half-speed simulation |
+| [Gravity Well](weapons/gravity-well.md) | Normal pull/dissolve/return, original ground/air cast, charged enemy lift and rising particles, protected-enemy exclusion |
 
 Spin Wheel's contact correction accepts hits during formation as well as
 falling/rolling, clears falling velocity, and restores X2's pause entry plus
@@ -425,8 +426,8 @@ so X1 armor overlays are hidden for that action.
 
 ## Remaining implementation
 
-Fourteen of sixteen weapons now have normal and charged gameplay implemented.
-Implement Parasitic Bomb and Gravity Well normal and charged attacks, native
+Fifteen of sixteen weapons now have normal and charged gameplay implemented.
+Implement Parasitic Bomb normal and charged attacks, native
 sound/effect cleanup, X/Zero firing origins, terrain/enemy interaction and
 meaningful special behaviors. Gate charging on X1's arm upgrade. Keep ordinary
 damage and existing X1 progression. Co-op remains a later, separate mod. The
