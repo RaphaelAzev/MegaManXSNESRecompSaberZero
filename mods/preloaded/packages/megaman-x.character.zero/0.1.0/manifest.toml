@@ -15,7 +15,7 @@ rom_sha256 = "b8f70a6e7fb93819f79693578887e2c11e196bdf1ac6ddc7cb924b1ad0be2d32"
 [[feature]]
 id = "zero"
 name = "Play as Zero (experimental)"
-description = "Use locally extracted X3 Zero assets. Development prototype; campaign validation is incomplete."
+description = "Start as Zero and press Select while standing on the ground to exchange with X. Uses locally extracted X3 assets."
 group = "Characters"
 default_enabled = false
 

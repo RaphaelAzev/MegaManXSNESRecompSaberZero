@@ -1,5 +1,4 @@
 #include "mmx_zero.h"
-#include "mmx_zero_life.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,6 +15,8 @@ _Static_assert(offsetof(MmxZeroState, anim_offset) == MMX_ZERO_LEGACY_STATE_SIZE
                "Keep the v4 combat-state prefix readable");
 _Static_assert(offsetof(MmxZeroState, burst_offset) == MMX_ZERO_ANIMATION_STATE_SIZE,
                "Keep the v5 animation-state prefix readable");
+_Static_assert(offsetof(MmxZeroState, active_x) == MMX_ZERO_COMBAT_STATE_SIZE,
+               "Keep the v6 combat-state prefix readable");
 static unsigned word(const uint8_t *p) { return p[0] | p[1] << 8; }
 static void putword(uint8_t *p, unsigned v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
 MmxZeroState MmxZeroGetState(void) { return state; }
@@ -23,6 +24,7 @@ void MmxZeroResetState(void) { memset(&state, 0, sizeof(state)); }
 void MmxZeroSetState(MmxZeroState s) {
   MmxZeroResetState();
   if (poses && s.combo <= 2 && s.slash <= 44 && s.charge <= 201 &&
+      s.active_x <= 1 && s.swap_phase <= 6 && s.swap_tick <= 30 && s.swap_y <= 0 && s.swap_y >= -320 &&
       s.air <= 1 && (s.facing == 0 || s.facing == 64) && s.anim_valid <= 1 &&
       s.burst <= 2 && s.burst_end <= 1 && s.saber_ready <= 1 && s.burst_transition <= 1 && s.burst_fired <= 1 &&
       (!s.burst || (s.burst_offset >= 272 && s.burst_offset + 3 <= sizeof(animation) &&
@@ -37,6 +39,8 @@ unsigned MmxZeroChargeTier(const MmxZeroState *s) {
 }
 
 bool MmxZeroEnabled(void) { return poses != NULL; }
+bool MmxZeroActive(void) { return poses && !state.active_x; }
+bool MmxZeroSwapping(void) { return poses && state.swap_phase; }
 void MmxZeroDisable(void) {
   MmxZeroResetState();
   free(poses); poses = NULL;
@@ -80,11 +84,6 @@ bool MmxZeroLoad(const char *path) {
 }
 const uint16_t *MmxZeroColors(void) { return colors; }
 const uint8_t *MmxZeroMenuPose(void) { return poses; }
-int MmxZeroLifeColor(unsigned x, unsigned y) {
-  if (!poses || x >= MMX_ZERO_LIFE_WIDTH || y >= MMX_ZERO_LIFE_HEIGHT) return -2;
-  unsigned color = zero_life_pixels[y][x];
-  return color & 0x8000 ? -2 : (int)color;
-}
 static void animation_record(unsigned offset) {
   if (offset < 272 || offset + 3 > sizeof(animation) || !animation[offset] || animation[offset + 2] >= 117) {
     state.anim_valid = 0; return;
@@ -123,7 +122,7 @@ void MmxZeroAnimationAdvance(unsigned object) {
 }
 unsigned MmxZeroMuzzle(const uint8_t r[0x20000], unsigned object,
                       unsigned native_index, unsigned axis, unsigned original) {
-  if (!poses || !r || object < 0x1228 || object >= 0x1428 ||
+  if (!MmxZeroActive() || !r || object < 0x1228 || object >= 0x1428 ||
       (object & 63) != 0x28 || axis > 1) return original;
   unsigned pose = state.burst ? animation[state.burst_offset + 2] :
       state.anim_valid ? state.anim_pose : r[0xbbf] & 127;
@@ -152,7 +151,7 @@ int MmxZeroHudColor(unsigned x, unsigned y) {
 }
 unsigned MmxZeroWeaponOrigin(const uint8_t r[0x20000], unsigned object,
                              unsigned axis, unsigned original) {
-  if (!poses || !r || object < 0x1228 || object >= 0x1428 ||
+  if (!MmxZeroActive() || !r || object < 0x1228 || object >= 0x1428 ||
       (object & 63) != 0x28) return original;
   /* These retail routines bypass the shared muzzle table. Apply the offset
    * where they assign the real object origin, so art and collision agree.
@@ -178,7 +177,7 @@ const uint8_t *MmxZeroPose(const uint8_t ram[0x20000], const MmxZeroState *s) {
   /* Visibility belongs to the submitted sprite list, not this RAM snapshot.
    * During invulnerability the next update can hide the player while OAM
    * still contains the preceding visible frame. The compositor owns blinking. */
-  if (!poses || !ram) return NULL;
+  if (!poses || !ram || (s && s->active_x)) return NULL;
   /* Old saves without mirrored animation state use the shared pose vocabulary
    * until the next native animation start. New saves retain the exact phase. */
   unsigned pose = s && s->anim_valid ? s->anim_pose : ram[0xbbf] & 127;
@@ -208,13 +207,13 @@ void MmxZeroSetCollisionRom(uint8_t *rom, size_t size) {
   if ((!memcmp(rom + 0x32552, old_normal, 10) || !memcmp(rom + 0x32552, normal, 10)) &&
       (!memcmp(rom + 0x33b38, old_dash, 10) || !memcmp(rom + 0x33b38, dash, 10)) &&
       (!memcmp(rom + 0x37fb0, empty, 40) || !memcmp(rom + 0x37fb0, saber_bounds, 40))) {
-    memcpy(rom + 0x32552, poses ? normal : old_normal, 10);
-    memcpy(rom + 0x33b38, poses ? dash : old_dash, 10);
-    memcpy(rom + 0x37fb0, poses ? saber_bounds : empty, 40);
+    memcpy(rom + 0x32552, MmxZeroActive() ? normal : old_normal, 10);
+    memcpy(rom + 0x33b38, MmxZeroActive() ? dash : old_dash, 10);
+    memcpy(rom + 0x37fb0, MmxZeroActive() ? saber_bounds : empty, 40);
   }
 }
 unsigned MmxZeroUpgradeBits(unsigned pc, unsigned original) {
-  if (!poses) return original;
+  if (!MmxZeroActive()) return original;
   switch (pc & 0x7fffff) {
     case 0x01971c: case 0x019793: case 0x0198fc: return original | 8;
     default: return original;
@@ -241,7 +240,7 @@ void MmxZeroCancel(uint8_t ram[0x20000]) {
    * independent body animation. Full reset/load uses MmxZeroResetState. */
   memset(&state, 0, MMX_ZERO_LEGACY_STATE_SIZE);
   memset((uint8_t *)&state + MMX_ZERO_ANIMATION_STATE_SIZE, 0,
-         sizeof(state) - MMX_ZERO_ANIMATION_STATE_SIZE);
+         MMX_ZERO_COMBAT_STATE_SIZE - MMX_ZERO_ANIMATION_STATE_SIZE);
 }
 static unsigned free_projectile(const uint8_t *r) {
   for (unsigned d = 0x1228; d < 0x1428; d += 64)
@@ -259,6 +258,72 @@ static void clear_charge(uint8_t *r) {
    * Bypassing that release path without $17 leaves the SPC voice playing. */
   if (r[0xc2f] & 64) { sound(r,0x17); r[0xc2f] &= (uint8_t)~64; }
   memset(r + 0xbff, 0, 5);
+}
+unsigned MmxZeroSwapPose(const MmxZeroState *s) {
+  if (!s || !s->swap_phase || s->swap_phase == 3) return 255;
+  if (s->swap_phase == 2 || s->swap_phase == 4) return 0x3c;
+  if (s->swap_phase == 6) return 0;
+  /* Retail X1 $49/$48 and X3 $7F/$7E: five one-frame body morphs
+   * and a two-frame energy ball. The traveling column is pose $3C. */
+  if (s->swap_phase == 1) return s->swap_tick < 5 ? 0x3e + s->swap_tick : 0x3d;
+  return s->swap_tick < 2 ? 0x3d : 0x44 - s->swap_tick;
+}
+const uint8_t *MmxZeroTeleportPose(unsigned pose) {
+  return poses && (pose == 0 || (pose >= 0x3c && pose <= 0x42)) ?
+      poses + (size_t)pose * MMX_ZERO_WIDTH * MMX_ZERO_HEIGHT : NULL;
+}
+bool MmxZeroSwapTick(uint8_t r[0x20000]) {
+  if (!poses || !r) return false;
+  if (!state.swap_phase) {
+    /* Native NMI edge latch: Select=$2000. A grounded idle player owns
+     * control; transitions, menus, hurt, ladders and ride armor do not. */
+    if (!(r[0xac] & 0x20) || r[0xd1] != 2 || r[0xd2] != 4 ||
+        r[0xba9] != 2 || r[0xbaa] != 0 || r[0xbab] != 2 ||
+        !(r[0xbd3] & 4) || !r[0xbb6] || !(r[0xbcf] & 127) ||
+        r[0x1f0c] || r[0x1f10] || r[0x1f23] || r[0x1f48] ||
+        word(r + 0xbc2) || state.burst || state.slash) return false;
+    MmxZeroCancel(r); clear_charge(r);
+    state.swap_phase = 1; state.swap_tick = state.swap_fraction = 0; state.swap_y = 0;
+    sound(r,0x0f); /* X1's original teleport-out sound ($81:8D05). */
+  } else switch (state.swap_phase) {
+    case 1:
+      if (++state.swap_tick == 7) { state.swap_phase = 2; state.swap_tick = 0; }
+      break;
+    case 2: {
+      /* Original X1 outgoing speed $0AA6, incoming speed $0800. */
+      int fixed = state.swap_y * 256 + state.swap_fraction - 0x0aa6;
+      state.swap_y = (int16_t)((fixed - 255) / 256);
+      state.swap_fraction = (uint8_t)(fixed - state.swap_y * 256);
+      int screen_y = (int16_t)(word(r + 0xbb0) - word(r + 0x1e50));
+      if (screen_y + state.swap_y < -40) {
+        state.active_x ^= 1; state.anim_valid = 0;
+        state.swap_phase = 3; state.swap_tick = 0;
+      }
+      break;
+    }
+    case 3:
+      if (++state.swap_tick == 30) { /* Original X3 exchange delay $1E. */
+        state.swap_phase = 4; state.swap_tick = state.swap_fraction = 0;
+        sound(r,0x0e); /* Native X1 arrival ($81:8A18). */
+      }
+      break;
+    case 4:
+      state.swap_y += 8;
+      if (state.swap_y >= 0) { state.swap_y = 0; state.swap_phase = 5; }
+      break;
+    case 5:
+      if (++state.swap_tick == 7) { state.swap_phase = 6; state.swap_tick = 0; }
+      break;
+    case 6:
+      state.swap_phase = state.swap_tick = state.swap_fraction = 0; state.swap_y = 0;
+      /* Resume idle through its native initializer, with no buffered presses. */
+      r[0xbab] = 0; r[0xab] = r[0xac] = r[0xbe2] = r[0xbe3] = 0;
+      return false;
+  }
+  /* The scheduler normally acknowledges NMI. Keep DMA/input/SPC alive while
+   * every task (including stage scripts and enemy animation) is suspended. */
+  r[0xb9d] = r[0xba0] = 0;
+  return true;
 }
 static unsigned burst_sequence(void) {
   return state.burst == 1 ? (state.air ? 0x43 : 0x30) : (state.air ? 0x49 : 0x36);
@@ -331,7 +396,7 @@ static bool burst_holds_air(void) {
       (state.burst == 2 && state.burst_offset == word(animation + 0x49 * 2) && state.burst_timer == 2));
 }
 void MmxZeroPlayerTick(uint8_t r[0x20000]) {
-  if (!poses || !r) return;
+  if (!MmxZeroActive() || !r) return;
   unsigned action = r[0xbaa];
   bool playable = r[0xd1] == 2 && r[0xd2] == 4 && r[0xba9] == 2 &&
       (r[0xbcf] & 127) && !r[0x1f0c] && !r[0xbdb] &&

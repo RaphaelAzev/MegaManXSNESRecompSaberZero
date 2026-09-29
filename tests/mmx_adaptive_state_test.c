@@ -120,7 +120,7 @@ static void zero_menu_pixels(void) {
     else if (x >= 192 && x < 216 && y >= 139 && y < 163) ++icon;
     else { fprintf(stderr,"Unexpected Zero menu change at %d,%d\n",x,y); exit(1); }
   }
-  check(body > 100 && icon > 50,"menu replaces body and life head while preserving other pixels");
+  check(body > 100 && icon == 0,"menu replaces body and preserves X's original life head exactly");
   bool same_body = true;
   for (int y = 128; y < 184; ++y) for (int x = 104; x < 152; ++x) {
     unsigned at = (y - 128) * 48 + x - 104;
@@ -212,6 +212,57 @@ static void zero_menu_transition_checks(const char *fixture, const char *capture
   }
   g_mmx_render_asset_repairs = repairs;
 }
+static void zero_swap_checks(const char *fixture, uint8 *start, uint8 *expected, uint8 *actual, size_t cap) {
+  check(RtlLoadSnapshot(fixture),"restore for grounded Select swap");
+  zero_replay(10);
+  frame(SNES_PAD_Y); frame(0);
+  check(zero_projectiles(0)!=0,"live native projectile participates in frozen-world check");
+  uint8_t objects[0x1d08-0xe18], camera[6], position[6];
+  memcpy(camera,g_ram+0x1e4d,6); memcpy(position,g_ram+0xbac,6);
+  unsigned hp=g_ram[0xbcf], weapon=g_ram[0xbdb], upgrades=g_ram[0x1f99];
+  const char *capture=getenv("MMX_ZERO_TEST_CAPTURE");
+  for(unsigned direction=0;direction<2;++direction) {
+    frame(SNES_PAD_SELECT);
+    if(!MmxZeroSwapping()) fprintf(stderr,"swap gates: %02x %02x %02x %02x %02x %02x; %02x %02x %02x %02x; vx %02x%02x\n",
+        g_ram[0xd1],g_ram[0xd2],g_ram[0xba9],g_ram[0xbaa],g_ram[0xbab],g_ram[0xbb6],
+        g_ram[0x1f0c],g_ram[0x1f10],g_ram[0x1f23],g_ram[0x1f48],g_ram[0xbc3],g_ram[0xbc2]);
+    check(MmxZeroSwapping(),"grounded Select starts exchange");
+    memcpy(objects,g_ram+0xe18,sizeof(objects));
+    unsigned phases=0, ticks=0;
+    while(MmxZeroSwapping() && ticks++<160) {
+      MmxZeroState s=MmxZeroGetState();
+      if(!(phases&(1u<<s.swap_phase))) {
+        char suffix[64]; snprintf(suffix,sizeof(suffix),".swap%u-phase%u.cap",direction,s.swap_phase);
+        zero_capture(capture,suffix); phases|=1u<<s.swap_phase;
+      }
+      if(ticks==12) {
+        size_t n=RtlSaveSnapshotToMemory(start,cap);
+        zero_replay(5); size_t en=RtlSaveSnapshotToMemory(expected,cap);
+        check(RtlLoadSnapshotFromMemory(start,n),"mid-teleport state loads");
+        zero_replay(5); size_t an=RtlSaveSnapshotToMemory(actual,cap);
+        same(expected,en,actual,an,"mid-teleport replay preserves phase and frozen world");
+      }
+      check(!memcmp(objects,g_ram+0xe18,sizeof(objects)) && !memcmp(camera,g_ram+0x1e4d,6),
+            "enemies items scripts and camera remain frozen");
+      frame(direction ? SNES_PAD_SELECT : 0);
+    }
+    check(!MmxZeroSwapping() && phases==0x7e,"all six teleport phases finish");
+    check(MmxZeroActive()==(direction!=0),"exchange changes playable character");
+    check(!memcmp(position,g_ram+0xbac,6) && g_ram[0xbcf]==hp &&
+        g_ram[0xbdb]==weapon && g_ram[0x1f99]==upgrades,"swap preserves feet health weapon and equipment");
+    check(MmxZeroUpgradeBits(0x81971c,0)==(direction?8:0),"X and Zero retain separate dash/charge capabilities");
+    check(g_snes->cart->rom[0x32555]==(direction?18:14),"terrain/damage bounds follow active character");
+    if(direction) {
+      frame(SNES_PAD_SELECT); frame(SNES_PAD_SELECT);
+      check(!MmxZeroSwapping() && MmxZeroActive(),"holding Select cannot retrigger an exchange");
+    }
+    zero_replay(3);
+    char suffix[48]; snprintf(suffix,sizeof(suffix),".swap%u-done.cap",direction); zero_capture(capture,suffix);
+  }
+  frame(SNES_PAD_B); frame(SNES_PAD_SELECT);
+  check(!MmxZeroSwapping(),"Select cannot swap in midair");
+  check(RtlLoadSnapshot(fixture),"restore after Select checks");
+}
 static void zero_state_checks(const char *assets, const char *fixture, uint8 *start,
                               uint8 *expected, uint8 *actual, size_t cap) {
   check(fixture != NULL && MmxZeroLoad(assets), "Zero local assets load");
@@ -223,6 +274,8 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
   g_config.widescreen = false;
   int w,h; MmxPrepareFrame(1280,720,&w,&h);
   check(w == 256 && g_mmx_custom_renderer, "Zero activates native-width compositor");
+  zero_swap_checks(fixture,start,expected,actual,cap);
+  if(getenv("MMX_ZERO_SWAP_ONLY")) { puts("MMX SELECT SWAP CHECKS PASSED"); return; }
   zero_motion_checks(fixture);
   zero_combat_checks(fixture);
   check(RtlLoadSnapshot(fixture), "restore for burst state replay");
@@ -253,6 +306,10 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
     check(RtlLoadSnapshotFromMemory(start,burst_n-sizeof(MmxZeroState)+prefix),"legacy Zero state prefix loads");
     check(MmxZeroGetState().combo==1 && MmxZeroGetState().saber_ready && !MmxZeroGetState().burst,"legacy stored combo migrates");
   }
+  uint32_t v6=6; memcpy(start+chunk+4,&v6,4);
+  check(RtlLoadSnapshotFromMemory(start,burst_n-sizeof(MmxZeroState)+MMX_ZERO_COMBAT_STATE_SIZE),
+        "pre-swap v6 save retains combat prefix");
+  check(MmxZeroActive() && !MmxZeroSwapping(),"pre-swap save defaults to Zero without an exchange");
   check(RtlLoadSnapshot(fixture), "restore for combo probe");
   for (int i=0;i<201;++i) frame(SNES_PAD_Y);
   frame(0);
