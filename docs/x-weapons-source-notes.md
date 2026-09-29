@@ -162,3 +162,34 @@ for both characters. Source underwater dissolution (`$02:DF16` called from
 X1. Revisit moving-platform contact and broader slopes/ceiling/wall playtests
 alongside the other terrain-sensitive weapons. Those are open fidelity items,
 not facts already established by the highway floor test.
+
+## Next weapon investigation: Ray Splasher (not implemented yet)
+
+Normal class `$0B`, sprite group `$0D`: `$81:A19C..A20F` attaches its muzzle
+effect to the player for 60 frames, emitting a ray every eight frames (seven
+rays total). The muzzle uses animation sequence 10. Child class `$1C` setup
+`$81:A254..A2CB` uses sequence 3 (pose 13), radius 8x8 and a speed lookup:
+normal directions `$06:B9C8..B9CF`, charged directions `$06:B9D0..B9DF`,
+vectors `$06:E18E` multiplied by eight. The normal first directions produce
+`(3968,+992)`, `(3968,-992)`, `(4096,0)` in source coordinates when facing right.
+The ray trail is real source art: effect class `$0F`, `$81:8578..85FB`, uses
+sequences 4/5 (poses 14/15), delayed along the parent's position history.
+
+Charged turret class `$14`: `$81:B7C7..B83B` waits for the character's deployment
+animation, then `$81:B83C..B856` launches upward at `$0300` with deceleration
+`$20`. Once stationary, `$81:B858..B878` fires every eight frames for 180 frames.
+`$81:B8E0..B914` cycles sixteen radial directions; this is not an enemy-seeking
+turret. Animation sequences 0/1 supply launch/active poses. Original deployment
+trace starts at player `(-2,-44)` and launches about 36 frames after release;
+that delay comes from the source body-animation flag, not a proven universal
+timer. Adapt the deployment pose/timing carefully for X1 X and X3 Zero.
+
+**Inventory prerequisite:** measured normal cost is 1; charged cost is **2.5**.
+The private source RAM pair `$1FC3` changed from `$5B00` (27) to `$5880` (24.5)
+on charged release after the one-energy initial shot. Current extended energy
+stores whole units only. Add persistent fractional energy and correct native
+pickup/HUD/save conversion before porting this weapon; do not round its cost.
+Check the other source weapons' smallest cost increment before choosing the
+fractional representation. The reserved `charge` field in the existing state
+is currently unused, but menu selection clears it: repurposing it without
+updating that path would silently erase fractions.
