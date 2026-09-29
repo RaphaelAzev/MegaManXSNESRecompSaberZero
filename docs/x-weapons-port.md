@@ -6,6 +6,11 @@ Addressed source findings and remaining uncertainties:
 [X1/X2/X3 source notebook](x-weapons-source-notes.md).
 Public release contract: [user-supplied source ROMs](mod-source-roms.md).
 
+Reference attacks are X's original X2/X3 attacks. Zero's use of these weapons
+in X1 is deliberately adapted: original weapon artwork and mechanics with
+Zero-appropriate poses, firing origins and body actions. It is not presented as
+a reproduction of native X3 Zero boss-weapon behavior.
+
 ## Asset extraction foundation
 
 `tools/extract_x_weapons.py` builds a local `MMXWEAP5` cache from both original

@@ -81,6 +81,13 @@ both X and Zero in X1. Consult the local `../MegamanX2Recomp` and
 `../MegamanX3SNESRecomp` projects and original ROM assets/behavior. Zero's base
 X3 combat port does not itself supply these boss weapons.
 
+The fidelity reference is **X using each weapon in its original game**. Zero
+using X1/X2/X3 boss weapons here is an intentional adaptation, not a claim of
+native X3 Zero functionality. Preserve source projectile art, attack timing,
+relative damage and effects; adapt Zero's poses, muzzle positions and body-driven
+actions to fit this mod. Do not use Zero firing boss weapons in X3 as a reference
+requirement (owner clarification, 2026-09-29).
+
 | Source | Weapons |
 | --- | --- |
 | X2 | Crystal Hunter, Bubble Splash, Silk Shot, Spin Wheel, Sonic Slicer, Strike Chain, Magnet Mine, Speed Burner |
