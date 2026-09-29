@@ -10,6 +10,7 @@ extern uint8_t g_ram[0x20000];
 static void hook(CpuState *cpu, uint32_t pc) {
   if (!MmxZeroEnabled()) return;
   switch (pc & 0x7fffff) {
+    case 0x009dca: MmxZeroHealthRespawn(g_ram); break;
     case 0x00d6a7: MmxRendererObserveObject(g_ram, (uint16_t)(cpu->D + cpu->X)); break;
     case 0x00d76a: MmxRendererRecordPiece(g_ram, cpu->D); break;
     case 0x01971f: case 0x019796: case 0x0198ff: if (MmxZeroActive()) cpu->A |= 8; break;
@@ -80,7 +81,7 @@ static void hook(CpuState *cpu, uint32_t pc) {
   }
 }
 void MmxZeroRegisterHooks(void) {
-  const unsigned pcs[] = {0x00d6a7, 0x00d76a, 0x01971f, 0x019796, 0x0198ff,
+  const unsigned pcs[] = {0x009dca, 0x00d6a7, 0x00d76a, 0x01971f, 0x019796, 0x0198ff,
                           0x01815c, 0x018165, 0x00d3e7, 0x049e76, 0x049c19, 0x048f07, 0x048eea,
                           0x028403,0x03958f,0x039dcf,
                           0x01a57d,0x038b6f,0x038d87,0x038ed7,0x03951d,0x039841,0x039993,0x03a3cd,

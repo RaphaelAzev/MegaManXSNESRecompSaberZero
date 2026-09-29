@@ -6,7 +6,7 @@
 enum { MMX_ZERO_WIDTH = 128, MMX_ZERO_HEIGHT = 128, MMX_ZERO_POSES = 152,
        MMX_ZERO_ANIMATION_BYTES = 0x474, MMX_ZERO_MUZZLE_BYTES = 196,
        MMX_ZERO_LEGACY_STATE_SIZE = 12, MMX_ZERO_ANIMATION_STATE_SIZE = 18,
-       MMX_ZERO_COMBAT_STATE_SIZE = 30 };
+       MMX_ZERO_COMBAT_STATE_SIZE = 30, MMX_ZERO_SWAP_STATE_SIZE = 36 };
 typedef struct MmxZeroState {
   uint16_t charge, slash, projectile;
   uint8_t combo, cooldown, air, facing;
@@ -20,12 +20,15 @@ typedef struct MmxZeroState {
   /* Zero remains the default for legacy saves and initial mod activation. */
   uint8_t active_x, swap_phase, swap_tick, swap_fraction;
   int16_t swap_y;
+  uint8_t hp[2], hp_valid, hp_max; /* Index 0 = Zero, 1 = X; shared maximum. */
 } MmxZeroState;
 bool MmxZeroLoad(const char *path);
 void MmxZeroDisable(void);
 bool MmxZeroEnabled(void);
 bool MmxZeroActive(void);
 bool MmxZeroSwapping(void);
+void MmxZeroHealthSync(const uint8_t ram[0x20000]);
+void MmxZeroHealthRespawn(const uint8_t ram[0x20000]);
 /* Called after native NMI input polling; true suspends the game scheduler. */
 bool MmxZeroSwapTick(uint8_t ram[0x20000]);
 unsigned MmxZeroSwapPose(const MmxZeroState *snapshot);

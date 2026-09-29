@@ -52,6 +52,11 @@ not a claim that every stage and boss has been exhaustively playtested.
 
 Tracking: `beads-8wg.1.33`.
 
+Implemented and validated on `feat/x3-zero-port`: native pickups, independent
+HP on exchange, shared maximum, native life loss/refill, save/replay and legacy
+state migration. Five CTests and the existing ROM-backed Zero regression suite
+pass. The HUD uses the active character's existing bar.
+
 - X and Zero have separate **current HP**; changing characters restores that
   character's pool. Damage affects only the active character.
 - **Health pickups heal only the active character.** This explicitly supersedes

@@ -328,7 +328,7 @@ void mmx_host_yield(uint8_t countdown) {
 #include "snes/saveload.h"
 
 #define MMX_SAV_CHUNK_MAGIC   0x4D4D5854u  /* "MMXT" */
-#define MMX_SAV_CHUNK_VERSION 7u /* Active character and Select teleport phase. */
+#define MMX_SAV_CHUNK_VERSION 8u /* Separate X/Zero health pools. */
 
 typedef struct MmxSavChunk {
   uint32_t magic, version;
@@ -414,7 +414,8 @@ void MmxStateLoadExtra(struct SaveLoadInfo *sli, uint32_t version) {
     if (g_load_chunk.version >= 4) {
       size_t zero_size = g_load_chunk.version == 4 ? MMX_ZERO_LEGACY_STATE_SIZE :
           g_load_chunk.version == 5 ? MMX_ZERO_ANIMATION_STATE_SIZE :
-          g_load_chunk.version == 6 ? MMX_ZERO_COMBAT_STATE_SIZE : sizeof(g_load_zero);
+          g_load_chunk.version == 6 ? MMX_ZERO_COMBAT_STATE_SIZE :
+          g_load_chunk.version == 7 ? MMX_ZERO_SWAP_STATE_SIZE : sizeof(g_load_zero);
       if (RtlStateBytesRemaining(sli) >= zero_size)
         sli->func(sli, &g_load_zero, zero_size);
       else g_load_chunk_ok = 0;
@@ -906,6 +907,7 @@ void RunOneFrameOfGame(void) {
       MmxSchedulerTick();
   }
   cpu_trace_px_breadcrumb(&g_cpu, 0x2003, "after_Internal");
+  MmxZeroHealthSync(g_ram);
   g_first_frame_done = true;
 }
 

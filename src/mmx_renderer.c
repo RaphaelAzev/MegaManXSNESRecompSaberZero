@@ -346,7 +346,7 @@ bool MmxRendererSaveCapture(const char *path) {
   if (!frame.valid || !path) return false;
   FILE *f = fopen(path, "wb");
   if (!f) return false;
-  uint32_t header[] = {0x4d4d5843, 6, sizeof(frame) + sizeof(frame_zero)};
+  uint32_t header[] = {0x4d4d5843, 7, sizeof(frame) + sizeof(frame_zero)};
   bool ok = fwrite(header, sizeof(header), 1, f) == 1 && fwrite(&frame, sizeof(frame), 1, f) == 1 &&
       fwrite(&frame_zero, sizeof(frame_zero), 1, f) == 1;
   return fclose(f) == 0 && ok;
@@ -362,12 +362,14 @@ bool MmxRendererLoadCapture(const char *path) {
       ((h[1] == 2 && h[2] == sizeof(frame)) || (h[1] == 3 && h[2] == sizeof(frame) + MMX_ZERO_LEGACY_STATE_SIZE) ||
        (h[1] == 4 && h[2] == sizeof(frame) + MMX_ZERO_ANIMATION_STATE_SIZE) ||
        (h[1] == 5 && h[2] == sizeof(frame) + MMX_ZERO_COMBAT_STATE_SIZE) ||
-       (h[1] == 6 && h[2] == sizeof(frame) + sizeof(frame_zero))) &&
+       (h[1] == 6 && h[2] == sizeof(frame) + MMX_ZERO_SWAP_STATE_SIZE) ||
+       (h[1] == 7 && h[2] == sizeof(frame) + sizeof(frame_zero))) &&
       fread(&frame, sizeof(frame), 1, f) == 1 &&
       frame.captured == 224 && frame.piece_count <= MAX_PIECES && frame.expanded_count <= MAX_PIECES && frame.valid;
   size_t zero_size = h[1] == 3 ? MMX_ZERO_LEGACY_STATE_SIZE :
       h[1] == 4 ? MMX_ZERO_ANIMATION_STATE_SIZE :
-      h[1] == 5 ? MMX_ZERO_COMBAT_STATE_SIZE : sizeof(frame_zero);
+      h[1] == 5 ? MMX_ZERO_COMBAT_STATE_SIZE :
+      h[1] == 6 ? MMX_ZERO_SWAP_STATE_SIZE : sizeof(frame_zero);
   if (ok && h[1] >= 3) ok = fread(&frame_zero, zero_size, 1, f) == 1 &&
       frame_zero.active_x <= 1 && frame_zero.swap_phase <= 6 && frame_zero.swap_tick <= 30 &&
       frame_zero.swap_y >= -320 && frame_zero.swap_y <= 0 &&

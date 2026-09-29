@@ -17,6 +17,8 @@ _Static_assert(offsetof(MmxZeroState, burst_offset) == MMX_ZERO_ANIMATION_STATE_
                "Keep the v5 animation-state prefix readable");
 _Static_assert(offsetof(MmxZeroState, active_x) == MMX_ZERO_COMBAT_STATE_SIZE,
                "Keep the v6 combat-state prefix readable");
+_Static_assert(offsetof(MmxZeroState, hp) == MMX_ZERO_SWAP_STATE_SIZE,
+               "Keep the v7 character/swap-state prefix readable");
 static unsigned word(const uint8_t *p) { return p[0] | p[1] << 8; }
 static void putword(uint8_t *p, unsigned v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
 MmxZeroState MmxZeroGetState(void) { return state; }
@@ -25,6 +27,8 @@ void MmxZeroSetState(MmxZeroState s) {
   MmxZeroResetState();
   if (poses && s.combo <= 2 && s.slash <= 44 && s.charge <= 201 &&
       s.active_x <= 1 && s.swap_phase <= 6 && s.swap_tick <= 30 && s.swap_y <= 0 && s.swap_y >= -320 &&
+      s.hp_valid <= 1 && s.hp_max <= 32 && s.hp[0] <= 32 && s.hp[1] <= 32 &&
+      (!s.hp_valid || (s.hp_max >= 16 && s.hp[0] <= s.hp_max && s.hp[1] <= s.hp_max)) &&
       s.air <= 1 && (s.facing == 0 || s.facing == 64) && s.anim_valid <= 1 &&
       s.burst <= 2 && s.burst_end <= 1 && s.saber_ready <= 1 && s.burst_transition <= 1 && s.burst_fired <= 1 &&
       (!s.burst || (s.burst_offset >= 272 && s.burst_offset + 3 <= sizeof(animation) &&
@@ -41,6 +45,24 @@ unsigned MmxZeroChargeTier(const MmxZeroState *s) {
 bool MmxZeroEnabled(void) { return poses != NULL; }
 bool MmxZeroActive(void) { return poses && !state.active_x; }
 bool MmxZeroSwapping(void) { return poses && state.swap_phase; }
+void MmxZeroHealthSync(const uint8_t r[0x20000]) {
+  if (!poses || !r || r[0xd1] != 2 || r[0x1f9a] < 16 || r[0x1f9a] > 32) return;
+  unsigned max = r[0x1f9a], hp = r[0xbcf] & 127;
+  if (hp > max) hp = max;
+  /* Older saves have one pool. Seed both from it exactly once. All normal
+   * damage, pickups and subtanks continue to affect only native active HP. */
+  if (!state.hp_valid) state.hp[0] = state.hp[1] = (uint8_t)hp;
+  state.hp_valid = 1; state.hp_max = (uint8_t)max;
+  state.hp[state.active_x] = (uint8_t)hp;
+  if (state.hp[state.active_x ^ 1] > max) state.hp[state.active_x ^ 1] = (uint8_t)max;
+}
+void MmxZeroHealthRespawn(const uint8_t r[0x20000]) {
+  if (!poses || !r || r[0x1f9a] < 16 || r[0x1f9a] > 32) return;
+  /* Called at the original stage/checkpoint HP initialization, not whenever
+   * a pool happens to reach zero. Death and life loss remain native. */
+  state.hp_valid = 1; state.hp_max = r[0x1f9a];
+  state.hp[0] = state.hp[1] = state.hp_max;
+}
 void MmxZeroDisable(void) {
   MmxZeroResetState();
   free(poses); poses = NULL;
@@ -274,6 +296,7 @@ const uint8_t *MmxZeroTeleportPose(unsigned pose) {
 }
 bool MmxZeroSwapTick(uint8_t r[0x20000]) {
   if (!poses || !r) return false;
+  MmxZeroHealthSync(r);
   if (!state.swap_phase) {
     /* Native NMI edge latch: Select=$2000. A grounded idle player owns
      * control; transitions, menus, hurt, ladders and ride armor do not. */
@@ -297,6 +320,7 @@ bool MmxZeroSwapTick(uint8_t r[0x20000]) {
       int screen_y = (int16_t)(word(r + 0xbb0) - word(r + 0x1e50));
       if (screen_y + state.swap_y < -40) {
         state.active_x ^= 1; state.anim_valid = 0;
+        if (state.hp_valid) r[0xbcf] = state.hp[state.active_x] | 128;
         state.swap_phase = 3; state.swap_tick = 0;
       }
       break;
