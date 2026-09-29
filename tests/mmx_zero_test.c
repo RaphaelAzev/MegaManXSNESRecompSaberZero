@@ -147,8 +147,12 @@ int main(void) {
   tick(64,64); assert(MmxZeroGetState().combo == 2 && !MmxZeroGetState().slash);
   ram[0xbaa] = 0x0e; tick(0,0); assert(!MmxZeroGetState().combo);
   player(); tick(64,64); ram[0xc2f]|=64;
+  /* The allocator can put stale charge effects anywhere in this pool. */
+  ram[0xc98]=ram[0xd58]=1; ram[0xca2]=ram[0xd62]=1;
+  ram[0xd78]=1; ram[0xd82]=2; /* An unrelated small effect must survive. */
   MmxZeroCancel(ram); MmxZeroCancel(ram);
   assert(ram[0xba3]==2 && ram[0xb72]==0x17 && !(ram[0xc2f]&64));
+  assert(!ram[0xc98] && !ram[0xd58] && ram[0xd78]);
   ram[0xc2f]|=64; MmxZeroCancel(ram);
   assert(ram[0xba3]==2 && (ram[0xc2f]&64)); /* Native special charge is untouched. */
   MmxZeroDisable(); MmxZeroSetCollisionRom(rom,sizeof(rom));

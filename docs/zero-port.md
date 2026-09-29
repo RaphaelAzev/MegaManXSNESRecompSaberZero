@@ -59,7 +59,7 @@ stages only the tracked catalog; no private ROM paths, caches or save states.
 
 `tools/extract_zero.py` validates original USA X3 SHA-256
 `65b03268afac296330e8ff8d60dd0825879e13ed658b37713c034a3bd074f1d7`
-after accepting an optional 512-byte copier header. Its current `MMXZERO6`
+after accepting an optional 512-byte copier header. Its current `MMXZERO7`
 cache contains:
 
 - 117 body poses (group `$4A`), 21 saber-body poses (`$4B`) and 14 blade poses
@@ -70,6 +70,9 @@ cache contains:
 - Four original 8x8 HUD badge tiles and their palette.
 - `$474` bytes containing 136 original body-animation directory entries and
   records, plus 196 bytes of pose-specific firing data.
+- Three original charge-flash palettes and 66 charge-particle poses (three
+  groups of 22 frames). Legacy v6 caches remain readable; the launcher
+  regenerates v7 from the user's X3 ROM to supply the new presentation.
 
 The loader rejects a wrong header, dimensions/counts, truncated/trailing data,
 invalid pixels, invalid bounds and invalid animation/muzzle entries. Missing
@@ -311,7 +314,7 @@ Open Zero acceptance work after the weapon priority:
    capsules, ride armor, stage teleports and scripted player poses. Do not
    claim all states validated just because every sequence is mapped.
 2. Remaining presentation fidelity: X3 buster projectile/effect differences,
-   saber/source audio, charge/hit palettes and X1 special effects during
+   saber/source audio, hit palettes and X1 special effects during
    movement. Keep the owner's accepted X life head.
 3. Representative moving platforms, tight spaces, water, doors, bosses and
    native/widescreen campaign playthrough. Alter dimensions only for an
@@ -344,3 +347,54 @@ weapon packages; its DLL dependency closure is validated.
 A fresh private install of the ZIP generated its 2,492,180-byte Zero cache
 from the selected X3 ROM and cold-booted for 180 frames (exit 0), with no save
 state or developer asset cache. This test used isolated local configuration.
+
+### Charge presentation and cancellation follow-up (#55 / #56)
+
+GitHub [55](https://github.com/mstan/MegaManXSNESRecomp/issues/55) reports
+overlapping charge effects after hurt or character exchange;
+[56](https://github.com/mstan/MegaManXSNESRecomp/issues/56) reports orange-only
+charging without X1 arms. Central tracking: `beads-8wg.1.44`.
+
+Original X3 Zero was visually reviewed in a private original-game fixture,
+including held charge, both beam releases, prolonged stored-saber idle and
+saber use. His body flashes blue at the earlier charge stages, purple at the
+double-shot stage, and green at full saber charge. Green continues to alternate
+with the normal body palette after the beams have fired, until the saber is
+used or the charge is cancelled. The orbiting particles disappear on release;
+stored readiness is a body flash, not another particle cloud.
+
+Bounded original-USA source references:
+
+| Source | Finding |
+| --- | --- |
+| X3 `$84:ABC3..AD75` | Charge counter `player+$57`; thresholds `$14/$50/$8C/$C8`, saturated `$C9`; Zero's saber flag `+$B7` |
+| X3 `$84:AF13..AF40` | Palette flash clock; toggles pair index `+$82` with XOR 2, reloading every two ticks |
+| X3 `$86:B3B4` | Palette key pairs; **data bank is `$86`**, not the calling code bank `$84` |
+| X3 `$86:8180`, `$81:804A` | Key `$136` = blue `$8C:AF60`, `$138` = purple `$8C:AF80`, `$13A` = green `$8C:A5E0`; 16-color body destination `$90` |
+| X3 `$81:84C1..8577` | Charge particle actor class 1; groups `$6F/$70/$71`; follows the player and retires for stored-saber state `$0C` |
+| X3 `$3F:DA87` | Shared particle animation: 22 one-frame poses and loop |
+| X3 `$86:F732`, resource `$0A` | Compressed common CHR; 4096 decoded bytes at OBJ tile-bank offset `$1000` (VRAM word `$6800`) |
+| X3 `$8C:B100`, `$8C:B0E0` | Particle base palette (key `$14`) and palette-2 variant; `$70/$71` use palette 2 before full saber charge. Key `$D2` / `$8C:B5A0` belongs at palette 3 for Zero's saber, not charge palette 0 |
+| X1 `$82:82ED` | Native charge allocation searches **all** 32-byte slots `$0C98..0E17` |
+| X1 `$81:9890` | Charge-loop stop command `$17`; cancellation must also retire live particle actors |
+
+The old port fed X1's visual charge state, whose final stage depends on X1
+arms, while Zero's actual combo used independent X3 thresholds. The renderer
+also recognized only slot `$0C98`, and cancellation left small charge actors
+alive. The fix extracts the original X3 presentation, gives it one animation
+clock, and removes class-1 charge effects across the full native small-actor
+pool on release/cancellation. Unrelated small effects and special-weapon
+charging retain their native handling. The previously unused `cooldown` byte
+is now `charge_phase`; the 40-byte save/capture layout and old-state prefixes
+are unchanged. Existing charge thresholds, beam timing and X1 arm gating for
+special weapons are unchanged.
+
+The native extractor and Python reference produce identical v7 caches;
+ROMs, decoded images and private visual captures remain excluded from Git.
+Focused runtime checks pass without/with arms, stored saber after both beam
+lifetimes, exact save/replay of a held full charge, hurt while holding fire,
+and both exchange directions followed by held-fire charging. The complete
+existing Zero runtime suite and Zero/renderer CTests also pass. Native X3
+captures and corresponding port captures were visually inspected; this caught
+and corrected the distinction between common charge palette 0 and Zero's
+saber palette 3 before completion.

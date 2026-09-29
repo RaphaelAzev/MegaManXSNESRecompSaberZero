@@ -105,15 +105,16 @@ Pose pose(const Rom& r,unsigned group,unsigned number,const Tiles& t,bool zero=f
       if (color) {
         int px=x+int(dx)-p.left,py=y+int(dy)-p.top;
         require(px>=0 && py>=0 && px<p.width && py<p.height,"Source sprite exceeds canvas.");
-        if (zero) color+=(((flags>>1)&7)|(group==0x50?3:1))*16;
+        if (zero) color+=(((flags>>1)&7)|(group>=0x6f?0:group==0x50?3:1))*16;
         p.pixels[py*p.width+px]=uint8_t(color);
       }
     }
   }
   return p;
 }
+Bytes menu(const Rom& r,unsigned game,unsigned resource);
 Bytes zero_assets(const Rom& r) {
-  Bytes out{'M','M','X','Z','E','R','O','6'};
+  Bytes out{'M','M','X','Z','E','R','O','7'};
   for (unsigned v : {128,128,64,64,117,35}) put(out,v);
   std::array<unsigned,256> colors{};
   for (unsigned key : {0xd0,0xd2}) {
@@ -127,12 +128,20 @@ Bytes zero_assets(const Rom& r) {
     }
   }
   for (unsigned i=0;i<16;++i) colors[176+i]=r.integer(0x8cb5a0+i*2);
+  for (unsigned i=0;i<16;++i) colors[128+i]=r.integer(0x8cb100+i*2);
+  for (unsigned i=0;i<16;++i) colors[160+i]=r.integer(0x8cb0e0+i*2);
   for (unsigned i=128;i<256;++i) put(out,colors[i]);
   Bytes bounds=r.at(0x86b837,40);for (unsigned i=1;i<40;i+=4) bounds[i]-=8;
   append(out,bounds);append(out,r.at(0x2c8d20,64));append(out,r.at(0x2c8de0,64));append(out,r.at(0x8cb0e0,32));
   append(out,r.at(0x3fcc74,0x474));append(out,r.at(0x399161,120));append(out,r.at(0x3991d9,76));
   const unsigned groups[][3]={{0x4a,117,0x85d6a8},{0x4b,21,0x85db47},{0x50,14,0x85e6e0}};
   for (auto& g : groups) { Tiles t;for (unsigned i=0;i<g[1];++i) { transfer(r,g[2],i,t);append(out,pose(r,g[0],i,t,true).pixels); } }
+  for (unsigned a : {0x8caf60,0x8caf80,0x8ca5e0}) append(out,r.at(a,32));
+  Tiles t; Bytes common=menu(r,3,0x0a);
+  require(common.size()==4096,"Unexpected Zero common graphics size.");
+  std::copy(common.begin(),common.end(),t.bytes.begin()+0x1000);
+  for (unsigned group : {0x6f,0x70,0x71}) for (unsigned i=0;i<22;++i)
+    append(out,pose(r,group,i,t,true).pixels);
   return out;
 }
 struct GroupSource { unsigned id,frames,dma,restricted; uint64_t poses,inherited; int setup; unsigned palette,source;

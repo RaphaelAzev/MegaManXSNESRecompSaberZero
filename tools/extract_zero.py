@@ -55,12 +55,42 @@ def palette(rom):
     return colors[128:]
 
 
+def common_tiles(rom):
+    # X3 resource $0A ($86:F732), decompressed by $80:B730 into OBJ $6800.
+    record = 0x86f732 + 0x0a * 5
+    address, length = rom.integer(record, 3), rom.integer(record + 3)
+    offset = ((address >> 16) & 127) * 32768 + (address & 32767)
+    decoded = bytearray()
+    while len(decoded) < length:
+        control = rom.data[offset]
+        offset += 1
+        for bit in (128, 64, 32, 16, 8, 4, 2, 1):
+            if len(decoded) == length:
+                break
+            if control & bit:
+                a, b = rom.data[offset:offset + 2]
+                offset += 2
+                count, distance = a >> 2, ((a & 3) << 8) | b
+                if not count or not 0 < distance <= len(decoded) or len(decoded) + count > length:
+                    raise ValueError('Invalid common graphics backreference')
+                for _ in range(count):
+                    decoded.append(decoded[-distance])
+            else:
+                decoded.append(rom.data[offset])
+                offset += 1
+    if length != 4096:
+        raise ValueError('Unexpected common graphics size')
+    tiles = bytearray(8192)
+    tiles[0x1000:0x2000] = decoded
+    return tiles
+
+
 def frame(rom, group, number, dma, tiles=None):
     # Several eye/hand poses have no transfer and inherit the previous CHR.
     if tiles is None:
         tiles = bytearray(8192)
-    address = (dma & 0xff0000) | ((dma + rom.integer(dma + number * 2)) & 0xffff)
-    for _ in range(32):
+    address = (dma & 0xff0000) | ((dma + rom.integer(dma + number * 2)) & 0xffff) if dma else 0
+    for _ in range(32) if dma else ():
         count = rom.integer(address, 1)
         if not count:
             break
@@ -74,7 +104,8 @@ def frame(rom, group, number, dma, tiles=None):
             break
         address += 6
     else:
-        raise ValueError('Unterminated tile transfer list')
+        if dma:
+            raise ValueError('Unterminated tile transfer list')
     table = rom.integer(0x8d8000 + group * 3, 3)
     address = rom.integer(table + number * 3, 3)
     count = rom.integer(address, 1)
@@ -97,7 +128,7 @@ def frame(rom, group, number, dma, tiles=None):
                     px, py = ORIGIN_X + x + dx, ORIGIN_Y + y + dy
                     if not (0 <= px < WIDTH and 0 <= py < HEIGHT):
                         raise ValueError(f'Pose {group:02x}/{number:02x} exceeds extraction canvas at {px},{py}')
-                    base = 3 if group == 0x50 else 1
+                    base = 0 if group >= 0x6f else 3 if group == 0x50 else 1
                     pixels[py * WIDTH + px] = color + (((flags >> 1) & 7) | base) * 16
     return pixels
 
@@ -105,6 +136,11 @@ def frame(rom, group, number, dma, tiles=None):
 def extract(path):
     rom = Rom(path)
     colors = palette(rom)
+    # The stage's common OBJ palette (key $14). Zero's key $D2 is loaded at
+    # palette 3 by $84:819F, not at palette 0 used by charge motes.
+    colors[:16] = struct.unpack('<16H', rom.read(0x8cb100, 32))
+    # Charge groups $70/$71 OR palette 2 until the stored saber becomes ready.
+    colors[32:48] = struct.unpack('<16H', rom.read(0x8cb0e0, 32))
     poses = []
     for group, count, dma in GROUPS:
         tiles = bytearray(8192)
@@ -121,8 +157,14 @@ def extract(path):
     animation = rom.read(0x3fcc74, 0x474)
     # Original Zero firing-pose map and signed Y/X pairs ($81:8BA9).
     muzzle = rom.read(0x399161, 120) + rom.read(0x3991d9, 76)
-    header = struct.pack('<8s6H', b'MMXZERO6', WIDTH, HEIGHT, ORIGIN_X, ORIGIN_Y, 117, 35)
-    return header + struct.pack('<128H', *colors) + bounds + hud + animation + muzzle + b''.join(poses), colors, poses
+    # Body palette pairs $86:B3B4: blue, purple, then green; each alternates
+    # with the base palette every two frames. Green persists with stored saber.
+    flash = b''.join(rom.read(a, 32) for a in (0x8caf60, 0x8caf80, 0x8ca5e0))
+    # All three charge groups share the 22 one-frame poses at $3F:DA87.
+    tiles = common_tiles(rom)
+    particles = b''.join(frame(rom, group, n, 0, tiles) for group in (0x6f, 0x70, 0x71) for n in range(22))
+    header = struct.pack('<8s6H', b'MMXZERO7', WIDTH, HEIGHT, ORIGIN_X, ORIGIN_Y, 117, 35)
+    return header + struct.pack('<128H', *colors) + bounds + hud + animation + muzzle + b''.join(poses) + flash + particles, colors, poses
 
 
 def main():

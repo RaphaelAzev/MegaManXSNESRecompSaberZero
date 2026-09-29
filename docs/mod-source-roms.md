@@ -50,7 +50,7 @@ ROM SHA-256 is checked after stripping an optional 512-byte copier header:
 `src/mmx_source_assets.cpp` performs native extraction at activation. There is
 no Python/runtime tool installation or user extraction step. It validates the
 ROM again and atomically writes private caches in `cache/mmx-source/` beside
-the executable: `x3-zero-v6.bin`, `x2-weapons-v5.bin`, `x3-weapons-v5.bin`.
+the executable: `x3-zero-v7.bin`, `x2-weapons-v5.bin`, `x3-weapons-v5.bin`.
 Each launch regenerates from the selected ROM, so stale/developer caches are
 never an implicit fallback. Native extraction matches the reference tools
 byte for byte. Copier headers produce identical output; wrong ROMs are rejected.

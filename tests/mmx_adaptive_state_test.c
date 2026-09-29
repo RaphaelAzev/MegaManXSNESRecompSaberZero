@@ -1528,6 +1528,71 @@ static void zero_half_charge_checks(const char *fixture) {
   }
   check(RtlLoadSnapshot(fixture),"restore after native half-charge check");
 }
+static unsigned zero_charge_actors(void) {
+  unsigned n=0;
+  for(unsigned d=0xc98;d<0xe18;d+=32) n+=g_ram[d] && MmxZeroNativeChargeObject(d,g_ram[d+10]);
+  return n;
+}
+static void zero_charge_visual_checks(const char *fixture,uint8 *start,uint8 *expected,uint8 *actual,size_t cap) {
+  const char *capture=getenv("MMX_ZERO_TEST_CAPTURE");
+  for(unsigned arms=0;arms<=2;arms+=2) {
+    check(RtlLoadSnapshot(fixture),"restore charge-color fixture");
+    g_ram[0x1f99]=(uint8_t)arms;
+    const uint16_t *palettes[3]={0};
+    for(unsigned tick=1;tick<=228;++tick) {
+      frame(SNES_PAD_Y); MmxZeroState z=MmxZeroGetState();
+      check(zero_charge_actors()<=1,"one native charge effect while holding fire");
+      if(z.charge>=25 && !(z.charge_phase&2)) {
+        unsigned tier=z.charge>=201?2:z.charge>=141?1:0;
+        palettes[tier]=MmxZeroBodyColors(&z);
+        check(palettes[tier]!=MmxZeroColors()+16,"body flashes before obtaining X1 arms");
+        if(tick==29 || tick==145 || tick==205) {
+          char suffix[64];snprintf(suffix,sizeof(suffix),".charge-%u-%u.cap",arms,tier);
+          zero_capture(capture,suffix);
+        }
+      }
+      if(tick>=21) check(MmxZeroChargePose(&z)!=NULL,"original X3 charge particle poses available");
+    }
+    check(palettes[0] && palettes[1] && palettes[2] && memcmp(palettes[0],palettes[1],32) &&
+        memcmp(palettes[1],palettes[2],32),"blue, purple and green charge palettes are distinct");
+    size_t n=RtlSaveSnapshotToMemory(start,cap);
+    for(unsigned i=0;i<16;++i) frame(SNES_PAD_Y);
+    size_t en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"restore full-charge animation");
+    for(unsigned i=0;i<16;++i) frame(SNES_PAD_Y);
+    size_t an=RtlSaveSnapshotToMemory(actual,cap);
+    same(expected,en,actual,an,"full-charge particles and palette replay exactly");
+    frame(0);zero_replay(17);frame(SNES_PAD_Y);zero_replay(90);
+    MmxZeroState z=MmxZeroGetState();
+    check(z.combo==2 && z.saber_ready && !z.burst && !MmxZeroChargePose(&z) && !zero_charge_actors(),
+        "stored saber retains readiness after beams without orbiting charge effects");
+    unsigned green=0,base=0;
+    for(unsigned i=0;i<8;++i) {
+      frame(0);z=MmxZeroGetState();const uint16_t *p=MmxZeroBodyColors(&z);
+      green+=p==palettes[2];base+=p==MmxZeroColors()+16;
+      if(p==palettes[2]) zero_capture(capture,".stored-saber.cap");
+    }
+    check(green==4 && base==4,"stored saber alternates original green and normal palette every two frames");
+    frame(SNES_PAD_Y);z=MmxZeroGetState();
+    check(z.slash && !z.saber_ready && MmxZeroBodyColors(&z)==MmxZeroColors()+16,"saber use consumes the green readiness flash");
+  }
+  check(RtlLoadSnapshot(fixture),"restore interrupted charge fixture");
+  for(unsigned i=0;i<160;++i) frame(SNES_PAD_Y);
+  /* Put the live charge actor in a later legal allocation, then take hurt. */
+  check(g_ram[0xc98] && g_ram[0xca2]==1,"native charge actor allocated");
+  memcpy(g_ram+0xd58,g_ram+0xc98,32);memset(g_ram+0xc98,0,32);
+  g_ram[0xbaa]=0x0e;g_ram[0xbab]=0;frame(SNES_PAD_Y);
+  check(!MmxZeroGetState().charge && !zero_charge_actors(),"hurt cancels charge including an effect outside the first pool slot");
+  for(unsigned i=0;i<230;++i) {frame(SNES_PAD_Y);check(zero_charge_actors()<=1,"held fire after hurt never doubles the effect");}
+  zero_health_swap();
+  check(MmxZeroGetState().active_x && !zero_charge_actors(),"swap cancels Zero charge effects before X arrives");
+  for(unsigned i=0;i<150;++i) frame(SNES_PAD_Y);
+  zero_health_swap();
+  check(!MmxZeroGetState().active_x && !zero_charge_actors(),"swap cancels X charge effects before Zero arrives");
+  for(unsigned i=0;i<210;++i) {frame(SNES_PAD_Y);check(zero_charge_actors()<=1,"held fire after swap never doubles the effect");}
+  frame(0);check(MmxZeroGetState().saber_ready,"recharged Zero releases the full combo normally");
+  puts("MMX ZERO CHARGE COLOR AND CANCELLATION CHECKS PASSED");
+}
 static void zero_state_checks(const char *assets, const char *fixture, uint8 *start,
                               uint8 *expected, uint8 *actual, size_t cap) {
   check(fixture != NULL && MmxZeroLoad(assets), "Zero local assets load");
@@ -1561,6 +1626,7 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
     else weapon_menu_checks(weapons,fixture,start,expected,actual,cap);
     return;
   }
+  if(getenv("MMX_ZERO_CHARGE_ONLY")) { zero_charge_visual_checks(fixture,start,expected,actual,cap); return; }
   if(getenv("MMX_ZERO_READY_ONLY")) { zero_ready_checks(fixture); return; }
   zero_swap_checks(fixture,start,expected,actual,cap);
   if(getenv("MMX_ZERO_SWAP_ONLY")) { puts("MMX SELECT SWAP CHECKS PASSED"); return; }
