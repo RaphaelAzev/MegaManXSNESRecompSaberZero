@@ -146,6 +146,7 @@ snesrecomp_target_mmx_state_tests(MegaManXSNESRecomp "${CMAKE_CURRENT_SOURCE_DIR
 
 if(TARGET mmx_state_tests)
     target_compile_definitions(mmx_state_tests PRIVATE
+        MMX_ZERO_COMBAT_REFERENCE_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/tests/data/zero_x3_combat.csv"
         MMX_ZERO_MOTION_REFERENCE_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/tests/data/zero_x3_motion.csv")
     get_target_property(mmx_state_sources mmx_state_tests SOURCES)
     list(REMOVE_ITEM mmx_state_sources "${SNESRECOMP_ROOT}/runner/tests/mmx_state_runtime.c")

@@ -9,7 +9,7 @@ PCS = {0x81971c, 0x819793, 0x8198fc}
 MUZZLE_PCS = {0x81a566, 0x81a578, 0x838b6a, 0x838d82, 0x838eb4,
               0x839518, 0x83983c, 0x839974, 0x83a3a9}
 ORIGIN_PCS = {0x8283ed: 1, 0x83958c: 0, 0x839dc5: 1}
-REQUIRED = PCS | MUZZLE_PCS | ORIGIN_PCS.keys() | {0x81815c, 0x00d3e5, 0x849e73, 0x849c16, 0x848f07, 0x848eea}
+REQUIRED = PCS | MUZZLE_PCS | ORIGIN_PCS.keys() | {0x81815c, 0x818165, 0x00d3e5, 0x849e73, 0x849c16, 0x848f07, 0x848eea}
 
 
 def apply(text):
@@ -45,6 +45,9 @@ def apply(text):
                 found.add(pc)
         if pc == 0x81815c and 'cpu->coprocessor_master_cycles = cpu->master_cycles;' in line:
             output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern void MmxZeroPlayerTick(uint8_t *); MmxZeroPlayerTick(g_ram); }}\n')
+            found.add(pc)
+        if pc == 0x818165 and 'cpu->coprocessor_master_cycles = cpu->master_cycles;' in line:
+            output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern void MmxZeroPlayerEnd(uint8_t *); MmxZeroPlayerEnd(g_ram); }}\n')
             found.add(pc)
         if pc == 0x00d3e5:
             load = re.search(r'uint8 (_v\d+) = cpu_read8\(cpu, 0x00, \(uint16\)\(cpu->D \+ 0x0000\)\);', line)

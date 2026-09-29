@@ -5,13 +5,17 @@
 
 enum { MMX_ZERO_WIDTH = 128, MMX_ZERO_HEIGHT = 128, MMX_ZERO_POSES = 152,
        MMX_ZERO_ANIMATION_BYTES = 0x474, MMX_ZERO_MUZZLE_BYTES = 196,
-       MMX_ZERO_LEGACY_STATE_SIZE = 12 };
+       MMX_ZERO_LEGACY_STATE_SIZE = 12, MMX_ZERO_ANIMATION_STATE_SIZE = 18 };
 typedef struct MmxZeroState {
   uint16_t charge, slash, projectile;
   uint8_t combo, cooldown, air, facing;
   uint16_t hit_slots;
   uint16_t anim_offset;
   uint8_t anim_timer, anim_pose, anim_flags, anim_valid;
+  uint16_t burst_offset;
+  uint8_t burst_timer, burst, burst_end, saber_ready, shot_mask, held_gravity;
+  uint16_t held_vy;
+  uint8_t burst_transition, burst_fired;
 } MmxZeroState;
 bool MmxZeroLoad(const char *path);
 void MmxZeroDisable(void);
@@ -26,6 +30,8 @@ int MmxZeroHudColor(unsigned x, unsigned y);
 void MmxZeroSetCollisionRom(uint8_t *rom, size_t size);
 unsigned MmxZeroUpgradeBits(unsigned pc, unsigned original);
 void MmxZeroPlayerTick(uint8_t ram[0x20000]);
+void MmxZeroPlayerEnd(uint8_t ram[0x20000]);
+unsigned MmxZeroChargeTier(const MmxZeroState *snapshot);
 void MmxZeroAnimationStart(unsigned object, unsigned sequence);
 void MmxZeroAnimationAdvance(unsigned object);
 unsigned MmxZeroMuzzle(const uint8_t ram[0x20000], unsigned object,

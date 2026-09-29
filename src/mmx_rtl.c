@@ -328,7 +328,7 @@ void mmx_host_yield(uint8_t countdown) {
 #include "snes/saveload.h"
 
 #define MMX_SAV_CHUNK_MAGIC   0x4D4D5854u  /* "MMXT" */
-#define MMX_SAV_CHUNK_VERSION 5u /* Zero combat plus independent X3 animation. */
+#define MMX_SAV_CHUNK_VERSION 6u /* Original Zero charge/burst/recovery state. */
 
 typedef struct MmxSavChunk {
   uint32_t magic, version;
@@ -412,10 +412,15 @@ void MmxStateLoadExtra(struct SaveLoadInfo *sli, uint32_t version) {
     MmxWideStateLoad(sli);
     if (!RtlLoadExecutionState(sli)) g_load_chunk_ok = 0;
     if (g_load_chunk.version >= 4) {
-      size_t zero_size = g_load_chunk.version == 4 ? MMX_ZERO_LEGACY_STATE_SIZE : sizeof(g_load_zero);
+      size_t zero_size = g_load_chunk.version == 4 ? MMX_ZERO_LEGACY_STATE_SIZE :
+          g_load_chunk.version == 5 ? MMX_ZERO_ANIMATION_STATE_SIZE : sizeof(g_load_zero);
       if (RtlStateBytesRemaining(sli) >= zero_size)
         sli->func(sli, &g_load_zero, zero_size);
       else g_load_chunk_ok = 0;
+      if (g_load_chunk.version < 6) {
+        g_load_zero.saber_ready = g_load_zero.combo != 0;
+        if (g_load_zero.slash > 44) g_load_zero.slash = 44;
+      }
     }
   }
   if (!g_load_chunk_ok)

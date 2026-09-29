@@ -18,6 +18,22 @@ static void asset(const char *path) {
   uint8_t animation[MMX_ZERO_ANIMATION_BYTES] = {0};
   for (unsigned i = 0; i < 136; ++i) { animation[i * 2] = 0x10; animation[i * 2 + 1] = 1; }
   animation[272] = 2; animation[273] = 128; animation[275] = 253; animation[276] = 255;
+  /* Measured original X3 group $4A firing records, including phase aliases. */
+  const uint8_t bursts[][21] = {
+    {2,0,82, 5,1,83, 1,66,84, 1,3,84, 7,4,85, 7,149,85},
+    {2,0,86, 2,1,87, 5,2,88, 1,67,89, 1,4,89, 16,5,90, 255,134,90},
+    {2,0,91, 5,1,92, 1,66,93, 1,3,93, 12,4,94, 255,149,94},
+    {2,0,95, 3,1,96, 2,2,96, 1,67,97, 1,4,97, 12,5,98, 255,134,98}
+  };
+  const unsigned sequences[] = {0x30,0x36,0x43,0x49};
+  for (unsigned i=0;i<4;++i) {
+    unsigned base=300+i*24;
+    memcpy(animation+base,bursts[i],21);
+    for (unsigned j=0;j<(i%2?7:6);++j) {
+      animation[(sequences[i]+j)*2]=(uint8_t)(base+j*3);
+      animation[(sequences[i]+j)*2+1]=(uint8_t)((base+j*3)>>8);
+    }
+  }
   assert(fwrite(animation,sizeof(animation),1,f) == 1);
   uint8_t muzzle[MMX_ZERO_MUZZLE_BYTES] = {0};
   muzzle[0] = 2; muzzle[122] = 255; muzzle[123] = 232;
@@ -68,21 +84,36 @@ int main(void) {
   FILE *f = fopen("zero-test-bad.bin","wb"); assert(f); fputs("MMXZERO3",f); fclose(f);
   assert(!MmxZeroLoad("zero-test-bad.bin") && MmxZeroEnabled());
   player();
-  for (int i=0;i<179;++i) tick(64,i==0?64:0);
-  tick(0,0); assert(!MmxZeroGetState().combo); /* Almost charged cannot chain. */
-  for (int i=0;i<180;++i) tick(64,i==0?64:0);
-  tick(0,0); assert(MmxZeroGetState().combo == 1 && ram[0xc01] == 8);
+  const unsigned charges[]={20,21,80,81,140,141,200,201};
+  const unsigned tiers[]={0,4,4,6,6,8,8,10};
+  for(unsigned c=0;c<8;++c) {
+    player();
+    for(unsigned i=0;i<charges[c];++i) tick(64,i==0?64:0);
+    MmxZeroState z=MmxZeroGetState(); assert(MmxZeroChargeTier(&z)==tiers[c]);
+    tick(0,0); z=MmxZeroGetState();
+    assert(z.combo==(tiers[c]>=8) && z.saber_ready==(tiers[c]==10));
+    if(tiers[c] && tiers[c]<8) assert(ram[0xc01]==(tiers[c]==4?6:8));
+  }
+  assert(MmxZeroGetState().burst == 1 && !ram[0x1228]);
   assert(ram[0x1f99] == 0); /* Dash/charge never grant equipment. */
-  ram[0xc01] = 0;
-  /* Native first shot is live. Zero must allocate another slot despite X1's lock. */
-  ram[0x1228] = 1; ram[0x1229] = 2; ram[0x1232] = 3; ram[0xbdd] = ram[0xc25] = 1;
-  for(int i=0;i<20;++i) tick(0,0);
+  for(int i=2;i<=7;++i) tick(0,0);
+  assert(!ram[0x1228]); tick(0,0); assert(ram[0x1228] && ram[0x1232]==3);
+  ram[0xc25]=1; ram[0x1f0d]=0;
+  for(int i=9;i<=18;++i) tick(0,0);
   tick(64,64);
-  assert(MmxZeroGetState().combo == 2 && ram[0x1268] == 1 && ram[0x1272] == 3 && ram[0xbdd] == 2);
+  assert(MmxZeroGetState().combo == 2 && MmxZeroGetState().burst==2 && !ram[0x1268]);
+  for(int i=2;i<=9;++i) tick(0,0);
+  assert(!ram[0x1268]); tick(0,0);
+  assert(ram[0x1268] == 1 && ram[0x1272] == 3 && ram[0xbdd] == 2);
   assert(ram[0xc25] == 1); /* Native initializer, not us, increments that counter. */
-  for(int i=0;i<20;++i) tick(0,0);
+  for(int i=11;i<=29;++i) tick(0,0);
+  tick(64,64); assert(!MmxZeroGetState().slash); /* Live beams block saber. */
+  ram[0x1229]=8; ram[0x1269]=8; /* Disappearance effects still own slots. */
+  tick(0,0); tick(64,64); assert(!MmxZeroGetState().slash);
+  memset(ram+0x1228,0,128); ram[0xbdd]=ram[0xc25]=ram[0x1f0d]=0;
+  tick(0,0);
   tick(64,64); MmxZeroState s = MmxZeroGetState();
-  assert(s.slash == 1 && s.projectile == 0x12a8 && !s.combo);
+  assert(s.slash == 1 && s.projectile == 0x1228 && !s.combo);
   assert(!ram[s.projectile+0x20] && !ram[s.projectile+0x21]); /* Windup cannot hit. */
   assert(!MmxZeroWeaponTick(ram,s.projectile,1));
   for(int i=0;i<6;++i) tick(0,0);
@@ -99,9 +130,10 @@ int main(void) {
   MmxZeroState invalid = s; invalid.air = 2; MmxZeroSetState(invalid);
   assert(!MmxZeroGetState().slash); MmxZeroSetState(s);
   /* Changing weapon cancels only our melee slot; native shots remain alive. */
+  ram[0x1268]=1; ram[0x1272]=3; ram[0xbdd]=2;
   ram[0xbdb] = 2; tick(0,0);
-  assert(!MmxZeroGetState().slash && !ram[s.projectile] && ram[0x1228] && ram[0x1268] && ram[0xbdd] == 2);
-  player(); s = (MmxZeroState){.combo=2}; MmxZeroSetState(s);
+  assert(!MmxZeroGetState().slash && !ram[s.projectile] && ram[0x1268] && ram[0xbdd] == 1);
+  player(); s = (MmxZeroState){.combo=2,.saber_ready=1}; MmxZeroSetState(s);
   for(unsigned d=0x1228;d<0x1428;d+=64) ram[d] = 1;
   tick(64,64); assert(MmxZeroGetState().combo == 2 && !MmxZeroGetState().slash);
   ram[0xbaa] = 0x0e; tick(0,0); assert(!MmxZeroGetState().combo);
