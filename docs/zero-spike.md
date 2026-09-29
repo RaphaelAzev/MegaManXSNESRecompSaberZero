@@ -161,11 +161,16 @@ Full-port progress on `feat/x3-zero-port`:
   mismatch that let X's tiles reappear. A renderer regression covers both the
   visible transition and the actual hidden frame.
 - The pause menu uses Zero's original standing body, including with all armor
-  upgrades owned. Menu and pickup life heads use a new front-facing 16x16 sprite
-  shaded with Zero's original palette; vanilla X3 itself retains X's life icon.
+  upgrades owned. Menu and pickup life heads use a new front-facing 17x16 sprite
+  with pupils and a blue crystal; vanilla X3 itself retains X's life icon.
   See [the life-head asset](../assets/zero/life-head.png). Native 1-up
   collection increments the life count normally. Menu pixel comparisons change
   only the character and head areas, including the fully upgraded menu.
+- The title-screen cursor also uses Zero's original standing/firing poses.
+  Native selection handling and its confirmation projectile are preserved.
+- Combo release and cancellation stop X1's looping charge voice through the
+  native sound-command ring. Each buster queues one firing sound on its actual
+  release frame, with no repeated sound commands during recovery.
 - Menu fades retain player attribution while X1 repeats OAM without submitting
   a fresh sprite list. Exact matches to live OAM preserve real hidden blinks.
   A 480-frame opening/closing check covers unupgraded and fully upgraded menus;

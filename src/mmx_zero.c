@@ -81,7 +81,7 @@ bool MmxZeroLoad(const char *path) {
 const uint16_t *MmxZeroColors(void) { return colors; }
 const uint8_t *MmxZeroMenuPose(void) { return poses; }
 int MmxZeroLifeColor(unsigned x, unsigned y) {
-  if (!poses || x >= 24 || y >= 24) return -2;
+  if (!poses || x >= MMX_ZERO_LIFE_WIDTH || y >= MMX_ZERO_LIFE_HEIGHT) return -2;
   unsigned color = zero_life_pixels[y][x];
   return color & 0x8000 ? -2 : (int)color;
 }
@@ -233,7 +233,9 @@ static void release_projectile(uint8_t *r) {
   }
   state.projectile = 0;
 }
+static void clear_charge(uint8_t *r);
 void MmxZeroCancel(uint8_t ram[0x20000]) {
+  if (ram && (state.charge || state.combo || state.burst || state.slash)) clear_charge(ram);
   if (ram) release_projectile(ram);
   /* Combat cancellation (hurt, weapon switch, menus) must not reset the
    * independent body animation. Full reset/load uses MmxZeroResetState. */
@@ -246,7 +248,16 @@ static unsigned free_projectile(const uint8_t *r) {
     if (!word(r + d)) return d;
   return 0;
 }
+static void sound(uint8_t *r, unsigned command) {
+  /* Same guest-owned ring as $80:88CD. The ordinary SPC driver consumes it. */
+  unsigned index = r[0xba3] & 0x1e;
+  r[0xb72 + index] = (uint8_t)command; r[0xb73 + index] = 0;
+  r[0xba3] = (uint8_t)((index + 2) & 0x1e);
+}
 static void clear_charge(uint8_t *r) {
+  /* $81:9890 stops the looping charge voice before clearing charge state.
+   * Bypassing that release path without $17 leaves the SPC voice playing. */
+  if (r[0xc2f] & 64) { sound(r,0x17); r[0xc2f] &= (uint8_t)~64; }
   memset(r + 0xbff, 0, 5);
 }
 static unsigned burst_sequence(void) {
@@ -269,6 +280,7 @@ static void emit_burst(uint8_t *r) {
   if (!d) return;
   memset(r + d,0,64); r[d] = 1; r[d + 10] = 3;
   ++r[0xbdd]; r[0x1f0d] = 4;
+  sound(r,2); /* Native full-buster release sound ($81:A015), once per shot. */
   state.shot_mask |= (uint8_t)(1u << ((d - 0x1228) / 64));
   state.cooldown = 0;
 }

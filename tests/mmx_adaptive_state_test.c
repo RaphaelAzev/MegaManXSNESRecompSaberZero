@@ -438,6 +438,28 @@ int main(int argc, char **argv) {
   size_t cap = 2u * 1024u * 1024u;
   uint8 *start = malloc(cap), *expected = malloc(cap), *actual = malloc(cap);
   const char *zero_assets = getenv("MMX_ZERO_TEST_ASSETS");
+  const char *zero_title = getenv("MMX_ZERO_TITLE_FIXTURE");
+  if (zero_assets && zero_title) {
+    check(MmxZeroLoad(zero_assets),"title Zero assets load");
+    MmxZeroRegisterHooks();
+    check(RtlLoadSnapshot(zero_title),"private title fixture loads");
+    zero_replay(45);
+    const char *capture=getenv("MMX_ZERO_TEST_CAPTURE");
+    zero_capture(capture,".title-idle.cap");
+    check(g_ram[0xba9]==2 && g_ram[0xbbf]==0,"title cursor is standing player");
+    frame(SNES_PAD_START);
+    bool title_shot=false;
+    for(unsigned i=0;i<40;++i) {
+      frame(0);
+      title_shot |= g_ram[0x1229]==2 && g_ram[0x123e]==0x0e;
+      if(i==4 || i==9 || i==19) {
+        char suffix[64]; snprintf(suffix,sizeof(suffix),".title-shot%u.cap",i+2);
+        zero_capture(capture,suffix);
+      }
+    }
+    check(title_shot,"title confirmation preserves native full-buster projectile");
+    puts("MMX ZERO TITLE CHECKS PASSED"); return 0;
+  }
   if (zero_assets) {
     zero_state_checks(zero_assets, getenv("MMX_ZERO_TEST_FIXTURE"), start, expected, actual, cap);
     return 0;
