@@ -5,7 +5,7 @@ Tracking: central Beads `beads-8wg.1.32`, branch `feat/x3-zero-port`.
 
 ## Asset extraction foundation
 
-`tools/extract_x_weapons.py` builds a local `MMXWEAP1` cache from both original
+`tools/extract_x_weapons.py` builds a local `MMXWEAP2` cache from both original
 USA ROMs. It validates normalized ROM hashes, accepts copier headers, reads
 the original sprite layouts and DMA lists, and preserves original palettes.
 The source-controlled descriptor contains addresses only; ROMs and extracted
@@ -15,8 +15,8 @@ graphics remain local.
 python tools/extract_x_weapons.py ../MegamanX2Recomp/mmx2.sfc ../MegamanX3SNESRecomp/mmx3.sfc build-zero/port-work/x-weapons.bin
 ```
 
-The current cache contains 572 poses (415,681 bytes), including native weapon
-icons in the corresponding pose groups. This is an asset foundation, not a
+The current cache contains 572 projectile poses and sixteen original pause-menu
+icons (420,289 bytes). This is an asset foundation, not a
 claim that the weapons are already playable in X1.
 
 Sources were checked in the local recomp projects using private, paused
@@ -50,14 +50,44 @@ adaptation. Tornado Fang includes the 36 frames covered by its player weapon
 DMA table; the additional layouts do not use that table.
 
 The binary stores sixteen weapon entries, each with game/weapon IDs, original
-X body and weapon palettes, then groups of cropped indexed sprite frames.
+X body and weapon palettes, the original 16x16 menu icon and its palette, then
+groups of cropped indexed sprite frames.
 Every frame retains its signed position relative to the actor origin. Empty
 entries retain native pose numbering for explicitly omitted Silk Shot forms.
 
+The menu icons come from each game's compressed graphics resource `$4C`.
+Its five-byte record is in X2 `$86:FA01` / X3 `$86:F732`; the extractor decodes
+the original literal/backreference format and checks output bounds. It does
+not use projectile pose zero as a substitute for menu art. X3's menu order is
+mapped back to its actual weapon IDs (Frost Shield is ID 2, Parasitic Bomb 7).
+
+## Pause selection and persistence
+
+`mmx_weapons.c` validates and owns the optional local cache, separate selection,
+and sixteen energy pools. While the cache is loaded beside the executable,
+L/R cycles X1/X2/X3 pages within native pause navigation. The compositor uses
+X1's font and energy-bar tiles with the source games' actual menu icons.
+No instructional UI text is added. Both X and Zero can select the new entries.
+
+Bounded generated/interpreter hooks virtualize the pause inventory reads and
+selection. X1 progression/energy stays untouched. An extended selection uses
+native buster resources as a safe underlying actor; attack handling is still
+pending, so this is not yet a weapon playtest build. The owner's current
+playtest has not been replaced with this intermediate implementation.
+
+The game save chunk is version 9 when extended weapons are enabled; legacy
+saves initialize full energy without changing X1 inventory. Zero-only saves
+remain version 8 and stock saves version 3. Renderer capture version 8 also
+stores the displayed weapon page. Existing older captures still load.
+
+Focused ROM-backed checks exercise all sixteen menu choices while X1 weapons
+are locked, forward/backward page cycling, X/Zero selection, native cleanup,
+partial-energy save/load and deterministic menu replay. Original icon renders
+were inspected for both pages; the five existing CTests pass.
+
 ## Remaining implementation
 
-Connect the cache to the runtime, then add persistent weapon selection/energy
-and L/R pause pages. Implement the actual normal and charged attacks, native
+Implement the actual normal and charged attacks, native
 sound/effect cleanup, X/Zero firing origins, terrain/enemy interaction and
 meaningful special behaviors. Gate charging on X1's arm upgrade. Keep ordinary
 damage and existing X1 progression. Co-op remains a later, separate mod.

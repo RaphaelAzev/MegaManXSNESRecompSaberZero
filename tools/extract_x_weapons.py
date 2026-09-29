@@ -103,17 +103,61 @@ def pose_art(rom, group, pose, tiles, known):
     return left, top, width, height, bytes(pixels)
 
 
+def menu_graphics(rom, game):
+    # Original resource $4C; X2 $80:B25E and X3 $80:B730 decode these LZ records.
+    table = 0x86fa01 if game == 2 else 0x86f732
+    record = table + 0x4c * 5
+    source, length = rom.integer(record, 3), rom.integer(record + 3)
+    pos = ((source >> 16) & 127) * 32768 + (source & 32767)
+    result = bytearray()
+    while len(result) < length:
+        control = rom.raw(pos, 1)[0]
+        pos += 1
+        for bit in (128, 64, 32, 16, 8, 4, 2, 1):
+            if len(result) == length:
+                break
+            if control & bit:
+                a, b = rom.raw(pos, 2)
+                pos += 2
+                count, distance = a >> 2, ((a & 3) << 8) | b
+                if not count or not distance or distance > len(result) or len(result) + count > length:
+                    raise ValueError('Invalid menu graphics backreference')
+                for _ in range(count):
+                    result.append(result[-distance])
+            else:
+                result.extend(rom.raw(pos, 1))
+                pos += 1
+    return result
+
+
+def menu_icon(rom, game, weapon, graphics):
+    # X3's native menu order differs from its actor/weapon IDs.
+    order = weapon if game == 2 else {1: 1, 2: 7, 3: 3, 4: 4, 5: 5, 6: 6, 7: 2, 8: 8}[weapon]
+    tile = 0x30 + order * 2 if order < 8 else 0x50
+    offset = -0x200 if game == 2 else 0
+    pixels = bytearray()
+    for y in range(16):
+        for x in range(16):
+            number = tile + x // 8 + (y // 8) * 16
+            start, shift = offset + number * 32 + (y & 7) * 2, 7 - (x & 7)
+            pixels.append(sum(((graphics[start + q] >> shift) & 1) << p for p, q in enumerate((0, 1, 16, 17))))
+    colors = rom.raw(0x2cee0 if game == 2 else 0x62da0, 32)
+    return colors + pixels
+
+
 def extract(x2, x3):
     entries = json.loads((Path(__file__).parent / 'data/x_weapon_assets.json').read_text())
     roms = {game: Rom(path, next(e['sha256'] for e in entries if e['game'] == game))
             for game, path in ((2, x2), (3, x3))}
-    result = bytearray(struct.pack('<8sI', b'MMXWEAP1', len(entries)))
+    menus = {game: menu_graphics(rom, game) for game, rom in roms.items()}
+    result = bytearray(struct.pack('<8sI', b'MMXWEAP2', len(entries)))
     sheets = []
     for entry in entries:
         rom = roms[entry['game']]
         colors = rom.raw(int(entry['weapon_palette'], 16), 32)
         result.extend(struct.pack('<4B', entry['game'], entry['weapon'], len(entry['groups']), 0))
         result.extend(rom.raw(int(entry['body_palette'], 16), 32) + colors)
+        result.extend(menu_icon(rom, entry['game'], entry['weapon'], menus[entry['game']]))
         base, base_known = bytearray(8192), bytearray(8192)
         bulk_root = 0x869664 if entry['game'] == 2 else 0x8697ad
         bulk = 0x860000 | rom.integer(bulk_root + 0x3e + entry['weapon'] * 2)

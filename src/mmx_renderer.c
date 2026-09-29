@@ -3,6 +3,7 @@
 #include "mmx_wide_policy.h"
 #include "mmx_render_assets.h"
 #include "mmx_zero.h"
+#include "mmx_weapons.h"
 #include <math.h>
 
 /* Mode-1 decode/composition follows SuperMetroidRecomp's sm_renderer.c.
@@ -31,6 +32,7 @@ typedef struct Frame {
 } Frame;
 static Frame frame;
 static MmxZeroState frame_zero;
+static MmxWeaponsState frame_weapons;
 static Piece building[MAX_PIECES], latched[MAX_PIECES];
 static unsigned building_count, latched_count;
 static uint8_t building_stage, latched_stage;
@@ -284,6 +286,7 @@ void MmxRendererBeginFrame(const uint8_t ram[0x20000]) {
   frame.valid = false; frame.captured = 0;
   memcpy(frame.ram, ram, sizeof(frame.ram));
   frame_zero = MmxZeroGetState();
+  frame_weapons = MmxWeaponsGetState();
   if (MmxZeroSwapping() && !latched_count) {
     /* A mid-swap load has no preceding submission. Rebuild the frozen
      * native queues, including margin actors, before matching live OAM. */
@@ -346,9 +349,10 @@ bool MmxRendererSaveCapture(const char *path) {
   if (!frame.valid || !path) return false;
   FILE *f = fopen(path, "wb");
   if (!f) return false;
-  uint32_t header[] = {0x4d4d5843, 7, sizeof(frame) + sizeof(frame_zero)};
+  uint32_t header[] = {0x4d4d5843, 8, sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons)};
   bool ok = fwrite(header, sizeof(header), 1, f) == 1 && fwrite(&frame, sizeof(frame), 1, f) == 1 &&
-      fwrite(&frame_zero, sizeof(frame_zero), 1, f) == 1;
+      fwrite(&frame_zero, sizeof(frame_zero), 1, f) == 1 &&
+      fwrite(&frame_weapons, sizeof(frame_weapons), 1, f) == 1;
   return fclose(f) == 0 && ok;
 }
 bool MmxRendererLoadCapture(const char *path) {
@@ -358,12 +362,14 @@ bool MmxRendererLoadCapture(const char *path) {
   uint32_t h[3] = {0};
   frame.valid = false;
   memset(&frame_zero, 0, sizeof(frame_zero));
+  memset(&frame_weapons, 0, sizeof(frame_weapons));
   bool ok = fread(h, sizeof(h), 1, f) == 1 && h[0] == 0x4d4d5843 &&
       ((h[1] == 2 && h[2] == sizeof(frame)) || (h[1] == 3 && h[2] == sizeof(frame) + MMX_ZERO_LEGACY_STATE_SIZE) ||
        (h[1] == 4 && h[2] == sizeof(frame) + MMX_ZERO_ANIMATION_STATE_SIZE) ||
        (h[1] == 5 && h[2] == sizeof(frame) + MMX_ZERO_COMBAT_STATE_SIZE) ||
        (h[1] == 6 && h[2] == sizeof(frame) + MMX_ZERO_SWAP_STATE_SIZE) ||
-       (h[1] == 7 && h[2] == sizeof(frame) + sizeof(frame_zero))) &&
+       (h[1] == 7 && h[2] == sizeof(frame) + sizeof(frame_zero)) ||
+       (h[1] == 8 && h[2] == sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons))) &&
       fread(&frame, sizeof(frame), 1, f) == 1 &&
       frame.captured == 224 && frame.piece_count <= MAX_PIECES && frame.expanded_count <= MAX_PIECES && frame.valid;
   size_t zero_size = h[1] == 3 ? MMX_ZERO_LEGACY_STATE_SIZE :
@@ -376,6 +382,8 @@ bool MmxRendererLoadCapture(const char *path) {
       frame_zero.slash <= 46 && frame_zero.air <= 1 && frame_zero.anim_valid <= 1 && frame_zero.anim_pose < 117 &&
       frame_zero.burst <= 2 && (!frame_zero.burst || (frame_zero.burst_offset >= 272 &&
         frame_zero.burst_offset + 3 <= MMX_ZERO_ANIMATION_BYTES && frame_zero.burst_timer));
+  if (ok && h[1] >= 8) ok = fread(&frame_weapons, sizeof(frame_weapons), 1, f) == 1 &&
+      MmxWeaponsValidState(&frame_weapons);
   ok = ok && fgetc(f) == EOF;
   fclose(f); frame.valid = ok; return ok;
 }
@@ -453,6 +461,49 @@ static void prepare_stage_planes(void) {
         shift, r[d + 2] != 4, scrolling};
   }
 }
+static unsigned menu_glyph(unsigned c) {
+  if (c >= 'A' && c <= 'L') return 0xc4 + c - 'A';
+  if (c >= 'M' && c <= 'P') return 0xd4 + c - 'M';
+  if (c >= 'R' && c <= 'W') return 0xd8 + c - 'R';
+  return c == '.' ? 0xdf : c == 'X' ? 0x9d : 0;
+}
+static uint16_t weapon_menu_tile(unsigned tx, unsigned ty, uint16_t original) {
+  if (!frame_weapons.menu_page || !MmxWeaponsMenuVisible(frame.ram) || ty < 5 || ty > 14) return original;
+  unsigned column = tx >= 17, local = tx - (column ? 13 : 0), item = (ty - 5) / 2 + column * 5;
+  if (!item || item > 8) return original;
+  if (local == 4 || local == 5) return 0; /* Icons use their original source-game palette below. */
+  if (!(ty & 1) && local >= 6 && local <= 14) {
+    unsigned flags = frame.ram[0x1ed2] == item ? 0x0800 : 0x2800;
+    if (local == 6) return (uint16_t)(flags | 0x82);
+    if (local == 14) return (uint16_t)(flags | 0x4082);
+    int filled = frame_weapons.energy[(frame_weapons.menu_page - 1) * 8 + item - 1] - (int)(local - 7) * 4;
+    if (filled < 0) filled = 0;
+    if (filled > 4) filled = 4;
+    return (uint16_t)(flags | (0x83 + filled));
+  }
+  if ((ty & 1) && local >= 7 && local <= 14) {
+    const char *label = MmxWeaponsLabel(frame_weapons.menu_page, item);
+    unsigned i = local - 7;
+    return (uint16_t)(i < strlen(label) ? 0x1c00 | menu_glyph((unsigned char)label[i]) : 0);
+  }
+  return original;
+}
+static int weapon_menu_icon(int x, int y) {
+  if (!frame_weapons.menu_page || !MmxWeaponsMenuVisible(frame.ram) || y < 40 || y >= 120) return -1;
+  int column = x >= 136, left = column ? 136 : 32;
+  if (x < left || x >= left + 16) return -1;
+  unsigned row = (y - 40) / 16, item = row + column * 5;
+  if (!item || item > 8) return -1;
+  const MmxWeaponPose *pose = MmxWeaponsIcon(frame_weapons.menu_page, item);
+  const uint16_t *colors = MmxWeaponsIconPalette(frame_weapons.menu_page, item);
+  if (!pose || !colors) return -1;
+  /* Icons occupy the original 16x16 cells, centered without resampling. */
+  int px = x - left - (16 - (int)pose->width) / 2;
+  int py = (y - 40) % 16 - (16 - (int)pose->height) / 2;
+  if (px < 0 || py < 0 || px >= pose->width || py >= pose->height) return -1;
+  unsigned pixel = pose->pixels[py * pose->width + px];
+  return pixel ? colors[pixel] : -1;
+}
 static uint16_t background(const Ppu *p, const Raster *r, unsigned layer, int x, int y, bool stage, int *private_color) {
   static const unsigned low[] = {8, 7, 1}, high[] = {12, 11, 3};
   bool margin = x < 0 || x >= 256;
@@ -475,6 +526,11 @@ static uint16_t background(const Ppu *p, const Raster *r, unsigned layer, int x,
   if ((sc & 1) && (tx & 32)) a += 1024;
   if ((sc & 2) && (ty & 32)) a += (sc & 1) ? 2048 : 1024;
   uint16_t tile = r->vram[a & 0x7fff];
+  if (layer == 0 && !stage) {
+    int icon = weapon_menu_icon(x, y);
+    if (icon >= 0) { *private_color = icon; return 0x8001; }
+    tile = weapon_menu_tile(tx, ty, tile);
+  }
   if (stage && size == 8 && layer < 2 && (x < 0 || x >= 256)) {
     int wx, wy;
     if (layer == 0) {
@@ -729,9 +785,16 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
   memset(door_cache, 0, sizeof(door_cache));
   memset(out, 0, (size_t)view.width * 224 * sizeof(*out));
   bool zero_menu = zero_weapons_menu();
+  bool weapon_menu = MmxWeaponsMenuVisible(frame.ram);
+  bool menu = zero_menu || weapon_menu;
   bool zero_title = zero_title_menu();
-  bool stage = MmxWidePolicy_IsStageScene(frame.ram) && !zero_menu;
+  bool stage = MmxWidePolicy_IsStageScene(frame.ram) && !menu;
   bool swapping = stage && MmxZeroEnabled() && frame_zero.swap_phase;
+  unsigned weapon_page = menu ? frame_weapons.menu_page : frame_weapons.page;
+  unsigned weapon_item = menu ? frame.ram[0x1ed2] : frame_weapons.weapon;
+  const uint16_t *weapon_colors = MmxWeaponsPalette(weapon_page, weapon_item, true);
+  MmxSpriteAsset x_weapon_palette = {0};
+  if (weapon_colors) { memcpy(x_weapon_palette.colors, weapon_colors, 32); x_weapon_palette.live_tiles = true; }
   prepare_stage_planes();
   LightBeam beams[2];
   unsigned beam_count = stage ? spark_lights(beams, view.extra) : 0;
@@ -765,7 +828,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
     const Raster *r = &frame.lines[y]; Ppu p;
     memcpy(&p, r->registers, PPU_SAVESTATE_REGS_SIZE);
     if (beam_count) p.cgwsel = (p.cgwsel & 0xcf) | 0x20;
-    if ((p.bgmode & 7) != 1 || (!stage && !zero_menu && !zero_title)) {
+    if ((p.bgmode & 7) != 1 || (!stage && !menu && !zero_title)) {
       memcpy(out + y * view.width + view.extra, frame.stock + y * 256, 256 * sizeof(*out));
       ++stats.fallback_lines; continue;
     }
@@ -864,6 +927,11 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
         s.x += (s.x + s.size / 2 - cx) / 4;
         s.y += (s.y + s.size / 2 - cy) / 4 - 6;
       }
+      /* Extended choices have their own original X palette. Their native
+       * buster proxy must not show the palette of an unrelated locked X1
+       * weapon while navigating the pause screen. Preserve hit flashes. */
+      if (frame_zero.active_x && weapon_colors && zero_actor(s.object, s.animation) &&
+          (menu || (attr & 0x0e00))) asset = &x_weapon_palette;
       sprite(&p, r, s.x, s.y, attr, s.size, y, view, objects, !center, asset, s.tile, object_colors, true, false);
     }
     int bar_first = -1, bar_count = 0;
@@ -919,7 +987,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
     }
     for (int sx = 0; sx < view.width; ++sx) {
       int x = sx - view.extra;
-      if (zero_menu && (x < 0 || x >= 256)) { out[y * view.width + sx] = 0; continue; }
+      if (menu && (x < 0 || x >= 256)) { out[y * view.width + sx] = 0; continue; }
       uint16_t screens[2] = {0x500, 0x500}, bg[3] = {0};
       int bg_colors[3] = {-1, -1, -1};
       for (int layer = 0; layer < 3; ++layer) if ((p.screenEnabled[0] | p.screenEnabled[1]) & (1 << layer)) {

@@ -4,9 +4,25 @@
 #include "snes/interp_bridge.h"
 #include "mmx_renderer.h"
 #include "mmx_zero.h"
+#include "mmx_weapons.h"
 #include <stdio.h>
 
 extern uint8_t g_ram[0x20000];
+static void weapon_menu_hook(CpuState *cpu, uint32_t pc) {
+  if (!MmxWeaponsEnabled()) return;
+  pc &= 0xffff;
+  if (pc == 0xc67f) { MmxWeaponsMenuTick(g_ram, cpu->D); return; }
+  /* Interpreted hooks run just after the original LDA. */
+  unsigned source = pc == 0xc487 ? 0xc484 : pc == 0xc76c ? 0xc767 :
+      pc == 0xce2b ? 0xce28 : pc == 0xce35 ? 0xce33 :
+      pc == 0xc79a ? 0xc792 : pc == 0xc7bd ? 0xc7b5 :
+      pc == 0xc80d ? 0xc805 : pc == 0xc82c ? 0xc826 :
+      pc == 0xc86d ? 0xc865 : 0xc886;
+  unsigned value = MmxWeaponsMenuRead(g_ram, source, cpu->D, cpu->X, cpu->A & 255);
+  cpu->A = (cpu->A & 0xff00) | value;
+  cpu->_flag_Z = value == 0; cpu->_flag_N = (value & 128) != 0;
+  cpu->P = (cpu->P & ~0x82) | (cpu->_flag_Z ? 2 : 0) | (cpu->_flag_N ? 128 : 0);
+}
 static void hook(CpuState *cpu, uint32_t pc) {
   if (!MmxZeroEnabled()) return;
   switch (pc & 0x7fffff) {
@@ -88,6 +104,10 @@ void MmxZeroRegisterHooks(void) {
                           0x01a589,0x038b7b,0x038d93,0x038ee3,0x039529,0x03984d,0x03999f,0x03a3d9};
   for (unsigned i = 0; i < sizeof(pcs) / sizeof(pcs[0]); ++i)
     interp_bridge_set_pre_opcode_hook(pcs[i], hook);
+  const unsigned menu_pcs[] = {0xc67f,0xc487,0xc76c,0xce2b,0xce35,
+      0xc79a,0xc7bd,0xc80d,0xc82c,0xc86d,0xc88c};
+  for (unsigned i = 0; i < sizeof(menu_pcs) / sizeof(menu_pcs[0]); ++i)
+    interp_bridge_set_pre_opcode_hook(menu_pcs[i], weapon_menu_hook);
 }
 static void activate(void) {
   char path[4096];
@@ -101,9 +121,11 @@ static void activate(void) {
     fprintf(stderr, "[mmx-zero] Cannot load extracted Zero assets: %s\n", path); return;
   }
   MmxZeroRegisterHooks();
+  if (snesrecomp_exe_dir_path("x-weapons.bin", path, sizeof(path)) && MmxWeaponsLoad(path))
+    fprintf(stderr, "[mmx-weapons] Original X2/X3 weapon assets loaded\n");
   fprintf(stderr, "[mmx-zero] Experimental original-size Zero enabled\n");
 }
-static void reset(void) { MmxZeroCancel(g_ram); MmxZeroDisable(); }
+static void reset(void) { MmxZeroCancel(g_ram); MmxZeroDisable(); MmxWeaponsDisable(); }
 SNES_MOD_CONSTRUCTOR(mmx_register_zero_plugin) {
   (void)snes_mod_register_reset_callback(reset);
   (void)snes_mod_register_activation_plugin("megaman-x.zero", activate);

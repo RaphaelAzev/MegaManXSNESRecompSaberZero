@@ -4,6 +4,7 @@
 #include "desktop/host_main.c"
 #include MMX_GAME_MAIN
 #include "common/launcher_binds.h"
+#include "mmx_weapons.h"
 
 static void check(int ok, const char *what) {
   if (!ok) { fprintf(stderr, "FAIL: %s\n", what); exit(1); }
@@ -317,6 +318,63 @@ static void zero_health_checks(const char *fixture, uint8 *start, uint8 *expecte
   check(respawned,"native death loses one life and respawn refills both HP pools");
   check(RtlLoadSnapshot(fixture),"restore after separate HP checks");
 }
+static void weapon_menu_checks(const char *assets, const char *fixture, uint8 *start,
+                               uint8 *expected, uint8 *actual, size_t cap) {
+  check(MmxWeaponsLoad(assets), "original X2/X3 weapon cache loads");
+  check(RtlLoadSnapshot(fixture), "legacy gameplay fixture initializes new weapons");
+  for (unsigned i=0;i<16;++i) check(MmxWeaponsGetState().energy[i]==28,"new weapons unlocked with full energy");
+  uint8 inventory[16]; memcpy(inventory,g_ram+0x1f88,16);
+  frame(SNES_PAD_START); zero_replay(75);
+  check(MmxWeaponsMenuVisible(g_ram),"native pause opens for weapon pages");
+  for (unsigned page=1;page<=2;++page) {
+    frame(SNES_PAD_R); zero_replay(3);
+    check(MmxWeaponsGetState().menu_page==page,"R advances extended weapon page");
+    for (unsigned i=1;i<=4;++i) {
+      frame(SNES_PAD_DOWN); zero_replay(3);
+      check(g_ram[0x1ed2]==i,"left-column extended weapon selectable while X1 is locked");
+    }
+    frame(SNES_PAD_UP); zero_replay(2); frame(SNES_PAD_RIGHT); zero_replay(2);
+    check(g_ram[0x1ed2]==8,"native horizontal cursor selects extended right column");
+    for (unsigned i=7;i>=5;--i) {
+      frame(SNES_PAD_UP); zero_replay(3);
+      check(g_ram[0x1ed2]==i,"right-column extended weapon selectable while X1 is locked");
+    }
+    char suffix[40]; snprintf(suffix,sizeof(suffix),".x%u-menu.cap",page+1);
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),suffix);
+    frame(SNES_PAD_START); zero_replay(75);
+    MmxWeaponsState s=MmxWeaponsGetState();
+    check(s.page==page && s.weapon==5 && g_ram[0xbdb]==0,"pause confirms extended selection with safe native buster resources");
+    check(!memcmp(inventory,g_ram+0x1f88,16),"extended selection preserves native X1 progression and energy");
+    if (page==1) {
+      frame(SNES_PAD_START); zero_replay(75);
+      check(MmxWeaponsGetState().menu_page==1 && g_ram[0x1ed2]==5,"pause reopens at extended selection");
+      frame(SNES_PAD_LEFT); zero_replay(3); check(!g_ram[0x1ed2],"native cursor returns to buster");
+    }
+  }
+  MmxWeaponsState s=MmxWeaponsGetState(); s.energy[0]=7; s.energy[15]=13; MmxWeaponsSetState(s);
+  size_t n=RtlSaveSnapshotToMemory(start,cap);
+  frame(SNES_PAD_START); zero_replay(75); frame(SNES_PAD_R); zero_replay(3);
+  check(!MmxWeaponsGetState().menu_page,"R wraps to original X1 page");
+  check(!g_ram[0x1ed2],"return to locked X1 page selects available buster");
+  size_t en=RtlSaveSnapshotToMemory(expected,cap);
+  check(RtlLoadSnapshotFromMemory(start,n),"weapon selection and partial energy restore");
+  s=MmxWeaponsGetState(); check(s.page==2 && s.weapon==5 && s.energy[0]==7 && s.energy[15]==13,"independent weapon state survives save/load");
+  frame(SNES_PAD_START); zero_replay(75); frame(SNES_PAD_R); zero_replay(3);
+  size_t an=RtlSaveSnapshotToMemory(actual,cap);
+  same(expected,en,actual,an,"weapon-menu deterministic replay");
+  frame(SNES_PAD_START); zero_replay(75);
+  check(!MmxWeaponsActive() && !g_ram[0xbdb],"X1 buster selection exits extended weapon mode");
+  check(!memcmp(inventory,g_ram+0x1f88,16),"page cycle and save/load leave original inventory intact");
+  zero_health_swap(); check(MmxZeroGetState().active_x,"weapon-page test switches to X");
+  frame(SNES_PAD_START); zero_replay(75); frame(SNES_PAD_L); zero_replay(3);
+  check(MmxWeaponsGetState().menu_page==2,"L wraps backward from X1 to X3 for X");
+  frame(SNES_PAD_DOWN); zero_replay(3);
+  zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),".x-menu.cap");
+  frame(SNES_PAD_START); zero_replay(75);
+  check(MmxZeroGetState().active_x && MmxWeaponsGetState().page==2 &&
+        MmxWeaponsGetState().weapon==1 && !g_ram[0xbdb],"X selects an extended weapon through native pause");
+  puts("MMX X2/X3 WEAPON MENU CHECKS PASSED");
+}
 static void zero_state_checks(const char *assets, const char *fixture, uint8 *start,
                               uint8 *expected, uint8 *actual, size_t cap) {
   check(fixture != NULL && MmxZeroLoad(assets), "Zero local assets load");
@@ -328,6 +386,8 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
   g_config.widescreen = false;
   int w,h; MmxPrepareFrame(1280,720,&w,&h);
   check(w == 256 && g_mmx_custom_renderer, "Zero activates native-width compositor");
+  const char *weapons=getenv("MMX_WEAPONS_TEST_ASSETS");
+  if (weapons) { weapon_menu_checks(weapons,fixture,start,expected,actual,cap); return; }
   zero_swap_checks(fixture,start,expected,actual,cap);
   if(getenv("MMX_ZERO_SWAP_ONLY")) { puts("MMX SELECT SWAP CHECKS PASSED"); return; }
   zero_health_checks(fixture,start,expected,actual,cap);
