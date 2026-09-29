@@ -18,19 +18,23 @@ typedef struct MmxWeaponDamageState {
   uint8_t remainder, kind, hp, active;
 } MmxWeaponDamageState;
 #define MMX_WEAPON_COMBAT_LEGACY_SIZE 328u
+#define MMX_WEAPON_COMBAT_DAMAGE_SIZE 388u
 typedef struct MmxWeaponCombatState {
   MmxWeaponShot shots[8];
   uint16_t tick;
   uint8_t stage, valid, held, pressed, direction, reserved;
   MmxWeaponDamageState enemies[15];
+  MmxWeaponShot effects[16]; /* Visual particles do not consume native hit slots. */
 } MmxWeaponCombatState;
 MmxWeaponCombatState MmxWeaponsGetCombatState(void);
 bool MmxWeaponsValidCombatState(const MmxWeaponCombatState *state);
 void MmxWeaponsSetCombatState(MmxWeaponCombatState state);
 bool MmxWeaponsCombatActive(void);
 void MmxWeaponsPlayerTick(uint8_t ram[0x20000]);
+void MmxWeaponsPlayerMotion(uint8_t ram[0x20000],unsigned object);
 void MmxWeaponsTerrainEnd(uint8_t ram[0x20000],unsigned object);
 void MmxWeaponsMarkShot(uint8_t ram[0x20000], unsigned slot);
+void MmxWeaponsSelectShot(const uint8_t ram[0x20000], unsigned slot);
 unsigned MmxWeaponsProjectileTick(uint8_t ram[0x20000], unsigned slot, unsigned active);
 void MmxWeaponsCancelShots(uint8_t ram[0x20000]);
 void MmxWeaponsCollisionRom(uint8_t *rom, size_t size);

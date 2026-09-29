@@ -588,10 +588,70 @@ At player $BA8 this is `$C01`. The previous port checked buster class 3;
 that class occurs at the intermediate arm-upgraded tier (about 100..179
 held ticks). A full 180+ hold instead produces buster class 2, so the prior
 check incorrectly reverted extended weapons to normal on a longer hold.
-Use `$C01 == 4 && ($1F99 & 2)` at the pre-dispatch allocation hook. Native
+Use `$C01 == 4 && ($1F99 & 2)` at `$81:94AF`, the common shot-selection entry.
+The moving/air firing routine clears +$59 at `$81:93EA` before calling the
+later allocation hook `$81:9D47` at `$81:93F8`. Thus checking the marker only
+at $9D47 works while standing but silently loses charged moving/air releases.
+Capture the boolean in the allocated slot's host state at $94AF, then retain
+it when $9D47 marks the completed native projectile. Native
 pose, charge effects and release cleanup continue to run. Charged checks for
 all implemented weapons now use 205+ ticks, plus a 120-tick normal-release
 check. This change applies only to extended weapons, not Zero's base combo.
+
+## Speed Burner: projectile, ground flames, water and charged body dash
+
+X2 weapon ID 8 uses normal group $25 (17 poses) and charged group $26
+(3 poses), DMA roots $85:A139/$A1AA. Normal initializer $82:ADCA..AE51
+sets class $0E, VX +/-$0500, VY 0 and sequence 6. Sequence 6 grows through
+poses 6/7/8; its final flag transitions to looping sequence 7 (poses 9..11).
+Hitbox phase flags index $86:B7B4: (0,0,6,7), (0,0,9,8), (0,0,10,12),
+(0,0,12,16). Native contact uses sequence 8, poses 12..16 ($82:AF16).
+The fireball itself travels through terrain; $82:AF7B probes 24px below it
+every four global ticks to spawn class $0E subtype 1 ground fire.
+
+Ground fire starts sequence 1, downward velocity $0400, 60-tick timeout,
+and no damage until landing. $82:AE9A..AF15 rolls it at +/-$0200 once grounded,
+with a new 60-tick timer and box (3,-1,9,7) at $86:B7C4. Missing ground,
+side contact or timeout starts sequence 2 burnout; it continues horizontal
+motion during burnout. The port uses live X1 collision classes/slopes.
+
+Sparkles are cosmetic class 6, emitted every four ticks by $82:AFB9.
+$82:AAA4..AB36 selects group $25 sequences 3/4 (poses 4/5), 32-tick life,
+random signed subpixel VX, vertical acceleration 4..11, starting Y +/-16,
+and alternate-global-tick visibility. They use sixteen independent host
+effect slots and source RNG arithmetic seeded by serialized simulation state.
+This extends combat state after its previous 388-byte prefix; game v13 and
+capture v12 preserve particles, while older formats initialize empty effects.
+
+Water check $82:B018..B04B recognizes classes $0D/$0E or the source waterline;
+it changes the normal actor to class $23, pose 6 (sequence 5). Two visual
+children orbit using the eight two-tick records at $86:B5A7, starting offsets
+0/24 from $86:B5D8. The port uses X1's live water classes. Raw ordinary damage
+in $86:F4C8 is 5 for class $0E and 1 for class $23, versus buster 3.
+
+Charged projectile entry $82:B04C initializes class $17 and follows the
+player's actual X/Y ($82:B10C), with hitbox (0,4,20,20) at $86:BA39.
+It remains active only during X2 actions $5C/$5E ($82:B11B), alternates
+collision each tick, and uses group $26 sequence 0. In water $82:B0F9
+disables collision and clears the player's damage guard; it emits ambient
+bubbles through $82:B148. Those ambient bubbles remain an explicit TODO.
+
+Body handlers $88:AC7E/$ACFD use timers $30 ground and $18 air, decrementing
+through zero; shared $88:AD8F sets speed $0475 (4.45703125px/tick).
+Ground jump, loss of ground, walls and opposite input end the source dash.
+Air keeps height. The private original-runtime trace confirms speed -1141
+in 8.8 units while facing left, source pose/action $5C, and one/three energy
+cost (initial press plus full release takes $5C00 to $5800).
+Raw class $17 ordinary damage is 1, so the port preserves 1/3 buster per
+eligible contact, not a guessed large dash hit.
+
+X1 adaptation keeps action $14, original body/armor animation and native
+collision/camera. The bounded $82:823E pre-movement hook supplies the X2
+speed/countdown even on native dash initialization. Air temporarily supplies
+the native dash's ground prerequisite, retains the source height, then clears
+that prerequisite. Native flags remain responsible for walls and transitions.
+The dry damage guard is removed on every retirement/cancellation path.
+Both X and Zero use their existing dash art under the original flame effect.
 
 ## Original shared effects and group palettes (MMXWEAP5)
 

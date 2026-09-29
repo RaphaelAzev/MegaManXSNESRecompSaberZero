@@ -352,7 +352,7 @@ bool MmxRendererSaveCapture(const char *path) {
   if (!frame.valid || !path) return false;
   FILE *f = fopen(path, "wb");
   if (!f) return false;
-  uint32_t header[] = {0x4d4d5843, 11, sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons) + sizeof(frame_weapon_combat)};
+  uint32_t header[] = {0x4d4d5843, 12, sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons) + sizeof(frame_weapon_combat)};
   bool ok = fwrite(header, sizeof(header), 1, f) == 1 && fwrite(&frame, sizeof(frame), 1, f) == 1 &&
       fwrite(&frame_zero, sizeof(frame_zero), 1, f) == 1 &&
       fwrite(&frame_weapons, sizeof(frame_weapons), 1, f) == 1 &&
@@ -377,7 +377,8 @@ bool MmxRendererLoadCapture(const char *path) {
        (h[1] == 8 && h[2] == sizeof(frame) + sizeof(frame_zero) + MMX_WEAPONS_LEGACY_STATE_SIZE) ||
        (h[1] == 9 && h[2] == sizeof(frame) + sizeof(frame_zero) + MMX_WEAPONS_LEGACY_STATE_SIZE + MMX_WEAPON_COMBAT_LEGACY_SIZE) ||
        (h[1] == 10 && h[2] == sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons) + MMX_WEAPON_COMBAT_LEGACY_SIZE) ||
-       (h[1] == 11 && h[2] == sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons) + sizeof(frame_weapon_combat))) &&
+       (h[1] == 11 && h[2] == sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons) + MMX_WEAPON_COMBAT_DAMAGE_SIZE) ||
+       (h[1] == 12 && h[2] == sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons) + sizeof(frame_weapon_combat))) &&
       fread(&frame, sizeof(frame), 1, f) == 1 &&
       frame.captured == 224 && frame.piece_count <= MAX_PIECES && frame.expanded_count <= MAX_PIECES && frame.valid;
   size_t zero_size = h[1] == 3 ? MMX_ZERO_LEGACY_STATE_SIZE :
@@ -393,7 +394,7 @@ bool MmxRendererLoadCapture(const char *path) {
   if (ok && h[1] >= 8) ok = fread(&frame_weapons, h[1] >= 10 ? sizeof(frame_weapons) : MMX_WEAPONS_LEGACY_STATE_SIZE, 1, f) == 1 &&
       MmxWeaponsValidState(&frame_weapons);
   if (ok && h[1] >= 9) ok = fread(&frame_weapon_combat,
-      h[1]>=11 ? sizeof(frame_weapon_combat) : MMX_WEAPON_COMBAT_LEGACY_SIZE, 1, f) == 1 &&
+      h[1]>=12 ? sizeof(frame_weapon_combat) : h[1]==11 ? MMX_WEAPON_COMBAT_DAMAGE_SIZE : MMX_WEAPON_COMBAT_LEGACY_SIZE, 1, f) == 1 &&
       MmxWeaponsValidCombatState(&frame_weapon_combat);
   ok = ok && fgetc(f) == EOF;
   fclose(f); frame.valid = ok; return ok;
@@ -1013,9 +1014,11 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       }
       sprite(&p, r, x, sy, attr, size, y, view, objects, false, NULL, 0, object_colors, false, zero_icon, false);
     }
-    if (stage && !swapping) for (unsigned i=0;i<8;++i) {
-      const MmxWeaponShot *s=frame_weapon_combat.shots+i;
+    if (stage && !swapping) for (unsigned i=0;i<24;++i) {
+      const MmxWeaponShot *s=i<8 ? frame_weapon_combat.shots+i : frame_weapon_combat.effects+i-8;
       if (!s->active || !s->age) continue;
+      if (i>=8 && !(frame_weapon_combat.tick&1)) continue; /* Original sparkle flicker. */
+      if (s->page==1 && s->weapon==8 && s->charged && s->tether_pose) continue;
       if (s->page==1 && s->weapon==2 && s->charged && (!s->variant || !s->muzzle_pose)) continue;
       if (s->page==2 && s->weapon==7 && s->variant!=2 && s->muzzle_pose==(s->charged ? 4 : 7)) continue;
       if (s->page==1 && s->weapon==4) {

@@ -567,6 +567,85 @@ static unsigned frost_slot(bool charged) {
   for(unsigned i=0;i<8;++i) if(c.shots[i].active && c.shots[i].weapon==7 && c.shots[i].charged==charged) return i;
   return 8;
 }
+static void weapon_speed_checks(const char *assets,const char *fixture,uint8 *start,
+                               uint8 *expected,uint8 *actual,size_t cap) {
+  check(MmxWeaponsLoad(assets),"Speed Burner original assets load");
+  for(unsigned character=0;character<2;++character) {
+    check(RtlLoadSnapshot(fixture),"restore Speed Burner fixture");if(character) zero_health_swap();
+    MmxWeaponsState w=MmxWeaponsGetState();w.page=1;w.weapon=8;MmxWeaponsSetState(w);
+    frame(SNES_PAD_Y);frame(0);MmxWeaponCombatState c=MmxWeaponsGetCombatState();unsigned slot=8;
+    for(unsigned i=0;i<8;++i) if(c.shots[i].active) {slot=i;break;}
+    check(slot<8 && c.shots[slot].vx==1280 && MmxWeaponsEnergyAmount(1,8)==27*256,
+        "normal flame uses original five-pixel speed and one-energy cost");
+    zero_replay(15);c=MmxWeaponsGetCombatState();unsigned fire=0;
+    for(unsigned i=0;i<8;++i) fire+=c.shots[i].active && c.shots[i].variant==1;
+    check(fire>0 && c.shots[slot].muzzle_pose==1,"fireball grows and creates ground flames");
+    unsigned sparks=0;for(unsigned i=0;i<16;++i) sparks+=c.effects[i].active;
+    check(sparks>0,"original flame sparkles use separate visual slots");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-speed.cap":".zero-speed.cap");
+    size_t n=RtlSaveSnapshotToMemory(start,cap);zero_replay(20);size_t en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"restore growing flame trail");zero_replay(20);
+    size_t an=RtlSaveSnapshotToMemory(actual,cap);same(expected,en,actual,an,"fireball and ground flames replay exactly");
+    zero_replay(180);check(!extended_shots(false) && !g_ram[0xbdd],"normal fire and ground flames expire cleanly");
+    for(unsigned i=0;i<205;++i) frame(SNES_PAD_Y);frame(0);zero_replay(5);
+    check(!extended_shots(true),"charged Speed Burner requires X1 arms");
+    check(RtlLoadSnapshot(fixture),"restore charged dash fixture");if(character) zero_health_swap();
+    w=MmxWeaponsGetState();w.page=1;w.weapon=8;MmxWeaponsSetState(w);g_ram[0x1f99]|=2;
+    for(unsigned i=0;i<205;++i) frame(SNES_PAD_Y);frame(0);zero_replay(5);
+    c=MmxWeaponsGetCombatState();slot=8;
+    for(unsigned i=0;i<8;++i) if(c.shots[i].active && c.shots[i].charged) {slot=i;break;}
+    check(slot<8 && c.shots[slot].group==38 && !c.shots[slot].variant &&
+        (int16_t)(g_ram[0xbc2]|g_ram[0xbc3]<<8)==1141 && MmxWeaponsEnergyAmount(1,8)==24*256,
+        "charged ground dash uses original speed, effect, and three-energy cost");
+    check(g_ram[0xbaa]==0x14 && g_ram[0xbd8]==128 && !(g_ram[0xc2f]&64),"charged dash owns native dash pose and damage guard without charge sound");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-speed-dash.cap":".zero-speed-dash.cap");
+    n=RtlSaveSnapshotToMemory(start,cap);zero_replay(12);en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"restore charged dash");zero_replay(12);
+    an=RtlSaveSnapshotToMemory(actual,cap);same(expected,en,actual,an,"charged body dash replays exactly");
+    zero_replay(50);check(!extended_shots(true) && !g_ram[0xbd8] && g_ram[0xbaa]!=0x14,"ground dash ends and clears its damage guard");
+    check(RtlLoadSnapshot(fixture),"restore airborne dash fixture");if(character) zero_health_swap();
+    w=MmxWeaponsGetState();w.page=1;w.weapon=8;MmxWeaponsSetState(w);g_ram[0x1f99]|=2;
+    for(unsigned i=0;i<205;++i) frame(SNES_PAD_Y);
+    for(unsigned i=0;i<10;++i) frame(SNES_PAD_Y|SNES_PAD_B);
+    frame(0);zero_replay(3);
+    c=MmxWeaponsGetCombatState();slot=8;
+    for(unsigned i=0;i<8;++i) if(c.shots[i].active && c.shots[i].charged) {slot=i;break;}
+    check(slot<8 && c.shots[slot].variant==1,"air release starts source short dash");
+    unsigned y=g_ram[0xbb0]|g_ram[0xbb1]<<8;zero_replay(8);
+    check((g_ram[0xbb0]|g_ram[0xbb1]<<8)==y,"air dash holds height while moving horizontally");
+    zero_replay(25);check(!extended_shots(true) && !g_ram[0xbd8],"air dash expires and gravity resumes");
+  }
+  check(RtlLoadSnapshot(fixture),"restore private water-fire fixture");
+  MmxWeaponsState w=MmxWeaponsGetState();w.page=1;w.weapon=8;MmxWeaponsSetState(w);g_ram[0x1f99]|=2;
+  unsigned px=g_ram[0xbad]|g_ram[0xbae]<<8,py=g_ram[0xbb0]|g_ram[0xbb1]<<8;
+  size_t offsets[256];uint8_t properties[256];unsigned changed=0;
+  for(int y=(int)py-160;y<=(int)py+16;y+=16) for(int x=(int)px-64;x<=(int)px+300;x+=16) {
+    if(x<0 || y<0) continue;
+    unsigned screen=g_ram[0xe800+(y>>8)*32+(x>>8)];
+    unsigned cell=0x2000+((screen*512+((y&240)<<1)+((x&240)>>3))&65535);
+    unsigned address=(g_ram[0xb92]|g_ram[0xb93]<<8|g_ram[0xb94]<<16)+(g_ram[cell]|g_ram[cell+1]<<8);
+    size_t offset=((address>>16)&127)*32768+(address&32767);
+    if((g_snes->cart->rom[offset]&63)!=0) continue;
+    check(changed<256,"private water properties fit fixture storage");
+    offsets[changed]=offset;properties[changed++]=g_snes->cart->rom[offset];g_snes->cart->rom[offset]=13;
+  }
+  frame(SNES_PAD_Y);zero_replay(5);MmxWeaponCombatState c=MmxWeaponsGetCombatState();
+  unsigned parent=8,children=0;
+  for(unsigned i=0;i<8;++i) if(c.shots[i].active) { if(c.shots[i].variant==2) parent=i;children+=c.shots[i].variant==3; }
+  check(parent<8 && children==2 && c.shots[parent].pose==6,"water replaces normal fire with original three-bubble formation");
+  zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),".speed-water.cap");
+  size_t n=RtlSaveSnapshotToMemory(start,cap);zero_replay(12);size_t en=RtlSaveSnapshotToMemory(expected,cap);
+  check(RtlLoadSnapshotFromMemory(start,n),"restore water-bubble orbit");zero_replay(12);
+  size_t an=RtlSaveSnapshotToMemory(actual,cap);same(expected,en,actual,an,"source water orbits replay exactly");
+  for(unsigned i=0;i<205;++i) frame(SNES_PAD_Y);frame(0);zero_replay(5);
+  c=MmxWeaponsGetCombatState();unsigned dash=8;
+  for(unsigned i=0;i<8;++i) if(c.shots[i].active && c.shots[i].charged) dash=i;
+  check(dash<8 && c.shots[dash].tether_pose && !g_ram[0xbd8] &&
+      !(g_ram[0x1228+dash*64+0x20]|g_ram[0x1228+dash*64+0x21]),"water dash retains movement but loses flames, attack box and damage guard");
+  for(unsigned i=0;i<changed;++i) g_snes->cart->rom[offsets[i]]=properties[i];
+  MmxWeaponsCancelShots(g_ram);
+  puts("MMX SPEED BURNER CHECKS PASSED");
+}
 static void weapon_magnet_checks(const char *assets,const char *fixture,uint8 *start,
                                 uint8 *expected,uint8 *actual,size_t cap) {
   check(MmxWeaponsLoad(assets),"Magnet Mine and original explosion assets load");
@@ -1229,6 +1308,11 @@ static void weapon_damage_checks(const char *assets,const char *fixture,uint8 *s
   size_t chunk=0;
   for(size_t i=n-8;i>8;--i) {uint32_t magic;memcpy(&magic,start+i,4);if(magic==0x4d4d5854u) {chunk=i;break;}}
   check(chunk!=0,"damage snapshot chunk found");
+  uint32_t particles_legacy=12;memcpy(start+chunk+4,&particles_legacy,4);
+  check(RtlLoadSnapshotFromMemory(start,n-(sizeof(c)-MMX_WEAPON_COMBAT_DAMAGE_SIZE)),
+        "v12 damage snapshot migrates without visual particles");
+  c=MmxWeaponsGetCombatState();unsigned particles=0;for(unsigned i=0;i<16;++i) particles+=c.effects[i].active;
+  check(!particles,"legacy particle slots initialize empty");
   uint32_t legacy=11;memcpy(start+chunk+4,&legacy,4);
   check(RtlLoadSnapshotFromMemory(start,n-(sizeof(c)-MMX_WEAPON_COMBAT_LEGACY_SIZE)),
         "v11 projectile snapshot migrates without damage carry");
@@ -1269,6 +1353,7 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
     else if (getenv("MMX_WEAPON_FROST_TEST")) weapon_frost_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_BUBBLE_TEST")) weapon_bubble_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_MAGNET_TEST")) weapon_magnet_checks(weapons,fixture,start,expected,actual,cap);
+    else if (getenv("MMX_WEAPON_SPEED_TEST")) weapon_speed_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_WHEEL_TEST")) weapon_wheel_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_SONIC_TEST")) weapon_sonic_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_RAY_TEST")) weapon_ray_checks(weapons,fixture,start,expected,actual,cap);

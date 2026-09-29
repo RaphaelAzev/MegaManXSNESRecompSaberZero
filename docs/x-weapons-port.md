@@ -89,12 +89,12 @@ and X1 ownership filtering after returning to its page.
 Bounded generated/interpreter hooks virtualize the pause inventory reads and
 selection. X1 progression/energy stays untouched. An extended selection uses
 native buster resources as a safe underlying actor. The current
-implementation includes eight combat weapons; remaining entries
+implementation includes nine combat weapons; remaining entries
 are still unfinished.
 
-The game save chunk is version 12 when extended weapons are enabled; legacy
+The game save chunk is version 13 when extended weapons are enabled; legacy
 saves initialize full energy without changing X1 inventory. Zero-only saves
-remain version 8 and stock saves version 3. Renderer capture version 11 also
+remain version 8 and stock saves version 3. Renderer capture version 12 also
 stores the displayed weapon page and the active projectile simulation. Existing
 older captures still load. Version 9 game states initialize an empty projectile
 simulation; their weapon selection and energy remain intact.
@@ -102,14 +102,16 @@ Game versions 9/10 and capture versions 8/9 retain their original 24-byte
 inventory prefix; new loads initialize the sixteen appended fraction bytes
 to zero. New inventory state is 40 bytes and preserves source 8.8 precision.
 
-The eight playable weapons now use source ordinary-enemy damage divided by
+The nine playable weapons now use source ordinary-enemy damage divided by
 their source buster value (3), multiplied by the X1 target's buster damage.
 Fractions carry between contacts to preserve ratios, including weak individual
 pellets and strong sustained weapons. Special encounter/armored profiles keep
 neutral buster damage; native immunity remains unchanged. No boss weaknesses
 are added. See the source notebook for the exact per-phase values. Combat state
-is 388 bytes; v10/v11 game saves and v9/v10 captures migrate their old 328-byte
-projectile prefix with empty damage carry. Earlier checkpoint references to
+is 1,028 bytes, including sixteen independent visual-particle slots; v12 game
+saves and v11 captures migrate the old 388-byte prefix with empty effects.
+V10/v11 game saves and v9/v10 captures migrate their old 328-byte
+projectile prefix with empty damage carry and effects. Earlier checkpoint references to
 one-HP placeholder damage below describe the original implementation only.
 
 Focused ROM-backed checks exercise all sixteen menu choices while X1 weapons
@@ -368,9 +370,34 @@ and its separate palette are extracted from the user's X2 ROM (MMXWEAP5),
 not recolored weapon sprites. Moving-platform attachment and source audio
 remain fidelity work.
 
+## Ninth combat checkpoint: Speed Burner
+
+Normal fire uses X2's original 5px/tick projectile, growth/flight/impact
+animations, phase hitboxes, ground-flame emission every four ticks, and
+60-tick rolling flames. Original sparkles persist independently of native
+attack slots. Entering water changes the projectile to the original small
+central bubble with two orbiting visual bubbles. Normal cost is one energy;
+fire and ground flames deal 5/3 buster damage, the water form 1/3.
+
+Charged release starts a native X1 dash with original X2 speed $0475,
+ground/air countdown $30/$18, body-attached group $26, alternating collision
+and 1/3 buster damage. It costs three energy. X1 still handles walls, ground,
+camera, jumping out of the ground dash and opposite-direction cancellation.
+The airborne form holds height and then returns to gravity. Underwater it
+retains movement but loses its flames, attack box and damage guard.
+
+The airborne test also corrected a shared allocation-hook bug: X1 clears
+the charge command before allocating a moving/air shot. The port now captures
+that command at the common $81:94AF selection entry, before the clear.
+Both-character checks cover normal/ground fire, particles, arms/costs,
+ground/air dash motion and cleanup, private water behavior, and save/replay.
+The main flame and dash art were inspected. Source audio, underwater dash
+ambient bubbles and moving-platform ground-fire behavior remain fidelity work.
+Native X1 still limits damaging actors to eight, compared with X2's nine.
+
 ## Remaining implementation
 
-Implement the other eight weapons' normal and charged attacks, native
+Implement the other seven weapons' normal and charged attacks, native
 sound/effect cleanup, X/Zero firing origins, terrain/enemy interaction and
 meaningful special behaviors. Gate charging on X1's arm upgrade. Keep ordinary
 damage and existing X1 progression. Co-op remains a later, separate mod. The
@@ -384,8 +411,9 @@ Zero 0.0.1 is released independently (PR #52). This branch contains the entire
 X2/X3 weapon follow-up; do not merge unfinished weapons with the Zero release.
 The shared source-ROM provider uses the same framework pin as Zero. The Zero
 release notes describe only its v8 save / v7 capture layout. With weapons here,
-game chunks use v12 (40-byte inventory plus 388-byte combat state), captures
-use v11. Older v9/v10 game and v8/v9 capture inventories migrate their 24-byte
+game chunks use v13 (40-byte inventory plus 1,028-byte combat state), captures
+use v12. Game v12 and capture v11 load their 388-byte prefix with empty visual
+particles. Older v9/v10 game and v8/v9 capture inventories migrate their 24-byte
 prefix; game v10/v11 and capture v9/v10 combat prefixes initialize empty damage carry.
 The full 40-byte Zero state is unchanged. Do not load weapon-branch saves in
 the Zero-only release. No co-op implementation belongs in this branch.
