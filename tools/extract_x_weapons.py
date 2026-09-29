@@ -1,0 +1,156 @@
+#!/usr/bin/env python3
+"""Extract original X2/X3 weapon art from locally supplied USA ROMs.
+
+The descriptor contains ROM addresses, never distributed game art. Static CHR
+bindings and palette addresses were measured at native weapon selection; pose
+layouts and per-pose DMA lists are decoded directly from each original ROM.
+"""
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import struct
+
+
+class Rom:
+    def __init__(self, path, digest):
+        self.data = Path(path).read_bytes()
+        if len(self.data) % 32768 == 512:
+            self.data = self.data[512:]
+        if hashlib.sha256(self.data).hexdigest() != digest:
+            raise ValueError(f'Incorrect original USA ROM: {path}')
+
+    def at(self, address, size):
+        if address & 65535 < 32768:
+            raise ValueError(f'Invalid ROM address {address:06x}')
+        return self.raw(((address >> 16) & 127) * 32768 + (address & 32767), size)
+
+    def raw(self, offset, size):
+        result = self.data[offset:offset + size]
+        if len(result) != size:
+            raise ValueError('ROM read exceeds file')
+        return result
+
+    def integer(self, address, size=2):
+        return int.from_bytes(self.at(address, size), 'little')
+
+
+def transfers(rom, table, pose, tiles, known):
+    address = (table & 0xff0000) | ((table + rom.integer(table + pose * 2)) & 65535)
+    for _ in range(64):
+        count = rom.integer(address, 1)
+        if not count:
+            return
+        source = rom.integer(address + 1, 3)
+        target = rom.integer(address + 4)
+        start, length = ((target & 32767) - 0x6000) * 2, count * 16
+        if start < 0 or start + length > len(tiles):
+            raise ValueError(f'Invalid DMA {table:06x}/{pose}: {start}/{length}')
+        tiles[start:start + length] = rom.at(source, length)
+        known[start:start + length] = b'\1' * length
+        if target & 32768:
+            return
+        address += 6
+    raise ValueError('Unterminated DMA list')
+
+
+def bulk_transfers(rom, address, tiles, known):
+    for _ in range(64):
+        length = rom.integer(address)
+        if length & 1:
+            return
+        start = (rom.integer(address + 2) - 0x6000) * 2
+        source = rom.integer(address + 4, 3)
+        if start < 0 or start + length > len(tiles):
+            raise ValueError('Invalid weapon-selection DMA')
+        tiles[start:start + length] = rom.at(source, length)
+        known[start:start + length] = b'\1' * length
+        address += 7
+    raise ValueError('Unterminated weapon-selection DMA list')
+
+
+def pose_art(rom, group, pose, tiles, known):
+    table = rom.integer(0x8d8000 + group * 3, 3)
+    address = rom.integer(table + pose * 3, 3)
+    count = rom.integer(address, 1)
+    if count > 64:
+        raise ValueError('Invalid sprite layout')
+    pieces = list(struct.iter_unpack('<BbbB', rom.at(address + 1, count * 4)))
+    if not pieces:
+        return 0, 0, 0, 0, b''
+    left, top = min(p[1] for p in pieces), min(p[2] for p in pieces)
+    width = max(p[1] + (16 if p[0] & 32 else 8) for p in pieces) - left
+    height = max(p[2] + (16 if p[0] & 32 else 8) for p in pieces) - top
+    if width > 256 or height > 256:
+        raise ValueError('Sprite exceeds extraction bounds')
+    pixels = bytearray(width * height)
+    for flags, x, y, tile in reversed(pieces):
+        if flags & 14:
+            raise ValueError(f'Unexpected extra palette in {group:02x}/{pose}: {flags:02x}')
+        size = 16 if flags & 32 else 8
+        for dy in range(size):
+            for dx in range(size):
+                tx = size - 1 - dx if flags & 64 else dx
+                ty = size - 1 - dy if flags & 128 else dy
+                number = (((tile >> 4) + ty // 8) & 15) * 16 + ((tile + tx // 8) & 15)
+                bits, shift = number * 32 + (ty & 7) * 2, 7 - (tx & 7)
+                offsets = [bits, bits + 1, bits + 16, bits + 17]
+                if not all(known[o] for o in offsets):
+                    raise ValueError(f'Unresolved inherited CHR {group:02x}/{pose:02x} tile {number:02x}')
+                color = sum(((tiles[o] >> shift) & 1) << p for p, o in enumerate(offsets))
+                if color:
+                    pixels[(y - top + dy) * width + x - left + dx] = color
+    return left, top, width, height, bytes(pixels)
+
+
+def extract(x2, x3):
+    entries = json.loads((Path(__file__).parent / 'data/x_weapon_assets.json').read_text())
+    roms = {game: Rom(path, next(e['sha256'] for e in entries if e['game'] == game))
+            for game, path in ((2, x2), (3, x3))}
+    result = bytearray(struct.pack('<8sI', b'MMXWEAP1', len(entries)))
+    sheets = []
+    for entry in entries:
+        rom = roms[entry['game']]
+        colors = rom.raw(int(entry['weapon_palette'], 16), 32)
+        result.extend(struct.pack('<4B', entry['game'], entry['weapon'], len(entry['groups']), 0))
+        result.extend(rom.raw(int(entry['body_palette'], 16), 32) + colors)
+        base, base_known = bytearray(8192), bytearray(8192)
+        bulk_root = 0x869664 if entry['game'] == 2 else 0x8697ad
+        bulk = 0x860000 | rom.integer(bulk_root + 0x3e + entry['weapon'] * 2)
+        bulk_transfers(rom, bulk, base, base_known)
+        for address in entry.get('additional_dma', []):
+            bulk_transfers(rom, int(address, 16), base, base_known)
+        for group in entry['groups']:
+            tiles, known = bytearray(base), bytearray(base_known)
+            for pose in group.get('setup_poses', []):
+                transfers(rom, int(group['dma'], 16), pose, tiles, known)
+            result.extend(struct.pack('<HH', group['group'], group['frames']))
+            for pose in range(group['frames']):
+                if 'poses' in group and pose not in group['poses']:
+                    result.extend(bytes(8))
+                    continue
+                try:
+                    transfers(rom, int(group['dma'], 16), pose, tiles, known)
+                    left, top, width, height, pixels = pose_art(rom, group['group'], pose, tiles, known)
+                except ValueError as error:
+                    raise ValueError(f"X{entry['game']} {entry['name']} {group['group']:02x}/{pose:02x}: {error}") from error
+                result.extend(struct.pack('<hhHH', left, top, width, height) + pixels)
+                sheets.append((entry['game'], entry['weapon'], group['group'], pose,
+                               left, top, width, height, pixels, colors))
+    return bytes(result), sheets
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('x2_rom', type=Path)
+    parser.add_argument('x3_rom', type=Path)
+    parser.add_argument('output', type=Path)
+    args = parser.parse_args()
+    data, poses = extract(args.x2_rom, args.x3_rom)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_bytes(data)
+    print(f'Extracted {len(poses)} original weapon poses ({len(data)} bytes) to {args.output}')
+
+
+if __name__ == '__main__':
+    main()
