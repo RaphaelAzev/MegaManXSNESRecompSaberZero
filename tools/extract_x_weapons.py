@@ -221,7 +221,8 @@ def extract(x2, x3):
             tiles, known = bytearray(base), bytearray(base_known)
             for pose in group.get('setup_poses', []):
                 transfers(rom, int(group['dma'], 16), pose, tiles, known)
-            animation = animation_group(rom, entry['game'], group['group'])
+            source_group = group.get('source_group', group['group'])
+            animation = animation_group(rom, entry['game'], source_group)
             result.extend(struct.pack('<HHH', group['group'], group['frames'], len(animation)))
             group_colors = rom.raw(int(group.get('palette', entry['weapon_palette']), 16), 32)
             result.extend(group_colors)
@@ -240,7 +241,7 @@ def extract(x2, x3):
                         layout = group['animated_layout_start']+orientation
                     elif pose not in group.get('inherited_poses', []):
                         transfers(rom, int(group['dma'], 16), pose, tiles, known)
-                    left, top, width, height, pixels = pose_art(rom, group['group'], layout, tiles, known)
+                    left, top, width, height, pixels = pose_art(rom, source_group, layout, tiles, known)
                 except ValueError as error:
                     raise ValueError(f"X{entry['game']} {entry['name']} {group['group']:02x}/{pose:02x}: {error}") from error
                 result.extend(struct.pack('<hhHH', left, top, width, height) + pixels)

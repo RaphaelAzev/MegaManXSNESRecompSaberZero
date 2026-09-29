@@ -15,10 +15,12 @@ _Static_assert(sizeof(MmxWeaponShot) == 40 && offsetof(MmxWeaponCombatState,enem
 static unsigned word(const uint8_t *p) { return p[0] | (p[1] << 8); }
 static void putword(uint8_t *p, unsigned value) { p[0] = (uint8_t)value; p[1] = (uint8_t)(value >> 8); }
 static bool slot_valid(unsigned d) { return d >= 0x1228 && d < 0x1428 && (d & 63) == 0x28; }
+static void silk_player_tick(uint8_t *r);
+static void silk_effect_tick(MmxWeaponShot *s);
 static bool owned(const uint8_t *r, unsigned d) { return slot_valid(d) && r[d] && word(r + d + 0x3e) == 0x5758; }
 static unsigned slot_index(unsigned d) { return (d - 0x1228) / 64; }
 static unsigned weapon_group(unsigned page, unsigned weapon) {
-  return page == 1 ? (weapon == 2 ? 68 : weapon == 4 ? 70 : weapon == 5 ? 65 : weapon == 7 ? 15 : weapon == 8 ? 37 : 0) :
+  return page == 1 ? (weapon == 2 ? 68 : weapon == 3 ? 72 : weapon == 4 ? 70 : weapon == 5 ? 65 : weapon == 7 ? 15 : weapon == 8 ? 37 : 0) :
     page == 2 ? (weapon == 1 ? 5 : weapon == 4 ? 12 : weapon == 5 ? 13 : weapon == 7 ? 16 : weapon == 8 ? 19 : 0) : 0;
 }
 static void sound(uint8_t *r, unsigned command) {
@@ -35,11 +37,13 @@ bool MmxWeaponsValidCombatState(const MmxWeaponCombatState *s) {
       s->enemies[i].hp>127 || s->enemies[i].active>1) return false;
   for (unsigned i = 0; i < 24; ++i) {
     const MmxWeaponShot *p = i<8 ? s->shots+i : s->effects+i-8;
-    if (i>=8 && p->active && (p->page!=1 || p->weapon!=8 || p->variant!=4 || p->charged)) return false;
+    if (i>=8 && p->active && (p->page!=1 || p->charged ||
+        !((p->weapon==8 && p->variant==4) || (p->weapon==3 && p->variant==3)))) return false;
     if (p->active > 1 || p->reserved || p->charged > 1 || p->pose >= 128 || p->animation > 8192 ||
         p->x < -0x1000000 || p->x > 0x1000000 || p->y < -0x1000000 || p->y > 0x1000000 ||
         (p->active && (!weapon_group(p->page,p->weapon) || p->group !=
-          (p->page == 1 && p->weapon == 5 && p->charged ? 135 :
+          (p->page == 1 && p->weapon == 3 ? (p->variant==3 ? 73 : p->variant==4 ? 74 : 72) :
+           p->page == 1 && p->weapon == 5 && p->charged ? 135 :
            p->page == 1 && p->weapon == 7 ? (p->charged ? 19 : p->muzzle_pose==3 ? 8 : 15) :
            p->page == 1 && p->weapon == 8 && p->charged ? 38 :
            weapon_group(p->page,p->weapon))))) return false;
@@ -50,6 +54,9 @@ bool MmxWeaponsValidCombatState(const MmxWeaponCombatState *s) {
          p->tether_pose>(p->charged ? 2 : 7))) return false;
     if (p->active && p->page==1 && p->weapon==7 &&
         (p->variant>2 || p->muzzle_pose>3 || p->radius>(p->charged ? 32 : 60))) return false;
+    if (p->active && p->page==1 && p->weapon==3 &&
+        (p->variant>4 || p->muzzle_pose>3 || p->radius>127 || p->tether_pose>8 ||
+         (p->charged && p->age && !p->tether_pose))) return false;
     if (p->active && p->page==1 && p->weapon==8 &&
         (p->variant>(i<8 ? 3 : 4) || p->muzzle_pose>3 || p->radius>60 || p->tether_pose>1)) return false;
     if (p->active && p->page == 1 && p->weapon == 4 &&
@@ -159,6 +166,7 @@ void MmxWeaponsPlayerTick(uint8_t r[0x20000]) {
   ++combat.tick;
   for (unsigned i=0;i<16;++i) {
     MmxWeaponShot *p=combat.effects+i;if (!p->active) continue;
+    if (p->weapon==3) { silk_effect_tick(p);continue; }
     if (++p->age>=32) { memset(p,0,sizeof(*p));continue; }
     p->vy+=(int16_t)(p->tether_pose ? -(int)p->radius : (int)p->radius);
     p->x+=p->vx;p->y+=p->vy;
@@ -178,6 +186,7 @@ void MmxWeaponsPlayerTick(uint8_t r[0x20000]) {
   MmxZeroCancel(r); r[0xc0f] = 2;
   if (!(r[0x1f99] & 2)) stop_charge(r);
   MmxWeaponsState s = MmxWeaponsGetState();
+  if (s.page==1 && s.weapon==3) silk_player_tick(r);
   if (s.page==1 && s.weapon==8) {
     r[0xc0f]=1;
     MmxWeaponShot *p=speed_dash();
@@ -255,6 +264,7 @@ void MmxWeaponsMarkShot(uint8_t r[0x20000], unsigned d) {
 static void shot_bounds(const MmxWeaponShot *s, unsigned *rx, unsigned *ry) {
   *rx = 13; *ry = 10;
   if (s->page==1 && s->weapon==2) *rx=*ry=7;
+  if (s->page==1 && s->weapon==3) *rx=*ry=(!s->charged && s->muzzle_pose==3) ? 5 : 8;
   if (s->page==1 && s->weapon==8) {
     static const uint8_t boxes[4][2]={{6,7},{9,8},{10,12},{12,16}};
     unsigned phase=s->flags&3;*rx=boxes[phase][0];*ry=boxes[phase][1];
@@ -1238,6 +1248,8 @@ static void ray_tick(uint8_t *r, unsigned d, MmxWeaponShot *s) {
   if (s->variant == 3 || (s->variant < 2 && (!s->charged || !s->variant))) putword(r+d+0x20,0);
 }
 #include "mmx_weapon_fang.inc"
+#include "mmx_weapon_silk.inc"
+
 unsigned MmxWeaponsProjectileTick(uint8_t r[0x20000], unsigned d, unsigned active) {
   if (!owned(r,d)) {
     if (slot_valid(d)) memset(combat.shots+slot_index(d),0,sizeof(MmxWeaponShot));
@@ -1246,6 +1258,7 @@ unsigned MmxWeaponsProjectileTick(uint8_t r[0x20000], unsigned d, unsigned activ
   MmxWeaponShot *s = combat.shots + slot_index(d);
   if (!MmxWeaponsEnabled() || !s->active) { retire(r,d); return 0; }
   if (s->page == 1 && s->weapon == 2) { bubble_tick(r,d,s); return 0; }
+  if (s->page == 1 && s->weapon == 3) { silk_tick(r,d,s); return 0; }
   if (s->page == 1 && s->weapon == 7) { magnet_tick(r,d,s); return 0; }
   if (s->page == 1 && s->weapon == 8) { speed_tick(r,d,s); return 0; }
   if (s->page == 1 && s->weapon == 4) { wheel_tick(r,d,s); return 0; }
@@ -1339,6 +1352,7 @@ static unsigned source_damage(const MmxWeaponShot *s) {
    * Special-response weapons are added with their own behavior handlers. */
   if (s->page==1) {
     if (s->weapon==2) return s->charged ? 5 : 2;
+    if (s->weapon==3) return s->variant==3 ? (s->charged ? 10 : 5) : (s->charged ? 30 : 15);
     if (s->weapon==7) return 5;
     if (s->weapon==8) return s->charged || s->variant>=2 ? 1 : 5;
     if (s->weapon==4) return s->charged ? 50 : 25;

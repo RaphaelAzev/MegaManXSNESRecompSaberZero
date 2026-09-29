@@ -40,23 +40,59 @@
     "groups": [
       {
         "group": 72,
+        "source_group": 72,
         "frames": 30,
         "dma": "859fef",
         "poses": [
           0,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18
+        ],
+        "palette": "2bae0",
+        "note": "Original stone, metal and scrap forms."
+      },
+      {
+        "group": 73,
+        "source_group": 72,
+        "frames": 30,
+        "dma": "859fef",
+        "poses": [
           19,
           20,
           21,
           22,
           23,
           24,
-          25,
+          25
+        ],
+        "palette": "2bac0",
+        "note": "Original leaf form and palette."
+      },
+      {
+        "group": 74,
+        "source_group": 72,
+        "frames": 30,
+        "dma": "859fef",
+        "poses": [
           26,
           27,
           28,
           29
         ],
-        "note": "Canonical original scrap form. Other forms borrow stage-specific CHR."
+        "palette": "2bb00",
+        "note": "Original crystal form and palette."
       }
     ],
     "body_palette": "2ccc0",

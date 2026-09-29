@@ -135,7 +135,7 @@ Bytes zero_assets(const Rom& r) {
   for (auto& g : groups) { Tiles t;for (unsigned i=0;i<g[1];++i) { transfer(r,g[2],i,t);append(out,pose(r,g[0],i,t,true).pixels); } }
   return out;
 }
-struct GroupSource { unsigned id,frames,dma,restricted; uint64_t poses,inherited; int setup; unsigned palette;
+struct GroupSource { unsigned id,frames,dma,restricted; uint64_t poses,inherited; int setup; unsigned palette,source;
   unsigned animated_start,layout_start,layout_count,animated_dma; };
 struct WeaponSource { unsigned game,id,body,palette,extra,groups; int resource; unsigned offset; GroupSource group[3]; };
 #include "mmx_weapon_sources.h"
@@ -203,7 +203,7 @@ Bytes weapon_assets(const Rom& r,unsigned game) {
     }
     for (unsigned j=0;j<w.groups;++j) {
       const auto& g=w.group[j];Tiles t=base;if (g.setup>=0) transfer(r,g.dma,unsigned(g.setup),t);
-      Bytes a=animations(r,game,g.id);put(out,g.id);put(out,g.frames);put(out,unsigned(a.size()));
+      Bytes a=animations(r,game,g.source);put(out,g.id);put(out,g.frames);put(out,unsigned(a.size()));
       append(out,r.raw(g.palette,32));append(out,a);
       for (unsigned i=0;i<g.frames;++i) {
         bool animated=g.animated_start && i>=g.animated_start;unsigned layout=i;
@@ -213,7 +213,7 @@ Bytes weapon_assets(const Rom& r,unsigned game) {
           t=base;bulk(r,0x860000|r.integer(g.animated_dma+(i-g.animated_start)/g.layout_count*2),t);
           layout=g.layout_start+(i-g.animated_start)%g.layout_count;
         } else if (i>=64 || !(g.inherited&(uint64_t(1)<<i))) transfer(r,g.dma,i,t);
-        Pose p=pose(r,g.id,layout,t);put(out,unsigned(p.left));put(out,unsigned(p.top));put(out,p.width);put(out,p.height);append(out,p.pixels);
+        Pose p=pose(r,g.source,layout,t);put(out,unsigned(p.left));put(out,unsigned(p.top));put(out,p.width);put(out,p.height);append(out,p.pixels);
       }
     }
   }
