@@ -1020,6 +1020,18 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
     if (stage && !swapping) for (unsigned i=0;i<8;++i) {
       const MmxWeaponShot *s=frame_weapon_combat.shots+i;
       if (!s->active || !s->age) continue;
+      if (s->page==1 && s->weapon==4) {
+        if (s->charged && s->muzzle_pose && s->radius) {
+          static const uint8_t flash[6]={15,16,16,17,17,18};
+          MmxWeaponShot center=*s;center.facing=s->tether_pose ? 64 : 0;
+          weapon_sprite_row(&center,flash[6-s->radius],s->origin_x-word(frame.ram,0x1e4d),
+              s->origin_y-word(frame.ram,0x1e50),y,view,objects,object_colors);
+        } else if (!s->charged && (s->muzzle_pose==2 || s->muzzle_pose==3 || s->muzzle_pose==5)) {
+          unsigned duration=s->origin_x>=1024 ? 1 : s->origin_x>=512 ? 2 : 3;
+          weapon_sprite_row(s,9+(unsigned)s->origin_y/duration%5,(s->x>>8)-word(frame.ram,0x1e4d),
+              (s->y>>8)+8-word(frame.ram,0x1e50),y,view,objects,object_colors);
+        }
+      }
       if (s->charged && s->page == 2 && s->weapon == 4) {
         int ox=s->origin_x-word(frame.ram,0x1e4d), oy=s->origin_y-word(frame.ram,0x1e50);
         weapon_sprite_row(s,s->tether_pose,ox,oy,y,view,objects,object_colors);

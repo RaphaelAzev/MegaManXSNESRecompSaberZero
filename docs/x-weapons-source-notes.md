@@ -290,7 +290,7 @@ detection and repeatedly cycle a held shoulder. Page 0 still uses original code;
 pages 1/2 wrap weapon IDs 0..8 without changing page, including fallback entries.
 
 
-## Spin Wheel investigation checkpoint (X2; not yet implemented)
+## Spin Wheel (X2)
 
 The source handlers are in **bank $87**, not $81. Normal class $0A uses group
 $46, DMA $85:9F2E, animations $2F:EDD2. Entry $87:848D / init $84A8 sets
@@ -299,7 +299,7 @@ $8565 starts sequence 1 with VX/VY zero and downward acceleration 64; $8937
 caps falling VY to source -$0400 after movement. Ground contact starts a
 30-frame wait ($85BD..8624), then rolling ($863C..86A9). Ground traction
 $88A1 adds a signed value from $86:B75E: 16,-20,0,-16,-4,-4 depending on the
-source slope orientation; the exact flat-ground index remains to verify.
+source slope orientation; the flat-ground index is verified below.
 Airborne momentum loses 4/frame, wall reversals lose 16. A wall stall waits
 30 frames while losing 8/frame, then hops with current momentum as upward VY
 ($872D..87D2). Exhausted momentum enters shrink sequence 10. Enemy contact
@@ -316,6 +316,35 @@ velocity and terrain-passing movement ($8A95..8A9F). Parent bounds $86:B9DD
 are 7x7; children $86:B9E7 are 6x6. Formation emits around release frame 13/14.
 The source uses nine actor slots including the visual parent; X1 has eight
 projectile slots, so retain all eight directions and render the center burst
-cosmetically when implementing it. Energy costs still need an original-game
-probe; do not treat an assumed 1/2-unit cost as verified. All 27 poses are
+cosmetically in the port. Energy costs are verified below. All 27 poses are
 already in the extracted cache. Private trace: x2-weapons-reference.json.
+
+Follow-up verification: private paused X2 PID 56056 / debug port 4394, fixture
+0 (the owner's X1 playtest is separate), recorded in wheel-probe.json. Energy
+at `$1FC0` changes `$5C00 -> $5B00` on the normal press, then `$5800` on the
+charged release after that press: **normal 1, charged 3**. Original charge
+formation splits at about release tick 13/14, with all eight original vectors.
+Normal formation ends after 29 source animation ticks; gravity 64 reaches a
+1024 downward cap. Ground center is eight pixels above the surface (damage
+radius is nine), followed by the 30-frame wait before rolling.
+
+`$88:D6FA..D751` resolves the traction index. Collision classes 1/2, 3/4,
+5..8 and 9..12 select slope groups 0..3; flat/ordinary solid selects 4 (right)
+or 5 (left), both **-4 momentum per frame**. For positive horizontal velocity,
+table `$86:B08F` swaps 0/1 and 2/3. Thus rising half-slopes are -20 uphill,
++16 downhill; rising quarter-slopes are -16 uphill, 0 downhill. `$87:88B1`
+caps positive momentum at 1024. Ground wall contact enters a 30-frame stall,
+losing 8/frame, then hops with the remaining momentum as upward velocity.
+Airborne wall reflection loses 16; ordinary airborne travel loses 4/frame.
+`$87:87FB..8822` pauses movement for ten frames after enemy contact, losing
+8 momentum each frame, then resumes the preceding movement phase. Exhaustion
+plays source sequence 10 before retiring. Spin sequences 1..4 and ground
+effect sequences 5..8 are selected by the momentum high byte.
+
+Port state mapping: normal `muzzle_pose` is form/fall/ground delay/roll/
+airborne roll/wall delay/shrink (0..6), `origin_x` is momentum, `radius` is
+the remaining delay, `tether_pose` is the enemy-contact pause, `origin_y` is
+ground-effect time. Charged `muzzle_pose` is formation/flight (0/1), `variant`
+is direction 0..7, `origin_x/y` retain the center, and direction 0's `radius`
+drives the six-frame original flash. Charged `tether_pose` retains the original
+center facing. These fields are saved already, preserving the 40/328-byte ABI.

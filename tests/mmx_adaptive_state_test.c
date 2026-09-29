@@ -561,6 +561,80 @@ static void weapon_source_pack_checks(const char *fixture,uint8 *start,uint8 *ex
   check(MmxWeaponsPageEnabled(1) && MmxWeaponsPageEnabled(2) && MmxWeaponsPose(1,5,135,11),"second pack preserves first pack art");
   puts("MMX SOURCE PACK CHECKS PASSED");
 }
+static void weapon_wheel_checks(const char *assets,const char *fixture,uint8 *start,
+                                uint8 *expected,uint8 *actual,size_t cap) {
+  check(MmxWeaponsLoad(assets),"Spin Wheel original assets load");
+  for(unsigned character=0;character<2;++character) {
+    check(RtlLoadSnapshot(fixture),"restore Spin Wheel fixture");
+    if(character) zero_health_swap();
+    MmxWeaponsState w=MmxWeaponsGetState();w.page=1;w.weapon=4;MmxWeaponsSetState(w);
+    frame(SNES_PAD_Y);zero_replay(5);
+    check(extended_shots(false)==1 && MmxWeaponsEnergyAmount(1,4)==27*256,
+        "normal Spin Wheel forms for one energy unit");
+    size_t n=RtlSaveSnapshotToMemory(start,cap);
+    unsigned phases=0;
+    for(unsigned i=0;i<90;++i) {
+      frame(0);MmxWeaponCombatState c=MmxWeaponsGetCombatState();
+      for(unsigned j=0;j<8;++j) if(c.shots[j].active) phases|=1u<<c.shots[j].muzzle_pose;
+      if(i==66) zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-wheel.cap":".zero-wheel.cap");
+    }
+    check((phases&15)==15,"normal wheel forms, falls, waits on real terrain and rolls");
+    size_t en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"restore Spin Wheel formation");
+    zero_replay(90);size_t an=RtlSaveSnapshotToMemory(actual,cap);
+    same(expected,en,actual,an,"Spin Wheel ground delay and rolling replay exactly");
+    zero_replay(400);
+    check(!extended_shots(false) && !g_ram[0xbdd],"normal wheel releases native slot");
+    for(unsigned i=0;i<150;++i) frame(SNES_PAD_Y);
+    frame(0);zero_replay(20);
+    check(!extended_shots(true),"charged Spin Wheel remains gated by X1 arms");
+    MmxWeaponsCancelShots(g_ram);zero_replay(5);g_ram[0x1f99]|=2;
+    unsigned energy=MmxWeaponsEnergyAmount(1,4);
+    for(unsigned i=0;i<150;++i) frame(SNES_PAD_Y);
+    frame(0);zero_replay(5);
+    check(extended_shots(true)==1,"charged wheel begins with original formation");
+    n=RtlSaveSnapshotToMemory(start,cap);zero_replay(14);
+    check(extended_shots(true)==8 && MmxWeaponsEnergyAmount(1,4)==energy-4*256,
+        "charged wheel creates all eight directions for three energy after the initial normal shot");
+    check(!(g_ram[0xc2f]&64),"charged Spin Wheel stops charging audio");
+    MmxWeaponCombatState c=MmxWeaponsGetCombatState();unsigned directions=0;
+    for(unsigned j=0;j<8;++j) if(c.shots[j].active) directions|=1u<<c.shots[j].variant;
+    check(directions==255,"charged wheel retains every original radial direction");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-wheel-charged.cap":".zero-wheel-charged.cap");
+    en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"restore charged wheel before split");
+    zero_replay(14);an=RtlSaveSnapshotToMemory(actual,cap);
+    same(expected,en,actual,an,"charged wheel split and trajectories replay exactly");
+    zero_replay(160);
+    check(!extended_shots(true) && !g_ram[0xbdd] && !g_ram[0xc25],"charged wheel releases slots and native charge count");
+    w=MmxWeaponsGetState();w.energy[3]=0;w.fraction[3]=255;MmxWeaponsSetState(w);
+    frame(SNES_PAD_Y);zero_replay(35);
+    check(!extended_shots(false) && MmxWeaponsEnergyAmount(1,4)==255,"Spin Wheel refuses insufficient energy without underflow");
+  }
+  check(RtlLoadSnapshot(fixture),"restore Spin Wheel enemy encounter");unsigned victim=0;
+  for(unsigned i=0;i<400 && !victim;++i) {
+    frame(SNES_PAD_RIGHT);
+    for(unsigned d=0xe68;d<0x1228;d+=64)
+      if(g_ram[d] && (g_ram[d+0x27]&127) && (g_ram[d+0x20]|g_ram[d+0x21])) {victim=d;break;}
+  }
+  check(victim!=0,"native enemy available for Spin Wheel contact");
+  MmxWeaponsState w=MmxWeaponsGetState();w.page=1;w.weapon=4;MmxWeaponsSetState(w);
+  frame(0);frame(SNES_PAD_Y);zero_replay(40);
+  MmxWeaponCombatState c=MmxWeaponsGetCombatState();unsigned shot=8;
+  for(unsigned i=0;i<8;++i) if(c.shots[i].active) {
+    c.shots[i].x=(g_ram[victim+5]|g_ram[victim+6]<<8)*256;
+    c.shots[i].y=(g_ram[victim+8]|g_ram[victim+9]<<8)*256;
+    shot=i;break;
+  }
+  check(shot<8,"Spin Wheel available for native enemy contact");
+  MmxWeaponsSetCombatState(c);unsigned hp=g_ram[victim+0x27]&127;zero_replay(3);
+  c=MmxWeaponsGetCombatState();
+  check((g_ram[victim+0x27]&127)+1==hp && c.shots[shot].active && c.shots[shot].tether_pose,
+      "Spin Wheel deals native damage and pauses on contact without disappearing");
+  zero_replay(12);c=MmxWeaponsGetCombatState();
+  check(c.shots[shot].active && !c.shots[shot].tether_pose,"Spin Wheel resumes after its contact pause");
+  puts("MMX SPIN WHEEL CHECKS PASSED");
+}
 static void weapon_sonic_checks(const char *assets, const char *fixture, uint8 *start,
                                 uint8 *expected, uint8 *actual, size_t cap) {
   check(MmxWeaponsLoad(assets),"Sonic Slicer normal and charged assets load");
@@ -857,6 +931,7 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
   if (getenv("MMX_SOURCE_PACK_TEST")) { weapon_source_pack_checks(fixture,start,expected,actual,cap);return; }
   if (weapons) {
     if (getenv("MMX_WEAPON_CYCLE_TEST")) weapon_cycle_checks(weapons,fixture,start,cap);
+    else if (getenv("MMX_WEAPON_WHEEL_TEST")) weapon_wheel_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_SONIC_TEST")) weapon_sonic_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_RAY_TEST")) weapon_ray_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_ACID_TEST")) weapon_acid_checks(weapons,fixture,start,expected,actual,cap);

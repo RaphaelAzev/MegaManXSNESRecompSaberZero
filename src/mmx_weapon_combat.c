@@ -15,7 +15,7 @@ static bool slot_valid(unsigned d) { return d >= 0x1228 && d < 0x1428 && (d & 63
 static bool owned(const uint8_t *r, unsigned d) { return slot_valid(d) && r[d] && word(r + d + 0x3e) == 0x5758; }
 static unsigned slot_index(unsigned d) { return (d - 0x1228) / 64; }
 static unsigned weapon_group(unsigned page, unsigned weapon) {
-  return page == 1 ? (weapon == 5 ? 65 : 0) :
+  return page == 1 ? (weapon == 4 ? 70 : weapon == 5 ? 65 : 0) :
     page == 2 ? (weapon == 1 ? 5 : weapon == 4 ? 12 : weapon == 5 ? 13 : 0) : 0;
 }
 static void sound(uint8_t *r, unsigned command) {
@@ -36,6 +36,9 @@ bool MmxWeaponsValidCombatState(const MmxWeaponCombatState *s) {
           (p->page == 1 && p->weapon == 5 && p->charged ? 135 : weapon_group(p->page,p->weapon))))) return false;
     if (p->active && p->page == 1 && p->weapon == 5 &&
         (p->variant > 4 || p->radius > 2 || p->muzzle_pose > 3)) return false;
+    if (p->active && p->page == 1 && p->weapon == 4 &&
+        (p->variant > (p->charged ? 7 : 0) || p->radius > (p->charged ? 6 : 30) ||
+         p->muzzle_pose > (p->charged ? 1 : 6) || p->tether_pose > (p->charged ? 1 : 10))) return false;
     if (p->active && p->page == 2 && p->weapon == 1 &&
         (p->muzzle_pose > 2 || p->radius > 10 ||
          (p->variant > 2 && p->variant != 128 && p->variant != 129 && p->variant != 130))) return false;
@@ -141,6 +144,7 @@ void MmxWeaponsMarkShot(uint8_t r[0x20000], unsigned d) {
 }
 static void shot_bounds(const MmxWeaponShot *s, unsigned *rx, unsigned *ry) {
   *rx = 13; *ry = 10;
+  if (s->page == 1 && s->weapon == 4) *rx = *ry = s->charged ? (s->muzzle_pose ? 6 : 7) : 9;
   if (s->page == 1 && s->weapon == 5) {
     *rx = s->charged ? 10 : 12; *ry = s->charged ? 11 : 8;
   }
@@ -242,6 +246,114 @@ static MmxWeaponShot *spawn_child(uint8_t *r, const MmxWeaponShot *parent) {
   MmxWeaponShot *s = combat.shots + slot_index(d); *s = *parent;
   s->age = 1; s->born = combat.tick; s->hit_slots = 0;
   memset(r+d,0,64); native_object(r,d,s); ++r[0xbdd]; return s;
+}
+static unsigned wheel_spin_sequence(const MmxWeaponShot *s) {
+  unsigned speed=s->origin_x>0 ? (unsigned)s->origin_x>>8 : 0;
+  return 4-(speed>7 ? 7 : speed)/2; /* X2 $86:B76A. */
+}
+static void wheel_split(uint8_t *r,unsigned d,MmxWeaponShot *s) {
+  /* X2 uses a visual center plus eight projectiles. Reuse the center's
+   * native slot for direction 0; keep its brief flash as saved render state. */
+  static const int8_t dx[8]={0,6,8,6,0,-6,-8,-6},dy[8]={8,6,0,-6,-8,-6,0,6};
+  static const int16_t vx[8]={0,724,1024,724,0,-724,-1024,-724};
+  static const int16_t vy[8]={1024,724,0,-724,-1024,-724,0,724};
+  MmxWeaponShot center=*s;
+  for (unsigned i=0;i<8;++i) {
+    MmxWeaponShot *t=i ? spawn_child(r,&center) : s;
+    if (!t) break;
+    t->variant=(uint8_t)i;t->muzzle_pose=1;t->radius=i ? 0 : 6;
+    t->tether_pose=(uint8_t)(center.facing!=0);
+    t->origin_x=(int16_t)(center.x>>8);t->origin_y=(int16_t)(center.y>>8);
+    t->x=center.x+dx[i]*256;t->y=center.y+dy[i]*256;
+    t->vx=vx[i];t->vy=vy[i];t->facing=0;
+    t->age=1;t->born=combat.tick;t->hit_slots=0;
+    animation_start(t,12+i);
+    native_object(r,i ? 0x1228+(unsigned)(t-combat.shots)*64 : d,t);
+  }
+}
+static int wheel_traction(const uint8_t *r,const MmxWeaponShot *s) {
+  unsigned type=terrain_type(r,s->x>>8,(s->y>>8)+9);
+  bool right=s->facing!=0;
+  if (type==1 || type==2) return right ? -20 : 16;
+  if (type==3 || type==4) return right ? 16 : -20;
+  if (type>=5 && type<=8) return right ? -16 : 0;
+  if (type>=9 && type<=12) return right ? 0 : -16;
+  return -4;
+}
+static void wheel_tick(uint8_t *r,unsigned d,MmxWeaponShot *s) {
+  /* Normal phases: form, fall, ground delay, roll, airborne roll, wall
+   * delay, shrink. origin_x is momentum; origin_y advances the ground FX;
+   * tether_pose is the native ten-frame enemy-contact pause. */
+  if (!s->age) {
+    for (unsigned i=0;i<8;++i) if (combat.shots+i!=s && combat.shots[i].active &&
+        combat.shots[i].page==1 && combat.shots[i].weapon==4 &&
+        combat.shots[i].charged==s->charged) { retire(r,d); return; }
+    if (!MmxWeaponsSpend(1,4,s->charged ? 0x300 : 0x100)) { retire(r,d); return; }
+    muzzle_origin(r,d,s);s->age=1;s->born=combat.tick;
+    s->vx=s->vy=0;
+    if (!s->charged) { s->origin_x=1024;s->origin_y=0; }
+    animation_start(s,s->charged ? 11 : 0);native_object(r,d,s);return;
+  }
+  if (s->age==1 && s->born==combat.tick) return;
+  if (s->charged) {
+    if (!s->muzzle_pose) {
+      if (s->flags&1) { wheel_split(r,d,s); return; }
+      animation_step(s);
+    } else {
+      if (r[d+1]>=8) { retire(r,d); return; }
+      s->x+=s->vx;s->y+=s->vy;
+      if (s->radius) --s->radius;
+    }
+  } else {
+    unsigned previous_speed=wheel_spin_sequence(s);
+    if (s->muzzle_pose && s->muzzle_pose!=6 && !s->tether_pose && r[d+1]>=8)
+      s->tether_pose=10;
+    if (s->tether_pose) {
+      s->origin_x-=8;
+      if (!--s->tether_pose) s->hit_slots=0;
+    } else if (!s->muzzle_pose) {
+      if (s->flags&128) { s->muzzle_pose=1;animation_start(s,1); }
+    } else if (s->muzzle_pose==2 || s->muzzle_pose==5) {
+      ++s->origin_y;
+      if (s->muzzle_pose==5) s->origin_x-=8;
+      if (s->radius && !--s->radius) {
+        if (s->muzzle_pose==5) { s->vy=-s->origin_x;s->muzzle_pose=4; }
+        else s->muzzle_pose=3;
+      }
+    } else {
+      unsigned phase=s->muzzle_pose;
+      if (phase==6 && (s->flags&128)) { retire(r,d); return; }
+      if (phase==3) {
+        s->origin_x=(int16_t)(s->origin_x+wheel_traction(r,s));
+        if (s->origin_x>1024) s->origin_x=1024;
+        ++s->origin_y;
+      }
+      s->vx=(phase==3 || phase==4) ? (int16_t)(s->origin_x*(s->facing ? 1 : -1)) : 0;
+      s->vy+=64;if (s->vy>1024) s->vy=1024;
+      unsigned hit=terrain_move(r,s,8,8);
+      if (hit&4) {
+        s->vy=0;
+        if (phase==1) { s->muzzle_pose=2;s->radius=30; }
+        else if (phase==4) s->muzzle_pose=3;
+      } else if (phase==3) s->muzzle_pose=4;
+      if (hit&8) s->vy=0;
+      if (hit&1) {
+        if (phase==3) { s->muzzle_pose=5;s->radius=30;s->vx=s->vy=0; }
+        else if (phase==4) { s->facing^=64;s->origin_x-=16; }
+      } else if (phase==4 && !(hit&4)) s->origin_x-=4;
+    }
+    if (s->origin_x<0 && s->muzzle_pose!=6) {
+      s->muzzle_pose=6;s->vx=0;s->tether_pose=0;animation_start(s,10);
+    } else if (s->muzzle_pose>=2 && s->muzzle_pose!=6 && previous_speed!=wheel_spin_sequence(s))
+      animation_start(s,wheel_spin_sequence(s));
+    animation_step(s);
+  }
+  if (++s->age>600 || !s->active || s->x/256<(int)word(r+0x1e4d)-96 ||
+      s->x/256>(int)word(r+0x1e4d)+352 || s->y/256<(int)word(r+0x1e50)-160 ||
+      s->y/256>(int)word(r+0x1e50)+288) { retire(r,d); return; }
+  native_object(r,d,s);
+  if ((!s->charged && (s->muzzle_pose==6 || s->tether_pose)) ||
+      (s->charged && !s->muzzle_pose)) putword(r+d+0x20,0);
 }
 static void sonic_tick(uint8_t *r, unsigned d, MmxWeaponShot *s) {
   /* X2 $81:9622/$A5D2 launch from the final forming-animation flag.
@@ -469,6 +581,7 @@ unsigned MmxWeaponsProjectileTick(uint8_t r[0x20000], unsigned d, unsigned activ
   }
   MmxWeaponShot *s = combat.shots + slot_index(d);
   if (!MmxWeaponsEnabled() || !s->active) { retire(r,d); return 0; }
+  if (s->page == 1 && s->weapon == 4) { wheel_tick(r,d,s); return 0; }
   if (s->page == 1 && s->weapon == 5) { sonic_tick(r,d,s); return 0; }
   if (s->page == 2 && s->weapon == 1) { acid_tick(r,d,s); return 0; }
   if (s->page == 2 && s->weapon == 5) { ray_tick(r,d,s); return 0; }

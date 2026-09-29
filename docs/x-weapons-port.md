@@ -88,7 +88,7 @@ and X1 ownership filtering after returning to its page.
 Bounded generated/interpreter hooks virtualize the pause inventory reads and
 selection. X1 progression/energy stays untouched. An extended selection uses
 native buster resources as a safe underlying actor. The current
-playtest executable includes the four implemented weapons; remaining entries
+implementation includes five combat weapons; remaining entries
 are still unfinished.
 
 The game save chunk is version 11 when extended weapons are enabled; legacy
@@ -243,13 +243,38 @@ and exact save/replay. Original normal and charged captures were inspected;
 desktop and capture tools build. Original normal trails, cosmetic wall sparks,
 source sounds and broader movement/terrain comparison remain fidelity work.
 
+## Fifth combat checkpoint: Spin Wheel
+
+The normal wheel uses X2's original forming/spinning/shrinking animations,
+falls onto live X1 terrain, waits 30 frames and rolls with source momentum
+decay. Its speed responds to slope direction; airborne wall reflection loses
+momentum, and a ground wall starts the original delay/hop behavior. Enemy
+contact deals ordinary X1 damage, briefly stops the wheel and reduces momentum
+before it resumes. Source ground-effect poses follow the wheel on the floor.
+Normal fire costs one energy; charged release costs three and requires arms.
+
+Charged formation emits the original eight radial projectiles with source
+positions, velocities and directional art. X1 has eight projectile slots, so
+the center's slot becomes one projectile while saved state renders its brief
+original center flash. All eight directions fit when the pool is free. These
+charged projectiles pass through terrain, as in X2. No cache or state size
+change is required; all 27 poses were already extracted from the user's ROM.
+
+Focused checks cover both characters, forming/falling/ground delay/rolling,
+costs and insufficient energy, arms gate, eight charged directions, charge
+audio and slot cleanup, deterministic replay, and native enemy damage/pause.
+Normal and charged original-art captures were inspected. Broader slope/wall
+and moving-platform comparisons, source sounds and X2-specific destructible
+terrain remain fidelity work; X1 has no equivalent source-only breakable blocks.
+
 ## Remaining implementation
 
-Implement the other twelve weapons' normal and charged attacks, native
+Implement the other eleven weapons' normal and charged attacks, native
 sound/effect cleanup, X/Zero firing origins, terrain/enemy interaction and
 meaningful special behaviors. Gate charging on X1's arm upgrade. Keep ordinary
 damage and existing X1 progression. Co-op remains a later, separate mod. The
-owner's running playtest remains the stable exchange/HP build.
+owner's running playtest is the weapons follow-up build; private fixtures must
+never be loaded into it.
 
 
 ## Branch boundary after Zero 0.0.1
