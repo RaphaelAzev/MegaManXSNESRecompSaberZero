@@ -423,6 +423,76 @@ static unsigned extended_shots(bool charged) {
   for (unsigned i=0;i<8;++i) count += s.shots[i].active && s.shots[i].charged==charged;
   return count;
 }
+static unsigned acid_variants(unsigned variant, bool charged) {
+  MmxWeaponCombatState c=MmxWeaponsGetCombatState(); unsigned n=0;
+  for(unsigned i=0;i<8;++i) n+=c.shots[i].active && c.shots[i].weapon==1 &&
+    c.shots[i].variant==variant && c.shots[i].charged==charged;
+  return n;
+}
+static void weapon_acid_checks(const char *assets, const char *fixture, uint8 *start,
+                               uint8 *expected, uint8 *actual, size_t cap) {
+  check(MmxWeaponsLoad(assets),"Acid Burst original assets load");
+  for(unsigned character=0;character<2;++character) {
+    check(RtlLoadSnapshot(fixture),"restore Acid Burst fixture");
+    if(character) zero_health_swap();
+    MmxWeaponsState w=MmxWeaponsGetState();w.page=2;w.weapon=1;MmxWeaponsSetState(w);
+    frame(SNES_PAD_Y);zero_replay(8);
+    check(extended_shots(false)==1 && MmxWeaponsGetState().energy[8]==27,
+          "normal Acid Burst fires and spends one energy");
+    MmxWeaponCombatState c=MmxWeaponsGetCombatState();int shot_y=0;
+    for(unsigned i=0;i<8;++i) if(c.shots[i].active) shot_y=c.shots[i].y>>8;
+    check(shot_y < (g_ram[0xbb0]|g_ram[0xbb1]<<8),"acid lobs upward from character muzzle");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-acid.cap":".zero-acid.cap");
+    size_t n=RtlSaveSnapshotToMemory(start,cap);zero_replay(65);
+    size_t en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"restore acid before terrain contact");
+    zero_replay(65);size_t an=RtlSaveSnapshotToMemory(actual,cap);
+    same(expected,en,actual,an,"acid terrain contact and droplets replay exactly");
+    check(acid_variants(128,false)==1 && acid_variants(2,false)==4,
+          "acid splashes against native highway floor and throws four droplets");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-acid-splash.cap":".zero-acid-splash.cap");
+    zero_replay(170);
+    check(!extended_shots(false) && !g_ram[0xbdd],"acid and droplets release all native slots");
+    g_ram[0x1f99]|=2;
+    for(unsigned i=0;i<150;++i) frame(SNES_PAD_Y);
+    frame(0);zero_replay(25);
+    check(extended_shots(true)==2 && MmxWeaponsGetState().energy[8]==24,
+          "charged Acid Burst releases two growing blobs and costs two energy");
+    check(!(g_ram[0xc2f]&64),"charged acid release stops charging audio");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-acid-charged.cap":".zero-acid-charged.cap");
+    n=RtlSaveSnapshotToMemory(start,cap);zero_replay(35);en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"restore charged acid before bounce");
+    zero_replay(35);an=RtlSaveSnapshotToMemory(actual,cap);
+    same(expected,en,actual,an,"charged acid bounce and splashes replay exactly");
+    check(acid_variants(128,true)>=1 && extended_shots(true)>=3,
+          "charged acid bounces from native floor and leaves damaging splashes");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-acid-bounce.cap":".zero-acid-bounce.cap");
+    zero_replay(330);
+    check(!extended_shots(true) && !g_ram[0xbdd],"charged acid bounce budget retires the attack");
+  }
+  check(RtlLoadSnapshot(fixture),"restore acid native-enemy encounter");
+  unsigned victim=0;
+  for(unsigned i=0;i<400 && !victim;++i) {
+    frame(SNES_PAD_RIGHT);
+    for(unsigned d=0xe68;d<0x1228;d+=64)
+      if(g_ram[d] && (g_ram[d+0x27]&127) && (g_ram[d+0x20]|g_ram[d+0x21])) {victim=d;break;}
+  }
+  check(victim!=0,"native enemy available for Acid Burst collision");
+  MmxWeaponsState w=MmxWeaponsGetState();w.page=2;w.weapon=1;MmxWeaponsSetState(w);
+  frame(0);frame(SNES_PAD_Y);frame(0);
+  MmxWeaponCombatState c=MmxWeaponsGetCombatState();unsigned projectile=8;
+  for(unsigned i=0;i<8;++i) if(c.shots[i].active) {
+    c.shots[i].x=(g_ram[victim+5]|g_ram[victim+6]<<8)*256;
+    c.shots[i].y=(g_ram[victim+8]|g_ram[victim+9]<<8)*256;
+    c.shots[i].vx=c.shots[i].vy=0;projectile=i;break;
+  }
+  check(projectile<8,"acid actor available for native collision");
+  MmxWeaponsSetCombatState(c);unsigned hp=g_ram[victim+0x27]&127;zero_replay(3);
+  check((g_ram[victim+0x27]&127)+1==hp,"Acid Burst deals ordinary native damage to a real enemy");
+  zero_replay(35);
+  check(!MmxWeaponsGetCombatState().shots[projectile].active,"acid enemy impact retires without creating floor droplets");
+  puts("MMX ACID BURST CHECKS PASSED");
+}
 static void weapon_combat_checks(const char *assets, const char *fixture, uint8 *start,
                                  uint8 *expected, uint8 *actual, size_t cap) {
   check(MmxWeaponsLoad(assets),"original weapon animations load");
@@ -493,7 +563,8 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
   check(w == 256 && g_mmx_custom_renderer, "Zero activates native-width compositor");
   const char *weapons=getenv("MMX_WEAPONS_TEST_ASSETS");
   if (weapons) {
-    if (getenv("MMX_WEAPON_ENERGY_TEST")) weapon_energy_checks(weapons,fixture,start,expected,actual,cap);
+    if (getenv("MMX_WEAPON_ACID_TEST")) weapon_acid_checks(weapons,fixture,start,expected,actual,cap);
+    else if (getenv("MMX_WEAPON_ENERGY_TEST")) weapon_energy_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_COMBAT_TEST")) weapon_combat_checks(weapons,fixture,start,expected,actual,cap);
     else weapon_menu_checks(weapons,fixture,start,expected,actual,cap);
     return;

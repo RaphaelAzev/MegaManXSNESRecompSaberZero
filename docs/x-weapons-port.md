@@ -146,9 +146,35 @@ Focused runtime checks cover native small/large pickups, overflow, buster
 auto-refill, unchanged X1 unlocks/inventory, save/replay during animated refill,
 and matching native/extended energy retention through actual death/respawn.
 
+## Second combat checkpoint: Acid Burst
+
+Normal Acid Burst now lobs from either character's muzzle, accepts up/down
+aiming, splashes on X1's live tile terrain, and emits the original four
+droplets. Charged release creates the two original growing blobs, which bounce
+and leave splashes for up to five terrain contacts. Original animation records
+and art come from the user's X3 cache. Costs are one normal / two charged;
+real X1 arms still gate charging. Enemy hits retain ordinary X1 damage.
+
+Shared combat dispatch now supports both Blade and Acid. Collision boxes vary
+by weapon/phase. The new terrain helper reads X1's live metatile properties,
+including half/quarter slopes and one-way ladder tops. It sweeps movement to
+avoid skipping thin tiles. No player-only hazard side effects are invoked.
+The existing save/capture layouts are unchanged.
+
+Focused checks pass for both characters: normal/charged creation and energy,
+native highway floor contact, four droplets, charged bounces/splashes, slot
+cleanup, charge-audio cleanup, exact save/replay through terrain interaction,
+and ordinary damage/impact retirement against an actual highway enemy. Normal
+and charged source-art renders were inspected; the existing Blade combat
+regression passes and the desktop/capture tools build.
+
+Remaining Acid fidelity work: underwater dissolution, moving-platform contact,
+source sound import, and representative non-flat terrain playtests. Addresses
+and measured behaviors are in the [source notebook](x-weapons-source-notes.md).
+
 ## Remaining implementation
 
-Implement the other fifteen weapons' normal and charged attacks, native
+Implement the other fourteen weapons' normal and charged attacks, native
 sound/effect cleanup, X/Zero firing origins, terrain/enemy interaction and
 meaningful special behaviors. Gate charging on X1's arm upgrade. Keep ordinary
 damage and existing X1 progression. Co-op remains a later, separate mod. The

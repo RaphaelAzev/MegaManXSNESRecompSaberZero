@@ -83,7 +83,9 @@ Menu/state checkpoint `12c0e1e` implements all three pause pages, original menu
 icons, native cursor selection and independent energy/save state. The first
 combat checkpoint adds source-based normal/charged Spinning Blade and shared
 projectile/collision/save plumbing. Native energy HUD/pickup integration is also
-implemented. The other fifteen attacks and weapon polish remain in progress;
+implemented. A second combat checkpoint adds normal/charged Acid Burst,
+including tile contact, splashes and droplets. The other fourteen attacks and
+weapon polish remain in progress;
 this is not a completed weapon release.
 See [port findings](x-weapons-port.md) for concrete validation and limitations.
 

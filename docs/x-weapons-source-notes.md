@@ -105,3 +105,60 @@ have eligibility constraints or activate while held. In particular, Sonic
 Slicer, Frost Shield, Gravity Well and Tornado Fang require follow-up source
 checks before implementing from those initial traces. Keep verified facts
 separate from inferred behavior; add new findings below as weapons are ported.
+
+## X1 terrain mapping for ported projectiles
+
+`$84:90B3..9110` samples the object's terrain offsets and resolves the collision
+class. `$84:916A..91AC` reads the live screen map at RAM `$E800`, indexed by
+`(y >> 8)*32 + (x >> 8)`. The screen selects a 512-byte metatile page; the
+within-screen byte offset is `((y & $F0) << 1) + ((x & $F0) >> 3)`. That index
+wraps to 16 bits before the long read at RAM `$7E2000 + index`.
+
+The metatile word indexes the collision property table pointed to by RAM
+`$0B92..0B94`. Its low six bits select terrain behavior. This is **not** the
+graphics definition table at `$0B95`. Read current RAM, not an initial ROM
+layout, so broken/changed tiles immediately affect projectiles.
+
+Floor dispatch `$84:961C`: classes 1-4 are half slopes and 5-12 quarter slopes
+(`$96D3..9815`); `$13` is solid (`$96B5`). Classes `$33..3F` contain solid,
+conveyor, ladder-top and spike behaviors. `$39/$3A` tops are one-way. Water and
+ordinary ladder classes do not block these attacks. The port reads these
+properties without invoking player-only hazard or conveyor side effects.
+The swept projectile helper currently covers static tile terrain and slopes;
+dynamic moving-platform actor contact still needs a separate integration.
+
+## X3 Acid Burst
+
+Verified against original ROM and private runtime traces:
+
+- Normal actor class `$07`, group `$05`; initial source velocity `($0120,$0280)`
+  with gravity `$20`. Source Y is positive up. Up/down modify the lob to
+  `(0,+$0500)` / `(0,-$0500)`; table `$06:B893..B8A2`, selection `$81:919B..91DE`.
+  Normal flight uses animation sequence 2, poses 10-14, three frames each.
+- Native terrain contact `$81:91FC..9267` selects sequence 7 for floor,
+  10 for ceiling, 11 for wall; wall contact flips facing. A floor splash lasts
+  40 frames. The animation flag on pose 37 triggers four droplets; tables at
+  `$06:B8AD..B90C` specify their offsets/velocities. Droplet actor `$18` uses
+  gravity `$30`, ten initial terrain-grace frames, sequence 4, then sequence 5
+  on terrain. Source routines `$81:92D3..933F` and `$81:93BD..945F`.
+- Charged actor `$10`, same group: `$81:947E..9545` creates two blobs, initially
+  `($00C0,$0500)` and `($0200,$0300)`, source gravity `$38`. Sequence 12 grows
+  from pose 20 through 15,10,5 to 0; then sequence 0 animates full size.
+- Charged collision `$81:9555..95F9` permits five terrain contacts, emits a
+  splash each time, reverses X on walls and uses source vertical speed
+  `+$0500` on floor / `-$0500` on ceiling. Floor/ceiling contact sets X speed
+  magnitude `$0100`. Splash clones are created at `$81:962B..965A`.
+- Original collision radii: normal 6x6, charged main blob and droplets 4x4,
+  charged splash 8x8. Visual growth does not enlarge the main blob's source
+  damage box. Enemy impact uses sequence 6; normal terrain splashes are visual
+  parents for the damaging droplets.
+- Measured energy: normal **1**, charged **2**. Private original runtime went
+  from 28 to 27 on the initial charging press, then to 25 on charged release.
+  Do not reuse Spinning Blade's three-energy charged cost.
+
+Port checkpoint covers those airborne, tile-contact and enemy-contact forms
+for both characters. Source underwater dissolution (`$02:DF16` called from
+`$81:9183/$94C5`) and source audio are still pending; current sounds come from
+X1. Revisit moving-platform contact and broader slopes/ceiling/wall playtests
+alongside the other terrain-sensitive weapons. Those are open fidelity items,
+not facts already established by the highway floor test.
