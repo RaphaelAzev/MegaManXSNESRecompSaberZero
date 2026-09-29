@@ -102,7 +102,8 @@ using a world-angle pose and then flipping it again reverses the tether.
 The original 100-frame normal/charged recordings are discovery material, not
 proof of every charged form. The X2 fixture is near a wall. Some charged forms
 have eligibility constraints or activate while held. In particular, Sonic
-Slicer, Frost Shield, Gravity Well and Tornado Fang require follow-up source
+Slicer's charged discovery trace was superseded by the verified trace below;
+Frost Shield, Gravity Well and Tornado Fang still require follow-up source
 checks before implementing from those initial traces. Keep verified facts
 separate from inferred behavior; add new findings below as weapons are ported.
 
@@ -219,3 +220,43 @@ pose hold, leaving a stale count after the host-owned blade retired. That
 write is removed. Ray/Blade runtime checks now require zero native charged-beam
 count after the extended attacks finish. Own projectile count remains `$0BDD`;
 do not confuse these counters.
+
+## X2 Sonic Slicer
+
+Normal class `$0B`, group `$41`, DMA `$85:9F83`, animation `$2F:EC62`:
+`$81:9622..9666` waits for sequence 0's final flag, then starts sequence 1
+and creates a second blade. Table `$86:B784` gives horizontal speeds 768/896
+and source upward accelerations 4/8 in 8.8 units; initial source Y speed is
+-128. Bounds `$86:B77A` are `(0,0,12,8)`. `$81:9667..96A9` reflects off walls;
+`$81:96AB..96D5` reflects and halves vertical speed, retiring on the third
+vertical contact. Normal impact sequence 4 uses poses 16-21. Normal cost is
+**0.5**, verified from the native energy pair and preserved by host fractions.
+
+Charged class `$14` uses **group `$87`, not `$41`**: DMA `$85:9FBE`, animation
+`$2F:D54D`. The initial 205-frame source recording still showed the normal
+pair and was not evidence for the charged form. A private 400-frame charge
+allowed that pair to retire and produced the real five-blade attack. The
+charged group adds 19 locally extracted poses. Pose 18 is the inherited blank
+8x8 tile `$45` (all pixels zero); there are only 18 entries in its DMA table.
+The descriptor marks that pose as inherited instead of reading past the table.
+
+`$81:A570..A5BF` sets up the charged form. `$81:A5D2..A613` waits on forming
+sequence 0's last flag, starts sequence 1 and spawns four siblings. Source
+velocity rows `$86:B9F9` are `(0,2304)`, `(400,2269)`, `(-400,2269)`,
+`(787,2165)`, `(-787,2165)`; Y is positive up. Gravity bytes at `$86:BA0D`
+are 80,78,78,75,75. `$81:A614..A632` stops horizontal travel at the apex,
+switches to sequence 2 (pose 11) and downward acceleration 96. `$A647..A653`
+clamps the source Y high byte to `$F8` after movement, preserving its low byte.
+Charged blades pass through tiles. Bounds `$86:B9F1` are `(0,-2,10,11)`.
+Impact uses sequence 3; charged cost is **2**, separate from the initial
+half-unit normal shot that can begin a charge.
+
+Port checks cover X and Zero, fractional debit and insufficient energy,
+charging locked without arms, native floor reflection/third-contact retirement,
+five charged arcs/apex transitions, native enemy damage/impact retirement,
+slot and charge-audio cleanup, and exact save/replay before splitting and
+across the apex. Normal and charged original-art captures were inspected.
+The existing combat/save ABI is unchanged. Open fidelity items: normal trail
+history (`$81:97B3..97FF`), wall-contact cosmetic effects, source sound import,
+and broader terrain/movement comparisons. The shared swept tile solver resolves
+contacts in the current tick; the source consumes its preceding contact flags.

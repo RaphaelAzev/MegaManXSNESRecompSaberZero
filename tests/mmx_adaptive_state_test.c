@@ -456,6 +456,87 @@ static unsigned acid_variants(unsigned variant, bool charged) {
     c.shots[i].variant==variant && c.shots[i].charged==charged;
   return n;
 }
+static void weapon_sonic_checks(const char *assets, const char *fixture, uint8 *start,
+                                uint8 *expected, uint8 *actual, size_t cap) {
+  check(MmxWeaponsLoad(assets),"Sonic Slicer normal and charged assets load");
+  check(MmxWeaponsPose(1,5,135,11)!=NULL,"charged Sonic Slicer uses original separate sprite group");
+  for(unsigned character=0;character<2;++character) {
+    check(RtlLoadSnapshot(fixture),"restore Sonic Slicer fixture");
+    if(character) zero_health_swap();
+    MmxWeaponsState w=MmxWeaponsGetState();w.page=1;w.weapon=5;MmxWeaponsSetState(w);
+    frame(SNES_PAD_Y);zero_replay(8);
+    check(extended_shots(false)==1 && MmxWeaponsEnergyAmount(1,5)==27*256+128,
+          "normal Sonic Slicer forms at muzzle for half an energy unit");
+    size_t n=RtlSaveSnapshotToMemory(start,cap);zero_replay(25);
+    check(extended_shots(false)==2,"normal Sonic Slicer launches two blades after forming");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-sonic.cap":".zero-sonic.cap");
+    size_t en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"restore Sonic Slicer before split");
+    zero_replay(25);size_t an=RtlSaveSnapshotToMemory(actual,cap);
+    same(expected,en,actual,an,"Sonic Slicer split and arcs replay exactly");
+    MmxWeaponCombatState c=MmxWeaponsGetCombatState();unsigned shot=8;
+    for(unsigned i=0;i<8;++i) if(c.shots[i].active) {shot=i;break;}
+    check(shot<8,"Sonic blade available for native terrain collision");
+    c.shots[shot].x=(g_ram[0xbad]|g_ram[0xbae]<<8)*256;
+    c.shots[shot].y=(g_ram[0xbb0]|g_ram[0xbb1]<<8)*256;
+    c.shots[shot].vx=0;c.shots[shot].vy=768;MmxWeaponsSetCombatState(c);
+    zero_replay(12);c=MmxWeaponsGetCombatState();
+    check(c.shots[shot].active && c.shots[shot].radius==1 && c.shots[shot].vy<0,
+          "normal Sonic Slicer reflects upward from the native highway floor");
+    c.shots[shot].y=(g_ram[0xbb0]|g_ram[0xbb1]<<8)*256;
+    c.shots[shot].vy=768;c.shots[shot].radius=2;MmxWeaponsSetCombatState(c);
+    zero_replay(12);
+    check(!MmxWeaponsGetCombatState().shots[shot].active,"third vertical ricochet retires normal Sonic Slicer");
+    zero_replay(180);
+    check(!extended_shots(false) && !g_ram[0xbdd],"Sonic normal blades release native slots");
+    for(unsigned i=0;i<150;++i) frame(SNES_PAD_Y);
+    frame(0);zero_replay(15);
+    check(!extended_shots(true),"Sonic charged attack remains locked without X1 arms");
+    zero_replay(180);g_ram[0x1f99]|=2;
+    unsigned energy=MmxWeaponsEnergyAmount(1,5);
+    for(unsigned i=0;i<150;++i) frame(SNES_PAD_Y);
+    frame(0);zero_replay(19);
+    check(extended_shots(true)==5 && MmxWeaponsEnergyAmount(1,5)==energy-0x280,
+          "charged Sonic Slicer launches five blades for two energy after the initial half-unit shot");
+    check(!(g_ram[0xc2f]&64),"charged Sonic release stops charging audio");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-sonic-charged.cap":".zero-sonic-charged.cap");
+    n=RtlSaveSnapshotToMemory(start,cap);zero_replay(29);
+    c=MmxWeaponsGetCombatState();unsigned falling=0;
+    for(unsigned i=0;i<8;++i) falling+=c.shots[i].active && c.shots[i].charged &&
+      c.shots[i].muzzle_pose==2 && !c.shots[i].vx && c.shots[i].vy>0;
+    check(falling==5,"all five charged blades stop spreading at their apex and fall");
+    en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"restore charged Sonic ascent");
+    zero_replay(29);an=RtlSaveSnapshotToMemory(actual,cap);
+    same(expected,en,actual,an,"five charged Sonic trajectories replay exactly across apex");
+    zero_replay(120);
+    check(!extended_shots(true) && !g_ram[0xbdd] && !g_ram[0xc25],"charged Sonic blades retire without leaking native counts");
+    w=MmxWeaponsGetState();w.energy[4]=0;w.fraction[4]=127;MmxWeaponsSetState(w);
+    frame(SNES_PAD_Y);zero_replay(30);
+    check(!extended_shots(false) && MmxWeaponsEnergyAmount(1,5)==127,
+          "insufficient half-unit energy prevents Sonic fire without underflow");
+  }
+  check(RtlLoadSnapshot(fixture),"restore Sonic native-enemy encounter");unsigned victim=0;
+  for(unsigned i=0;i<400 && !victim;++i) {
+    frame(SNES_PAD_RIGHT);
+    for(unsigned d=0xe68;d<0x1228;d+=64)
+      if(g_ram[d] && (g_ram[d+0x27]&127) && (g_ram[d+0x20]|g_ram[d+0x21])) {victim=d;break;}
+  }
+  check(victim!=0,"native enemy available for Sonic collision");
+  MmxWeaponsState w=MmxWeaponsGetState();w.page=1;w.weapon=5;MmxWeaponsSetState(w);
+  frame(0);frame(SNES_PAD_Y);zero_replay(30);
+  MmxWeaponCombatState c=MmxWeaponsGetCombatState();unsigned shot=8;
+  for(unsigned i=0;i<8;++i) if(c.shots[i].active) {
+    c.shots[i].x=(g_ram[victim+5]|g_ram[victim+6]<<8)*256-c.shots[i].vx;
+    c.shots[i].y=(g_ram[victim+8]|g_ram[victim+9]<<8)*256-c.shots[i].vy;
+    shot=i;break;
+  }
+  check(shot<8,"Sonic blade available for native enemy contact");
+  MmxWeaponsSetCombatState(c);unsigned hp=g_ram[victim+0x27]&127;zero_replay(3);
+  check((g_ram[victim+0x27]&127)+1==hp,"Sonic Slicer deals ordinary native enemy damage");
+  zero_replay(30);check(!MmxWeaponsGetCombatState().shots[shot].active,"Sonic impact retires without repeated hits");
+  puts("MMX SONIC SLICER CHECKS PASSED");
+}
 static unsigned ray_births(void) {
   MmxWeaponCombatState c=MmxWeaponsGetCombatState();unsigned count=0;
   for(unsigned i=0;i<8;++i) count+=c.shots[i].active && c.shots[i].weapon==5 &&
@@ -654,7 +735,8 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
   check(w == 256 && g_mmx_custom_renderer, "Zero activates native-width compositor");
   const char *weapons=getenv("MMX_WEAPONS_TEST_ASSETS");
   if (weapons) {
-    if (getenv("MMX_WEAPON_RAY_TEST")) weapon_ray_checks(weapons,fixture,start,expected,actual,cap);
+    if (getenv("MMX_WEAPON_SONIC_TEST")) weapon_sonic_checks(weapons,fixture,start,expected,actual,cap);
+    else if (getenv("MMX_WEAPON_RAY_TEST")) weapon_ray_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_ACID_TEST")) weapon_acid_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_ENERGY_TEST")) weapon_energy_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_COMBAT_TEST")) weapon_combat_checks(weapons,fixture,start,expected,actual,cap);

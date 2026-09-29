@@ -205,7 +205,8 @@ def extract(x2, x3):
                     result.extend(bytes(8))
                     continue
                 try:
-                    transfers(rom, int(group['dma'], 16), pose, tiles, known)
+                    if pose not in group.get('inherited_poses', []):
+                        transfers(rom, int(group['dma'], 16), pose, tiles, known)
                     left, top, width, height, pixels = pose_art(rom, group['group'], pose, tiles, known)
                 except ValueError as error:
                     raise ValueError(f"X{entry['game']} {entry['name']} {group['group']:02x}/{pose:02x}: {error}") from error

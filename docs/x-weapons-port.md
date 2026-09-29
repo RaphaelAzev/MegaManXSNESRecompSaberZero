@@ -18,8 +18,8 @@ graphics remain local.
 python tools/extract_x_weapons.py ../MegamanX2Recomp/mmx2.sfc ../MegamanX3SNESRecomp/mmx3.sfc build-zero/port-work/x-weapons.bin
 ```
 
-The current cache contains 572 projectile poses, sixteen original pause-menu
-icons and the original animation sequences (423,871 bytes). This is an asset foundation, not a
+The current cache contains 591 projectile poses, sixteen original pause-menu
+icons and the original animation sequences (429,227 bytes). This is an asset foundation, not a
 claim that the weapons are already playable in X1.
 
 Sources were checked in the local recomp projects using private, paused
@@ -33,7 +33,7 @@ samples were rendered directly from the extracted indexed pixels and inspected.
 | 2 | Bubble Splash / `$44` | Frost Shield / `$06` |
 | 3 | Silk Shot / `$48` | Triad Thunder / `$0B` |
 | 4 | Spin Wheel / `$46` | Spinning Blade / `$0C` |
-| 5 | Sonic Slicer / `$41` | Ray Splasher / `$0D` |
+| 5 | Sonic Slicer / `$41`, charged `$87` | Ray Splasher / `$0D` |
 | 6 | Strike Chain / `$47` | Gravity Well / `$0F` |
 | 7 | Magnet Mine / `$0F`, charged `$13` | Parasitic Bomb / `$10` |
 | 8 | Speed Burner / `$25`, charged `$26` | Tornado Fang / `$13` |
@@ -113,7 +113,7 @@ ordinary pair, as it does in the source game.
 
 The cache additionally stores original animation directories and records from
 X2 root $2F:A000 and X3 root $3F:8000: duration, flags, pose and relative loops.
-MMXWEAP3 is 423,871 bytes for the current descriptor. Only addresses and the
+MMXWEAP3 is 429,227 bytes for the current descriptor. Only addresses and the
 extractor are committed, never the ROM or extracted art.
 
 Focused ROM-backed checks cover both characters, twin-shot creation, normal
@@ -211,9 +211,25 @@ The current deployment uses a 36-frame wait measured from the reference;
 the original waits on its body-animation event. This is a practical adapter,
 not a claim that the source body-action state machine has been fully ported.
 
+## Fourth combat checkpoint: Sonic Slicer
+
+The normal attack forms at the muzzle, launches two accelerating arcs and
+ricochets from live X1 tile terrain. The third vertical contact retires a blade.
+It costs exactly half an energy unit. Charged release uses X2's separate `$87`
+sprite group and creates five blades, spreading upward, stopping horizontal
+travel at their apex, then falling through terrain. It costs two energy and
+requires X1's arms. Native ordinary enemy damage and original impact art apply.
+
+Focused checks pass for both characters: split timing, fractional costs and
+insufficient energy, arm gating, native floor bounce/retirement, five charged
+arcs and their apex, charge sound/slot cleanup, ordinary native enemy contact,
+and exact save/replay. Original normal and charged captures were inspected;
+desktop and capture tools build. Original normal trails, cosmetic wall sparks,
+source sounds and broader movement/terrain comparison remain fidelity work.
+
 ## Remaining implementation
 
-Implement the other thirteen weapons' normal and charged attacks, native
+Implement the other twelve weapons' normal and charged attacks, native
 sound/effect cleanup, X/Zero firing origins, terrain/enemy interaction and
 meaningful special behaviors. Gate charging on X1's arm upgrade. Keep ordinary
 damage and existing X1 progression. Co-op remains a later, separate mod. The

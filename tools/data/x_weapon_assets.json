@@ -87,6 +87,13 @@
         "group": 65,
         "frames": 23,
         "dma": "859f83"
+      },
+      {
+        "group": 135,
+        "frames": 19,
+        "dma": "859fbe",
+        "inherited_poses": [18],
+        "note": "Impact pose 18 is the inherited blank tile $45; the native DMA directory has only 18 entries."
       }
     ],
     "body_palette": "2cc40",

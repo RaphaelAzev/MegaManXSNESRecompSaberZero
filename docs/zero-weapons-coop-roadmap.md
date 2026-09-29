@@ -90,7 +90,8 @@ projectile/collision/save plumbing. Native energy HUD/pickup integration is also
 implemented. A second combat checkpoint adds normal/charged Acid Burst,
 including tile contact, splashes and droplets. Ray Splasher's normal burst and
 charged radial turret are also implemented, with fractional energy support.
-The other thirteen attacks and
+Sonic Slicer adds its normal ricocheting pair and charged five-blade attack.
+The other twelve attacks and
 weapon polish remain in progress;
 this is not a completed weapon release.
 See [port findings](x-weapons-port.md) for concrete validation and limitations.
