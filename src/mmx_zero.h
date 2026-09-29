@@ -30,6 +30,8 @@ void MmxZeroAnimationStart(unsigned object, unsigned sequence);
 void MmxZeroAnimationAdvance(unsigned object);
 unsigned MmxZeroMuzzle(const uint8_t ram[0x20000], unsigned object,
                       unsigned native_index, unsigned axis, unsigned original);
+unsigned MmxZeroWeaponOrigin(const uint8_t ram[0x20000], unsigned object,
+                             unsigned axis, unsigned original);
 unsigned MmxZeroWeaponTick(uint8_t ram[0x20000], unsigned object, unsigned active);
 unsigned MmxZeroDamage(uint8_t ram[0x20000], unsigned enemy, unsigned projectile, unsigned original);
 unsigned MmxZeroHitbox(const uint8_t ram[0x20000], unsigned enemy, unsigned projectile, unsigned original);

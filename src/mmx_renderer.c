@@ -547,11 +547,12 @@ static uint16_t background(const Ppu *p, const Raster *r, unsigned layer, int x,
   if (!stage && layer == 1 && size == 8 && zero_weapons_menu() && (tile & 0xfc00) == 0x0400) {
     unsigned number = tile & 1023;
     if ((number >= 0xea && number <= 0xec) || (number >= 0xfa && number <= 0xfc)) {
-      unsigned col = (number & 15) - 10, row = number >= 0xfa;
-      life_color = MmxZeroLifeColor(col * 8 + cx - 4, row * 8 + cy);
       tile = 0x080f; /* The menu's own empty panel tile supplies the backdrop. */
     }
   }
+  if (!stage && layer == 1 && size == 8 && zero_weapons_menu() &&
+      px >= 192 && px < 216 && py >= 140 && py < 164)
+    life_color = MmxZeroLifeColor(px - 192, py - 140);
   unsigned number = ((tile & 1023) + cx / 8 + cy / 8 * 16) & 1023;
   unsigned address = (PPU_bgTileAdr(p, layer) + number * bpp * 4) & 0x7fff;
   const uint8_t *bits = stage && g_mmx_render_asset_repairs && bpp == 4 && !(frame.ram[0x1f7a] == 1 && layer == 1) ?
@@ -777,6 +778,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       bool center = g_mmx_render_asset_repairs;
       bool menu_body = s.object == 0x1988 && (s.animation == 0 || s.animation == 0x18);
       bool zero_body = zero && (s.object == 0xba8 || menu_body);
+      bool zero_charge = zero && stage && s.object == 0xc98 && s.animation == 0x71;
       /* Native group $11 is the four-piece life pickup ($81:E33A). Keep its
        * real object, flashing submissions, terrain and collection behavior. */
       bool zero_life = stage && MmxZeroEnabled() && s.animation == 0x11 &&
@@ -785,7 +787,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       bool zero_armor = zero && (s.object == 0xc38 || s.object == 0xc58 || s.object == 0xc78 ||
           (zero_menu && (s.object == 0x1928 || s.object == 0x1948 || s.object == 0x1968)));
       bool oam_match = false;
-      if (g_mmx_render_asset_repairs || zero_body || zero_armor || zero_life) for (int slot = 16; slot < 128; ++slot) {
+      if (g_mmx_render_asset_repairs || zero_body || zero_armor || zero_life || zero_charge) for (int slot = 16; slot < 128; ++slot) {
         unsigned pos = r->oam[slot * 2], hi = r->high_oam[slot / 4] >> (slot % 4 * 2);
         int ox = (pos & 255) | ((hi & 1) << 8); if (ox >= 256) ox -= 512;
         if (ox == s.x && (pos >> 8) == ((unsigned)s.y & 255) && r->oam[slot * 2 + 1] == s.attr) {
@@ -806,9 +808,9 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       if (zero_life) {
         if (!life_drawn[s.object >> 5]) {
           life_drawn[s.object >> 5] = true;
-          int lx = (int16_t)(word(frame.ram,s.object + 5) - word(frame.ram,0x1e4d)) - 8;
-          int ly = (int16_t)(word(frame.ram,s.object + 8) - word(frame.ram,0x1e50)) - 8;
-          sprite(&p,r,lx,ly,s.attr & 0x3fff,16,y,view,objects,false,NULL,0,object_colors,true,2);
+          int lx = (int16_t)(word(frame.ram,s.object + 5) - word(frame.ram,0x1e4d)) - 12;
+          int ly = (int16_t)(word(frame.ram,s.object + 8) - word(frame.ram,0x1e50)) - 12;
+          sprite(&p,r,lx,ly,s.attr & 0x3fff,24,y,view,objects,false,NULL,0,object_colors,true,2);
         }
         continue;
       }
@@ -828,12 +830,28 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
               int dx = zx + ((!menu_body && (frame.ram[0xbb9] & 64)) ? 63 - col : col - 64) + view.extra;
               if (pixel && dx >= 0 && dx < view.width) {
                 objects[dx] = (uint16_t)(z | (pixel & 15));
-                object_colors[dx] = colors[pixel];
+                /* Charged Sting cycles X1's live player palette. Map Zero's
+                 * material/shade roles to that palette instead of discarding
+                 * the native cycle; skin and the dark outline remain legible. */
+                static const uint8_t sting_shade[16] = {0,9,4,6,1,14,15,7,8,9,11,10,4,2,3,12};
+                bool sting = !menu_body && frame.ram[0xc31] && pixel >= 16 && pixel < 32;
+                if (sting) {
+                  objects[dx] = (uint16_t)((z & ~255u) | (144 + sting_shade[pixel - 16]));
+                  object_colors[dx] = -1; /* Live CGRAM already includes fades. */
+                } else object_colors[dx] = colors[pixel];
               }
             }
           }
         }
         continue;
+      }
+      if (zero_charge) {
+        /* Spread the original motes around Zero's taller body. Keep each
+         * sparkle's pixel art and native animation, timing and visibility. */
+        int cx = (int16_t)(word(frame.ram,0xbad) - word(frame.ram,0x1e4d));
+        int cy = (int16_t)(word(frame.ram,0xbb0) - word(frame.ram,0x1e50));
+        s.x += (s.x + s.size / 2 - cx) / 4;
+        s.y += (s.y + s.size / 2 - cy) / 4 - 6;
       }
       sprite(&p, r, s.x, s.y, attr, s.size, y, view, objects, !center, asset, s.tile, object_colors, true, false);
     }

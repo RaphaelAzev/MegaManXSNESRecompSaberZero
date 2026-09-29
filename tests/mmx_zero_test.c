@@ -47,6 +47,16 @@ int main(void) {
   ram[0xbbf] = 100; /* A delayed shot uses its original firing sequence. */
   assert(MmxZeroMuzzle(ram,0x1228,0,0,16) == 24);
   assert(MmxZeroMuzzle(ram,0x1228,255,0,16) == 16);
+  ram[0x1232] = 0x0b; ram[0x1239] = 64;
+  assert(MmxZeroWeaponOrigin(ram,0x1228,0,144) == 150);
+  ram[0x1239] = 0;
+  assert(MmxZeroWeaponOrigin(ram,0x1228,0,112) == 106);
+  ram[0x1232] = 0x0d;
+  assert(MmxZeroWeaponOrigin(ram,0x1228,1,111) == 103);
+  ram[0x1232] = 0x12;
+  assert(MmxZeroWeaponOrigin(ram,0x1228,1,111) == 105);
+  assert(MmxZeroWeaponOrigin(ram,0xe68,1,111) == 111);
+  ram[0x1232] = 0;
   const uint8_t normal[] = {0,255,6,14,0,0,255,7,17,8};
   const uint8_t dash[] = {0,5,6,8,0,0,255,9,17,8};
   memcpy(rom+0x32552,normal,10); memcpy(rom+0x33b38,dash,10);
