@@ -11,6 +11,11 @@ in X1 is deliberately adapted: original weapon artwork and mechanics with
 Zero-appropriate poses, firing origins and body actions. It is not presented as
 a reproduction of native X3 Zero boss-weapon behavior.
 
+Latest playtest exceptions: Speed Burner now uses X1 Fire Wave's stage/enemy
+reactions, and Triad Thunder uses Electric Spark's reactions, including
+Armadillo's armor break. This supersedes the earlier blanket neutral-damage
+rule for these two elements; see [source paths and tests](weapons/x1-stage-reactions.md).
+
 ## Asset extraction foundation
 
 `tools/extract_x_weapons.py` builds a local `MMXWEAP5` cache from both original

@@ -94,6 +94,8 @@ fractional carry preserves these ratios on X1's HP scale: respectively 5,
 5/3, and 3 basic shots per contact. Native X1 invulnerability/collision remains
 in charge; boss responses keep neutral buster damage and existing immunity.
 No X3 boss weaknesses or X3-only stage destruction rules are imported.
+The later owner-approved [X1 electric compatibility](x1-stage-reactions.md)
+does reuse Electric Spark's damage and Armadillo armor-break reaction.
 
 The source diagonal bolt collision table has unusual flag-dependent entries
 past the initial six boxes. Private runtime RAM confirmed those addresses;

@@ -383,8 +383,17 @@ static void collision_box(unsigned index, const MmxWeaponShot *s) {
   if (s->page==2 && s->weapon==2 && s->variant==3) {box[0]=1;box[1]=254;}
   memcpy(collision_rom + 0x37f80 + index*4,box,4);
 }
+static unsigned native_damage_class(const MmxWeaponShot *s) {
+  /* Owner-authorized X1 elemental compatibility. Reuse the actual native
+   * reaction dispatch, including Penguin's igloos and Armadillo's armor.
+   * Speed Burner's underwater bubbles are not fire. */
+  if(s->page==1 && s->weapon==8 && s->variant<2 && !(s->charged && s->tether_pose))
+    return s->charged ? 0x13 : 0x0a;
+  if(s->page==2 && s->weapon==3) return s->charged ? 0x15 : 0x0c;
+  return 0;
+}
 static void native_object(uint8_t *r, unsigned d, const MmxWeaponShot *s) {
-  r[d] = 1; r[d+1] = 2; r[d+10] = 0; r[d+14] = 0;
+  r[d] = 1; r[d+1] = 2; r[d+10] = (uint8_t)native_damage_class(s); r[d+14] = 0;
   r[d+17] = (uint8_t)(0x22 | s->facing); r[d+0x28] = 1;
   putword(r+d+5,(unsigned)(s->x >> 8)); putword(r+d+8,(unsigned)(s->y >> 8));
   putword(r+d+0x20,0xff80 + slot_index(d) * 4); putword(r+d+0x3e,0x5758);
@@ -1464,7 +1473,8 @@ unsigned MmxWeaponsDamage(uint8_t r[0x20000], unsigned enemy, unsigned d, unsign
   /* X1 categories 0..5 are ordinary enemies; 6..19 contain the eight
    * Maverick and special encounter/armored response rows at $86:EF37.
    * Source bosses mostly take one from these attacks and one from buster.
-   * Preserve that neutral ratio, never transplant another game's weakness. */
+   * Preserve that neutral ratio, with the owner's explicit Fire Wave /
+   * Electric Spark compatibility using X1's native response instead. */
   if (r[enemy+0x28]>=6) {
     if (s->page==1 && s->weapon==6) chain_contact(r,s,enemy,original);
     if (s->page==2 && s->weapon==8) fang_contact(r,s,enemy);
@@ -1480,9 +1490,16 @@ unsigned MmxWeaponsDamage(uint8_t r[0x20000], unsigned enemy, unsigned d, unsign
     e->kind=r[enemy+10];e->active=1;
   }
   e->hp=(uint8_t)hp;
-  unsigned scaled=original*source_damage(s)+e->remainder;
+  unsigned basis=original;
+  if(native_damage_class(s) && collision_rom && collision_rom_size>0x37013) {
+    unsigned row=0x36f37+word(collision_rom+0x36f37+r[enemy+0x28]*2);
+    basis=collision_rom[row]; /* Keep source ratios on the buster HP scale. */
+  }
+  unsigned scaled=basis*source_damage(s)+e->remainder;
   e->remainder=(uint8_t)(scaled%3);
   unsigned damage=scaled/3;
+  if(s->page==1 && s->weapon==8 && native_damage_class(s) && original>basis && damage<original)
+    damage=original; /* Preserve Fire Wave's stronger susceptible-enemy hit. */
   if (s->page==1 && s->weapon==6) chain_contact(r,s,enemy,damage);
   if (s->page==2 && s->weapon==8) fang_contact(r,s,enemy);
   return damage>127 ? 127 : damage;

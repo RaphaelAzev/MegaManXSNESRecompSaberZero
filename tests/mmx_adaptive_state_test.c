@@ -1612,6 +1612,7 @@ static void zero_charge_visual_checks(const char *fixture,uint8 *start,uint8 *ex
 #include "mmx_weapon_crystal_test.inc"
 #include "mmx_weapon_gravity_test.inc"
 #include "mmx_weapon_parasitic_test.inc"
+#include "mmx_weapon_stage_test.inc"
 static void zero_state_checks(const char *assets, const char *fixture, uint8 *start,
                               uint8 *expected, uint8 *actual, size_t cap) {
   check(fixture != NULL && MmxZeroLoad(assets), "Zero local assets load");
@@ -1626,7 +1627,8 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
   const char *weapons=getenv("MMX_WEAPONS_TEST_ASSETS");
   if (getenv("MMX_SOURCE_PACK_TEST")) { weapon_source_pack_checks(fixture,start,expected,actual,cap);return; }
   if (weapons) {
-    if (getenv("MMX_WEAPON_DAMAGE_TEST")) weapon_damage_checks(weapons,fixture,start,cap);
+    if (getenv("MMX_WEAPON_STAGE_TEST")) weapon_stage_checks(weapons);
+    else if (getenv("MMX_WEAPON_DAMAGE_TEST")) weapon_damage_checks(weapons,fixture,start,cap);
     else if (getenv("MMX_WEAPON_CYCLE_TEST")) weapon_cycle_checks(weapons,fixture,start,cap);
     else if (getenv("MMX_WEAPON_FROST_TEST")) weapon_frost_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_BUBBLE_TEST")) weapon_bubble_checks(weapons,fixture,start,expected,actual,cap);
