@@ -237,7 +237,7 @@ void MmxRendererRecordPiece(const uint8_t ram[0x20000], uint16_t d) {
                                          ram[d + 0x10], animation, current_object);
 }
 void MmxRendererLatchSprites(void) {
-  if (MmxZeroSwapping() && !building_count) return;
+  if ((MmxZeroSwapping() || MmxWeaponsTimeActive()) && !building_count) return;
   /* Menu fades suspend OAM construction but the PPU keeps its previous
    * sprites. Retain only Zero's attribution; drawing still requires an exact
    * match in that raster's live OAM, so a real hidden blink stays hidden. */
@@ -290,7 +290,7 @@ void MmxRendererBeginFrame(const uint8_t ram[0x20000]) {
   frame_zero = MmxZeroGetState();
   frame_weapons = MmxWeaponsGetState();
   frame_weapon_combat = MmxWeaponsGetCombatState();
-  if (MmxZeroSwapping() && !latched_count) {
+  if ((MmxZeroSwapping() || MmxWeaponsTimeActive()) && !latched_count) {
     /* A mid-swap load has no preceding submission. Rebuild the frozen
      * native queues, including margin actors, before matching live OAM. */
     expanded_building_count = 0; expand_queues(ram);
@@ -873,6 +873,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
         (s->object == 0xe18 && MmxRenderAssetsRideArmorPalettePending(frame.ram,
             frame.lines[0].palette + 128 + ((s->attr >> 9) & 7) * 16)))) piece_assets[i] = a;
   }
+  int16_t crystal_ripple[224];MmxWeaponsTimeRipple(&frame_weapon_combat,crystal_ripple);
   for (int y = 0; y < 224; ++y) {
     const Raster *r = &frame.lines[y]; Ppu p;
     memcpy(&p, r->registers, PPU_SAVESTATE_REGS_SIZE);
@@ -905,6 +906,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
     bool zero_drawn[2] = {false,false};
     for (int i = (int)piece_count - 1; i >= 0; --i) {
       Piece s = pieces[i]; const MmxSpriteAsset *asset = piece_assets[i];
+      bool frozen_enemy=stage && MmxWeaponsFrozenEnemy(&frame_weapon_combat,s.object);
       if (g_mmx_render_asset_repairs && fortress_sound_actor(s.object) &&
           (s.x >= 256 || s.x + s.size <= 0)) continue;
       /* Recorded pieces already obey the retail submission budget. Draw
@@ -925,7 +927,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       bool zero_armor = zero && (s.object == 0xc38 || s.object == 0xc58 || s.object == 0xc78 ||
           (zero_menu && (s.object == 0x1928 || s.object == 0x1948 || s.object == 0x1968)));
       bool oam_match = false;
-      if (g_mmx_render_asset_repairs || zero_body || zero_armor || zero_charge || swap_actor || red_ready || triad_x_body || triad_armor) for (int slot = 16; slot < 128; ++slot) {
+      if (g_mmx_render_asset_repairs || zero_body || zero_armor || zero_charge || swap_actor || red_ready || triad_x_body || triad_armor || frozen_enemy) for (int slot = 16; slot < 128; ++slot) {
         unsigned pos = r->oam[slot * 2], hi = r->high_oam[slot / 4] >> (slot % 4 * 2);
         int ox = (pos & 255) | ((hi & 1) << 8); if (ox >= 256) ox -= 512;
         if (ox == s.x && (pos >> 8) == ((unsigned)s.y & 255) && r->oam[slot * 2 + 1] == s.attr) {
@@ -940,7 +942,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       unsigned attr = asset ? (s.attr & 0xf000) | ((asset->attributes & 15) << 8) |
           (asset->live_tiles ? s.attr & 255 : 0) : s.attr;
       if (asset && asset->live_colors) attr = (attr & ~0x0e00u) | (s.attr & 0x0e00u);
-      if (zero_armor || swap_actor || triad_armor) continue;
+      if (zero_armor || swap_actor || triad_armor || frozen_enemy) continue;
       if (zero_charge && MmxZeroHasChargeArt() && !frame.ram[0xbdb] && !weapon_item) continue;
       if (triad_x_body) {
         if (oam_match && !zero_drawn[0]) {
@@ -1058,7 +1060,10 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       const MmxWeaponShot *s=i<8 ? frame_weapon_combat.shots+i : frame_weapon_combat.effects+i-8;
       if (!s->active || !s->age) continue;
       if (s->page==2 && s->weapon==3 && s->charged && (!s->variant || !s->muzzle_pose)) continue;
-      if (i>=8 && !(frame_weapon_combat.tick&1)) continue; /* Original sparkle flicker. */
+      if (s->page==1 && s->weapon==1 && s->charged) continue;
+      if (i>=8 && (s->weapon==1 ? s->age==1 || !((s->age-1+s->tether_pose)&1) :
+          !(frame_weapon_combat.tick&1))) continue; /* Original debris/sparkle flicker. */
+      if (i<8 && s->page==1 && s->weapon==1 && s->muzzle_pose==5) continue;
       if (s->page==1 && s->weapon==8 && s->charged && s->tether_pose) continue;
       if (s->page==1 && s->weapon==2 && s->charged && (!s->variant || !s->muzzle_pose)) continue;
       if (s->page==2 && s->weapon==7 && s->variant!=2 && s->muzzle_pose==(s->charged ? 4 : 7)) continue;
@@ -1135,6 +1140,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       int bg_colors[3] = {-1, -1, -1};
       for (int layer = 0; layer < 3; ++layer) if ((p.screenEnabled[0] | p.screenEnabled[1]) & (1 << layer)) {
         int bx = x, by = y + 1;
+        if (stage && layer==0) by+=crystal_ripple[y];
         if (p.mosaic & (1 << layer)) { int size = (p.mosaic >> 4) + 1;
           bx -= ((bx % size) + size) % size; by -= by % size; }
         bg[layer] = background(&p, r, layer, bx, by, stage, &bg_colors[layer]);

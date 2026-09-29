@@ -1593,6 +1593,7 @@ static void zero_charge_visual_checks(const char *fixture,uint8 *start,uint8 *ex
   frame(0);check(MmxZeroGetState().saber_ready,"recharged Zero releases the full combo normally");
   puts("MMX ZERO CHARGE COLOR AND CANCELLATION CHECKS PASSED");
 }
+#include "mmx_weapon_crystal_test.inc"
 static void zero_state_checks(const char *assets, const char *fixture, uint8 *start,
                               uint8 *expected, uint8 *actual, size_t cap) {
   check(fixture != NULL && MmxZeroLoad(assets), "Zero local assets load");
@@ -1616,6 +1617,7 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
     else if (getenv("MMX_WEAPON_FANG_TEST")) weapon_fang_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_CHAIN_TEST")) weapon_chain_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_SILK_TEST")) weapon_silk_checks(weapons,fixture,start,expected,actual,cap);
+    else if (getenv("MMX_WEAPON_CRYSTAL_TEST")) weapon_crystal_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_SPEED_TEST")) weapon_speed_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_WHEEL_TEST")) weapon_wheel_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_SONIC_TEST")) weapon_sonic_checks(weapons,fixture,start,expected,actual,cap);

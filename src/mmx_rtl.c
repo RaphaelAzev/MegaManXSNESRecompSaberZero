@@ -891,6 +891,7 @@ void RunOneFrameOfGame(void) {
   }
   cpu_trace_px_breadcrumb(&g_cpu, 0x2002, "before_Internal");
   if (MmxZeroSwapTick(g_ram)) return;
+  if (MmxWeaponsFrameTick(g_ram)) return;
   if (s_ws_recover_armor) {
     if (!g_mmx_custom_renderer || !MmxWidePolicy_PrematureRideArmor(g_ram) ||
         MmxWidePolicy_RecoverRideArmor(g_ram, MmxWsMargin())) s_ws_recover_armor = false;

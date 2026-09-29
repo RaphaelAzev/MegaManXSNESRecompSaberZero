@@ -10,6 +10,7 @@ MUZZLE_PCS = {0x81a566, 0x81a578, 0x838b6a, 0x838d82, 0x838eb4,
               0x839518, 0x83983c, 0x839974, 0x83a3a9}
 ORIGIN_PCS = {0x8283ed: 1, 0x83958c: 0, 0x839dc5: 1}
 REQUIRED = PCS | MUZZLE_PCS | ORIGIN_PCS.keys() | {0x009da6, 0x81815c, 0x818165, 0x00d3e5, 0x849e73, 0x849c16, 0x848f07, 0x848eea, 0x8491db, 0x82823e, 0x8194af}
+OPTIONAL = {0x00d4f2, 0x00d50f}  # Current enemy loops run through the interpreter.
 
 
 def apply(text):
@@ -26,6 +27,11 @@ def apply(text):
                 output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern unsigned MmxZeroWeaponOrigin(const uint8_t *, unsigned, unsigned, unsigned); {store[2]} = (uint16)MmxZeroWeaponOrigin(g_ram, cpu->D, {axis}, {store[2]}); cpu_write_a_m(cpu, {store[2]}); }}\n')
                 found.add(pc)
         output.append(line)
+        if pc in (0x00d4f2,0x00d50f):
+            load = re.search(r'uint8 (_v\d+) = cpu_read8\(cpu, 0x00, \(uint16\)\(cpu->D \+ 0x0000\)\);', line)
+            if load:
+                output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern unsigned MmxWeaponsEnemyActive(const uint8_t *, unsigned, unsigned); {load[1]} = (uint8)MmxWeaponsEnemyActive(g_ram,cpu->D,{load[1]}); }}\n')
+                found.add(pc)
         if pc == 0x8194af and 'cpu->coprocessor_master_cycles = cpu->master_cycles;' in line:
             output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern void MmxWeaponsSelectShot(const uint8_t *, unsigned); MmxWeaponsSelectShot(g_ram,cpu->X); }}\n')
             found.add(pc)
@@ -87,13 +93,13 @@ def main():
     found = set()
     for path in args.gen_dir.glob('*.c'):
         text = path.read_text(encoding='utf-8')
-        if not any(f'0x{pc:06X}' in text for pc in REQUIRED | {0x849e6e}):
+        if not any(f'0x{pc:06X}' in text for pc in REQUIRED | OPTIONAL | {0x849e6e}):
             continue
         updated, sites = apply(text)
         found |= sites
         if updated != text:
             path.write_text(updated, encoding='utf-8', newline='\n')
-    if found != REQUIRED:
+    if REQUIRED - found:
         raise SystemExit(f'Missing Zero hooks: {REQUIRED - found}')
     print(f'MMX Zero: {len(found)} capability/combat sites verified')
 
