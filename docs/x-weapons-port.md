@@ -18,9 +18,9 @@ graphics remain local.
 python tools/extract_x_weapons.py ../MegamanX2Recomp/mmx2.sfc ../MegamanX3SNESRecomp/mmx3.sfc build-zero/port-work/x-weapons.bin
 ```
 
-The current cache contains 600 projectile/effect poses, sixteen original pause-menu
+The current cache contains 624 projectile/effect poses, sixteen original pause-menu
 icons, sixteen gameplay HUD footers and the original animation sequences
-(440,617 bytes). This is an asset foundation, not a
+(451,225 bytes). This is an asset foundation, not a
 claim that the weapons are already playable in X1.
 
 Sources were checked in the local recomp projects using private, paused
@@ -51,7 +51,8 @@ Crystal Hunter's inherited frames use its original setup CHR transfer.
 Silk Shot currently extracts its original scrap form (poses `$13-$1D` plus the
 icon). Its other forms borrow stage graphics and require a separate X1 terrain
 adaptation. Tornado Fang includes the 36 frames covered by its player weapon
-DMA table; the additional layouts do not use that table.
+DMA table plus 24 charged drill frames combining six arm layouts with four
+original CHR rotation phases; see [Tornado Fang source notes](weapons/tornado-fang.md).
 
 The binary stores sixteen weapon entries, each with game/weapon IDs, original
 X body and weapon palettes, the original 16x16 menu icon and its palette, then
@@ -89,7 +90,7 @@ and X1 ownership filtering after returning to its page.
 Bounded generated/interpreter hooks virtualize the pause inventory reads and
 selection. X1 progression/energy stays untouched. An extended selection uses
 native buster resources as a safe underlying actor. The current
-implementation includes nine combat weapons; remaining entries
+implementation includes ten combat weapons; remaining entries
 are still unfinished.
 
 The game save chunk is version 13 when extended weapons are enabled; legacy
@@ -102,7 +103,7 @@ Game versions 9/10 and capture versions 8/9 retain their original 24-byte
 inventory prefix; new loads initialize the sixteen appended fraction bytes
 to zero. New inventory state is 40 bytes and preserves source 8.8 precision.
 
-The nine playable weapons now use source ordinary-enemy damage divided by
+The ten playable weapons now use source ordinary-enemy damage divided by
 their source buster value (3), multiplied by the X1 target's buster damage.
 Fractions carry between contacts to preserve ratios, including weak individual
 pellets and strong sustained weapons. Special encounter/armored profiles keep
@@ -397,7 +398,7 @@ Native X1 still limits damaging actors to eight, compared with X2's nine.
 
 ## Remaining implementation
 
-Implement the other seven weapons' normal and charged attacks, native
+Implement the other six weapons' normal and charged attacks, native
 sound/effect cleanup, X/Zero firing origins, terrain/enemy interaction and
 meaningful special behaviors. Gate charging on X1's arm upgrade. Keep ordinary
 damage and existing X1 progression. Co-op remains a later, separate mod. The
