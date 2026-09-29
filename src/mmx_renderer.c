@@ -324,7 +324,7 @@ bool MmxRendererSaveCapture(const char *path) {
   if (!frame.valid || !path) return false;
   FILE *f = fopen(path, "wb");
   if (!f) return false;
-  uint32_t header[] = {0x4d4d5843, 4, sizeof(frame) + sizeof(frame_zero)};
+  uint32_t header[] = {0x4d4d5843, 5, sizeof(frame) + sizeof(frame_zero)};
   bool ok = fwrite(header, sizeof(header), 1, f) == 1 && fwrite(&frame, sizeof(frame), 1, f) == 1 &&
       fwrite(&frame_zero, sizeof(frame_zero), 1, f) == 1;
   return fclose(f) == 0 && ok;
@@ -333,16 +333,21 @@ bool MmxRendererLoadCapture(const char *path) {
   if (!path) return false;
   FILE *f = fopen(path, "rb");
   if (!f) return false;
-  uint32_t h[3];
+  uint32_t h[3] = {0};
   frame.valid = false;
   memset(&frame_zero, 0, sizeof(frame_zero));
   bool ok = fread(h, sizeof(h), 1, f) == 1 && h[0] == 0x4d4d5843 &&
       ((h[1] == 2 && h[2] == sizeof(frame)) || (h[1] == 3 && h[2] == sizeof(frame) + MMX_ZERO_LEGACY_STATE_SIZE) ||
-       (h[1] == 4 && h[2] == sizeof(frame) + sizeof(frame_zero))) &&
+       (h[1] == 4 && h[2] == sizeof(frame) + MMX_ZERO_ANIMATION_STATE_SIZE) ||
+       (h[1] == 5 && h[2] == sizeof(frame) + sizeof(frame_zero))) &&
       fread(&frame, sizeof(frame), 1, f) == 1 &&
       frame.captured == 224 && frame.piece_count <= MAX_PIECES && frame.expanded_count <= MAX_PIECES && frame.valid;
-  if (ok && h[1] >= 3) ok = fread(&frame_zero, h[1] == 3 ? MMX_ZERO_LEGACY_STATE_SIZE : sizeof(frame_zero), 1, f) == 1 &&
-      frame_zero.slash <= 46 && frame_zero.air <= 1 && frame_zero.anim_valid <= 1 && frame_zero.anim_pose < 117;
+  size_t zero_size = h[1] == 3 ? MMX_ZERO_LEGACY_STATE_SIZE :
+      h[1] == 4 ? MMX_ZERO_ANIMATION_STATE_SIZE : sizeof(frame_zero);
+  if (ok && h[1] >= 3) ok = fread(&frame_zero, zero_size, 1, f) == 1 &&
+      frame_zero.slash <= 46 && frame_zero.air <= 1 && frame_zero.anim_valid <= 1 && frame_zero.anim_pose < 117 &&
+      frame_zero.burst <= 2 && (!frame_zero.burst || (frame_zero.burst_offset >= 272 &&
+        frame_zero.burst_offset + 3 <= MMX_ZERO_ANIMATION_BYTES && frame_zero.burst_timer));
   ok = ok && fgetc(f) == EOF;
   fclose(f); frame.valid = ok; return ok;
 }

@@ -14,17 +14,26 @@ static uint8_t muzzle[MMX_ZERO_MUZZLE_BYTES];
 static MmxZeroState state;
 _Static_assert(offsetof(MmxZeroState, anim_offset) == MMX_ZERO_LEGACY_STATE_SIZE,
                "Keep the v4 combat-state prefix readable");
+_Static_assert(offsetof(MmxZeroState, burst_offset) == MMX_ZERO_ANIMATION_STATE_SIZE,
+               "Keep the v5 animation-state prefix readable");
 static unsigned word(const uint8_t *p) { return p[0] | p[1] << 8; }
 static void putword(uint8_t *p, unsigned v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
 MmxZeroState MmxZeroGetState(void) { return state; }
 void MmxZeroResetState(void) { memset(&state, 0, sizeof(state)); }
 void MmxZeroSetState(MmxZeroState s) {
   MmxZeroResetState();
-  if (poses && s.combo <= 2 && s.slash <= 46 && s.charge <= 180 &&
+  if (poses && s.combo <= 2 && s.slash <= 44 && s.charge <= 201 &&
       s.air <= 1 && (s.facing == 0 || s.facing == 64) && s.anim_valid <= 1 &&
+      s.burst <= 2 && s.burst_end <= 1 && s.saber_ready <= 1 && s.burst_transition <= 1 && s.burst_fired <= 1 &&
+      (!s.burst || (s.burst_offset >= 272 && s.burst_offset + 3 <= sizeof(animation) &&
+                    s.burst_timer && animation[s.burst_offset + 2] < 117)) &&
       (!s.anim_valid || (s.anim_offset >= 272 && s.anim_offset + 3 <= sizeof(animation) &&
                         s.anim_timer && s.anim_pose < 117)) &&
       (!s.projectile || (s.projectile >= 0x1228 && s.projectile < 0x1428 && (s.projectile & 63) == 0x28))) state = s;
+}
+unsigned MmxZeroChargeTier(const MmxZeroState *s) {
+  return !s || s->charge < 21 ? 0 : s->charge < 81 ? 4 :
+         s->charge < 141 ? 6 : s->charge < 201 ? 8 : 10;
 }
 
 bool MmxZeroEnabled(void) { return poses != NULL; }
@@ -116,7 +125,8 @@ unsigned MmxZeroMuzzle(const uint8_t r[0x20000], unsigned object,
                       unsigned native_index, unsigned axis, unsigned original) {
   if (!poses || !r || object < 0x1228 || object >= 0x1428 ||
       (object & 63) != 0x28 || axis > 1) return original;
-  unsigned pose = state.anim_valid ? state.anim_pose : r[0xbbf] & 127;
+  unsigned pose = state.burst ? animation[state.burst_offset + 2] :
+      state.anim_valid ? state.anim_pose : r[0xbbf] & 127;
   unsigned offset = pose < 117 ? muzzle[pose] : 0;
   if (!offset) {
     /* Delayed/formation projectiles can initialize after the firing overlay
@@ -157,7 +167,7 @@ static unsigned slash_pose(const MmxZeroState *s) {
   /* Vanilla X3 group $4B actions $00/$0E: duration, frame. */
   static const uint8_t duration[] = {3,3,1,2,3,3,6,16,3,3,3};
   static const uint8_t pose[] = {0,1,2,2,3,4,5,6,4,1,0};
-  unsigned age = s->slash ? s->slash - 1 : 0;
+  unsigned age = s->slash;
   for (unsigned i = 0; i < sizeof(duration); ++i) {
     if (age < duration[i]) return pose[i] + (s->air ? 7 : 0);
     age -= duration[i];
@@ -172,6 +182,7 @@ const uint8_t *MmxZeroPose(const uint8_t ram[0x20000], const MmxZeroState *s) {
   /* Old saves without mirrored animation state use the shared pose vocabulary
    * until the next native animation start. New saves retain the exact phase. */
   unsigned pose = s && s->anim_valid ? s->anim_pose : ram[0xbbf] & 127;
+  if (s && s->burst && s->burst_offset + 3 <= sizeof(animation)) pose = animation[s->burst_offset + 2];
   if (pose >= 117) pose = 0;
   if (s && s->slash) pose = 117 + slash_pose(s);
   return poses + (size_t)pose * MMX_ZERO_WIDTH * MMX_ZERO_HEIGHT;
@@ -227,6 +238,8 @@ void MmxZeroCancel(uint8_t ram[0x20000]) {
   /* Combat cancellation (hurt, weapon switch, menus) must not reset the
    * independent body animation. Full reset/load uses MmxZeroResetState. */
   memset(&state, 0, MMX_ZERO_LEGACY_STATE_SIZE);
+  memset((uint8_t *)&state + MMX_ZERO_ANIMATION_STATE_SIZE, 0,
+         sizeof(state) - MMX_ZERO_ANIMATION_STATE_SIZE);
 }
 static unsigned free_projectile(const uint8_t *r) {
   for (unsigned d = 0x1228; d < 0x1428; d += 64)
@@ -236,59 +249,169 @@ static unsigned free_projectile(const uint8_t *r) {
 static void clear_charge(uint8_t *r) {
   memset(r + 0xbff, 0, 5);
 }
+static unsigned burst_sequence(void) {
+  return state.burst == 1 ? (state.air ? 0x43 : 0x30) : (state.air ? 0x49 : 0x36);
+}
+static void burst_record(unsigned sequence) {
+  state.burst_offset = (uint16_t)word(animation + sequence * 2);
+  state.burst_timer = animation[state.burst_offset];
+}
+static void start_burst(uint8_t *r, unsigned which) {
+  state.burst = (uint8_t)which; state.burst_end = 0;
+  state.burst_transition = state.burst_fired = 0;
+  state.air = !(r[0xbd3] & 4); state.facing = r[0xc11] & 64;
+  burst_record(burst_sequence());
+  if (which == 2 && state.air) ++state.burst_timer; /* X3's separate setup frame. */
+  clear_charge(r);
+}
+static void emit_burst(uint8_t *r) {
+  unsigned d = free_projectile(r);
+  if (!d) return;
+  memset(r + d,0,64); r[d] = 1; r[d + 10] = 3;
+  ++r[0xbdd]; r[0x1f0d] = 4;
+  state.shot_mask |= (uint8_t)(1u << ((d - 0x1228) / 64));
+  state.cooldown = 0;
+}
+static void advance_burst(uint8_t *r) {
+  unsigned flags = animation[state.burst_offset + 1];
+  if (state.burst_transition) {
+    burst_record(burst_sequence() + (flags & 7));
+    state.burst_transition = 0;
+    flags = animation[state.burst_offset + 1];
+  }
+  if (flags & 128) { state.burst_end = 1; return; }
+  if ((flags & 64) && !state.burst_fired) {
+    emit_burst(r); state.burst_fired = 1;
+  }
+  bool air = !(r[0xbd3] & 4);
+  if (air != !!state.air) {
+    /* X3 changes action first, then resumes the equivalent numbered phase
+     * on the following update. The transition itself retains the old pose. */
+    state.air = air;
+    state.burst_transition = 1;
+    return;
+  }
+  if (!--state.burst_timer) {
+    unsigned next = state.burst_offset + 3;
+    if (next + 3 > sizeof(animation) || !animation[next] || animation[next + 2] >= 117) {
+      MmxZeroCancel(r); return;
+    }
+    state.burst_offset = (uint16_t)next;
+    state.burst_timer = animation[state.burst_offset];
+  }
+}
+static void track_burst_shots(const uint8_t *r) {
+  unsigned alive = 0;
+  for (unsigned i = 0; i < 8; ++i) {
+    unsigned d = 0x1228 + i * 64;
+    if ((state.shot_mask & (1u << i)) && r[d] && r[d + 10] == 3 &&
+        !own_projectile(r,d)) alive |= 1u << i;
+  }
+  /* X3 requires both the charged projectile and its effects to retire. The
+   * retained X1 beam executes its disappearance animation in the SAME slot
+   * ($81:A3CE..A40D); C25 is decremented only afterwards. Wait for that real
+   * lifetime, including impact/offscreen recovery, with no guessed delay. */
+  state.cooldown = 0;
+  state.shot_mask = (uint8_t)alive;
+}
+static bool burst_holds_air(void) {
+  return state.burst && state.air && (state.burst_end ||
+      (state.burst == 2 && state.burst_offset == word(animation + 0x49 * 2) && state.burst_timer == 2));
+}
 void MmxZeroPlayerTick(uint8_t r[0x20000]) {
   if (!poses || !r) return;
-  /* This runs after X1 has latched mapped controls, before its player state.
-   * Cutscenes, damage, death, ladders, ride armor and menus cancel the combo. */
   unsigned action = r[0xbaa];
   bool playable = r[0xd1] == 2 && r[0xd2] == 4 && r[0xba9] == 2 &&
       (r[0xbcf] & 127) && !r[0x1f0c] && !r[0xbdb] &&
       (action <= 8 || action == 0x10 || action == 0x12 || action == 0x14 || action == 0x20);
   if (!playable) { MmxZeroCancel(r); return; }
-  if (state.cooldown) --state.cooldown;
   bool held = (r[0xbdf] & 64) != 0, pressed = (r[0xbe3] & 64) != 0;
+  track_burst_shots(r);
+  if (state.burst_end) {
+    state.burst = state.burst_end = 0;
+    if (r[0xbd3] & 4) r[0xbab] = 0; /* Restart the ordinary idle action. */
+    else if (r[0xbaa] == 8) MmxZeroAnimationStart(0xba8,5 + r[0xc17]);
+  }
   if (state.slash) {
-    if (++state.slash > 46) { MmxZeroCancel(r); return; }
-  } else if (state.combo && pressed && !state.cooldown) {
+    if (++state.slash > 44) {
+      MmxZeroCancel(r);
+      if (r[0xbd3] & 4) r[0xbab] = 0;
+      return;
+    }
+  } else if (!state.burst && state.combo && pressed) {
     if (state.combo == 1) {
-      unsigned d = free_projectile(r);
-      if (d && !r[0x1f0d]) {
-        /* X1 rejects a second charged shot while $0C25 is nonzero.
-         * Allocate the same native class directly; its initializer owns
-         * position, velocity, graphics, lifetime and the charge-shot count. */
-        clear_charge(r); memset(r + d, 0, 64);
-        r[d] = 1; r[d + 10] = 3; ++r[0xbdd]; r[0x1f0d] = 4;
-        state.combo = 2; state.cooldown = 18;
+      if (free_projectile(r) && !r[0x1f0d]) {
+        state.combo = state.saber_ready ? 2 : 0;
+        start_burst(r,2);
       }
-    } else {
+    } else if (state.saber_ready && !state.shot_mask && !state.cooldown && !r[0xc25]) {
       unsigned d = free_projectile(r);
       if (d) {
-        clear_charge(r); state.combo = 0; state.slash = 1;
+        clear_charge(r); state.combo = state.saber_ready = 0; state.slash = 1;
         state.air = !(r[0xbd3] & 4); state.facing = r[0xc11] & 64;
         state.hit_slots = 0; state.projectile = (uint16_t)d;
         memset(r + d, 0, 64); r[d] = 1; r[d + 1] = 2;
-        r[d + 10] = 3; /* X1's unarmored full buster damage class. */
-        r[d + 0x11] = r[0xbb9]; putword(r + d + 0x3e, 0x5a53);
-        ++r[0xbdd];
+        r[d + 10] = 3; r[d + 0x11] = r[0xbb9];
+        putword(r + d + 0x3e, 0x5a53); ++r[0xbdd];
       }
     }
-  } else if (!state.combo) {
-    if (held) { if (state.charge < 180) ++state.charge; }
-    else {
-      if (state.charge == 180 && free_projectile(r) && !r[0x1f0d]) {
-        clear_charge(r); r[0xc01] = 8; state.combo = 1; state.cooldown = 18;
+  } else if (!state.burst && !state.combo) {
+    if (held) {
+      if (state.charge < 201) ++state.charge;
+      /* Feed X1's ordinary charging visuals at Zero's measured thresholds.
+       * Its release command is selected explicitly below; X1 special weapons
+       * never enter this path and retain their own charge/upgrade rules. */
+      if (state.charge == 21) r[0xbff] = 0x97;
+      else if (state.charge > 21 && state.charge < 81) r[0xbff] = 0x90;
+      else if (state.charge == 81) r[0xbff] = 0x51;
+      else if (state.charge > 81) r[0xbff] = 0x40;
+      if (state.charge >= 141) { r[0xc03] = 1; r[0xc2a] = 4; }
+    } else {
+      unsigned tier = MmxZeroChargeTier(&state);
+      if (tier >= 8 && free_projectile(r) && !r[0x1f0d]) {
+        state.combo = 1; state.saber_ready = tier == 10;
+        start_burst(r,1);
+      } else if (tier >= 4) {
+        clear_charge(r); r[0xc01] = tier >= 6 ? 8 : 6;
       }
       state.charge = 0;
     }
   }
-  if (state.combo) {
-    /* Stored attacks must not start another native charge or pellet. */
+  if (state.burst) {
+    state.held_vy = (uint16_t)word(r + 0xbc4);
+    advance_burst(r);
+    clear_charge(r);
+    /* The ground firing sequence plants Zero's feet; jumping still transfers
+     * to its airborne counterpart. Native air control/gravity/collision run. */
+    if (!state.air) {
+      r[0xbde] = r[0xbe2] = 0;
+      if (action != 0) { r[0xbaa] = 0; r[0xbab] = 0; }
+    } else {
+      /* X3's firing action keeps integrating through the apex, instead of
+       * entering X1's ordinary fall initializer (which resets VY to zero). */
+      r[0xbdf] |= 128;
+      if (r[0xbaa] == 6 && (int16_t)word(r + 0xbc4) < 0) {
+        r[0xbaa] = 8; r[0xbab] = 2;
+        MmxZeroAnimationStart(0xba8,4 + r[0xc17]);
+      }
+      /* Second-shot initialization and the terminal action-return frame do
+       * not integrate motion in X3.
+       * Keep native terrain probes at the unchanged position, then restore
+       * the velocity after the native update for next frame's continuation. */
+      if (burst_holds_air()) {
+        state.held_vy = (uint16_t)word(r + 0xbc4); state.held_gravity = r[0xbc6];
+        putword(r + 0xbc4,0); r[0xbc6] = 0; r[0xbde] = r[0xbe2] = 0;
+      }
+    }
+    r[0xc11] = state.facing;
+  }
+  if (state.combo || state.burst) {
     r[0xbdf] &= (uint8_t)~64; r[0xbe3] &= (uint8_t)~64;
   }
   if (state.slash) {
     r[0xbde] = 0; r[0xbdf] &= 128; r[0xbe2] = r[0xbe3] = 0;
     r[0xc11] = state.facing; clear_charge(r);
-    r[0xbc2] = r[0xbc3] = 0; /* Stop horizontal velocity, preserve gravity. */
+    r[0xbc2] = r[0xbc3] = 0;
     if (!state.air && action != 0) { r[0xbaa] = 0; r[0xbab] = 0; }
     unsigned d = state.projectile;
     if (own_projectile(r, d)) {
@@ -299,6 +422,12 @@ void MmxZeroPlayerTick(uint8_t r[0x20000]) {
       putword(r + d + 0x20, age < 19 ? 0xffb0 + (state.air ? 20 : 0) + phase * 4 : 0);
       r[d + 0x30] = 0;
     }
+  }
+}
+void MmxZeroPlayerEnd(uint8_t r[0x20000]) {
+  if (poses && r && state.burst) {
+    if (!state.air || burst_holds_air()) putword(r + 0xbc4,state.held_vy);
+    if (burst_holds_air()) r[0xbc6] = state.held_gravity;
   }
 }
 unsigned MmxZeroWeaponTick(uint8_t r[0x20000], unsigned d, unsigned active) {

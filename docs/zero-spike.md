@@ -50,9 +50,11 @@ is descriptive; the shared runtime does not enforce save isolation.
 Controls use X1's button mappings:
 
 - Dash is immediately available; no equipment is granted.
-- With the buster selected, hold fire for 180 gameplay updates, then release for
-  the first full shot. After the short recovery, press fire for the second shot,
-  then again for the saber. Ground and aerial swings are supported.
+- With the buster selected, charge tiers occur at 21, 81, 141 and 201 gameplay
+  updates. Hold for 201 (~3.35 seconds at 60 Hz), release for the first buster,
+  press again after its recovery for the second, then press again after both
+  beams/effects clear for the saber. Releasing at 141–200 gives two busters
+  without the saber. Ground and aerial swings are supported.
 - Switching to a special weapon cancels the stored combo and uses X1's weapon
   logic. Charged specials still require the actual arm upgrade.
 
@@ -173,8 +175,8 @@ Full-port progress on `feat/x3-zero-port`:
   X1 still owns facing, spread patterns, trajectories and weapon effects.
   All eight special weapons produce their expected normal/charged native
   projectile classes and spend energy; both firing directions are checked.
-- Saves now use game chunk v5 for Zero's animation phase, retaining v4 combat
-  saves and older formats. Captures use v4, with v2/v3 still readable. Disabled
+- Saves now use game chunk v6 for Zero's firing phase and stored charge tier,
+  retaining v4/v5 saves and older formats. Captures use v5, with v2/v3/v4 still readable. Disabled
   saves remain v3. Complete snapshot, replay, rollback and rewind checks pass.
 
 Owner playtest follow-up: projectile origins and the reported X tiles during
@@ -199,9 +201,13 @@ together. Swapping is not implemented by this HUD update.
    branch maps all 81 native sequence entries to X3's original animations.
    Extracting all 152 poses does not prove that every gameplay state selects
    the correct pose or timing.
-2. Match X3 movement/charge timing and projectile presentation where required.
-   Current movement physics, dash effects and the first two projectile graphics
-   are X1's. Charge/hit palette effects and saber audio still need adaptation.
+2. Match remaining projectile presentation where required. Original charge
+   tiers, first/second body-animation events, air/ground phase transitions and
+   44/45-frame saber recovery are implemented; see the measured
+   [combat reference](../tests/data/zero_x3_combat.md). The first two projectile
+   graphics and travel/effect lifetimes remain X1's. Saber readiness follows
+   their real retirement, including disappearance effects, without a fixed
+   delay. Charge/hit palette effects and saber audio still need adaptation.
 3. Adapt and validate all eight X1 weapons in their normal and charged forms,
    including body/arm poses, emission points and weapon palettes. All eight now
    pass normal/charged activation and energy checks; visual effects need playtesting.

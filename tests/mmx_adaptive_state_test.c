@@ -77,6 +77,39 @@ static void zero_motion_checks(const char *fixture) {
   }
   fclose(f); printf("ok: %u original-X3 movement/animation reference frames\n",checked);
 }
+static void zero_combat_checks(const char *fixture) {
+  FILE *f=fopen(MMX_ZERO_COMBAT_REFERENCE_DEFAULT,"r"); check(f!=NULL,"X3 combat reference opens");
+  char line[160],previous[16]=""; unsigned count=0; int y0=0;
+  check(fgets(line,sizeof(line),f)!=NULL,"X3 combat reference header");
+  while(fgets(line,sizeof(line),f)) {
+    char mode[16],phase[24],keys[16]; int tick,pose,dy,vy,emitted;
+    check(sscanf(line,"%15[^,],%23[^,],%d,%15[^,],%d,%d,%d,%d",mode,phase,&tick,keys,&pose,&dy,&vy,&emitted)==8,"X3 combat reference row");
+    if(strcmp(mode,previous)) {
+      check(RtlLoadSnapshot(fixture),"restore combat fixture");
+      g_ram[0xbaf]=0xed; /* Original fixture's fractional Y, including landing snap. */
+      for(unsigned i=0;i<205;++i) frame(SNES_PAD_Y);
+      y0=g_ram[0xbaf] | g_ram[0xbb0]<<8 | g_ram[0xbb1]<<16;
+      snprintf(previous,sizeof(previous),"%s",mode);
+    }
+    unsigned input=strchr(keys,'Y')?SNES_PAD_Y:0;
+    if(strchr(keys,'B')) input|=SNES_PAD_B;
+    unsigned before=zero_projectiles(3);
+    frame(input);
+    MmxZeroState z=MmxZeroGetState();
+    int actual_pose=(int)((MmxZeroPose(g_ram,&z)-MmxZeroMenuPose())/(128*128));
+    int actual_y=(int)(g_ram[0xbaf] | g_ram[0xbb0]<<8 | g_ram[0xbb1]<<16)-y0;
+    int actual_vy=(int16_t)(g_ram[0xbc4]|g_ram[0xbc5]<<8);
+    if(actual_pose!=pose || actual_y!=dy || actual_vy!=vy ||
+       (emitted && zero_projectiles(3)<=before)) {
+      fprintf(stderr,"combat mismatch %s/%s/%d pose %d/%d dy %d/%d vy %d/%d emitted %u/%d burst %u/%u\n",
+        mode,phase,tick,actual_pose,pose,actual_y,dy,actual_vy,vy,zero_projectiles(3)>before,emitted,z.burst,z.burst_end);
+      fprintf(stderr,"native action=%u sub=%u pose=%u seqbase=%u mirror=%u/%u/%u\n",g_ram[0xbaa],g_ram[0xbab],g_ram[0xbbf],g_ram[0xc17],z.anim_offset,z.anim_pose,z.anim_timer);
+      exit(1);
+    }
+    ++count;
+  }
+  fclose(f); printf("ok: %u original-X3 combat animation/physics reference frames\n",count);
+}
 static void zero_menu_pixels(void) {
   static uint32_t pixels[256 * 224]; unsigned body = 0, icon = 0;
   static uint32_t baseline[48 * 56]; static bool have_baseline;
@@ -191,13 +224,45 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
   int w,h; MmxPrepareFrame(1280,720,&w,&h);
   check(w == 256 && g_mmx_custom_renderer, "Zero activates native-width compositor");
   zero_motion_checks(fixture);
+  zero_combat_checks(fixture);
+  check(RtlLoadSnapshot(fixture), "restore for burst state replay");
+  for(unsigned i=0;i<201;++i) frame(SNES_PAD_Y);
+  zero_replay(4);
+  size_t burst_n=RtlSaveSnapshotToMemory(start,cap);
+  zero_replay(8); size_t burst_en=RtlSaveSnapshotToMemory(expected,cap);
+  check(RtlLoadSnapshotFromMemory(start,burst_n),"load during first windup");
+  zero_replay(8); size_t burst_an=RtlSaveSnapshotToMemory(actual,cap);
+  same(expected,burst_en,actual,burst_an,"windup replay emits exactly the same shot");
+  size_t burst_rn=RtlRollbackSaveToMemory(start,cap);
+  zero_replay(14); size_t burst_ren=RtlRollbackSaveToMemory(expected,cap);
+  check(RtlRollbackLoadFromMemory(start,burst_rn),"load live beam and stored follow-ups");
+  zero_replay(14); burst_an=RtlRollbackSaveToMemory(actual,cap);
+  same(expected,burst_ren,actual,burst_an,"live beam and stored combo rollback replay");
+  /* v4/v5 had only the 12/18-byte prefix. Both must still load, with the
+   * former full-charge combo interpreted as saber-capable. */
+  burst_n=RtlSaveSnapshotToMemory(start,cap);
+  size_t chunk=0;
+  for(size_t i=burst_n-8;i>8;--i) {
+    uint32_t magic; memcpy(&magic,start+i,4);
+    if(magic==0x4d4d5854u) { chunk=i; break; }
+  }
+  check(chunk!=0,"Zero game chunk located");
+  for(uint32_t v=4;v<=5;++v) {
+    memcpy(start+chunk+4,&v,4);
+    size_t prefix=v==4?MMX_ZERO_LEGACY_STATE_SIZE:MMX_ZERO_ANIMATION_STATE_SIZE;
+    check(RtlLoadSnapshotFromMemory(start,burst_n-sizeof(MmxZeroState)+prefix),"legacy Zero state prefix loads");
+    check(MmxZeroGetState().combo==1 && MmxZeroGetState().saber_ready && !MmxZeroGetState().burst,"legacy stored combo migrates");
+  }
   check(RtlLoadSnapshot(fixture), "restore for combo probe");
-  for (int i=0;i<181;++i) frame(SNES_PAD_Y);
+  for (int i=0;i<201;++i) frame(SNES_PAD_Y);
   frame(0);
-  check(MmxZeroGetState().combo == 1, "full charge stores two follow-ups");
-  zero_replay(19); frame(SNES_PAD_Y);
-  check(zero_projectiles(3) == 2 && MmxZeroGetState().combo == 2, "two native charged shots coexist");
-  zero_replay(20); frame(SNES_PAD_Y); zero_replay(12);
+  check(MmxZeroGetState().combo == 1 && MmxZeroGetState().saber_ready &&
+        !zero_projectiles(3), "full charge begins original windup and stores two follow-ups");
+  zero_replay(17); frame(SNES_PAD_Y); zero_replay(9);
+  check(zero_projectiles(3) == 2 && MmxZeroGetState().combo == 2, "two native charged shots coexist after second windup");
+  for (unsigned i=0;i<160 && (MmxZeroGetState().burst || MmxZeroGetState().shot_mask || g_ram[0xc25]);++i) frame(0);
+  check(!MmxZeroGetState().burst && !MmxZeroGetState().shot_mask && !g_ram[0xc25], "beams and their disappearance effects retire");
+  frame(SNES_PAD_Y); zero_replay(12);
   MmxZeroState state = MmxZeroGetState();
   check(state.slash > 7 && state.projectile && !state.combo, "saber reaches active frames");
   check(g_ram[0x1f99] == 0, "combo does not grant X1 upgrades");
@@ -236,7 +301,7 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
   zero_capture(capture, ".dash.cap");
   check(RtlLoadSnapshot(fixture), "restore for aerial saber probe");
   unsigned floor = g_ram[0xbb0] | g_ram[0xbb1] << 8;
-  MmxZeroSetState((MmxZeroState){.combo=2});
+  MmxZeroSetState((MmxZeroState){.combo=2,.saber_ready=1});
   for (int i=0;i<6;++i) frame(SNES_PAD_B);
   frame(SNES_PAD_B | SNES_PAD_Y); zero_replay(12);
   check(MmxZeroGetState().air && MmxZeroGetState().slash > 7 &&
