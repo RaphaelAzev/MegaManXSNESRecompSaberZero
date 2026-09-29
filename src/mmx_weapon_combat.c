@@ -17,7 +17,6 @@ static unsigned slot_index(unsigned d) { return (d - 0x1228) / 64; }
 static unsigned weapon_group(unsigned page, unsigned weapon) {
   return page == 2 ? (weapon == 1 ? 5 : weapon == 4 ? 12 : 0) : 0;
 }
-static unsigned energy_index(unsigned page, unsigned weapon) { return (page - 1) * 8 + weapon - 1; }
 static void sound(uint8_t *r, unsigned command) {
   unsigned i = r[0xba3] & 30; r[0xb72 + i] = (uint8_t)command; r[0xb73 + i] = 0; r[0xba3] = (uint8_t)((i + 2) & 30);
 }
@@ -91,7 +90,7 @@ void MmxWeaponsPlayerTick(uint8_t r[0x20000]) {
   MmxZeroCancel(r); r[0xc0f] = 2;
   if (!(r[0x1f99] & 2)) stop_charge(r);
   MmxWeaponsState s = MmxWeaponsGetState();
-  if (!s.energy[energy_index(s.page,s.weapon)]) { stop_charge(r); r[0xbdf] &= (uint8_t)~64; r[0xbe3] &= (uint8_t)~64; }
+  if (!MmxWeaponsEnergyAmount(s.page,s.weapon)) { stop_charge(r); r[0xbdf] &= (uint8_t)~64; r[0xbe3] &= (uint8_t)~64; }
   for (unsigned i=0;i<8;++i) if (combat.shots[i].active && combat.shots[i].charged &&
       combat.shots[i].page == 2 && combat.shots[i].weapon == 4) {
     /* A second press controls the extended blade, not a second buster shot. */
@@ -236,9 +235,7 @@ static void acid_tick(uint8_t *r, unsigned d, MmxWeaponShot *s) {
    * 129 droplet splash, 130 enemy impact. Radius holds bounces/grace frames;
    * muzzle_pose holds the surface orientation for the four-droplet emission. */
   if (!s->age) {
-    MmxWeaponsState w = MmxWeaponsGetState(); unsigned cost = s->charged ? 2 : 1;
-    if (w.energy[8] < cost) { retire(r,d); return; }
-    w.energy[8] -= (uint8_t)cost; MmxWeaponsSetState(w);
+    if (!MmxWeaponsSpend(s->page,s->weapon,(s->charged ? 2 : 1)*256)) { retire(r,d); return; }
     muzzle_origin(r,d,s); s->born = combat.tick; s->age = 1;
     s->radius = s->charged ? 5 : 0;
     s->vx = (s->facing ? 1 : -1) * (s->charged ? 192 : 288);
@@ -311,10 +308,7 @@ unsigned MmxWeaponsProjectileTick(uint8_t r[0x20000], unsigned d, unsigned activ
   }
   int direction = s->facing ? 1 : -1;
   if (!s->age) {
-    MmxWeaponsState weapons = MmxWeaponsGetState();
-    unsigned cost = s->charged ? 3 : 1;
-    if (weapons.energy[11] < cost) { retire(r,d); return 0; }
-    weapons.energy[11] -= (uint8_t)cost; MmxWeaponsSetState(weapons);
+    if (!MmxWeaponsSpend(s->page,s->weapon,(s->charged ? 3 : 1)*256)) { retire(r,d); return 0; }
     muzzle_origin(r,d,s); s->vx = (int16_t)(direction * 1024); s->vy = 0;
     animation_start(s,s->charged ? 4 : 0); s->born = combat.tick;
     if (!s->charged) {

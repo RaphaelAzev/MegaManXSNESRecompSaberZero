@@ -186,10 +186,15 @@ timer. Adapt the deployment pose/timing carefully for X1 X and X3 Zero.
 
 **Inventory prerequisite:** measured normal cost is 1; charged cost is **2.5**.
 The private source RAM pair `$1FC3` changed from `$5B00` (27) to `$5880` (24.5)
-on charged release after the one-energy initial shot. Current extended energy
-stores whole units only. Add persistent fractional energy and correct native
-pickup/HUD/save conversion before porting this weapon; do not round its cost.
-Check the other source weapons' smallest cost increment before choosing the
-fractional representation. The reserved `charge` field in the existing state
-is currently unused, but menu selection clears it: repurposing it without
-updating that path would silently erase fractions.
+on charged release after the one-energy initial shot. Fractional inventory is
+now implemented with sixteen appended low bytes, retaining full source 8.8
+precision. Game state v11/capture v10 migrate older inventory prefixes without
+altering their whole units. The unused `charge` field remains separate because
+menu selection clears it; it must not hold inventory fractions.
+
+X1 pickup `$81:E0A9..E0CE` reads the full 8.8 pair and adds `$0100`. At `$1C00`
+it clamps, discarding fractional excess from the last increment; `$E0B7..C1`
+passes only the remaining whole pickup ticks to auto-refill. Verified port
+example: selected 27.5 + small pickup becomes 28; reserve 10.25 becomes 11.25.
+The selected weapon's discarded half is original native behavior, not a
+fractional-state bug. HUD/menu energy still uses the pair's high byte.

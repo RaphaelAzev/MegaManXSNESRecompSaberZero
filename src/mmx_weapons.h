@@ -3,11 +3,13 @@
 #include <stdint.h>
 
 /* Page 0 retains the native X1 inventory. Pages 1/2 are X2/X3. */
+enum { MMX_WEAPONS_LEGACY_STATE_SIZE = 24 };
 typedef struct MmxWeaponsState {
   uint8_t page, weapon, menu_page, initialized;
   uint8_t energy[16];
   uint16_t charge;
   uint8_t cooldown, reserved;
+  uint8_t fraction[16]; /* Low bytes of source-format 8.8 weapon energy. */
 } MmxWeaponsState;
 typedef struct MmxWeaponPose {
   int16_t left, top;
@@ -35,3 +37,5 @@ unsigned MmxWeaponsEnergyRead(unsigned address, unsigned original);
 bool MmxWeaponsEnergyStore(unsigned value, bool pickup);
 void MmxWeaponsEnergyOverflow(uint8_t ram[0x20000], unsigned index);
 void MmxWeaponsRefill(void);
+unsigned MmxWeaponsEnergyAmount(unsigned page, unsigned weapon);
+bool MmxWeaponsSpend(unsigned page, unsigned weapon, unsigned cost); /* 8.8 units. */

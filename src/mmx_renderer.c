@@ -352,7 +352,7 @@ bool MmxRendererSaveCapture(const char *path) {
   if (!frame.valid || !path) return false;
   FILE *f = fopen(path, "wb");
   if (!f) return false;
-  uint32_t header[] = {0x4d4d5843, 9, sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons) + sizeof(frame_weapon_combat)};
+  uint32_t header[] = {0x4d4d5843, 10, sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons) + sizeof(frame_weapon_combat)};
   bool ok = fwrite(header, sizeof(header), 1, f) == 1 && fwrite(&frame, sizeof(frame), 1, f) == 1 &&
       fwrite(&frame_zero, sizeof(frame_zero), 1, f) == 1 &&
       fwrite(&frame_weapons, sizeof(frame_weapons), 1, f) == 1 &&
@@ -374,8 +374,9 @@ bool MmxRendererLoadCapture(const char *path) {
        (h[1] == 5 && h[2] == sizeof(frame) + MMX_ZERO_COMBAT_STATE_SIZE) ||
        (h[1] == 6 && h[2] == sizeof(frame) + MMX_ZERO_SWAP_STATE_SIZE) ||
        (h[1] == 7 && h[2] == sizeof(frame) + sizeof(frame_zero)) ||
-       (h[1] == 8 && h[2] == sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons)) ||
-       (h[1] == 9 && h[2] == sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons) + sizeof(frame_weapon_combat))) &&
+       (h[1] == 8 && h[2] == sizeof(frame) + sizeof(frame_zero) + MMX_WEAPONS_LEGACY_STATE_SIZE) ||
+       (h[1] == 9 && h[2] == sizeof(frame) + sizeof(frame_zero) + MMX_WEAPONS_LEGACY_STATE_SIZE + sizeof(frame_weapon_combat)) ||
+       (h[1] == 10 && h[2] == sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons) + sizeof(frame_weapon_combat))) &&
       fread(&frame, sizeof(frame), 1, f) == 1 &&
       frame.captured == 224 && frame.piece_count <= MAX_PIECES && frame.expanded_count <= MAX_PIECES && frame.valid;
   size_t zero_size = h[1] == 3 ? MMX_ZERO_LEGACY_STATE_SIZE :
@@ -388,7 +389,7 @@ bool MmxRendererLoadCapture(const char *path) {
       frame_zero.slash <= 46 && frame_zero.air <= 1 && frame_zero.anim_valid <= 1 && frame_zero.anim_pose < 117 &&
       frame_zero.burst <= 2 && (!frame_zero.burst || (frame_zero.burst_offset >= 272 &&
         frame_zero.burst_offset + 3 <= MMX_ZERO_ANIMATION_BYTES && frame_zero.burst_timer));
-  if (ok && h[1] >= 8) ok = fread(&frame_weapons, sizeof(frame_weapons), 1, f) == 1 &&
+  if (ok && h[1] >= 8) ok = fread(&frame_weapons, h[1] >= 10 ? sizeof(frame_weapons) : MMX_WEAPONS_LEGACY_STATE_SIZE, 1, f) == 1 &&
       MmxWeaponsValidState(&frame_weapons);
   if (ok && h[1] >= 9) ok = fread(&frame_weapon_combat, sizeof(frame_weapon_combat), 1, f) == 1 &&
       MmxWeaponsValidCombatState(&frame_weapon_combat);

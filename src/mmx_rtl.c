@@ -330,7 +330,7 @@ void mmx_host_yield(uint8_t countdown) {
 #include "snes/saveload.h"
 
 #define MMX_SAV_CHUNK_MAGIC   0x4D4D5854u  /* "MMXT" */
-#define MMX_SAV_CHUNK_VERSION 10u /* Extended weapon actors and animation. */
+#define MMX_SAV_CHUNK_VERSION 11u /* Fractional source-weapon energy. */
 
 typedef struct MmxSavChunk {
   uint32_t magic, version;
@@ -439,8 +439,9 @@ void MmxStateLoadExtra(struct SaveLoadInfo *sli, uint32_t version) {
       }
     }
     if (g_load_chunk.version >= 9) {
-      if (RtlStateBytesRemaining(sli) >= sizeof(g_load_weapons)) {
-        sli->func(sli, &g_load_weapons, sizeof(g_load_weapons));
+      size_t weapons_size = g_load_chunk.version >= 11 ? sizeof(g_load_weapons) : MMX_WEAPONS_LEGACY_STATE_SIZE;
+      if (RtlStateBytesRemaining(sli) >= weapons_size) {
+        sli->func(sli, &g_load_weapons, weapons_size);
         if (!MmxWeaponsValidState(&g_load_weapons)) g_load_chunk_ok = 0;
       } else g_load_chunk_ok = 0;
     }

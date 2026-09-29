@@ -78,12 +78,15 @@ native buster resources as a safe underlying actor. The first combat checkpoint
 below is implemented, but this is not yet a weapon playtest build. The owner's current
 playtest has not been replaced with this intermediate implementation.
 
-The game save chunk is version 10 when extended weapons are enabled; legacy
+The game save chunk is version 11 when extended weapons are enabled; legacy
 saves initialize full energy without changing X1 inventory. Zero-only saves
-remain version 8 and stock saves version 3. Renderer capture version 9 also
+remain version 8 and stock saves version 3. Renderer capture version 10 also
 stores the displayed weapon page and the active projectile simulation. Existing
 older captures still load. Version 9 game states initialize an empty projectile
 simulation; their weapon selection and energy remain intact.
+Game versions 9/10 and capture versions 8/9 retain their original 24-byte
+inventory prefix; new loads initialize the sixteen appended fraction bytes
+to zero. New inventory state is 40 bytes and preserves source 8.8 precision.
 
 Focused ROM-backed checks exercise all sixteen menu choices while X1 weapons
 are locked, forward/backward page cycling, X/Zero selection, native cleanup,
@@ -145,6 +148,16 @@ This is separate from the two character HP pools, which refill on respawn.
 Focused runtime checks cover native small/large pickups, overflow, buster
 auto-refill, unchanged X1 unlocks/inventory, save/replay during animated refill,
 and matching native/extended energy retention through actual death/respawn.
+
+Fractional costs are preserved internally to 1/256 energy, matching the source
+games' representation; native HUD/menu bars display whole units. Native pickup
+reads/writes preserve the low byte. X1's selected-weapon refill increments one
+whole unit at a time and clamps the final increment, discarding any fractional
+excess from that increment; only remaining pickup ticks enter auto-refill.
+The port preserves that behavior and other weapons' existing fractions.
+Focused checks cover half-unit refill, reserve quarter-unit preservation,
+native clamping/overflow, exact replay during refill, fractions across pause
+selection, v10 save migration and an original v9 renderer capture.
 
 ## Second combat checkpoint: Acid Burst
 

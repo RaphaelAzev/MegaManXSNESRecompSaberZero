@@ -351,19 +351,22 @@ static void weapon_menu_checks(const char *assets, const char *fixture, uint8 *s
       frame(SNES_PAD_LEFT); zero_replay(3); check(!g_ram[0x1ed2],"native cursor returns to buster");
     }
   }
-  MmxWeaponsState s=MmxWeaponsGetState(); s.energy[0]=7; s.energy[15]=13; MmxWeaponsSetState(s);
+  MmxWeaponsState s=MmxWeaponsGetState(); s.energy[0]=7; s.energy[15]=13;
+  s.fraction[0]=128;s.fraction[15]=64;MmxWeaponsSetState(s);
   size_t n=RtlSaveSnapshotToMemory(start,cap);
   frame(SNES_PAD_START); zero_replay(75); frame(SNES_PAD_R); zero_replay(3);
   check(!MmxWeaponsGetState().menu_page,"R wraps to original X1 page");
   check(!g_ram[0x1ed2],"return to locked X1 page selects available buster");
   size_t en=RtlSaveSnapshotToMemory(expected,cap);
   check(RtlLoadSnapshotFromMemory(start,n),"weapon selection and partial energy restore");
-  s=MmxWeaponsGetState(); check(s.page==2 && s.weapon==5 && s.energy[0]==7 && s.energy[15]==13,"independent weapon state survives save/load");
+  s=MmxWeaponsGetState(); check(s.page==2 && s.weapon==5 && s.energy[0]==7 && s.energy[15]==13 &&
+      s.fraction[0]==128 && s.fraction[15]==64,"independent fractional weapon state survives save/load");
   frame(SNES_PAD_START); zero_replay(75); frame(SNES_PAD_R); zero_replay(3);
   size_t an=RtlSaveSnapshotToMemory(actual,cap);
   same(expected,en,actual,an,"weapon-menu deterministic replay");
   frame(SNES_PAD_START); zero_replay(75);
   check(!MmxWeaponsActive() && !g_ram[0xbdb],"X1 buster selection exits extended weapon mode");
+  check(MmxWeaponsGetState().fraction[0]==128 && MmxWeaponsGetState().fraction[15]==64,"menu selection preserves reserve energy fractions");
   check(!memcmp(inventory,g_ram+0x1f88,16),"page cycle and save/load leave original inventory intact");
   zero_health_swap(); check(MmxZeroGetState().active_x,"weapon-page test switches to X");
   frame(SNES_PAD_START); zero_replay(75); frame(SNES_PAD_L); zero_replay(3);
@@ -416,6 +419,30 @@ static void weapon_energy_checks(const char *assets, const char *fixture, uint8 
   }
   check(respawned,"native respawn completes during energy check");
   check((g_ram[0x1f88]&63)==5 && MmxWeaponsGetState().energy[0]==12,"checkpoint death preserves energy like native X1 weapons");
+  check(RtlLoadSnapshot(fixture),"restore fractional pickup fixture");
+  w=MmxWeaponsGetState();w.page=2;w.weapon=5;w.energy[12]=20;w.fraction[12]=128;MmxWeaponsSetState(w);
+  weapon_energy_pickup(1);zero_replay(55);
+  check(MmxWeaponsEnergyAmount(2,5)==22*256+128,"native small refill preserves half-unit energy");
+  w=MmxWeaponsGetState();w.energy[12]=27;w.energy[0]=10;w.fraction[0]=64;MmxWeaponsSetState(w);
+  weapon_energy_pickup(1);zero_replay(8);n=RtlSaveSnapshotToMemory(start,cap);
+  zero_replay(50);en=RtlSaveSnapshotToMemory(expected,cap);
+  /* X1 $81:E0AF..C1 adds/clamps one unit, then forwards only the remaining
+   * whole pickup ticks. Preserve that behavior, including the last half-unit
+   * discarded by native clamping, and retain the reserve's existing fraction. */
+  check(MmxWeaponsEnergyAmount(2,5)==28*256 && MmxWeaponsEnergyAmount(1,1)==11*256+64,
+        "fractional pickup caps like native X1 and preserves reserve fractions");
+  check(RtlLoadSnapshotFromMemory(start,n),"restore fractional native refill");
+  zero_replay(50);an=RtlSaveSnapshotToMemory(actual,cap);
+  same(expected,en,actual,an,"fractional refill and overflow replay exactly");
+  n=RtlSaveSnapshotToMemory(start,cap);size_t chunk=0;
+  for(size_t i=n-8;i>8;--i) {uint32_t magic;memcpy(&magic,start+i,4);if(magic==0x4d4d5854u) {chunk=i;break;}}
+  check(chunk!=0,"fractional inventory game chunk located");
+  size_t end_inventory=n-sizeof(MmxWeaponCombatState);
+  memmove(start+end_inventory-16,start+end_inventory,sizeof(MmxWeaponCombatState));
+  uint32_t legacy=10;memcpy(start+chunk+4,&legacy,4);
+  check(RtlLoadSnapshotFromMemory(start,n-16),"legacy v10 whole-unit weapon save loads");
+  check(MmxWeaponsEnergyAmount(1,1)==11*256 && MmxWeaponsEnergyAmount(2,5)==28*256,
+        "legacy weapon save retains whole units and initializes zero fractions");
   puts("MMX EXTENDED ENERGY CHECKS PASSED");
 }
 static unsigned extended_shots(bool charged) {

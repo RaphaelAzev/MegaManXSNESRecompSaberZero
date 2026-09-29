@@ -226,12 +226,13 @@ each frame; `src/mmx_rtl.c` owns scheduler/save integration.
 | v7 | 36-byte identity + exchange | v6 |
 | v8 current Zero-only | 40-byte state including HP | v7 |
 | v9 extended inventory | 40-byte Zero + weapon inventory | v8 |
-| v10 current extended combat | Same Zero + inventory + owned projectile simulation | v9 |
+| v10 extended combat | Same Zero + inventory + owned projectile simulation | v9 |
+| v11 current extended inventory | Same Zero + 40-byte fractional inventory + projectile simulation | v10 |
 
 Later weapon-format changes may advance the last rows; consult `mmx_rtl.c`
 and the [weapon notes](x-weapons-port.md). The current capture writer always
-writes v9, including Zero-only captures; the earlier capture rows describe
-readable historical layouts. Game saves still choose v3/v8/v10 according to
+writes v10, including Zero-only captures; the earlier capture rows describe
+readable historical layouts. Game saves still choose v3/v8/v11 according to
 enabled assets. Old prefixes initialize new fields
 safely. Asset availability and mod identity matter when loading; the package's
 `requires-same-mods` declaration does not yet enforce public save isolation.

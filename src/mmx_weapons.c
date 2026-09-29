@@ -20,7 +20,7 @@ typedef struct WeaponArt {
 static WeaponArt art[WEAPONS];
 static uint8_t *asset;
 static MmxWeaponsState state;
-_Static_assert(sizeof(MmxWeaponsState) == 24, "Weapon save ABI");
+_Static_assert(sizeof(MmxWeaponsState) == 40 && offsetof(MmxWeaponsState,fraction) == MMX_WEAPONS_LEGACY_STATE_SIZE, "Weapon save ABI");
 static unsigned word(const uint8_t *p) { return p[0] | (p[1] << 8); }
 static unsigned weapon_index(unsigned page, unsigned weapon) { return (page - 1) * 8 + weapon - 1; }
 static bool valid_weapon(unsigned page, unsigned weapon) { return page >= 1 && page <= 2 && weapon >= 1 && weapon <= 8; }
@@ -33,7 +33,7 @@ MmxWeaponsState MmxWeaponsGetState(void) { return state; }
 bool MmxWeaponsValidState(const MmxWeaponsState *s) {
   if (!s || s->page > 2 || s->weapon > 8 || s->menu_page > 2 || s->initialized > 1 ||
       (s->page && !s->weapon) || s->charge > 201 || s->reserved) return false;
-  for (unsigned i = 0; i < 16; ++i) if (s->energy[i] > 28) return false;
+  for (unsigned i = 0; i < 16; ++i) if (s->energy[i] > 28 || (s->energy[i] == 28 && s->fraction[i])) return false;
   return true;
 }
 void MmxWeaponsSetState(MmxWeaponsState s) {
@@ -130,14 +130,27 @@ const char *MmxWeaponsLabel(unsigned page, unsigned weapon) {
 unsigned MmxWeaponsEnergyRead(unsigned address, unsigned original) {
   if (!MmxWeaponsActive()) return original;
   if (address == 0xbdb) return 2; /* HUD/pickup routines only: virtual inventory index. */
-  unsigned value = 0xc0 | state.energy[weapon_index(state.page,state.weapon)];
-  return address == 0x1f85 ? value << 8 : value;
+  unsigned i = weapon_index(state.page,state.weapon), value = 0xc0 | state.energy[i];
+  return address == 0x1f85 ? (value << 8) | state.fraction[i] : value;
+}
+static unsigned energy_amount(unsigned i) { return state.energy[i]*256 + state.fraction[i]; }
+static void set_energy(unsigned i, unsigned value) {
+  if (value > 28*256) value = 28*256;
+  state.energy[i] = (uint8_t)(value >> 8); state.fraction[i] = (uint8_t)value;
+}
+unsigned MmxWeaponsEnergyAmount(unsigned page, unsigned weapon) {
+  return asset && valid_weapon(page,weapon) ? energy_amount(weapon_index(page,weapon)) : 0;
+}
+bool MmxWeaponsSpend(unsigned page, unsigned weapon, unsigned cost) {
+  if (!asset || !valid_weapon(page,weapon)) return false;
+  unsigned i = weapon_index(page,weapon), value = energy_amount(i);
+  if (cost > value) return false;
+  set_energy(i,value-cost); return true;
 }
 bool MmxWeaponsEnergyStore(unsigned value, bool pickup) {
   if (!MmxWeaponsActive()) return false;
   if (pickup) {
-    unsigned amount = (value >> 8) & 63;
-    state.energy[weapon_index(state.page,state.weapon)] = (uint8_t)(amount > 28 ? 28 : amount);
+    set_energy(weapon_index(state.page,state.weapon),value & 0x3fff);
   }
   return true; /* Guest inventory stays untouched, including its dirty flags. */
 }
@@ -145,10 +158,10 @@ void MmxWeaponsEnergyOverflow(uint8_t r[0x20000], unsigned index) {
   /* Native auto-refill has already scanned X1's owned weapons. Only the
    * unconsumed remainder after that complete scan can fill new inventory. */
   if (!asset || index < 18) return;
-  unsigned amount = word(r) >> 8, initial = amount;
+  unsigned amount = word(r), initial = amount;
   for (unsigned i=0;i<16 && amount;++i) {
-    unsigned add = 28 - state.energy[i]; if (add > amount) add = amount;
-    state.energy[i] += (uint8_t)add; amount -= add;
+    unsigned value = energy_amount(i), add = 28*256-value; if (add > amount) add = amount;
+    set_energy(i,value+add); amount -= add;
   }
   if (amount != initial) {
     unsigned i = r[0xba3] & 30;
@@ -156,7 +169,7 @@ void MmxWeaponsEnergyOverflow(uint8_t r[0x20000], unsigned index) {
   }
 }
 void MmxWeaponsRefill(void) {
-  if (asset) memset(state.energy,28,sizeof(state.energy));
+  if (asset) { memset(state.energy,28,sizeof(state.energy)); memset(state.fraction,0,sizeof(state.fraction)); }
 }
 bool MmxWeaponsMenuVisible(const uint8_t r[0x20000]) {
   return asset && r && r[0xd1] == 2 && r[0xd2] == 4 &&
