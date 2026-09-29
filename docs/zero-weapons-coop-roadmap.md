@@ -5,6 +5,10 @@ implementation status and findings are tracked in the central Beads database
 at `F:\Software\beads\issues`, under `beads-8wg.1` (Mega Man X / SNES).
 Work branch: `feat/x3-zero-port`, worktree: `../_wt_mmx_zero`.
 
+Public distribution must use user-supplied X1/X2/X3 ROMs and local extraction
+for **all** imported content, including Zero and weapons. See the mandatory
+[source-ROM and release requirements](mod-source-roms.md).
+
 ## Order of work
 
 1. Preserve and finish the X3 Zero backport and Select exchange foundation.

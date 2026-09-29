@@ -2,6 +2,9 @@
 
 Scope and sequencing: [character/weapons/co-op roadmap](zero-weapons-coop-roadmap.md).
 Tracking: central Beads `beads-8wg.1.32`, branch `feat/x3-zero-port`.
+Addressed source findings and remaining uncertainties:
+[X1/X2/X3 source notebook](x-weapons-source-notes.md).
+Public release contract: [user-supplied source ROMs](mod-source-roms.md).
 
 ## Asset extraction foundation
 
