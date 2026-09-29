@@ -378,6 +378,48 @@ static void weapon_menu_checks(const char *assets, const char *fixture, uint8 *s
         MmxWeaponsGetState().weapon==1 && !g_ram[0xbdb],"X selects an extended weapon through native pause");
   puts("MMX X2/X3 WEAPON MENU CHECKS PASSED");
 }
+static void weapon_cycle_checks(const char *assets,const char *fixture,uint8 *start,size_t cap) {
+  check(MmxWeaponsLoad(assets),"load weapons for shoulder cycling");
+  for (unsigned character=0;character<2;++character) for (unsigned page=1;page<=2;++page) {
+    check(RtlLoadSnapshot(fixture),"restore shoulder cycling fixture");
+    zero_replay(10);
+    if (character) zero_health_swap();
+    uint8 inventory[16]; memcpy(inventory,g_ram+0x1f88,16);
+    frame(SNES_PAD_START); zero_replay(75);
+    for(unsigned i=0;i<page;++i) { frame(SNES_PAD_R); zero_replay(3); }
+    frame(SNES_PAD_START); zero_replay(75);
+    check(MmxWeaponsGetState().page==page && !MmxWeaponsGetState().weapon,
+        "pause buster selection retains its X2/X3 weapon set");
+    for(unsigned i=1;i<=9;++i) {
+      frame(SNES_PAD_R); zero_replay(3);
+      check(MmxWeaponsGetState().page==page && MmxWeaponsGetState().weapon==i%9 && !g_ram[0xbdb],
+          "R cycles within chosen set including buster and never selects X1");
+    }
+    for(unsigned i=1;i<=9;++i) {
+      frame(SNES_PAD_L); zero_replay(3);
+      check(MmxWeaponsGetState().page==page && MmxWeaponsGetState().weapon==(9-i)%9 && !g_ram[0xbdb],
+          "L cycles backward within chosen set");
+    }
+    for(unsigned i=0;i<12;++i) frame(SNES_PAD_R);
+    check(MmxWeaponsGetState().weapon==1,"holding R advances only once");
+    frame(0); frame(SNES_PAD_L|SNES_PAD_R); zero_replay(3);
+    check(MmxWeaponsGetState().page==page && !MmxWeaponsGetState().weapon,"both shoulders return to this set's buster");
+    size_t n=RtlSaveSnapshotToMemory(start,cap);
+    frame(SNES_PAD_R); zero_replay(3);
+    check(RtlLoadSnapshotFromMemory(start,n) && MmxWeaponsGetState().page==page && !MmxWeaponsGetState().weapon,
+        "save restores selected set while buster is equipped");
+    check(!memcmp(inventory,g_ram+0x1f88,16),"extended shoulder cycling preserves X1 progression and energy");
+    frame(SNES_PAD_START); zero_replay(75);
+    check(MmxWeaponsGetState().menu_page==page && !g_ram[0x1ed2],"pause reopens on the selected set's buster");
+    for(unsigned i=page;i<3;++i) { frame(SNES_PAD_R); zero_replay(3); }
+    frame(SNES_PAD_START); zero_replay(75);
+    g_ram[0x1f8a]=g_ram[0x1f92]=0xdc; /* Own only X1 weapons 2 and 6. */
+    frame(SNES_PAD_R); zero_replay(3); check(g_ram[0xbdb]==4 && !MmxWeaponsGetState().page,"X1 R skips locked weapons");
+    frame(SNES_PAD_R); zero_replay(3); check(g_ram[0xbdb]==12,"X1 cycle stays on original owned inventory");
+    frame(SNES_PAD_R); zero_replay(3); check(!g_ram[0xbdb] && !MmxWeaponsGetState().page,"X1 cycle wraps to native buster");
+  }
+  puts("MMX WEAPON SHOULDER CYCLE CHECKS PASSED");
+}
 static void weapon_energy_pickup(unsigned small) {
   memset(g_ram+0x1628,0,48); g_ram[0x1628]=1;
   g_ram[0x1632]=1; g_ram[0x1633]=(uint8_t)(128|small);
@@ -782,7 +824,8 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
   const char *weapons=getenv("MMX_WEAPONS_TEST_ASSETS");
   if (getenv("MMX_SOURCE_PACK_TEST")) { weapon_source_pack_checks(fixture,start,expected,actual,cap);return; }
   if (weapons) {
-    if (getenv("MMX_WEAPON_SONIC_TEST")) weapon_sonic_checks(weapons,fixture,start,expected,actual,cap);
+    if (getenv("MMX_WEAPON_CYCLE_TEST")) weapon_cycle_checks(weapons,fixture,start,cap);
+    else if (getenv("MMX_WEAPON_SONIC_TEST")) weapon_sonic_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_RAY_TEST")) weapon_ray_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_ACID_TEST")) weapon_acid_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_ENERGY_TEST")) weapon_energy_checks(weapons,fixture,start,expected,actual,cap);

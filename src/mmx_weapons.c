@@ -14,6 +14,8 @@ typedef struct WeaponArt {
   uint16_t body[16], colors[16];
   uint16_t icon_colors[16];
   MmxWeaponPose icon;
+  MmxWeaponPose hud_icon;
+  uint8_t hud_pixels[12 * 11];
   unsigned groups;
   WeaponGroup group[GROUPS];
 } WeaponArt;
@@ -34,7 +36,7 @@ bool MmxWeaponsActive(void) { return MmxWeaponsPageEnabled(state.page) && valid_
 MmxWeaponsState MmxWeaponsGetState(void) { return state; }
 bool MmxWeaponsValidState(const MmxWeaponsState *s) {
   if (!s || s->page > 2 || s->weapon > 8 || s->menu_page > 2 || s->initialized > 1 ||
-      (s->page && !s->weapon) || s->charge > 201 || s->reserved) return false;
+      s->charge > 201 || s->reserved) return false;
   for (unsigned i = 0; i < 16; ++i) if (s->energy[i] > 28 || (s->energy[i] == 28 && s->fraction[i])) return false;
   return true;
 }
@@ -51,6 +53,32 @@ void MmxWeaponsDisable(void) {
   MmxWeaponsCancelShots(NULL);
   free(asset); asset = NULL; memset(art, 0, sizeof(art)); memset(&state, 0, sizeof(state));
   for (unsigned i=0;i<2;++i) { free(page_assets[i]);page_assets[i]=NULL; }
+}
+static void prepare_hud_icon(WeaponArt *w) {
+  /* Source menu icons have a frame of their own at x/y 0,1,14,15.
+   * Keep only the colored symbol, then center its visible bounds inside
+   * X1's 12x11 HUD inset. Most symbols retain their original pixel size. */
+  int left=14,top=14,right=1,bottom=1;
+  for (int y=2;y<14;++y) for (int x=2;x<14;++x) {
+    unsigned pixel=w->icon.pixels[y*16+x];
+    if (!pixel || !(w->icon_colors[pixel]&0x7fff)) continue;
+    if (x<left) left=x;
+    if (x>right) right=x;
+    if (y<top) top=y;
+    if (y>bottom) bottom=y;
+  }
+  memset(w->hud_pixels,0,sizeof(w->hud_pixels));
+  w->hud_icon=(MmxWeaponPose){0,0,12,11,w->hud_pixels};
+  if (right<left || bottom<top) return;
+  int width=right-left+1,height=bottom-top+1;
+  int draw_width=width,draw_height=height;
+  if (height>11) { draw_height=11; draw_width=(width*11+height/2)/height; }
+  int ox=(12-draw_width)/2,oy=(11-draw_height)/2;
+  for (int y=0;y<draw_height;++y) for (int x=0;x<draw_width;++x) {
+    unsigned pixel=w->icon.pixels[(top+(2*y+1)*height/(2*draw_height))*16+
+        left+(2*x+1)*width/(2*draw_width)];
+    if (pixel && (w->icon_colors[pixel]&0x7fff)) w->hud_pixels[(oy+y)*12+ox+x]=(uint8_t)pixel;
+  }
 }
 static bool load(const char *path, unsigned page) {
   FILE *f = path ? fopen(path, "rb") : NULL;
@@ -104,6 +132,7 @@ static bool load(const char *path, unsigned page) {
     if (!page) { MmxWeaponsDisable(); asset = data; }
     else { free(page_assets[page-1]);page_assets[page-1]=data; }
     memcpy(art+first,candidate+first,count*sizeof(*art));initialize();
+    for (unsigned i=first;i<first+count;++i) prepare_hud_icon(art+i);
   }
   else free(data);
   free(candidate); return ok;
@@ -124,6 +153,9 @@ const uint16_t *MmxWeaponsPalette(unsigned page, unsigned weapon, bool body) {
 }
 const MmxWeaponPose *MmxWeaponsIcon(unsigned page, unsigned weapon) {
   return MmxWeaponsPageEnabled(page) && valid_weapon(page, weapon) ? &art[weapon_index(page, weapon)].icon : NULL;
+}
+const MmxWeaponPose *MmxWeaponsHudIcon(unsigned page, unsigned weapon) {
+  return MmxWeaponsPageEnabled(page) && valid_weapon(page, weapon) ? &art[weapon_index(page, weapon)].hud_icon : NULL;
 }
 const uint8_t *MmxWeaponsAnimation(unsigned page, unsigned weapon, unsigned group, unsigned *size) {
   if (!MmxWeaponsPageEnabled(page) || !size || !valid_weapon(page, weapon)) return NULL;
@@ -218,7 +250,7 @@ unsigned MmxWeaponsMenuRead(uint8_t r[0x20000], unsigned pc, unsigned dp, unsign
       if (cursor < 9) {
         MmxWeaponsCancelShots(r);
         if (old_page || state.menu_page) r[0x1f12] = 0; /* Rebuild the native energy HUD. */
-        state.page = cursor ? state.menu_page : 0;
+        state.page = state.menu_page; /* Buster remains part of the chosen set. */
         state.weapon = (uint8_t)cursor; state.charge = state.cooldown = 0;
         if (old_page || state.menu_page) return 254; /* Run native weapon cleanup even between two extended weapons. */
       }

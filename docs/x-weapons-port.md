@@ -75,6 +75,16 @@ L/R cycles X1/X2/X3 pages within native pause navigation. The compositor uses
 X1's font and energy-bar tiles with the source games' actual menu icons.
 No instructional UI text is added. Both X and Zero can select the new entries.
 
+Outside pause, L/R cycles the eight weapons and buster within the selected
+game's set. Switching games requires changing the pause page. X1 retains its
+native unlock filtering; both shoulders return to the current set's buster.
+Selection respects native projectile/cutscene locks and clears charge state.
+The buster now retains page 1/2 with weapon 0 in the existing 40-byte state;
+new builds accept old saves, but older builds reject this newly valid pairing.
+Focused runtime checks cover both characters and both extended pages, all
+entries in both directions, held buttons, buster save/load and menu reopening,
+and X1 ownership filtering after returning to its page.
+
 Bounded generated/interpreter hooks virtualize the pause inventory reads and
 selection. X1 progression/energy stays untouched. An extended selection uses
 native buster resources as a safe underlying actor. The current
@@ -134,8 +144,11 @@ charge/firing sounds are reused; X2/X3 sound-bank import is not implemented.
 
 ## Energy integration
 
-Extended selections use X1's original vertical weapon-energy bar. A cropped,
-unscaled glyph from the original source pause icon identifies the new weapon.
+Extended selections use X1's original vertical weapon-energy bar and its
+rounded white footer. Only the source icon's colored symbol is copied: its
+menu border and black padding are removed, then its visible bounds are
+centered inside the footer's 12x11 inset. Original pixels remain unscaled
+unless the symbol is taller than that inset. Pause icons remain unchanged.
 HUD inventory reads are virtualized; they never change the X1 inventory.
 
 The native weapon-energy pickup actor (item kind 1) retains its collection

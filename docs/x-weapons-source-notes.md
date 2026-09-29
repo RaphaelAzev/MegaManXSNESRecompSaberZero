@@ -268,11 +268,26 @@ The extended weapon proxy submits slot 7 at (24,80), attribute $3620. Its
 buster-loaded tile $20 contains unrelated graphics, so simply drawing the
 pause icon lost the gameplay meter enclosure. Reuse the live X1 health footer
 tile $86 with palette 2: side columns 1/14, white lower rim and rounded black
-outer edge. Clear only its X glyph inset (3..12 on both axes) to original black
-index 1, then fit the source weapon symbol inside that 10x10 area. Menu icons
-stay unchanged at 16x16. This also preserves the original top connection to
-the energy segments and live fade palette. Checked the native-width replay
-capture weapons.energy-hud.cap visually; energy amount and menu paths unchanged.
+outer edge. The X glyph reaches columns 2/13, so the first 10x10 clear left
+colored corner remnants. Clear columns 2..13 and rows 2..12 to black index 1;
+preserve row 13's lower bevel and the original segment connection. Menu art
+has its own border in the outer two pixels. Find the nonblack symbol bounds
+only within source x/y 2..13, center them in the 12x11 inset, and reduce only
+oversize symbols with centered nearest samples. Derived HUD pixels are built
+after asset loading; cache format and original 16x16 pause art are unchanged.
+The corrected native-width replay capture was inspected visually.
+
+### X1 shoulder cycle reference
+
+`$81:99D3..9A6F` checks `$1F23`, projectile count `$BDD`, `$1F31` and actions
+`$18/$42` before changing weapons. Pressed `$BE2` bits `$10/$20` advance or
+reverse; both held `$BDE & $30` return to buster. Ownership bit `$40` in
+`$1F86 + native_weapon` filters X1 choices, independent of remaining energy.
+HUD `$1F12=0` rebuilds the special meter, `4` removes it for the buster.
+Extended selection handles these buttons before the normal player action and
+consumes only pressed bits. Clearing held bits would break next-frame edge
+detection and repeatedly cycle a held shoulder. Page 0 still uses original code;
+pages 1/2 wrap weapon IDs 0..8 without changing page, including fallback entries.
 
 
 ## Spin Wheel investigation checkpoint (X2; not yet implemented)

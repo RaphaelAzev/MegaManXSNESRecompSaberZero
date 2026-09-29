@@ -81,8 +81,27 @@ static void animation_step(MmxWeaponShot *s) {
   }
   animation_record(s,next);
 }
+static void cycle_weapon(uint8_t *r) {
+  MmxWeaponsState s=MmxWeaponsGetState();
+  if (!s.page) return; /* X1 keeps its native ownership-aware cycle. */
+  unsigned held=r[0xbde]&0x30,pressed=r[0xbe2]&0x30;
+  /* Consume shoulders even for the buster and unfinished weapons. Native
+   * $81:99D3 must never select an X1 weapon behind an extended selection. */
+  /* Leave held input intact: native edge detection uses it next frame.
+   * Both held buttons may still run native buster cleanup, which is correct. */
+  r[0xbe2]&=(uint8_t)~0x30;
+  if (!pressed || r[0xd1]!=2 || r[0xd2]!=4 || r[0xd3]!=4 || r[0xba9]!=2 ||
+      r[0x1f23] || r[0xbdd] || r[0x1f31] ||
+      r[0xbaa]==0x18 || r[0xbaa]==0x42) return;
+  unsigned weapon=held==0x30 ? 0 : (s.weapon+(pressed&0x20 ? 8 : 1))%9;
+  if (weapon==s.weapon) return;
+  MmxZeroCancel(r); stop_charge(r); MmxWeaponsCancelShots(r);
+  s.weapon=(uint8_t)weapon; s.charge=s.cooldown=0; MmxWeaponsSetState(s);
+  r[0xbdb]=0; r[0xc0f]=0; r[0x1f12]=weapon ? 0 : 4;
+}
 void MmxWeaponsPlayerTick(uint8_t r[0x20000]) {
   if (!MmxWeaponsEnabled()) return;
+  cycle_weapon(r);
   if (!combat.valid || combat.stage != r[0x1f7a] || r[0xd1] != 2 || !(r[0xbcf] & 127)) {
     MmxWeaponsCancelShots(r); combat.valid = 1; combat.stage = r[0x1f7a];
   }
@@ -108,9 +127,6 @@ void MmxWeaponsPlayerTick(uint8_t r[0x20000]) {
       if (!p->charged) r[0xbe3] &= (uint8_t)~64;
     }
   }
-  /* Pause owns extended-page selection. Do not let native shoulder cycling
-   * replace the underlying buster with an unrelated X1 special mid-shot. */
-  r[0xbde] &= (uint8_t)~0x30; r[0xbe2] &= (uint8_t)~0x30;
 }
 void MmxWeaponsMarkShot(uint8_t r[0x20000], unsigned d) {
   if (!MmxWeaponsCombatActive() || !slot_valid(d) || !r[d]) return;
