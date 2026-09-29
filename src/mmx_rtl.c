@@ -3,6 +3,7 @@
 #include "mmx_renderer.h"
 #include "mmx_zero.h"
 #include "mmx_weapons.h"
+#include "mmx_weapon_combat.h"
 #include "variables.h"
 #include "common_cpu_infra.h"
 #include "snes/snes.h"
@@ -329,7 +330,7 @@ void mmx_host_yield(uint8_t countdown) {
 #include "snes/saveload.h"
 
 #define MMX_SAV_CHUNK_MAGIC   0x4D4D5854u  /* "MMXT" */
-#define MMX_SAV_CHUNK_VERSION 9u /* Independent X2/X3 selection and energy. */
+#define MMX_SAV_CHUNK_VERSION 10u /* Extended weapon actors and animation. */
 
 typedef struct MmxSavChunk {
   uint32_t magic, version;
@@ -361,6 +362,7 @@ static void MmxWideStateApply(bool loaded);
 static uint8_t g_load_frame_flags[4];
 static MmxZeroState g_load_zero;
 static MmxWeaponsState g_load_weapons;
+static MmxWeaponCombatState g_load_weapon_combat;
 
 void MmxStateSaveExtra(struct SaveLoadInfo *sli) {
   MmxSavChunk c;
@@ -393,6 +395,10 @@ void MmxStateSaveExtra(struct SaveLoadInfo *sli) {
     MmxWeaponsState weapons = MmxWeaponsGetState();
     sli->func(sli, &weapons, sizeof(weapons));
   }
+  if (c.version >= 10) {
+    MmxWeaponCombatState combat = MmxWeaponsGetCombatState();
+    sli->func(sli, &combat, sizeof(combat));
+  }
 }
 
 void MmxStateLoadExtra(struct SaveLoadInfo *sli, uint32_t version) {
@@ -401,6 +407,7 @@ void MmxStateLoadExtra(struct SaveLoadInfo *sli, uint32_t version) {
   g_load_complete = g_load_native_streakers = false;
   memset(&g_load_zero, 0, sizeof(g_load_zero));
   memset(&g_load_weapons, 0, sizeof(g_load_weapons));
+  memset(&g_load_weapon_combat, 0, sizeof(g_load_weapon_combat));
   memset(&g_load_chunk, 0, sizeof(g_load_chunk));
   sli->func(sli, &g_load_chunk, sizeof(g_load_chunk));
   if (g_load_chunk.magic == MMX_SAV_CHUNK_MAGIC &&
@@ -437,6 +444,12 @@ void MmxStateLoadExtra(struct SaveLoadInfo *sli, uint32_t version) {
         if (!MmxWeaponsValidState(&g_load_weapons)) g_load_chunk_ok = 0;
       } else g_load_chunk_ok = 0;
     }
+    if (g_load_chunk.version >= 10) {
+      if (RtlStateBytesRemaining(sli) >= sizeof(g_load_weapon_combat)) {
+        sli->func(sli, &g_load_weapon_combat, sizeof(g_load_weapon_combat));
+        if (!MmxWeaponsValidCombatState(&g_load_weapon_combat)) g_load_chunk_ok = 0;
+      } else g_load_chunk_ok = 0;
+    }
   }
   if (!g_load_chunk_ok)
     fprintf(stderr, "[mmx_state] load: bad game chunk (magic=%08x ver=%u)\n",
@@ -466,6 +479,7 @@ void MmxOnStateLoaded(uint32_t version) {
   MmxWideStateApply(complete);
   MmxZeroSetState(g_load_zero);
   MmxWeaponsSetState(g_load_weapons);
+  MmxWeaponsSetCombatState(g_load_weapon_combat);
   if (version < 5 || !g_load_chunk_ok) {
     /* Legacy v4 save: no chunk, no rebuild — preserve the historical
      * behavior exactly (live fibers limp along; loads are only reliable

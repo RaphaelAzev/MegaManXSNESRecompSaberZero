@@ -5,7 +5,7 @@ Tracking: central Beads `beads-8wg.1.32`, branch `feat/x3-zero-port`.
 
 ## Asset extraction foundation
 
-`tools/extract_x_weapons.py` builds a local `MMXWEAP2` cache from both original
+`tools/extract_x_weapons.py` builds a local `MMXWEAP3` cache from both original
 USA ROMs. It validates normalized ROM hashes, accepts copier headers, reads
 the original sprite layouts and DMA lists, and preserves original palettes.
 The source-controlled descriptor contains addresses only; ROMs and extracted
@@ -15,8 +15,8 @@ graphics remain local.
 python tools/extract_x_weapons.py ../MegamanX2Recomp/mmx2.sfc ../MegamanX3SNESRecomp/mmx3.sfc build-zero/port-work/x-weapons.bin
 ```
 
-The current cache contains 572 projectile poses and sixteen original pause-menu
-icons (420,289 bytes). This is an asset foundation, not a
+The current cache contains 572 projectile poses, sixteen original pause-menu
+icons and the original animation sequences (423,871 bytes). This is an asset foundation, not a
 claim that the weapons are already playable in X1.
 
 Sources were checked in the local recomp projects using private, paused
@@ -71,23 +71,63 @@ No instructional UI text is added. Both X and Zero can select the new entries.
 
 Bounded generated/interpreter hooks virtualize the pause inventory reads and
 selection. X1 progression/energy stays untouched. An extended selection uses
-native buster resources as a safe underlying actor; attack handling is still
-pending, so this is not yet a weapon playtest build. The owner's current
+native buster resources as a safe underlying actor. The first combat checkpoint
+below is implemented, but this is not yet a weapon playtest build. The owner's current
 playtest has not been replaced with this intermediate implementation.
 
-The game save chunk is version 9 when extended weapons are enabled; legacy
+The game save chunk is version 10 when extended weapons are enabled; legacy
 saves initialize full energy without changing X1 inventory. Zero-only saves
-remain version 8 and stock saves version 3. Renderer capture version 8 also
-stores the displayed weapon page. Existing older captures still load.
+remain version 8 and stock saves version 3. Renderer capture version 9 also
+stores the displayed weapon page and the active projectile simulation. Existing
+older captures still load. Version 9 game states initialize an empty projectile
+simulation; their weapon selection and energy remain intact.
 
 Focused ROM-backed checks exercise all sixteen menu choices while X1 weapons
 are locked, forward/backward page cycling, X/Zero selection, native cleanup,
 partial-energy save/load and deterministic menu replay. Original icon renders
 were inspected for both pages; the five existing CTests pass.
 
+## First combat checkpoint: Spinning Blade
+
+`mmx_weapon_combat.c` integrates host-side attack movement and original source
+animation records with X1's existing projectile allocation, collision, damage,
+firing poses, charge effects and sound cleanup. The projectile state is saved
+alongside the guest RAM, including mid-flight animation and charged rotation.
+Generated-code and interpreter hooks apply the same behavior.
+
+The first supported attack is X3 Spinning Blade. Its twin normal blades follow
+the measured deceleration/vertical separation and original animation. Normal
+enemy contact uses X1's positive buster damage and its existing immunity rules,
+then plays the original blade impact. The charged blade extends to 80 pixels
+from the muzzle, rotates when commanded, and retracts. Its tether and muzzle
+use the original X3 sprite poses. One normal pair costs one energy; a charged
+release costs three, as measured in the original X3 runtime. X1's actual arm
+upgrade bit ($1F99 & $02) is required. The charging press can also emit an
+ordinary pair, as it does in the source game.
+
+The cache additionally stores original animation directories and records from
+X2 root $2F:A000 and X3 root $3F:8000: duration, flags, pose and relative loops.
+MMXWEAP3 is 423,871 bytes for the current descriptor. Only addresses and the
+extractor are committed, never the ROM or extracted art.
+
+Focused ROM-backed checks cover both characters, twin-shot creation, normal
+and charged energy use, arm gating, charge-audio cleanup, exact save/replay
+mid-flight and mid-turn, and a real highway enemy losing one HP through the
+native collision routine. Original normal/charged art is captured for review;
+extended and rotating tether renders were inspected. The full existing Zero
+ROM regression, all sixteen menu-choice checks and five CTests pass after the
+combat integration. The desktop game and capture tools build successfully.
+
+This is a combat foundation checkpoint, not completion of the weapon set.
+Spinning Blade's integration still needs final attention to transitions,
+special terrain/reflection cases and fidelity during movement. Source X1
+charge/firing sounds are reused; X2/X3 sound-bank import is not implemented.
+
 ## Remaining implementation
 
-Implement the actual normal and charged attacks, native
+Implement the other fifteen weapons' normal and charged attacks, native
 sound/effect cleanup, X/Zero firing origins, terrain/enemy interaction and
 meaningful special behaviors. Gate charging on X1's arm upgrade. Keep ordinary
-damage and existing X1 progression. Co-op remains a later, separate mod.
+damage and existing X1 progression. Connect the gameplay weapon-energy HUD,
+energy pickups and stage/respawn refill policies. Co-op remains a later,
+separate mod. The owner's running playtest remains the stable exchange/HP build.

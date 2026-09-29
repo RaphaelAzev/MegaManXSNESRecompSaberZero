@@ -12,6 +12,7 @@
 #include "mmx_display.h"
 #include "mmx_renderer.h"
 #include "mmx_zero.h"
+#include "mmx_weapon_combat.h"
 #include "snes/cart.h"
 #include "mmx_spc_player.h"
 #include "mmx_default_config.h"
@@ -59,8 +60,10 @@ int MmxDisplay_GetCurrentFrameWidth(void) { return snesrecomp_desktop_frame_widt
 static void MmxBeforeFrame(void) {
   /* MMX's draw hook runs the original per-line HDMA sequence itself. */
   snes_set_hdma_beam_enabled(g_snes, false);
-  if (g_snes->cart)
+  if (g_snes->cart) {
     MmxZeroSetCollisionRom(g_snes->cart->rom, g_snes->cart->romSize);
+    MmxWeaponsCollisionRom(g_snes->cart->rom, g_snes->cart->romSize);
+  }
   if (g_mmx_custom_renderer) MmxRendererLatchSprites();
 }
 static void MmxResetRenderer(void) {

@@ -24,6 +24,7 @@ void MmxWeaponsSetState(MmxWeaponsState state);
 const MmxWeaponPose *MmxWeaponsPose(unsigned page, unsigned weapon, unsigned group, unsigned pose);
 const MmxWeaponPose *MmxWeaponsIcon(unsigned page, unsigned weapon);
 const uint16_t *MmxWeaponsIconPalette(unsigned page, unsigned weapon);
+const uint8_t *MmxWeaponsAnimation(unsigned page, unsigned weapon, unsigned group, unsigned *size);
 const uint16_t *MmxWeaponsPalette(unsigned page, unsigned weapon, bool body);
 const char *MmxWeaponsLabel(unsigned page, unsigned weapon);
 bool MmxWeaponsMenuVisible(const uint8_t ram[0x20000]);

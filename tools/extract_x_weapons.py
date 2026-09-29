@@ -145,12 +145,41 @@ def menu_icon(rom, game, weapon, graphics):
     return colors + pixels
 
 
+def animation_group(rom, game, group):
+    root = 0x2fa000 if game == 2 else 0x3f8000
+    base = rom.integer(root + group * 3, 3)
+    header = rom.integer(base)
+    if not header or header & 1 or header > 1024:
+        raise ValueError('Invalid animation sequence directory')
+    extent, visited = header, set()
+    pending = [rom.integer(base + i) for i in range(0, header, 2)]
+    while pending:
+        offset = pending.pop()
+        if offset in visited:
+            continue
+        if offset < header or offset > 8192:
+            raise ValueError('Animation sequence exceeds group bounds')
+        visited.add(offset)
+        duration, flags, pose = rom.at(base + offset, 3)
+        if not duration or pose >= 128:
+            raise ValueError('Invalid animation record')
+        end = offset + 3
+        if flags & 128:
+            displacement = int.from_bytes(rom.at(base + end, 2), 'little', signed=True)
+            pending.append(end + displacement)
+            extent = max(extent, end + 2)
+        else:
+            pending.append(end)
+            extent = max(extent, end)
+    return rom.at(base, extent)
+
+
 def extract(x2, x3):
     entries = json.loads((Path(__file__).parent / 'data/x_weapon_assets.json').read_text())
     roms = {game: Rom(path, next(e['sha256'] for e in entries if e['game'] == game))
             for game, path in ((2, x2), (3, x3))}
     menus = {game: menu_graphics(rom, game) for game, rom in roms.items()}
-    result = bytearray(struct.pack('<8sI', b'MMXWEAP2', len(entries)))
+    result = bytearray(struct.pack('<8sI', b'MMXWEAP3', len(entries)))
     sheets = []
     for entry in entries:
         rom = roms[entry['game']]
@@ -168,7 +197,9 @@ def extract(x2, x3):
             tiles, known = bytearray(base), bytearray(base_known)
             for pose in group.get('setup_poses', []):
                 transfers(rom, int(group['dma'], 16), pose, tiles, known)
-            result.extend(struct.pack('<HH', group['group'], group['frames']))
+            animation = animation_group(rom, entry['game'], group['group'])
+            result.extend(struct.pack('<HHH', group['group'], group['frames'], len(animation)))
+            result.extend(animation)
             for pose in range(group['frames']):
                 if 'poses' in group and pose not in group['poses']:
                     result.extend(bytes(8))

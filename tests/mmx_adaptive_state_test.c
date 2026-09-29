@@ -375,6 +375,68 @@ static void weapon_menu_checks(const char *assets, const char *fixture, uint8 *s
         MmxWeaponsGetState().weapon==1 && !g_ram[0xbdb],"X selects an extended weapon through native pause");
   puts("MMX X2/X3 WEAPON MENU CHECKS PASSED");
 }
+static unsigned extended_shots(bool charged) {
+  MmxWeaponCombatState s=MmxWeaponsGetCombatState(); unsigned count=0;
+  for (unsigned i=0;i<8;++i) count += s.shots[i].active && s.shots[i].charged==charged;
+  return count;
+}
+static void weapon_combat_checks(const char *assets, const char *fixture, uint8 *start,
+                                 uint8 *expected, uint8 *actual, size_t cap) {
+  check(MmxWeaponsLoad(assets),"original weapon animations load");
+  for (unsigned character=0;character<2;++character) {
+    check(RtlLoadSnapshot(fixture),"restore blade fixture");
+    if (character) zero_health_swap();
+    MmxWeaponsState w=MmxWeaponsGetState(); w.page=2; w.weapon=4; MmxWeaponsSetState(w);
+    frame(SNES_PAD_Y); zero_replay(6);
+    check(extended_shots(false)==2 && MmxWeaponsGetState().energy[11]==27,"normal blade creates twin projectiles and spends one energy");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-blade.cap":".zero-blade.cap");
+    size_t n=RtlSaveSnapshotToMemory(start,cap);
+    zero_replay(12); size_t en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"restore active twin blades");
+    zero_replay(12); size_t an=RtlSaveSnapshotToMemory(actual,cap);
+    same(expected,en,actual,an,"active blade save and replay");
+    MmxWeaponsCancelShots(g_ram); zero_replay(30);
+    for (unsigned i=0;i<150;++i) frame(SNES_PAD_Y);
+    frame(0); zero_replay(6);
+    check(!extended_shots(true),"extended charging requires actual X1 arm upgrade");
+    MmxWeaponsCancelShots(g_ram); zero_replay(30); g_ram[0x1f99]|=2;
+    for (unsigned i=0;i<150;++i) frame(SNES_PAD_Y);
+    frame(0); zero_replay(25);
+    check(extended_shots(true)==1,"arms-upgraded release creates charged blade");
+    check(MmxWeaponsGetState().energy[11]==22 && !(g_ram[0xc2f]&64),"charged blade costs three energy and stops charge audio");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-blade-charged.cap":".zero-blade-charged.cap");
+    frame(SNES_PAD_UP); zero_replay(10);
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-blade-turn.cap":".zero-blade-turn.cap");
+    n=RtlSaveSnapshotToMemory(start,cap); zero_replay(30); en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"restore rotating charged blade");
+    zero_replay(30); an=RtlSaveSnapshotToMemory(actual,cap);
+    same(expected,en,actual,an,"rotating blade save and replay");
+    zero_replay(80); check(!extended_shots(true),"charged blade retracts and releases native projectile slot");
+  }
+  check(RtlLoadSnapshot(fixture),"restore native enemy encounter");
+  unsigned victim=0;
+  for (unsigned i=0;i<400 && !victim;++i) {
+    frame(SNES_PAD_RIGHT);
+    for (unsigned d=0xe68;d<0x1228;d+=64)
+      if (g_ram[d] && (g_ram[d+0x27]&127) && (g_ram[d+0x20]|g_ram[d+0x21])) { victim=d; break; }
+  }
+  check(victim!=0,"native highway enemy supplies collision target");
+  MmxWeaponsState w=MmxWeaponsGetState(); w.page=2;w.weapon=4;MmxWeaponsSetState(w);
+  frame(0); frame(SNES_PAD_Y); frame(0);
+  MmxWeaponCombatState c=MmxWeaponsGetCombatState(); unsigned projectile=0;
+  for(unsigned i=0;i<8;++i) if(c.shots[i].active) {
+    c.shots[i].x=(g_ram[victim+5]|g_ram[victim+6]<<8)*256;
+    c.shots[i].y=(g_ram[victim+8]|g_ram[victim+9]<<8)*256;
+    projectile=0x1228+i*64; break;
+  }
+  check(projectile!=0,"blade actor available for native collision");
+  MmxWeaponsSetCombatState(c); unsigned hp=g_ram[victim+0x27]&127;
+  zero_replay(3);
+  check((g_ram[victim+0x27]&127)+1==hp,"blade uses ordinary native buster damage against real enemy");
+  zero_replay(30);
+  check(!MmxWeaponsGetCombatState().shots[(projectile-0x1228)/64].active,"native enemy hit plays original impact animation and retires blade");
+  puts("MMX EXTENDED WEAPON COMBAT CHECKS PASSED");
+}
 static void zero_state_checks(const char *assets, const char *fixture, uint8 *start,
                               uint8 *expected, uint8 *actual, size_t cap) {
   check(fixture != NULL && MmxZeroLoad(assets), "Zero local assets load");
@@ -387,7 +449,11 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
   int w,h; MmxPrepareFrame(1280,720,&w,&h);
   check(w == 256 && g_mmx_custom_renderer, "Zero activates native-width compositor");
   const char *weapons=getenv("MMX_WEAPONS_TEST_ASSETS");
-  if (weapons) { weapon_menu_checks(weapons,fixture,start,expected,actual,cap); return; }
+  if (weapons) {
+    if (getenv("MMX_WEAPON_COMBAT_TEST")) weapon_combat_checks(weapons,fixture,start,expected,actual,cap);
+    else weapon_menu_checks(weapons,fixture,start,expected,actual,cap);
+    return;
+  }
   zero_swap_checks(fixture,start,expected,actual,cap);
   if(getenv("MMX_ZERO_SWAP_ONLY")) { puts("MMX SELECT SWAP CHECKS PASSED"); return; }
   zero_health_checks(fixture,start,expected,actual,cap);

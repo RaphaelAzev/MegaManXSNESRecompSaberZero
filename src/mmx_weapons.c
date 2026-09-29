@@ -1,10 +1,15 @@
 #include "mmx_weapons.h"
+#include "mmx_weapon_combat.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 enum { WEAPONS = 16, GROUPS = 2, POSES = 128 };
-typedef struct WeaponGroup { unsigned id, count; MmxWeaponPose pose[POSES]; } WeaponGroup;
+typedef struct WeaponGroup {
+  unsigned id, count, animation_size;
+  const uint8_t *animation;
+  MmxWeaponPose pose[POSES];
+} WeaponGroup;
 typedef struct WeaponArt {
   uint16_t body[16], colors[16];
   uint16_t icon_colors[16];
@@ -37,6 +42,7 @@ void MmxWeaponsSetState(MmxWeaponsState s) {
   if (asset) initialize();
 }
 void MmxWeaponsDisable(void) {
+  MmxWeaponsCancelShots(NULL);
   free(asset); asset = NULL; memset(art, 0, sizeof(art)); memset(&state, 0, sizeof(state));
 }
 bool MmxWeaponsLoad(const char *path) {
@@ -50,7 +56,7 @@ bool MmxWeaponsLoad(const char *path) {
   bool ok = data && candidate && fread(data, (size_t)size, 1, f) == 1;
   fclose(f);
   if (!ok) { free(data); free(candidate); return false; }
-  ok = !memcmp(data, "MMXWEAP2\20\0\0\0", 12);
+  ok = !memcmp(data, "MMXWEAP3\20\0\0\0", 12);
   size_t pos = 12;
   for (unsigned i = 0; i < WEAPONS && ok; ++i) {
     if (pos + 356 > (size_t)size) { ok = false; break; }
@@ -64,9 +70,12 @@ bool MmxWeaponsLoad(const char *path) {
     for (unsigned n = 0; n < 256; ++n) if (p[100 + n] > 15) ok = false;
     pos += 356;
     for (unsigned g = 0; g < w->groups && ok; ++g) {
-      if (pos + 4 > (size_t)size) { ok = false; break; }
+      if (pos + 6 > (size_t)size) { ok = false; break; }
       WeaponGroup *group = w->group + g;
-      group->id = word(data + pos); group->count = word(data + pos + 2); pos += 4;
+      group->id = word(data + pos); group->count = word(data + pos + 2);
+      group->animation_size = word(data + pos + 4); pos += 6;
+      if (group->animation_size < 5 || group->animation_size > 8192 || pos + group->animation_size > (size_t)size) { ok = false; break; }
+      group->animation = data + pos; pos += group->animation_size;
       if (group->count > POSES || !group->count) { ok = false; break; }
       for (unsigned j = 0; j < group->count && ok; ++j) {
         if (pos + 8 > (size_t)size) { ok = false; break; }
@@ -101,6 +110,14 @@ const uint16_t *MmxWeaponsPalette(unsigned page, unsigned weapon, bool body) {
 }
 const MmxWeaponPose *MmxWeaponsIcon(unsigned page, unsigned weapon) {
   return asset && valid_weapon(page, weapon) ? &art[weapon_index(page, weapon)].icon : NULL;
+}
+const uint8_t *MmxWeaponsAnimation(unsigned page, unsigned weapon, unsigned group, unsigned *size) {
+  if (!asset || !size || !valid_weapon(page, weapon)) return NULL;
+  const WeaponArt *w = art + weapon_index(page, weapon);
+  for (unsigned i = 0; i < w->groups; ++i) if (w->group[i].id == group) {
+    *size = w->group[i].animation_size; return w->group[i].animation;
+  }
+  return NULL;
 }
 const uint16_t *MmxWeaponsIconPalette(unsigned page, unsigned weapon) {
   return asset && valid_weapon(page, weapon) ? art[weapon_index(page, weapon)].icon_colors : NULL;
@@ -139,6 +156,7 @@ unsigned MmxWeaponsMenuRead(uint8_t r[0x20000], unsigned pc, unsigned dp, unsign
     case 0xce28: {
       unsigned cursor = r[dp + 10], old_page = state.page;
       if (cursor < 9) {
+        MmxWeaponsCancelShots(r);
         state.page = cursor ? state.menu_page : 0;
         state.weapon = (uint8_t)cursor; state.charge = state.cooldown = 0;
         if (old_page || state.menu_page) return 254; /* Run native weapon cleanup even between two extended weapons. */

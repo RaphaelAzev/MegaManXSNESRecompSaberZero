@@ -5,6 +5,7 @@
 #include "mmx_renderer.h"
 #include "mmx_zero.h"
 #include "mmx_weapons.h"
+#include "mmx_weapon_combat.h"
 #include <stdio.h>
 
 extern uint8_t g_ram[0x20000];
@@ -30,7 +31,11 @@ static void hook(CpuState *cpu, uint32_t pc) {
     case 0x00d6a7: MmxRendererObserveObject(g_ram, (uint16_t)(cpu->D + cpu->X)); break;
     case 0x00d76a: MmxRendererRecordPiece(g_ram, cpu->D); break;
     case 0x01971f: case 0x019796: case 0x0198ff: if (MmxZeroActive()) cpu->A |= 8; break;
-    case 0x01815c: MmxZeroPlayerTick(g_ram); break;
+    case 0x01815c:
+      MmxWeaponsPlayerTick(g_ram);
+      if (!MmxWeaponsCombatActive()) MmxZeroPlayerTick(g_ram);
+      break;
+    case 0x019d47: MmxWeaponsMarkShot(g_ram, cpu->X); break;
     case 0x018165: MmxZeroPlayerEnd(g_ram); break;
     case 0x048f07: MmxZeroAnimationStart(cpu->D, cpu->A & 255); break;
     case 0x048eea: MmxZeroAnimationAdvance(cpu->D); break;
@@ -56,7 +61,8 @@ static void hook(CpuState *cpu, uint32_t pc) {
       break;
     }
     case 0x00d3e7: {
-      unsigned value = MmxZeroWeaponTick(g_ram, cpu->D, cpu->A & 255);
+      unsigned value = MmxWeaponsProjectileTick(g_ram, cpu->D,
+          MmxZeroWeaponTick(g_ram, cpu->D, cpu->A & 255));
       cpu->A = (cpu->A & 0xff00) | value;
       cpu->_flag_Z = !value; cpu->_flag_N = (value & 128) != 0;
       cpu->P = (cpu->P & ~0x82) | (cpu->_flag_Z ? 2 : 0) | (cpu->_flag_N ? 128 : 0);
@@ -64,7 +70,8 @@ static void hook(CpuState *cpu, uint32_t pc) {
     }
     case 0x049e76: {
       unsigned original = cpu_read8(cpu, cpu->DB, (uint16_t)(0xef37 + cpu->Y));
-      unsigned damage = MmxZeroDamage(g_ram, cpu->D, cpu->X, original);
+      unsigned damage = MmxWeaponsDamage(g_ram, cpu->D, cpu->X,
+          MmxZeroDamage(g_ram, cpu->D, cpu->X, original));
       if (damage == original) break;
       /* Post-SBC: retain the interpreter's instruction timing, but recompute
        * its value and all arithmetic flags with our damage operand. The HP
@@ -90,7 +97,8 @@ static void hook(CpuState *cpu, uint32_t pc) {
       break;
     }
     case 0x049c19:
-      cpu->Y = (uint16_t)MmxZeroHitbox(g_ram, cpu->D, cpu->X, cpu->Y);
+      cpu->Y = (uint16_t)MmxWeaponsHitbox(g_ram, cpu->D, cpu->X,
+          MmxZeroHitbox(g_ram, cpu->D, cpu->X, cpu->Y));
       cpu->_flag_Z = cpu->Y == 0; cpu->_flag_N = (cpu->Y & 0x8000) != 0;
       cpu->P = (cpu->P & ~0x82) | (cpu->_flag_Z ? 2 : 0) | (cpu->_flag_N ? 128 : 0);
       break;
@@ -98,7 +106,7 @@ static void hook(CpuState *cpu, uint32_t pc) {
 }
 void MmxZeroRegisterHooks(void) {
   const unsigned pcs[] = {0x009dca, 0x00d6a7, 0x00d76a, 0x01971f, 0x019796, 0x0198ff,
-                          0x01815c, 0x018165, 0x00d3e7, 0x049e76, 0x049c19, 0x048f07, 0x048eea,
+                          0x01815c, 0x018165, 0x019d47, 0x00d3e7, 0x049e76, 0x049c19, 0x048f07, 0x048eea,
                           0x028403,0x03958f,0x039dcf,
                           0x01a57d,0x038b6f,0x038d87,0x038ed7,0x03951d,0x039841,0x039993,0x03a3cd,
                           0x01a589,0x038b7b,0x038d93,0x038ee3,0x039529,0x03984d,0x03999f,0x03a3d9};
@@ -125,7 +133,7 @@ static void activate(void) {
     fprintf(stderr, "[mmx-weapons] Original X2/X3 weapon assets loaded\n");
   fprintf(stderr, "[mmx-zero] Experimental original-size Zero enabled\n");
 }
-static void reset(void) { MmxZeroCancel(g_ram); MmxZeroDisable(); MmxWeaponsDisable(); }
+static void reset(void) { MmxWeaponsCancelShots(g_ram); MmxZeroCancel(g_ram); MmxZeroDisable(); MmxWeaponsDisable(); }
 SNES_MOD_CONSTRUCTOR(mmx_register_zero_plugin) {
   (void)snes_mod_register_reset_callback(reset);
   (void)snes_mod_register_activation_plugin("megaman-x.zero", activate);

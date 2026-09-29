@@ -75,6 +75,13 @@ pass. The HUD uses the active character's existing bar.
 
 Tracking: `beads-8wg.1.32`.
 
+Menu/state checkpoint `12c0e1e` implements all three pause pages, original menu
+icons, native cursor selection and independent energy/save state. The first
+combat checkpoint adds source-based normal/charged Spinning Blade and shared
+projectile/collision/save plumbing. The other fifteen attacks, gameplay energy
+HUD and pickups remain in progress; this is not a completed weapon release.
+See [port findings](x-weapons-port.md) for concrete validation and limitations.
+
 Add all sixteen boss weapons, each with normal and charged behavior, usable by
 both X and Zero in X1. Consult the local `../MegamanX2Recomp` and
 `../MegamanX3SNESRecomp` projects and original ROM assets/behavior. Zero's base
