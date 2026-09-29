@@ -125,7 +125,9 @@
       {
         "group": 15,
         "frames": 16,
-        "dma": "859bfc"
+        "dma": "859bfc",
+        "inherited_poses": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        "note": "Normal mine uses weapon-selection CHR throughout. $82:AC19..AD36 never invokes per-pose DMA; its inherited $9BFC pointer is unrelated common-effect data."
       },
       {
         "group": 19,

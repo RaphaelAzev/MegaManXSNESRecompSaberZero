@@ -681,6 +681,16 @@ preservation of an existing cache on extraction failure pass.
 
 ## X2 Magnet Mine: steering, planting, chains and absorption
 
+Playtest correction: normal group `$0F` uses the static weapon-selection
+graphics for all sixteen layouts. `$82:AC19..AD36` changes animation without
+calling `$88:C9B8` (per-pose DMA). The actor's inherited `$31=$9BFC` belongs
+to common-effect data and must not be treated as this group's DMA directory.
+Doing so overwrote the small red/blue mine with unrelated purple fragments.
+All normal poses now retain the original selection CHR; charged group `$13`
+still uses its explicit `$85:A0B1` transfers, and explosions retain resource
+`$0A`. This correction applies to automatic native ROM extraction as well as
+the developer Python extractor.
+
 Normal class $0D dispatch `$82:AC08`, table `$AC0D` contains
 AC19/AC5E/ACDC/ACDC/ACDC/AD36 for states 0/2/4/6/8/10. All hit outcomes
 therefore enter the explosion routine. Initial horizontal speed is $200,
@@ -725,3 +735,15 @@ native terrain planting, additional fire after planting, chain timing, arms
 gate/costs, 5/3 attraction, immune projectile exclusion, 16/32 growth, native
 enemy damage, deterministic replay and cleanup. Moving stage actors and source
 audio remain fidelity follow-up work.
+
+## X1 buster limit after cycling imported weapon sets
+
+X1 `$81:9A49..9A50` restores player `+$67` (`$0C0F`) from `$86:BAB8`
+when changing weapons. The buster entry is 3. Firing at `$81:93B5..93B9`
+compares the active projectile count to that limit and rejects all shots if
+the limit is zero. The imported L/R adapter previously cleared `$0C0F`;
+returning to buster therefore displayed the correct selection but prevented
+both X and Zero from firing. It now restores the native buster limit. A ROM
+regression reproduces the failure before the fix and verifies actual shots
+after pause selection, forward/backward cycles, both shoulders, and the X1
+cycle, with both characters and both imported sets.

@@ -671,6 +671,7 @@ static void weapon_magnet_checks(const char *assets,const char *fixture,uint8 *s
     for(unsigned i=0;i<8;++i) if(c.shots[i].active) {slot=i;break;}
     check(slot<8 && c.shots[slot].vx==512 && MmxWeaponsEnergyAmount(1,7)==27*256,
         "normal mine uses source speed and one-energy cost");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-magnet-normal.cap":".zero-magnet-normal.cap");
     for(unsigned i=0;i<8;++i) frame(SNES_PAD_UP);
     c=MmxWeaponsGetCombatState();check(c.shots[slot].vy==-1024,"up steers mine to source vertical speed cap");
     frame(0);check(MmxWeaponsGetCombatState().shots[slot].vy==-1024,"mine retains vertical momentum after steering release");
