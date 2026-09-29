@@ -3,15 +3,8 @@
 Owner requirements recorded 2026-09-28. This is the durable scope document;
 implementation status and findings are tracked in the central Beads database
 at `F:\Software\beads\issues`, under `beads-8wg.1` (Mega Man X / SNES).
-Work branch: `feat/x3-zero-port`, worktree: `../_wt_mmx_zero`.
-
-Current implementation and source map: [Zero port handoff](zero-port.md).
-Owner's 2026-09-29 ordering: document all Zero work and commit that checkpoint
-first, then resume the remaining X2/X3 weapons.
-
-Public distribution must use user-supplied X1/X2/X3 ROMs and local extraction
-for **all** imported content, including Zero and weapons. See the mandatory
-[source-ROM and release requirements](mod-source-roms.md).
+Zero 0.0.1 is released separately to main. Weapon branch: `feat/x2-x3-weapons`,
+worktree: `../_wt_mmx_zero`. Co-op starts only after that expansion is complete.
 
 ## Order of work
 
@@ -82,19 +75,6 @@ pass. The HUD uses the active character's existing bar.
 ## X2 and X3 boss weapons
 
 Tracking: `beads-8wg.1.32`.
-
-Menu/state checkpoint `12c0e1e` implements all three pause pages, original menu
-icons, native cursor selection and independent energy/save state. The first
-combat checkpoint adds source-based normal/charged Spinning Blade and shared
-projectile/collision/save plumbing. Native energy HUD/pickup integration is also
-implemented. A second combat checkpoint adds normal/charged Acid Burst,
-including tile contact, splashes and droplets. Ray Splasher's normal burst and
-charged radial turret are also implemented, with fractional energy support.
-Sonic Slicer adds its normal ricocheting pair and charged five-blade attack.
-The other twelve attacks and
-weapon polish remain in progress;
-this is not a completed weapon release.
-See [port findings](x-weapons-port.md) for concrete validation and limitations.
 
 Add all sixteen boss weapons, each with normal and charged behavior, usable by
 both X and Zero in X1. Consult the local `../MegamanX2Recomp` and

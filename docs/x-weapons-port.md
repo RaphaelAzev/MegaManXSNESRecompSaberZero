@@ -1,7 +1,7 @@
 # X2/X3 boss-weapon port
 
 Scope and sequencing: [character/weapons/co-op roadmap](zero-weapons-coop-roadmap.md).
-Tracking: central Beads `beads-8wg.1.32`, branch `feat/x3-zero-port`.
+Tracking: central Beads `beads-8wg.1.32`, branch `feat/x2-x3-weapons`.
 Addressed source findings and remaining uncertainties:
 [X1/X2/X3 source notebook](x-weapons-source-notes.md).
 Public release contract: [user-supplied source ROMs](mod-source-roms.md).
@@ -237,3 +237,15 @@ sound/effect cleanup, X/Zero firing origins, terrain/enemy interaction and
 meaningful special behaviors. Gate charging on X1's arm upgrade. Keep ordinary
 damage and existing X1 progression. Co-op remains a later, separate mod. The
 owner's running playtest remains the stable exchange/HP build.
+
+
+## Branch boundary after Zero 0.0.1
+
+Zero 0.0.1 is released independently (PR #52). This branch contains the entire
+X2/X3 weapon follow-up; do not merge unfinished weapons with the Zero release.
+The shared source-ROM provider uses the same framework pin as Zero. The Zero
+release notes describe only its v8 save / v7 capture layout. With weapons here,
+game chunks use v11 (40-byte inventory plus combat state), captures use v10;
+older v9/v10 game and v8/v9 capture inventories migrate their 24-byte prefix.
+The full 40-byte Zero state is unchanged. Do not load weapon-branch saves in
+the Zero-only release. No co-op implementation belongs in this branch.

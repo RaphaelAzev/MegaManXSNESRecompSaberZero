@@ -273,3 +273,34 @@ index 1, then fit the source weapon symbol inside that 10x10 area. Menu icons
 stay unchanged at 16x16. This also preserves the original top connection to
 the energy segments and live fade palette. Checked the native-width replay
 capture weapons.energy-hud.cap visually; energy amount and menu paths unchanged.
+
+
+## Spin Wheel investigation checkpoint (X2; not yet implemented)
+
+The source handlers are in **bank $87**, not $81. Normal class $0A uses group
+$46, DMA $85:9F2E, animations $2F:EDD2. Entry $87:848D / init $84A8 sets
+momentum +$37 to $0400 and starts formation sequence 0. After its end flag,
+$8565 starts sequence 1 with VX/VY zero and downward acceleration 64; $8937
+caps falling VY to source -$0400 after movement. Ground contact starts a
+30-frame wait ($85BD..8624), then rolling ($863C..86A9). Ground traction
+$88A1 adds a signed value from $86:B75E: 16,-20,0,-16,-4,-4 depending on the
+source slope orientation; the exact flat-ground index remains to verify.
+Airborne momentum loses 4/frame, wall reversals lose 16. A wall stall waits
+30 frames while losing 8/frame, then hops with current momentum as upward VY
+($872D..87D2). Exhausted momentum enters shrink sequence 10. Enemy contact
+has a 10-frame pause with momentum loss ($87D3..8822), not immediate retirement.
+Normal collision bounds $86:B754 are (0,0,9,9). Spin sequences 1..4 use poses
+6/8/7 at durations 1..4; 5..8 are ground-effect poses 9..13.
+
+Charged class $13 starts at $87:894E. Sequence 11's flag-1 pose 15 triggers
+eight children ($8A13..8A75). Table $86:B99D has signed dx,dy,VX,source VY:
+(0,8,0,-1024), (6,6,724,-724), (8,0,1024,0), (6,-6,724,724),
+(0,-8,0,1024), (-6,-6,-724,724), (-8,0,-1024,0), (-6,6,-724,-724).
+Children use static directional poses 19..26 (sequences 12..19), constant
+velocity and terrain-passing movement ($8A95..8A9F). Parent bounds $86:B9DD
+are 7x7; children $86:B9E7 are 6x6. Formation emits around release frame 13/14.
+The source uses nine actor slots including the visual parent; X1 has eight
+projectile slots, so retain all eight directions and render the center burst
+cosmetically when implementing it. Energy costs still need an original-game
+probe; do not treat an assumed 1/2-unit cost as verified. All 27 poses are
+already in the extracted cache. Private trace: x2-weapons-reference.json.

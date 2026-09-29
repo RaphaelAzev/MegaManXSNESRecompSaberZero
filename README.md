@@ -1,5 +1,9 @@
 # MegaManXSNESRecomp
 
+Version 1.6.6 fixes Ctrl+R (Reset) leaving a black screen and lets you
+reopen the launcher mid-game with Ctrl+L (or Select+L3 on a controller),
+change settings, and resume from the same moment.
+
 Version 1.6.5 saves launcher settings on close and uses shared SNES shader
 presets and pixel-aspect geometry. Bundled shader choices also survive
 AppImage relaunches and moving the installation.
@@ -24,11 +28,6 @@ Static recompilation of *Mega Man X* (SNES) into native C, using the
 [snesrecomp](https://github.com/mstan/snesrecomp) framework. This repo
 is the per-game side: the runtime, the recompiled C output, the
 per-game `.cfg`, and the build glue.
-
-The in-development X3 Zero/character-exchange mod is documented in the
-[Zero implementation handoff](docs/zero-port.md), including source findings,
-validation and remaining work. Its [public release requirements](docs/mod-source-roms.md)
-require user-supplied source ROMs and local asset extraction.
 
 ## What "static recompilation" means here
 
@@ -61,11 +60,13 @@ image. It is disabled by default and enabled from the launcher's **Mods** page.
 See [Adaptive widescreen support](#adaptive-widescreen-support) for
 availability and controls.
 
-This branch also includes the disabled-by-default [X3 Zero experiment](docs/zero-spike.md).
-It requires locally extracted X3 USA assets. The prototype supports the two-shot
-and saber combo, plus Select to exchange X and Zero while standing on the ground.
-The exchange uses original teleport sprites and pauses stage simulation.
-Complete campaign validation is unfinished.
+The disabled-by-default **X3 Zero 0.0.1 mod** adds playable Zero, his
+buster/saber combo, and grounded Select exchange with X. Both characters have
+separate current health; pickups heal only the active character. Enable it in
+**Mods** and select your **Mega Man X3 USA ROM**. Assets are prepared locally
+automatically. See [setup and release notes](docs/zero-0.0.1.md) and the
+[technical handoff](docs/zero-port.md). This branch contains the [X2/X3 weapon follow-up](docs/x-weapons-port.md),
+with four weapons implemented and twelve still using the development fallback.
 
 <p align="center">
   <img src="docs/screenshots/widescreen-ocean.png" width="32%" alt="Mega Man X experimental widescreen rendering in an ocean scene">

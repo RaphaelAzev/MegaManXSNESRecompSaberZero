@@ -7,7 +7,7 @@
 #include "mmx_weapons.h"
 #include "mmx_weapon_combat.h"
 #include "mmx_source_assets.h"
-#include <SDL3/SDL.h>
+#include "sdl_compat.h"
 #include <stdio.h>
 
 extern uint8_t g_ram[0x20000];
@@ -171,7 +171,7 @@ static void activate(void) {
     fprintf(stderr, "[mmx-zero] Cannot load extracted Zero assets: %s\n", path); return;
   }
   MmxZeroRegisterHooks();
-  fprintf(stderr, "[mmx-zero] Experimental original-size Zero enabled\n");
+  fprintf(stderr, "[mmx-zero] Zero 0.0.1 enabled\n");
 }
 static void activate_weapons(unsigned game) {
   char path[4096];

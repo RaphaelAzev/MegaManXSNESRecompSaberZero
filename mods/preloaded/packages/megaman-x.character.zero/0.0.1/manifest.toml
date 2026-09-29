@@ -1,10 +1,10 @@
 format_version = 1
 id = "megaman-x.character.zero"
-version = "0.1.0"
-name = "X3 Zero Experiment"
+version = "0.0.1"
+name = "X3 Zero"
 author = "mstan"
-description = "Experimental playable-character port from Mega Man X3. Work in progress."
-license = "MIT"
+description = "Play as X3 Zero or switch to X, with original teleport effects and separate health."
+license = "PolyForm-Noncommercial-1.0.0"
 resolver = "declarative"
 save_compatibility = "requires-same-mods"
 
@@ -14,7 +14,7 @@ rom_sha256 = "b8f70a6e7fb93819f79693578887e2c11e196bdf1ac6ddc7cb924b1ad0be2d32"
 
 [[feature]]
 id = "zero"
-name = "Play as Zero (experimental)"
+name = "X / Zero character switch"
 description = "Start as Zero and press Select while standing on the ground to exchange with X. Requires your Mega Man X3 USA ROM."
 group = "Characters"
 default_enabled = false
@@ -23,7 +23,7 @@ default_enabled = false
 feature = "zero"
 id = "x3-rom"
 label = "Mega Man X3 ROM"
-description = "Select your original Mega Man X3 USA ROM. This selection is shared with X3 weapons."
+description = "Select your original Mega Man X3 USA ROM."
 format = "file"
 file_patterns = "*.sfc,*.smc"
 file_description = "Mega Man X3 USA ROM"

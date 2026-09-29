@@ -1,18 +1,13 @@
 # X3 Zero in X1: current implementation and handoff
 
-Audited 2026-09-29 against `feat/x3-zero-port`, through `686dd61`/`bdbb9b7`.
-Worktree: `F:/Projects/snesrecomp/_wt_mmx_zero`. This is the authoritative
-current Zero document. [zero-spike.md](zero-spike.md) preserves the original
-feasibility experiment and older findings; its early state sizes and paths
-are historical. Scope: [roadmap](zero-weapons-coop-roadmap.md).
+Release handoff for Zero **0.0.1**, 2026-09-29. Stable character work is
+integrated separately from `feat/x2-x3-weapons`. [zero-spike.md](zero-spike.md)
+is historical; this document records the current behavior and source findings.
+See [release setup](zero-0.0.1.md) and the [roadmap](zero-weapons-coop-roadmap.md).
 
-Central Beads: `beads-8wg.1.31` full Zero port (still in progress), `.30`
-Select exchange (closed), `.33` independent HP (closed), `.32` X2/X3 weapons
-(in progress), `.34` later co-op (not implemented).
-
-**Work order requested by the owner:** finish this Zero documentation first,
-commit it, then resume the remaining X2/X3 weapons. Keep updating the source
-findings as implementation proceeds. Work solo, with clean bounded commits.
+Central Beads: `.36` release/split, `.31` remaining Zero fidelity, `.30` Select
+exchange, `.33` separate HP, `.32` weapon expansion, `.34` later co-op, all under
+`beads-8wg.1`. Work solo, with bounded commits and private test fixtures.
 
 ## Implemented behavior and limits
 
@@ -45,7 +40,8 @@ ROM and their own X3 ROM for Zero; the complete weapon set additionally needs
 X2. Extract assets locally. Public packages must not bundle ROMs, `zero-x3.bin`,
 `x-weapons.bin`, decoded art/audio, private fixtures or research captures.
 Source-ROM selection and automatic native extraction are implemented; Zero and
-X3 weapons share the same ROM path. Packaging audits remain release prerequisites.
+the future X3 weapon option uses the same shared ROM key. Release packaging
+stages only the tracked catalog; no private ROM paths, caches or save states.
 
 `tools/extract_zero.py` validates original USA X3 SHA-256
 `65b03268afac296330e8ff8d60dd0825879e13ed658b37713c034a3bd074f1d7`
@@ -201,7 +197,7 @@ come from the local original ROMs and measured recomp runs.
 | X1 player RAM | `$0BA8`; X/Y `+$05/+$08`, facing `+$11`, action `+$02`; native active HP `$0BCF`, ground flag `$0BD3 & 4` |
 | X1 combat RAM | Projectile pool `$1228..1427`, stride `$40`; count `$0BDD`; selected weapon `$0BDB`; upgrade byte `$1F99` |
 | X1 sound | Ring `$0B72`, producer `$0BA3`; original queue routine `$80:88CD`; charge stop `$81:9890` |
-| Live collision patches | Normalized ROM `$32552` normal, `$33B38` dash, `$37FB0..37FD7` saber bounds; extended-weapon bounds use separate `$37F80..37F9F` |
+| Live collision patches | Normalized ROM `$32552` normal, `$33B38` dash, `$37FB0..37FD7` saber bounds |
 | X1 body animation hooks | Start `$84:8F07`, advance `$84:8EEA` |
 | X1 player hooks | Tick `$81:815C`, end `$81:8165`; dash capability reads `$81:971C/9793/98FC` |
 | X1 projectile hooks | Active read `$00:D3E5`; positive-damage path `$84:9E6E..9E76`; hitbox read `$84:9C16` |
@@ -225,34 +221,25 @@ each frame; `src/mmx_rtl.c` owns scheduler/save integration.
 | v6 | 30-byte extended combo timing | v5 |
 | v7 | 36-byte identity + exchange | v6 |
 | v8 current Zero-only | 40-byte state including HP | v7 |
-| v9 extended inventory | 40-byte Zero + weapon inventory | v8 |
-| v10 extended combat | Same Zero + inventory + owned projectile simulation | v9 |
-| v11 current extended inventory | Same Zero + 40-byte fractional inventory + projectile simulation | v10 |
-
-Later weapon-format changes may advance the last rows; consult `mmx_rtl.c`
-and the [weapon notes](x-weapons-port.md). The current capture writer always
-writes v10, including Zero-only captures; the earlier capture rows describe
-readable historical layouts. Game saves still choose v3/v8/v11 according to
-enabled assets. Old prefixes initialize new fields
+The Zero-only release writes game chunk v8 (v3 when disabled) and capture v7.
+Weapon inventory and combat state formats belong to the follow-up branch and
+are not readable by this release. Old Zero prefixes initialize new fields
 safely. Asset availability and mod identity matter when loading; the package's
 `requires-same-mods` declaration does not yet enforce public save isolation.
 
 Build/extract in the worktree, following the repository README and using the
-existing `build-zero` configuration. Example local asset command:
+`build-zero-release` configuration. Example local asset command:
 
 ```powershell
 python tools/extract_zero.py ../MegamanX3SNESRecomp/mmx3.sfc build-zero/port-work/zero-x3.bin
 ```
 
-Package: `mods/preloaded/packages/megaman-x.character.zero/0.1.0/manifest.toml`.
+Package: `mods/preloaded/packages/megaman-x.character.zero/0.0.1/manifest.toml`.
 Activation plugin is `megaman-x.zero`; its picker selects the original X3 USA
-ROM, shared with the X3 weapons option. Native extraction produces the cache
-automatically under `cache/mmx-source/`. X2/X3 weapons have independent launcher
-options and use their respective ROMs. See [ROM setup](mod-source-roms.md).
-The development executable is
-`build-zero/port-work/MegaManXSNESRecomp.exe`. The owner's preserved swap/HP
-playtest is `build-zero/playtest-combat/MegaManXSNESRecomp.exe`; it predates
-the new weapon attacks. Do not confuse these builds.
+ROM. Native extraction produces the private cache under `cache/mmx-source/`.
+See [ROM setup](mod-source-roms.md). The release executable is
+`build-zero-release/MegaManXSNESRecomp.exe`; weapon development continues in
+`../_wt_mmx_zero/build-zero/port-work/MegaManXSNESRecomp.exe`.
 
 **Never automatically load a save state into the owner's game.** Launch owner
 playtests with a fresh boot and the ROM only. Private headless fixtures are
@@ -261,8 +248,7 @@ separate and must not be copied into an owner session or release package.
 For focused ROM checks, build `mmx_state_tests` with `MMX_STATE_TESTS=ON`.
 Run from a scratch directory with absolute `MMX_ZERO_TEST_ASSETS` and
 `MMX_ZERO_TEST_FIXTURE` paths and X1 ROM argument. Fixture: complete standing,
-unupgraded Highway save with buster selected. Unset `MMX_WEAPONS_TEST_ASSETS`
-for the Zero suite; otherwise the harness selects weapon checks. Optional
+unupgraded Highway save with buster selected. Optional
 `MMX_ZERO_SWAP_ONLY` / `MMX_ZERO_HEALTH_ONLY` narrow scope. `MMX_ZERO_TEST_CAPTURE`
 sets a capture prefix. A separate `MMX_ZERO_TITLE_FIXTURE` enables title checks.
 Use complete `savestate`/`loadstate`, not the older machine-only debugger
@@ -316,11 +302,31 @@ Open Zero acceptance work after the weapon priority:
 3. Representative moving platforms, tight spaces, water, doors, bosses and
    native/widescreen campaign playthrough. Alter dimensions only for an
    observed clearance failure.
-4. Public source-ROM setup, all-asset packaging audit, mod/save compatibility
-   UX and release validation. See the mandatory distribution contract above.
+4. Mod/save compatibility UX: warn before loading incompatible mod states.
+   Source-ROM setup and clean distribution staging are implemented for 0.0.1.
 
-Next implementation remains the twelve unimplemented X2/X3 boss weapons and
-the documented polish on Spinning Blade/Acid Burst/Ray Splasher/Sonic Slicer; see the
-[weapon notebook](x-weapons-source-notes.md). Co-op is a later, separate,
-mutually exclusive mod after weapons are complete, not part of this Zero
-documentation checkpoint.
+The weapon expansion remains on `feat/x2-x3-weapons` and is excluded from
+Zero 0.0.1. Co-op remains a later mutually exclusive mod after weapons finish.
+
+### First charge correction for 0.0.1
+
+Owner playtesting exposed a wrong command conversion: X1 `$81:94BF..94C6`
+indexes `$86:BA76` by command/2. Command 2 spawns class 1 (the small green
+shot); command 6 spawns class 2. Zero's measured first tier (21..80 held
+frames) must request command 2. The thresholds and higher combo timing remain
+unchanged. The native integration test checks the actual spawned class after
+30 held frames with and without X1 arms, plus cleared audio/combination state.
+
+Release validation (2026-09-29): the five focused CTests and the complete private
+Zero runtime suite pass on the release build, including measured movement and
+ground/air combo traces, actual first-tier green projectile with/without arms,
+Select freeze/replay, separate HP/pickups/death, native X1 special weapons,
+legacy saves, rollback, rewind and menu fades. The first-tier capture was
+visually inspected. Native extraction matches the reference byte-for-byte;
+header normalization and invalid-ROM cache preservation pass. The ZIP is
+audited for absence of ROMs, extracted caches, save data, local mod state and
+weapon packages; its DLL dependency closure is validated.
+
+A fresh private install of the ZIP generated its 2,492,180-byte Zero cache
+from the selected X3 ROM and cold-booted for 180 frames (exit 0), with no save
+state or developer asset cache. This test used isolated local configuration.

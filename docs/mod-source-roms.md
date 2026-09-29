@@ -61,7 +61,8 @@ extractor. Separate eight-entry weapon caches use the existing `MMXWEAP3`
 entry layout; the loader also accepts the legacy sixteen-entry development
 cache. Source pack selection does not require a gameplay save-format change.
 
-Shared framework support is commit `795fc99` on `feat/mmx-shared-source-roms`
+Shared framework support originated in `795fc99` and is integrated at
+`8566fdb` (framework PR #131), the same tested pin used by Zero 0.0.1
 (central issue `beads-8wg.2.90`); game integration is tracked in `beads-8wg.1.35`.
 The framework provider test covers both sharing directions, independent keys,
 persistence, clearing, copier headers and incorrect-ROM launch rejection.
@@ -85,17 +86,15 @@ normalization and wrong-ROM rejection without overwriting a valid cache.
   control; ROMs, decoded graphics, asset caches, private save states and
   research captures do not belong in public release packages.
 
-## Required before public release
+## Release boundary and remaining weapon work
 
-1. Audit every imported resource, including embedded arrays and future sound
-   imports, for extraction from user-supplied sources. Keep a source/address
-   record in the extraction descriptors and investigation notebook.
-2. Stage releases from an explicit package manifest; reject ROMs, extracted
-   caches, source-derived test fixtures and research artifacts. `.gitignore`
-   alone is not a packaging safeguard.
-3. Validate the final distributable from a clean install with no developer caches: missing and
-   unsupported sources, supported sources, regeneration, and a fresh boot.
-   Test Zero and the weapon set through the same setup path users will use.
+Zero 0.0.1 has shipped separately in PR #52 with the native ROM picker and
+private extraction. Its package audit stages only the tracked mod catalog,
+rejects private state/cache/ROM files, validates DLL closure, and passed a fresh
+cold boot from a ZIP install. The weapons branch retains that packaging path.
 
-Source-ROM setup is implemented. Packaging audit and full weapon completion
-remain release prerequisites.
+The X2/X3 weapons remain development content: four combat implementations and
+twelve fallbacks. Finish their behavior/fidelity and audit every added resource
+before publishing a weapon release. Future sound imports must also come from
+the user's ROMs. Recheck the final weapon distributable from a clean install,
+including both independent packs and their shared X3 selection with Zero.

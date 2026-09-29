@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(MegaManXSNESRecomp VERSION 1.6.5 LANGUAGES C CXX)
+project(MegaManXSNESRecomp VERSION 1.6.6 LANGUAGES C CXX)
 set(CMAKE_C_STANDARD 11)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/mmx_weapon_sources.h"
@@ -101,7 +101,9 @@ function(add_mmx_variant TARGET GEN_DIR CFG_DIR)
 endfunction()
 set_property(SOURCE src/main.c APPEND PROPERTY COMPILE_DEFINITIONS
     SNESRECOMP_BUILD_VERSION="${SNESRECOMP_BUILD_VERSION}")
-add_mmx_variant(MegaManXSNESRecomp "${CMAKE_CURRENT_SOURCE_DIR}/src/gen"
+set(MMX_GEN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/gen" CACHE PATH
+    "Generated USA program directory (allows isolated coverage comparisons)")
+add_mmx_variant(MegaManXSNESRecomp "${MMX_GEN_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/recomp")
 add_mmx_variant(RockmanXSNESRecomp "${CMAKE_CURRENT_SOURCE_DIR}/variants/jp/gen"
     "${CMAKE_CURRENT_SOURCE_DIR}/variants/jp/config"
@@ -142,11 +144,22 @@ if(BUILD_TESTING)
         target_link_libraries(mmx_renderer_test PRIVATE m)
         target_link_libraries(mmx_render_capture PRIVATE m)
     endif()
+    # End to end through the real executable (#45: Reset must reboot). Needs
+    # the ROM, so only where one is staged -- never in CI.
+    if(TARGET MegaManXSNESRecomp AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/mmx.sfc")
+        add_test(NAME mmx_reset_reboots
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/reset_boot_test.py
+                --exe $<TARGET_FILE:MegaManXSNESRecomp>
+                --rom ${CMAKE_CURRENT_SOURCE_DIR}/mmx.sfc
+                --config ${CMAKE_CURRENT_SOURCE_DIR}/config.ini)
+    endif()
 endif()
 include(${SNESRECOMP_ROOT}/runner/cmake/mmx_state_tests.cmake)
 snesrecomp_target_mmx_state_tests(MegaManXSNESRecomp "${CMAKE_CURRENT_SOURCE_DIR}/src/main.c")
 
 if(TARGET mmx_state_tests)
+    add_dependencies(mmx_state_tests MegaManXSNESRecomp_widescreen_overrides)
     target_compile_definitions(mmx_state_tests PRIVATE
         MMX_ZERO_COMBAT_REFERENCE_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/tests/data/zero_x3_combat.csv"
         MMX_ZERO_MOTION_REFERENCE_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/tests/data/zero_x3_motion.csv")
