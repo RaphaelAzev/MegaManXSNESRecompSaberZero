@@ -21,6 +21,7 @@ exchange, `.33` separate HP, `.32` weapon expansion, `.34` later co-op, all unde
 | X1 specials | All eight native normal/charged attacks, Zero muzzle offsets and selected effect adjustments | Activation, energy, upgrade gate and both directions checked; remaining visual/state combinations need playtesting |
 | Hurt/fades | Replacement tied to submitted OAM, including hidden blink frames and pause fades | Renderer checks cover the reported X flashes and menu transitions |
 | HUD | Original X3 Z badge with its frame/palette | ROM-to-render comparison matched all 218 nontransparent badge pixels |
+| READY | Original X1 stage-entry lettering and animation, red for Zero and blue for X | Native respawn captures checked for both identities; X matches original pixels |
 | Pause/title | Original Zero body in pause and title cursor; title confirmation still shoots | Upgraded/unupgraded menus and native title shot checked |
 | Life heads | **Original X 1-up artwork**, both menu and pickups | Owner explicitly rejected the custom Zero head; do not restore any custom version |
 | Select exchange | Grounded idle X/Zero exchange using original blue/red teleport art; game tasks freeze | Both directions, held/midair Select, frozen live projectile and deterministic replay checked |
@@ -31,6 +32,19 @@ The original question was whether this required disassembling nearly all of
 both games. It did not: the implementation uses bounded source investigation,
 asset tables and integration hooks. This does not establish perfect X3 fidelity
 or a complete campaign playthrough.
+
+## READY appearance
+
+Post-0.0.1 READY follow-up: X1 `$80:9A3E` creates actor `$1CE8`, class `$0A`;
+`$81:F091` selects animation group `$19`, at the original screen center.
+Its sequence at `$AF:AF76` forms letters with two-frame poses 0..11 and then
+flashes poses 12/13. The compositor changes only the blue color ramp of that
+actor during arrival state `$D3=2` when Zero is active. Original neutral
+highlights, geometry, visibility, timing and other users of its palette stay
+intact. This requires no extra assets, ROM patch, simulation hook or save field.
+Private `MMX_ZERO_READY_ONLY=1` runtime checks reach READY through actual death
+and respawn, validate red lettering for Zero and unchanged lettering for X,
+and optionally save `.zero-ready.cap` / `.x-ready.cap` for visual review.
 
 ## Public distribution and asset provenance
 
