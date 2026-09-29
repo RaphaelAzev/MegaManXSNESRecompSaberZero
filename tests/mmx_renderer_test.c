@@ -1,7 +1,9 @@
 #include "mmx_renderer.h"
 #include "mmx_render_assets.h"
+#include "mmx_zero.h"
 #include <assert.h>
 #include <math.h>
+#include <stdio.h>
 
 static uint8_t ram[0x20000], rom_bytes[0x100000];
 static Ppu ppu;
@@ -1106,6 +1108,61 @@ static void sprite_priority_and_cutscene_binding(void) {
   g_mmx_custom_renderer = false; MmxRendererReset();
 }
 
+static void zero_blink_submission(void) {
+  /* A submitted body belongs to the OAM epoch even if the next player update
+   * has already cleared its visibility flag. It must never turn back into X. */
+  FILE *f = fopen("zero-render-test.bin", "wb"); assert(f);
+  const uint8_t header[] = {'M','M','X','Z','E','R','O','6',128,0,128,0,64,0,64,0,117,0,35,0};
+  uint8_t pixels[16384] = {0}, palette[256] = {0}, bounds[40] = {0};
+  palette[46] = 31; pixels[64 * 128 + 64] = 23;
+  for (unsigned i = 0; i < 40; i += 4) bounds[i + 2] = bounds[i + 3] = 1;
+  uint8_t badge[160] = {0};
+  assert(fwrite(header,sizeof(header),1,f) == 1 && fwrite(palette,sizeof(palette),1,f) == 1 &&
+      fwrite(bounds,sizeof(bounds),1,f) == 1 && fwrite(badge,sizeof(badge),1,f) == 1);
+  uint8_t animation[MMX_ZERO_ANIMATION_BYTES] = {0};
+  for (unsigned i = 0; i < 136; ++i) { animation[i * 2] = 0x10; animation[i * 2 + 1] = 1; }
+  animation[272] = 1; animation[273] = 128; animation[275] = 253; animation[276] = 255;
+  assert(fwrite(animation,sizeof(animation),1,f) == 1);
+  uint8_t muzzle[MMX_ZERO_MUZZLE_BYTES] = {0};
+  assert(fwrite(muzzle,sizeof(muzzle),1,f) == 1);
+  for (unsigned i = 0; i < MMX_ZERO_POSES; ++i) assert(fwrite(pixels,sizeof(pixels),1,f) == 1);
+  assert(!fclose(f) && MmxZeroLoad("zero-render-test.bin"));
+  remove("zero-render-test.bin");
+  memset(&ppu,0,sizeof(ppu)); memset(ram,0,sizeof(ram)); memset(rom_bytes,0,sizeof(rom_bytes));
+  MmxRendererReset(); MmxRendererSetRom(rom_bytes,sizeof(rom_bytes));
+  g_mmx_custom_renderer = true; g_mmx_render_asset_repairs = false;
+  ram[0xd1] = 2; ram[0xd2] = ram[0xd3] = 4;
+  put_word(0xbad,40); put_word(0xbb0,48);
+  ppu.inidisp = 15; ppu.bgmode = 1; ppu.screenEnabled[0] = 16; ppu.cgram[129] = 31 << 10;
+  for (unsigned i = 0; i < 128; ++i) ppu.oam[i * 2] = 0xe000;
+  for (unsigned y = 0; y < 8; ++y) ppu.vram[y] = 255;
+  ppu.oam[32] = 0x2828; ppu.oam[33] = 0x2000;
+  put_word(0,40); put_word(2,40); put_word(0x18,0x8000); ram[0x1a] = 0x80; ram[0xf] = 0x20;
+  MmxRendererObserveObject(ram,0xba8); MmxRendererRecordPiece(ram,0); MmxRendererLatchSprites();
+  MmxRenderView view = {256,0,4.0/3.0};
+  for (unsigned visible = 0; visible < 2; ++visible) {
+    ram[0xbb6] = (uint8_t)visible; capture(); assert(MmxRendererDraw(output,view,false));
+    assert(output[40 * 256 + 40] == 0xff0000);
+    assert(output[40 * 256 + 41] == 0); /* Native X tile is fully suppressed. */
+  }
+  ram[0xc31] = 2; ppu.cgram[151] = 31 << 5;
+  capture(); assert(MmxRendererDraw(output,view,false));
+  assert(output[40 * 256 + 40] == 0x00ff00); /* Live charged Sting green. */
+  ppu.cgram[151] = 31 << 10;
+  capture(); assert(MmxRendererDraw(output,view,false));
+  assert(output[40 * 256 + 40] == 0x0000ff); /* Next native palette phase. */
+  ram[0xc31] = 0;
+  capture(); assert(MmxRendererDraw(output,view,false));
+  assert(output[40 * 256 + 40] == 0xff0000); /* Effect ends: original Zero red. */
+  /* A menu fade repeats OAM without rebuilding the object list. */
+  MmxRendererLatchSprites(); capture();
+  assert(MmxRendererDraw(output,view,false) && output[40 * 256 + 40] == 0xff0000);
+  /* An actual blink hides OAM; stale attribution must preserve that gap. */
+  ppu.oam[32] = 0xe000; MmxRendererLatchSprites(); capture();
+  assert(MmxRendererDraw(output,view,false) && output[40 * 256 + 40] == 0);
+  MmxZeroDisable(); g_mmx_custom_renderer = false; g_mmx_render_asset_repairs = true;
+  MmxRendererReset();
+}
 static void weapons_menu_margins(void) {
   memset(&ppu, 0, sizeof(ppu)); memset(ram, 0, sizeof(ram));
   MmxRendererReset(); MmxRendererSetRom(NULL, 0);
@@ -1126,4 +1183,4 @@ static void weapons_menu_margins(void) {
   memset(stock, 0, sizeof(stock));
 }
 
-int main(void) { geometry(); raster_and_hud(); sprite_coordinates(); expanded_capacity(); background_resources(); dialogue_and_password(); highway_arena_sky(); distant_doors(); storm_background_prefill(); resource_decode(); spark_effects(); airport_panorama_edge(); wide_water_plane(); buried_submarine(); background_continuations(); launch_background_palettes(); sting_background_palettes(); mammoth_background_palettes(); dialogue_backdrop(); fortress_actor_presentation(); sprite_priority_and_cutscene_binding(); weapons_menu_margins(); return 0; }
+int main(void) { geometry(); raster_and_hud(); sprite_coordinates(); expanded_capacity(); background_resources(); dialogue_and_password(); highway_arena_sky(); distant_doors(); storm_background_prefill(); resource_decode(); spark_effects(); airport_panorama_edge(); wide_water_plane(); buried_submarine(); background_continuations(); launch_background_palettes(); sting_background_palettes(); mammoth_background_palettes(); dialogue_backdrop(); fortress_actor_presentation(); sprite_priority_and_cutscene_binding(); weapons_menu_margins(); zero_blink_submission(); return 0; }

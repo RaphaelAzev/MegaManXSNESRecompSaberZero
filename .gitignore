@@ -19,6 +19,7 @@ rom.cfg
 
 # Extracted ROM data (generated from ROM at build time — copyrighted)
 smw_assets.dat
+zero-x3.bin
 assets/
 
 # Save files

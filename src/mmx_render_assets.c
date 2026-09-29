@@ -9,6 +9,8 @@ static size_t rom_size;
 static MmxSpriteAsset assets[256];
 static MmxSpriteAsset captive_zero;
 static unsigned captive_zero_ready;
+static MmxSpriteAsset teleport_x[8];
+static bool teleport_x_ready;
 static uint8_t ready[256], sprite_resource[256];
 static unsigned cached_stage = ~0u, cached_section = ~0u;
 static unsigned bg_stage = ~0u;
@@ -26,6 +28,50 @@ void MmxRenderAssetsSetRom(const uint8_t *bytes, size_t size) {
   cached_stage = cached_section = ~0u;
   bg_stage = ~0u;
   captive_zero_ready = 0;
+  teleport_x_ready = false;
+}
+const MmxSpriteAsset *MmxRenderAssetsTeleportX(unsigned pose) {
+  unsigned index = pose == 0 ? 7 : pose >= 0x3c && pose <= 0x42 ? pose - 0x3c : 8;
+  if (index >= 8 || !rom) return NULL;
+  if (!teleport_x_ready) {
+    uint16_t colors[16] = {0};
+    /* Buster palette list $0100, loaded by $81:9E8F / $82:8011. */
+    size_t list = 0x30000 + (word(0x30233) & 0x7fff);
+    bool found = false;
+    for (unsigned guard = 0; guard < 32; ++guard, list += 4) {
+      if (!range(list,4)) return NULL;
+      unsigned count = rom[list]; if (!count) break;
+      size_t source = 0x28000 + (word(list + 1) & 0x7fff);
+      if (!range(source,count * 2)) return NULL;
+      for (unsigned i = 0; i < count; ++i) {
+        int dest = rom[list + 3] + (int)i - 144;
+        if (dest >= 0 && dest < 16) { colors[dest] = (uint16_t)word(source + i * 2); found = true; }
+      }
+    }
+    if (!found) return NULL;
+    for (unsigned n = 0; n < 8; ++n) {
+      MmxSpriteAsset *a = &teleport_x[n]; memset(a,0,sizeof(*a));
+      unsigned f = n == 7 ? 0 : n + 0x3c;
+      /* Intermediate morph poses inherit $3E's CHR ($42 reloads it).
+       * The X1 five-byte DMA records contain literal ROM bank/source data. */
+      if (f >= 0x3f && f <= 0x41) f = 0x3e;
+      size_t dma = 0x2a597 + word(0x2a597 + f * 2);
+      bool complete = false;
+      for (unsigned guard = 0; guard < 32; ++guard, dma += 5) {
+        if (!range(dma,5) || !rom[dma]) return NULL;
+        unsigned count = rom[dma] * 16;
+        size_t source = lorom(word(dma + 1) | (rom[dma + 3] << 16));
+        int dest = (((int)rom[dma + 4] & 127) * 256 - 0x6000) * 2;
+        if (!range(source,count) || dest < 0 || dest + count > sizeof(a->tiles)) return NULL;
+        memcpy(a->tiles + dest,rom + source,count);
+        if (rom[dma + 4] & 128) { complete = true; break; }
+      }
+      if (!complete) return NULL;
+      memcpy(a->colors,colors,sizeof(colors));
+    }
+    teleport_x_ready = true;
+  }
+  return &teleport_x[index];
 }
 static size_t decode_resource(unsigned id, uint8_t decoded[65536]) {
   size_t info = 0x376f7 + id * 5;

@@ -1,6 +1,7 @@
 #include "mmx_rtl.h"
 #include "mmx_wide_policy.h"
 #include "mmx_renderer.h"
+#include "mmx_zero.h"
 #include "variables.h"
 #include "common_cpu_infra.h"
 #include "snes/snes.h"
@@ -327,7 +328,7 @@ void mmx_host_yield(uint8_t countdown) {
 #include "snes/saveload.h"
 
 #define MMX_SAV_CHUNK_MAGIC   0x4D4D5854u  /* "MMXT" */
-#define MMX_SAV_CHUNK_VERSION 3u /* Execution state plus native-timed streakers. */
+#define MMX_SAV_CHUNK_VERSION 8u /* Separate X/Zero health pools. */
 
 typedef struct MmxSavChunk {
   uint32_t magic, version;
@@ -357,12 +358,13 @@ static void MmxWideStateSave(struct SaveLoadInfo *sli);
 static void MmxWideStateLoad(struct SaveLoadInfo *sli);
 static void MmxWideStateApply(bool loaded);
 static uint8_t g_load_frame_flags[4];
+static MmxZeroState g_load_zero;
 
 void MmxStateSaveExtra(struct SaveLoadInfo *sli) {
   MmxSavChunk c;
   memset(&c, 0, sizeof(c));
   c.magic = MMX_SAV_CHUNK_MAGIC;
-  c.version = MMX_SAV_CHUNK_VERSION;
+  c.version = MmxZeroEnabled() ? MMX_SAV_CHUNK_VERSION : 3;
   mmx_save_cpu(&c.main_cpu, &g_cpu);
   for (int i = 0; i < MMX_NSLOTS; i++) {
     c.occupied[i]    = (g_slot_fiber[i] != NULL);
@@ -381,12 +383,17 @@ void MmxStateSaveExtra(struct SaveLoadInfo *sli) {
   sli->func(sli, flags, sizeof(flags));
   MmxWideStateSave(sli);
   RtlSaveExecutionState(sli);
+  if (c.version >= 4) {
+    MmxZeroState zero = MmxZeroGetState();
+    sli->func(sli, &zero, sizeof(zero));
+  }
 }
 
 void MmxStateLoadExtra(struct SaveLoadInfo *sli, uint32_t version) {
   (void)version;
   g_load_chunk_ok = 0;
   g_load_complete = g_load_native_streakers = false;
+  memset(&g_load_zero, 0, sizeof(g_load_zero));
   memset(&g_load_chunk, 0, sizeof(g_load_chunk));
   sli->func(sli, &g_load_chunk, sizeof(g_load_chunk));
   if (g_load_chunk.magic == MMX_SAV_CHUNK_MAGIC &&
@@ -404,6 +411,19 @@ void MmxStateLoadExtra(struct SaveLoadInfo *sli, uint32_t version) {
     sli->func(sli, g_load_frame_flags, sizeof(g_load_frame_flags));
     MmxWideStateLoad(sli);
     if (!RtlLoadExecutionState(sli)) g_load_chunk_ok = 0;
+    if (g_load_chunk.version >= 4) {
+      size_t zero_size = g_load_chunk.version == 4 ? MMX_ZERO_LEGACY_STATE_SIZE :
+          g_load_chunk.version == 5 ? MMX_ZERO_ANIMATION_STATE_SIZE :
+          g_load_chunk.version == 6 ? MMX_ZERO_COMBAT_STATE_SIZE :
+          g_load_chunk.version == 7 ? MMX_ZERO_SWAP_STATE_SIZE : sizeof(g_load_zero);
+      if (RtlStateBytesRemaining(sli) >= zero_size)
+        sli->func(sli, &g_load_zero, zero_size);
+      else g_load_chunk_ok = 0;
+      if (g_load_chunk.version < 6) {
+        g_load_zero.saber_ready = g_load_zero.combo != 0;
+        if (g_load_zero.slash > 44) g_load_zero.slash = 44;
+      }
+    }
   }
   if (!g_load_chunk_ok)
     fprintf(stderr, "[mmx_state] load: bad game chunk (magic=%08x ver=%u)\n",
@@ -431,6 +451,7 @@ void MmxOnStateLoaded(uint32_t version) {
   g_did_reset = complete ? g_load_frame_flags[0] != 0 : true;
   g_first_frame_done = complete ? g_load_frame_flags[1] != 0 : true;
   MmxWideStateApply(complete);
+  MmxZeroSetState(g_load_zero);
   if (version < 5 || !g_load_chunk_ok) {
     /* Legacy v4 save: no chunk, no rebuild — preserve the historical
      * behavior exactly (live fibers limp along; loads are only reliable
@@ -838,6 +859,7 @@ void RunOneFrameOfGame(void) {
     }
   }
   cpu_trace_px_breadcrumb(&g_cpu, 0x2002, "before_Internal");
+  if (MmxZeroSwapTick(g_ram)) return;
   if (s_ws_recover_armor) {
     if (!g_mmx_custom_renderer || !MmxWidePolicy_PrematureRideArmor(g_ram) ||
         MmxWidePolicy_RecoverRideArmor(g_ram, MmxWsMargin())) s_ws_recover_armor = false;
@@ -885,6 +907,7 @@ void RunOneFrameOfGame(void) {
       MmxSchedulerTick();
   }
   cpu_trace_px_breadcrumb(&g_cpu, 0x2003, "after_Internal");
+  MmxZeroHealthSync(g_ram);
   g_first_frame_done = true;
 }
 
