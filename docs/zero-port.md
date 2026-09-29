@@ -326,3 +326,7 @@ visually inspected. Native extraction matches the reference byte-for-byte;
 header normalization and invalid-ROM cache preservation pass. The ZIP is
 audited for absence of ROMs, extracted caches, save data, local mod state and
 weapon packages; its DLL dependency closure is validated.
+
+A fresh private install of the ZIP generated its 2,492,180-byte Zero cache
+from the selected X3 ROM and cold-booted for 180 frames (exit 0), with no save
+state or developer asset cache. This test used isolated local configuration.
