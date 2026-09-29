@@ -29,9 +29,9 @@ normalized X3 SHA-256:
 `65b03268afac296330e8ff8d60dd0825879e13ed658b37713c034a3bd074f1d7`.
 It extracts 117 body, 21 saber-body and 14 blade poses, palettes, the ground/air
 saber bounds, and Zero's original X3 health-bar badge and palette. The current
-cache format is `MMXZERO5`; rerun extraction to replace older caches. It also
+cache format is `MMXZERO6`; rerun extraction to replace older caches. It also
 extracts the 136 original body-animation sequences, including Zero's additional
-hair, dash and jump poses.
+hair, dash and jump poses, plus the original pose-specific firing offsets.
 `--sheet path.png` also writes a labeled contact sheet if Pillow
 is installed. ROMs, generated code and extracted graphics stay local.
 
@@ -163,12 +163,17 @@ Full-port progress on `feat/x3-zero-port`:
   helmet/face pixels; vanilla X3 itself retains X's life icon. Native 1-up
   collection increments the life count normally. Menu pixel comparisons change
   only the character and head areas, including the fully upgraded menu.
+- Native projectile initializers use Zero's original pose-specific X/Y firing
+  offsets from X3 `$39:9161/$39:91D9`, translated to the shared foot position.
+  X1 still owns facing, spread patterns, trajectories and weapon effects.
+  All eight special weapons produce their expected normal/charged native
+  projectile classes and spend energy; both firing directions are checked.
 - Saves now use game chunk v5 for Zero's animation phase, retaining v4 combat
   saves and older formats. Captures use v4, with v2/v3 still readable. Disabled
   saves remain v3. Complete snapshot, replay, rollback and rewind checks pass.
 
-Owner playtest follow-up: projectile origins do not yet line up with Zero's arm.
-The reported X tiles during invulnerability are fixed as described above.
+Owner playtest follow-up: projectile origins and the reported X tiles during
+invulnerability are fixed as described above.
 These issues are tracked in `beads-8wg.1.29`. Full-port work is on `feat/x3-zero-port`, tracked in
 `beads-8wg.1.31`. The earlier hand-drawn red HUD letter was an approximation and
 has been replaced with the original X3 Zero badge, including its original frame
@@ -193,8 +198,8 @@ together. Swapping is not implemented by this HUD update.
    Current movement physics, dash effects and the first two projectile graphics
    are X1's. Charge/hit palette effects and saber audio still need adaptation.
 3. Adapt and validate all eight X1 weapons in their normal and charged forms,
-   including body/arm poses, emission points and weapon palettes. Only Homing
-   Torpedo received runtime acceptance in this spike.
+   including body/arm poses, emission points and weapon palettes. All eight now
+   pass normal/charged activation and energy checks; visual effects need playtesting.
 4. Play through representative tight spaces, moving platforms, doors, water,
    ride armor and all bosses, then the full campaign in native and widescreen.
    Story/NPC behavior is preserved by the scope of the hooks but has not received

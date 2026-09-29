@@ -7,7 +7,7 @@
 static uint8_t ram[0x20000], before[0x20000], rom[0x180000], clean[0x180000];
 static void asset(const char *path) {
   FILE *f = fopen(path, "wb"); assert(f);
-  const uint8_t header[] = {'M','M','X','Z','E','R','O','5',128,0,128,0,64,0,64,0,117,0,35,0};
+  const uint8_t header[] = {'M','M','X','Z','E','R','O','6',128,0,128,0,64,0,64,0,117,0,35,0};
   uint8_t page[16384] = {0};
   assert(fwrite(header, sizeof(header), 1, f) == 1);
   assert(fwrite(page, 256, 1, f) == 1);
@@ -19,6 +19,9 @@ static void asset(const char *path) {
   for (unsigned i = 0; i < 136; ++i) { animation[i * 2] = 0x10; animation[i * 2 + 1] = 1; }
   animation[272] = 2; animation[273] = 128; animation[275] = 253; animation[276] = 255;
   assert(fwrite(animation,sizeof(animation),1,f) == 1);
+  uint8_t muzzle[MMX_ZERO_MUZZLE_BYTES] = {0};
+  muzzle[0] = 2; muzzle[122] = 255; muzzle[123] = 232;
+  assert(fwrite(muzzle,sizeof(muzzle),1,f) == 1);
   for (unsigned i = 0; i < MMX_ZERO_POSES; ++i) assert(fwrite(page, sizeof(page), 1, f) == 1);
   assert(!fclose(f));
 }
@@ -38,6 +41,12 @@ int main(void) {
   asset("zero-test.bin"); assert(MmxZeroLoad("zero-test.bin"));
   assert(MmxZeroUpgradeBits(0x81971c, 2) == 10);
   assert(MmxZeroUpgradeBits(0x8197da, 0) == 0); /* Special charge stays upgrade-gated. */
+  assert(MmxZeroMuzzle(ram,0x1228,0,0,16) == 24);
+  assert(MmxZeroMuzzle(ram,0x1228,0,1,253) == 247);
+  assert(MmxZeroMuzzle(ram,0xe68,0,0,16) == 16); /* NPCs are outside the player pool. */
+  ram[0xbbf] = 100; /* A delayed shot uses its original firing sequence. */
+  assert(MmxZeroMuzzle(ram,0x1228,0,0,16) == 24);
+  assert(MmxZeroMuzzle(ram,0x1228,255,0,16) == 16);
   const uint8_t normal[] = {0,255,6,14,0,0,255,7,17,8};
   const uint8_t dash[] = {0,5,6,8,0,0,255,9,17,8};
   memcpy(rom+0x32552,normal,10); memcpy(rom+0x33b38,dash,10);

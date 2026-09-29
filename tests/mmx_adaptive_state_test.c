@@ -88,6 +88,42 @@ static void zero_menu_pixels(void) {
   }
   check(body > 100 && icon > 50,"menu replaces body and life head while preserving other pixels");
 }
+static void zero_weapon_checks(const char *fixture, const char *capture) {
+  for (unsigned weapon = 0; weapon <= 8; ++weapon) for (unsigned charged = 0; charged < 2; ++charged) {
+    check(RtlLoadSnapshot(fixture),"restore weapon fixture");
+    if (weapon) {
+      g_ram[0x1f85 + weapon * 2] = 0; g_ram[0x1f86 + weapon * 2] = 0xdc;
+      for (int i = 0; i < 6; ++i) frame(SNES_PAD_R);
+      zero_replay(1); check(g_ram[0xbdb] == weapon * 2,"native switch selects requested X1 weapon");
+    }
+    if (charged) {
+      g_ram[0x1f99] = 2;
+      for (int i = 0; i < 181; ++i) frame(SNES_PAD_Y);
+    }
+    unsigned seen = 0;
+    for (int i = 0; i < 35; ++i) {
+      frame(!charged && i == 0 ? SNES_PAD_Y : 0);
+      for (unsigned d = 0x1228; d < 0x1428; d += 64) if (g_ram[d] && g_ram[d + 10] < 32)
+        seen |= 1u << g_ram[d + 10];
+      if (i == 0 && !charged && !weapon) {
+        unsigned d = 0x1228;
+        check((int)(g_ram[d+5] | g_ram[d+6]<<8) - (int)(g_ram[0xbad] | g_ram[0xbae]<<8) == 27 &&
+              (int)(g_ram[d+8] | g_ram[d+9]<<8) - (int)(g_ram[0xbb0] | g_ram[0xbb1]<<8) == -7,
+              "standing shot uses original Zero pose 31 muzzle, translated to X1 feet");
+      }
+      if (i == 2) { char suffix[64]; snprintf(suffix,sizeof(suffix),".weapon%u-%u.cap",weapon,charged); zero_capture(capture,suffix); }
+    }
+    unsigned expected_kind = weapon ? weapon + (charged ? 15 : 6) : charged ? 3 : 0;
+    check(seen & (1u << expected_kind),"X1 weapon produces its expected normal/charged projectile class");
+    if (weapon) check((g_ram[0x1f85 + weapon*2] | (g_ram[0x1f86 + weapon*2] & 63)<<8) < 0x1c00,
+                      "X1 weapon spends native energy");
+  }
+  check(RtlLoadSnapshot(fixture),"restore for left-facing muzzle");
+  frame(SNES_PAD_LEFT); frame(0); frame(SNES_PAD_Y);
+  check((int)(g_ram[0x122d] | g_ram[0x122e]<<8) - (int)(g_ram[0xbad] | g_ram[0xbae]<<8) == -27 &&
+        (int)(g_ram[0x1230] | g_ram[0x1231]<<8) - (int)(g_ram[0xbb0] | g_ram[0xbb1]<<8) == -7,
+        "native facing mirrors Zero muzzle without changing its height");
+}
 static void zero_state_checks(const char *assets, const char *fixture, uint8 *start,
                               uint8 *expected, uint8 *actual, size_t cap) {
   check(fixture != NULL && MmxZeroLoad(assets), "Zero local assets load");
@@ -189,6 +225,7 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
   check(RtlLoadSnapshot(fixture), "restore for upgraded menu probe");
   g_ram[0x1f99] = 15; frame(SNES_PAD_START); zero_replay(120);
   zero_capture(capture, ".menu-armor.cap"); zero_menu_pixels();
+  zero_weapon_checks(fixture,capture);
   MmxZeroDisable(); MmxBeforeFrame(); MmxPrepareFrame(1280,720,&w,&h);
   check(!g_mmx_custom_renderer && !MmxZeroEnabled(), "disabling returns to stock presentation");
   puts("MMX ZERO RUNTIME CHECKS PASSED");

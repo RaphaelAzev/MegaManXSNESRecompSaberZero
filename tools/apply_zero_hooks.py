@@ -6,7 +6,9 @@ import re
 
 MARKER = '/*MMX-ZERO*/'
 PCS = {0x81971c, 0x819793, 0x8198fc}
-REQUIRED = PCS | {0x81815c, 0x00d3e5, 0x849e73, 0x849c16, 0x848f07, 0x848eea}
+MUZZLE_PCS = {0x81a566, 0x81a578, 0x838b6a, 0x838d82, 0x838eb4,
+              0x839518, 0x83983c, 0x839974, 0x83a3a9}
+REQUIRED = PCS | MUZZLE_PCS | {0x81815c, 0x00d3e5, 0x849e73, 0x849c16, 0x848f07, 0x848eea}
 
 
 def apply(text):
@@ -17,6 +19,12 @@ def apply(text):
         if block:
             pc = int(block[1], 16)
         output.append(line)
+        if pc in MUZZLE_PCS:
+            load = re.search(r'uint8 (_v\d+) = cpu_read8.*0xbe3([9a])', line)
+            if load:
+                axis = int(load[2] == 'a')
+                output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern unsigned MmxZeroMuzzle(const uint8_t *, unsigned, unsigned, unsigned, unsigned); {load[1]} = (uint8)MmxZeroMuzzle(g_ram, cpu->D, cpu->X, {axis}, {load[1]}); }}\n')
+                found.add(pc)
         if pc in (0x848f07, 0x848eea) and 'cpu->coprocessor_master_cycles = cpu->master_cycles;' in line:
             if pc == 0x848f07:
                 output.append(f'    {MARKER} {{ extern void MmxZeroAnimationStart(unsigned, unsigned); MmxZeroAnimationStart(cpu->D, cpu->A & 255); }}\n')

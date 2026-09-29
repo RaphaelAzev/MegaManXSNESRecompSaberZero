@@ -1112,7 +1112,7 @@ static void zero_blink_submission(void) {
   /* A submitted body belongs to the OAM epoch even if the next player update
    * has already cleared its visibility flag. It must never turn back into X. */
   FILE *f = fopen("zero-render-test.bin", "wb"); assert(f);
-  const uint8_t header[] = {'M','M','X','Z','E','R','O','5',128,0,128,0,64,0,64,0,117,0,35,0};
+  const uint8_t header[] = {'M','M','X','Z','E','R','O','6',128,0,128,0,64,0,64,0,117,0,35,0};
   uint8_t pixels[16384] = {0}, palette[256] = {0}, bounds[40] = {0};
   palette[2] = 31; pixels[64 * 128 + 64] = 1;
   for (unsigned i = 0; i < 40; i += 4) bounds[i + 2] = bounds[i + 3] = 1;
@@ -1123,6 +1123,8 @@ static void zero_blink_submission(void) {
   for (unsigned i = 0; i < 136; ++i) { animation[i * 2] = 0x10; animation[i * 2 + 1] = 1; }
   animation[272] = 1; animation[273] = 128; animation[275] = 253; animation[276] = 255;
   assert(fwrite(animation,sizeof(animation),1,f) == 1);
+  uint8_t muzzle[MMX_ZERO_MUZZLE_BYTES] = {0};
+  assert(fwrite(muzzle,sizeof(muzzle),1,f) == 1);
   for (unsigned i = 0; i < MMX_ZERO_POSES; ++i) assert(fwrite(pixels,sizeof(pixels),1,f) == 1);
   assert(!fclose(f) && MmxZeroLoad("zero-render-test.bin"));
   remove("zero-render-test.bin");
