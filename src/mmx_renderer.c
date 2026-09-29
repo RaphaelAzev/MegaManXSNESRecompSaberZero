@@ -983,14 +983,23 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       bool anchored = stage && hud && sy < 96 && (slot < 16 || (bar_count >= 4 && slot >= bar_first && slot < bar_first + bar_count));
       if (anchored) { if (x < 25) x -= view.extra; else if (x >= 216) x += view.extra; }
       if (stage && frame_weapons.page && slot == 7 && (pos & 255) == 24 && sy == 80 && attr == 0x3620) {
-        /* Native buster CHR has no extended weapon badge. Use the original
-         * source menu glyph inside its frame, without scaling its pixels. */
+        /* Reuse X1's live HUD footer ($86), including its white outline and
+         * rounded bottom. The buster proxy's $20 CHR is unrelated scenery.
+         * Fit the source symbol into the inset; pause artwork stays 16x16. */
         const MmxWeaponPose *icon=MmxWeaponsIcon(frame_weapons.page,frame_weapons.weapon);
         const uint16_t *colors=MmxWeaponsIconPalette(frame_weapons.page,frame_weapons.weapon);
         int row=y-sy;
-        if (icon && colors && row>0 && row<15) for(int col=1;col<15;++col) {
-          unsigned pixel=icon->pixels[row*16+col];int dx=x+col+view.extra;
-          if(pixel && dx>=0 && dx<view.width) { objects[dx]=(uint16_t)(0xe680|pixel);object_colors[dx]=colors[pixel]; }
+        if (icon && colors && row>=0 && row<16) for(int col=0;col<16;++col) {
+          unsigned tile=0x86+col/8+(row/8)*16;
+          unsigned pixel=tile_pixel(r->vram,(p.obsel&7)*8192+tile*16,col&7,row&7,4);
+          bool inset=col>=3 && col<=12 && row>=3 && row<=12;
+          if(inset) pixel=1; /* Original HUD black, covering the X glyph. */
+          int dx=x+col+view.extra;
+          if(pixel && dx>=0 && dx<view.width) {
+            objects[dx]=(uint16_t)(0xe6a0|pixel);object_colors[dx]=-1;
+            unsigned symbol=inset?icon->pixels[(1+(row-3)*14/10)*16+1+(col-3)*14/10]:0;
+            if(symbol) object_colors[dx]=colors[symbol];
+          }
         }
         continue;
       }

@@ -260,3 +260,16 @@ The existing combat/save ABI is unchanged. Open fidelity items: normal trail
 history (`$81:97B3..97FF`), wall-contact cosmetic effects, source sound import,
 and broader terrain/movement comparisons. The shared swept tile solver resolves
 contacts in the current tick; the source consumes its preceding contact flags.
+
+
+## X1 gameplay weapon HUD footer (2026-09-29)
+
+The extended weapon proxy submits slot 7 at (24,80), attribute $3620. Its
+buster-loaded tile $20 contains unrelated graphics, so simply drawing the
+pause icon lost the gameplay meter enclosure. Reuse the live X1 health footer
+tile $86 with palette 2: side columns 1/14, white lower rim and rounded black
+outer edge. Clear only its X glyph inset (3..12 on both axes) to original black
+index 1, then fit the source weapon symbol inside that 10x10 area. Menu icons
+stay unchanged at 16x16. This also preserves the original top connection to
+the energy segments and live fade palette. Checked the native-width replay
+capture weapons.energy-hud.cap visually; energy amount and menu paths unchanged.
