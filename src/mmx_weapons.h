@@ -31,3 +31,7 @@ bool MmxWeaponsMenuVisible(const uint8_t ram[0x20000]);
 void MmxWeaponsMenuTick(uint8_t ram[0x20000], unsigned direct_page);
 unsigned MmxWeaponsMenuRead(uint8_t ram[0x20000], unsigned pc, unsigned direct_page,
                             unsigned index, unsigned original);
+unsigned MmxWeaponsEnergyRead(unsigned address, unsigned original);
+bool MmxWeaponsEnergyStore(unsigned value, bool pickup);
+void MmxWeaponsEnergyOverflow(uint8_t ram[0x20000], unsigned index);
+void MmxWeaponsRefill(void);

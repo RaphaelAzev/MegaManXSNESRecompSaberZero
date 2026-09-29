@@ -127,6 +127,37 @@ const char *MmxWeaponsLabel(unsigned page, unsigned weapon) {
       "ACID.B", "F.SHIELD", "T.THUNDR", "S.BLADE", "R.SPLASH", "G.WELL", "P.BOMB", "T.FANG"};
   return valid_weapon(page, weapon) ? labels[weapon_index(page, weapon)] : "";
 }
+unsigned MmxWeaponsEnergyRead(unsigned address, unsigned original) {
+  if (!MmxWeaponsActive()) return original;
+  if (address == 0xbdb) return 2; /* HUD/pickup routines only: virtual inventory index. */
+  unsigned value = 0xc0 | state.energy[weapon_index(state.page,state.weapon)];
+  return address == 0x1f85 ? value << 8 : value;
+}
+bool MmxWeaponsEnergyStore(unsigned value, bool pickup) {
+  if (!MmxWeaponsActive()) return false;
+  if (pickup) {
+    unsigned amount = (value >> 8) & 63;
+    state.energy[weapon_index(state.page,state.weapon)] = (uint8_t)(amount > 28 ? 28 : amount);
+  }
+  return true; /* Guest inventory stays untouched, including its dirty flags. */
+}
+void MmxWeaponsEnergyOverflow(uint8_t r[0x20000], unsigned index) {
+  /* Native auto-refill has already scanned X1's owned weapons. Only the
+   * unconsumed remainder after that complete scan can fill new inventory. */
+  if (!asset || index < 18) return;
+  unsigned amount = word(r) >> 8, initial = amount;
+  for (unsigned i=0;i<16 && amount;++i) {
+    unsigned add = 28 - state.energy[i]; if (add > amount) add = amount;
+    state.energy[i] += (uint8_t)add; amount -= add;
+  }
+  if (amount != initial) {
+    unsigned i = r[0xba3] & 30;
+    r[0xb72+i] = 0x0d; r[0xb73+i] = 0; r[0xba3] = (uint8_t)((i+2)&30);
+  }
+}
+void MmxWeaponsRefill(void) {
+  if (asset) memset(state.energy,28,sizeof(state.energy));
+}
 bool MmxWeaponsMenuVisible(const uint8_t r[0x20000]) {
   return asset && r && r[0xd1] == 2 && r[0xd2] == 4 &&
       (((r[0x1f10] == 6 || r[0x1f10] == 8) && (r[0xc3] & 128)) ||
@@ -157,6 +188,7 @@ unsigned MmxWeaponsMenuRead(uint8_t r[0x20000], unsigned pc, unsigned dp, unsign
       unsigned cursor = r[dp + 10], old_page = state.page;
       if (cursor < 9) {
         MmxWeaponsCancelShots(r);
+        if (old_page || state.menu_page) r[0x1f12] = 0; /* Rebuild the native energy HUD. */
         state.page = cursor ? state.menu_page : 0;
         state.weapon = (uint8_t)cursor; state.charge = state.cooldown = 0;
         if (old_page || state.menu_page) return 254; /* Run native weapon cleanup even between two extended weapons. */

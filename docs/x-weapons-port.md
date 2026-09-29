@@ -123,11 +123,30 @@ Spinning Blade's integration still needs final attention to transitions,
 special terrain/reflection cases and fidelity during movement. Source X1
 charge/firing sounds are reused; X2/X3 sound-bank import is not implemented.
 
+## Energy integration
+
+Extended selections use X1's original vertical weapon-energy bar. A cropped,
+unscaled glyph from the original source pause icon identifies the new weapon.
+HUD inventory reads are virtualized; they never change the X1 inventory.
+
+The native weapon-energy pickup actor (item kind 1) retains its collection
+collision, gameplay freeze, incremental refill and sounds. Small pickups add
+two energy and large pickups add eight to the selected extended weapon. After
+the selected weapon fills, the original auto-refill scan gets first choice of
+owned X1 weapons; its remainder can fill X2/X3 weapons in inventory order.
+Picking up energy while using the buster can also refill new inventory.
+
+Checkpoint death preserves weapon energy, matching measured X1 behavior. The
+native full-inventory refill entry $00:9EF9 also refills all sixteen additions.
+This is separate from the two character HP pools, which refill on respawn.
+Focused runtime checks cover native small/large pickups, overflow, buster
+auto-refill, unchanged X1 unlocks/inventory, save/replay during animated refill,
+and matching native/extended energy retention through actual death/respawn.
+
 ## Remaining implementation
 
 Implement the other fifteen weapons' normal and charged attacks, native
 sound/effect cleanup, X/Zero firing origins, terrain/enemy interaction and
 meaningful special behaviors. Gate charging on X1's arm upgrade. Keep ordinary
-damage and existing X1 progression. Connect the gameplay weapon-energy HUD,
-energy pickups and stage/respawn refill policies. Co-op remains a later,
-separate mod. The owner's running playtest remains the stable exchange/HP build.
+damage and existing X1 progression. Co-op remains a later, separate mod. The
+owner's running playtest remains the stable exchange/HP build.

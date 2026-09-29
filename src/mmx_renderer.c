@@ -981,6 +981,18 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
           x == 8 && sy == 80 && attr == 0x3486 && size == 16;
       bool anchored = stage && hud && sy < 96 && (slot < 16 || (bar_count >= 4 && slot >= bar_first && slot < bar_first + bar_count));
       if (anchored) { if (x < 25) x -= view.extra; else if (x >= 216) x += view.extra; }
+      if (stage && frame_weapons.page && slot == 7 && (pos & 255) == 24 && sy == 80 && attr == 0x3620) {
+        /* Native buster CHR has no extended weapon badge. Use the original
+         * source menu glyph inside its frame, without scaling its pixels. */
+        const MmxWeaponPose *icon=MmxWeaponsIcon(frame_weapons.page,frame_weapons.weapon);
+        const uint16_t *colors=MmxWeaponsIconPalette(frame_weapons.page,frame_weapons.weapon);
+        int row=y-sy;
+        if (icon && colors && row>0 && row<15) for(int col=1;col<15;++col) {
+          unsigned pixel=icon->pixels[row*16+col];int dx=x+col+view.extra;
+          if(pixel && dx>=0 && dx<view.width) { objects[dx]=(uint16_t)(0xe680|pixel);object_colors[dx]=colors[pixel]; }
+        }
+        continue;
+      }
       sprite(&p, r, x, sy, attr, size, y, view, objects, false, NULL, 0, object_colors, false, zero_icon);
     }
     if (stage && !swapping) for (unsigned i=0;i<8;++i) {

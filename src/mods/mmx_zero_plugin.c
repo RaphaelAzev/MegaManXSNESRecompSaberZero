@@ -9,6 +9,34 @@
 #include <stdio.h>
 
 extern uint8_t g_ram[0x20000];
+static void weapon_energy_hook(CpuState *cpu, uint32_t pc) {
+  if (!MmxWeaponsEnabled()) return;
+  pc &= 0x7fffff;
+  if (pc == 0x9ef9) { MmxWeaponsRefill(); return; }
+  if (pc == 0x01e169) { MmxWeaponsEnergyOverflow(g_ram,cpu->X); return; }
+  bool store = pc == 0xd91d || pc == 0xd95e || pc == 0xd9ab || pc == 0x01e0ce;
+  if (store) {
+    bool wide = pc == 0x01e0ce;
+    if (MmxWeaponsEnergyStore(cpu->A,wide)) {
+      /* Skip only this inventory STA. Preserve its accumulator and flags,
+       * and retain the generated tier's ordinary absolute,Y write timing. */
+      extern uint8_t g_memsel;
+      cpu->cycles += wide ? 6 : 5;
+      cpu->master_cycles += (wide ? 6 : 5) * (g_memsel ? 6 : 8);
+      interp_bridge_pre_opcode_redirect((cpu->PB << 16) | ((pc + 3) & 65535));
+    }
+    return;
+  }
+  bool index = pc == 0xd90f || pc == 0xd94d || pc == 0x01e058 || pc == 0x01e0a7;
+  bool y = pc == 0x01e058 || pc == 0x01e0a7, wide = pc == 0x01e0ac;
+  unsigned mask = wide ? 65535 : 255;
+  unsigned original = y ? cpu->Y : cpu->A & mask;
+  unsigned value = MmxWeaponsEnergyRead(index ? 0xbdb : wide ? 0x1f85 : 0x1f86, original);
+  if (y) cpu->Y = (uint16_t)value;
+  else cpu->A = (uint16_t)((cpu->A & ~mask) | value);
+  cpu->_flag_Z = !value; cpu->_flag_N = (value & (wide ? 32768 : 128)) != 0;
+  cpu->P = (cpu->P & ~0x82) | (cpu->_flag_Z ? 2 : 0) | (cpu->_flag_N ? 128 : 0);
+}
 static void weapon_menu_hook(CpuState *cpu, uint32_t pc) {
   if (!MmxWeaponsEnabled()) return;
   pc &= 0xffff;
@@ -116,6 +144,10 @@ void MmxZeroRegisterHooks(void) {
       0xc79a,0xc7bd,0xc80d,0xc82c,0xc86d,0xc88c};
   for (unsigned i = 0; i < sizeof(menu_pcs) / sizeof(menu_pcs[0]); ++i)
     interp_bridge_set_pre_opcode_hook(menu_pcs[i], weapon_menu_hook);
+  const unsigned energy_pcs[] = {0x9ef9,0xd90f,0xd91b,0xd91d,0xd94d,0xd951,0xd95e,0xd9a7,0xd9ab,
+      0x01e058,0x01e065,0x01e0a7,0x01e0ac,0x01e0ce,0x01e169};
+  for (unsigned i=0;i<sizeof(energy_pcs)/sizeof(energy_pcs[0]);++i)
+    interp_bridge_set_pre_opcode_hook(energy_pcs[i],weapon_energy_hook);
 }
 static void activate(void) {
   char path[4096];
@@ -133,7 +165,10 @@ static void activate(void) {
     fprintf(stderr, "[mmx-weapons] Original X2/X3 weapon assets loaded\n");
   fprintf(stderr, "[mmx-zero] Experimental original-size Zero enabled\n");
 }
-static void reset(void) { MmxWeaponsCancelShots(g_ram); MmxZeroCancel(g_ram); MmxZeroDisable(); MmxWeaponsDisable(); }
+static void reset(void) {
+  if (MmxWeaponsEnabled()) g_ram[0x1f12] = 0;
+  MmxWeaponsCancelShots(g_ram); MmxZeroCancel(g_ram); MmxZeroDisable(); MmxWeaponsDisable();
+}
 SNES_MOD_CONSTRUCTOR(mmx_register_zero_plugin) {
   (void)snes_mod_register_reset_callback(reset);
   (void)snes_mod_register_activation_plugin("megaman-x.zero", activate);

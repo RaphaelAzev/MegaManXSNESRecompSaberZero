@@ -375,6 +375,49 @@ static void weapon_menu_checks(const char *assets, const char *fixture, uint8 *s
         MmxWeaponsGetState().weapon==1 && !g_ram[0xbdb],"X selects an extended weapon through native pause");
   puts("MMX X2/X3 WEAPON MENU CHECKS PASSED");
 }
+static void weapon_energy_pickup(unsigned small) {
+  memset(g_ram+0x1628,0,48); g_ram[0x1628]=1;
+  g_ram[0x1632]=1; g_ram[0x1633]=(uint8_t)(128|small);
+  memcpy(g_ram+0x162d,g_ram+0xbad,2);
+  unsigned y=(g_ram[0xbb0] | g_ram[0xbb1]<<8)-16;
+  g_ram[0x1630]=(uint8_t)y; g_ram[0x1631]=(uint8_t)(y>>8);
+}
+static void weapon_energy_checks(const char *assets, const char *fixture, uint8 *start,
+                                uint8 *expected, uint8 *actual, size_t cap) {
+  check(MmxWeaponsLoad(assets) && RtlLoadSnapshot(fixture),"load energy pickup fixture");
+  uint8 inventory[16]; memcpy(inventory,g_ram+0x1f88,16);
+  MmxWeaponsState w=MmxWeaponsGetState(); w.page=2;w.weapon=4;w.energy[11]=10;MmxWeaponsSetState(w);
+  g_ram[0x1f12]=0; zero_replay(6);
+  check(g_ram[0x71c]==24 && g_ram[0x71d]==80,"native weapon energy HUD becomes visible for extended selection");
+  zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),".energy-hud.cap");
+  weapon_energy_pickup(1); zero_replay(55);
+  check(!g_ram[0x1628] && MmxWeaponsGetState().energy[11]==12,"small native pickup refills two selected extended energy");
+  weapon_energy_pickup(0); zero_replay(8);
+  size_t n=RtlSaveSnapshotToMemory(start,cap);
+  zero_replay(45);size_t en=RtlSaveSnapshotToMemory(expected,cap);
+  check(!g_ram[0x1628] && MmxWeaponsGetState().energy[11]==20,"large native pickup refills eight selected extended energy");
+  check(RtlLoadSnapshotFromMemory(start,n),"restore animated energy refill");
+  zero_replay(45);size_t an=RtlSaveSnapshotToMemory(actual,cap);
+  same(expected,en,actual,an,"native energy refill resumes deterministically");
+  check(!memcmp(inventory,g_ram+0x1f88,16),"HUD and extended pickups preserve X1 inventory");
+  w=MmxWeaponsGetState();w.energy[11]=27;w.energy[0]=3;MmxWeaponsSetState(w);
+  weapon_energy_pickup(0);zero_replay(55);
+  check(MmxWeaponsGetState().energy[11]==28 && MmxWeaponsGetState().energy[0]==10,"overflow fills other extended weapons after native inventory scan");
+  w=MmxWeaponsGetState();w.page=w.weapon=0;MmxWeaponsSetState(w);g_ram[0x1f12]=0;
+  weapon_energy_pickup(1);zero_replay(55);
+  check(MmxWeaponsGetState().energy[0]==12,"buster-mode pickup can auto-refill extended inventory");
+  check(!memcmp(inventory,g_ram+0x1f88,16),"extended auto-refill does not unlock X1 weapons");
+  g_ram[0x1f88]=0x45; /* Native owned weapon with five energy for comparison. */
+  unsigned lives=g_ram[0x1f80];g_ram[0xbcf]=128;g_ram[0xbaa]=12;g_ram[0xbab]=0;
+  bool respawned=false;
+  for(unsigned i=0;i<1000;++i) {
+    frame(0);
+    if(g_ram[0x1f80]+1==lives && (g_ram[0xbcf]&127)==16 && g_ram[0xba9]==2) {respawned=true;break;}
+  }
+  check(respawned,"native respawn completes during energy check");
+  check((g_ram[0x1f88]&63)==5 && MmxWeaponsGetState().energy[0]==12,"checkpoint death preserves energy like native X1 weapons");
+  puts("MMX EXTENDED ENERGY CHECKS PASSED");
+}
 static unsigned extended_shots(bool charged) {
   MmxWeaponCombatState s=MmxWeaponsGetCombatState(); unsigned count=0;
   for (unsigned i=0;i<8;++i) count += s.shots[i].active && s.shots[i].charged==charged;
@@ -450,7 +493,8 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
   check(w == 256 && g_mmx_custom_renderer, "Zero activates native-width compositor");
   const char *weapons=getenv("MMX_WEAPONS_TEST_ASSETS");
   if (weapons) {
-    if (getenv("MMX_WEAPON_COMBAT_TEST")) weapon_combat_checks(weapons,fixture,start,expected,actual,cap);
+    if (getenv("MMX_WEAPON_ENERGY_TEST")) weapon_energy_checks(weapons,fixture,start,expected,actual,cap);
+    else if (getenv("MMX_WEAPON_COMBAT_TEST")) weapon_combat_checks(weapons,fixture,start,expected,actual,cap);
     else weapon_menu_checks(weapons,fixture,start,expected,actual,cap);
     return;
   }
