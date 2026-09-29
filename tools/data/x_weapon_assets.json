@@ -242,6 +242,14 @@
         "group": 11,
         "frames": 48,
         "dma": "85e076"
+      },
+      {
+        "group": 51,
+        "frames": 42,
+        "dma": "85d334",
+        "poses": [29,30,31,32,33,34,39,41],
+        "animation_sequence": 34,
+        "palette": "624c0"
       }
     ],
     "body_palette": "624c0",

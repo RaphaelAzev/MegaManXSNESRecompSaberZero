@@ -161,14 +161,16 @@ def hud_icon(game, tiles, known):
     return pixels
 
 
-def animation_group(rom, game, group):
+def animation_group(rom, game, group, sequence=None):
     root = 0x2fa000 if game == 2 else 0x3f8000
     base = rom.integer(root + group * 3, 3)
     header = rom.integer(base)
     if not header or header & 1 or header > 1024:
         raise ValueError('Invalid animation sequence directory')
     extent, visited = header, set()
-    pending = [rom.integer(base + i) for i in range(0, header, 2)]
+    if sequence is not None and not 0 <= sequence * 2 < header:
+        raise ValueError('Invalid selected animation sequence')
+    pending = [rom.integer(base + i) for i in (range(0, header, 2) if sequence is None else [sequence * 2])]
     while pending:
         offset = pending.pop()
         if offset in visited:
@@ -222,7 +224,7 @@ def extract(x2, x3):
             for pose in group.get('setup_poses', []):
                 transfers(rom, int(group['dma'], 16), pose, tiles, known)
             source_group = group.get('source_group', group['group'])
-            animation = animation_group(rom, entry['game'], source_group)
+            animation = animation_group(rom, entry['game'], source_group, group.get('animation_sequence'))
             result.extend(struct.pack('<HHH', group['group'], group['frames'], len(animation)))
             group_colors = rom.raw(int(group.get('palette', entry['weapon_palette']), 16), 32)
             result.extend(group_colors)

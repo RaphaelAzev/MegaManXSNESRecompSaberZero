@@ -803,11 +803,11 @@ static void weapon_sprite_row(const MmxWeaponShot *s, unsigned pose, int x, int 
   const MmxWeaponPose *p = MmxWeaponsPose(s->page,s->weapon,s->group,pose);
   const uint16_t *palette = MmxWeaponsGroupPalette(s->page,s->weapon,s->group);
   if (!p || !palette) return;
-  int row = y - sy - p->top;
+  int row = (s->facing&128 ? -(y-sy)-1 : y-sy) - p->top;
   if (row < 0 || row >= p->height) return;
   for (int col=0;col<p->width;++col) {
     unsigned pixel=p->pixels[row*p->width+col];
-    int dx=x+(s->facing ? -1-p->left-col : p->left+col)+view.extra;
+    int dx=x+((s->facing&64) ? -1-p->left-col : p->left+col)+view.extra;
     if (pixel && dx>=0 && dx<view.width) {
       objects[dx]=(uint16_t)(0xa680|pixel); colors[dx]=palette[pixel];
     }
@@ -839,6 +839,19 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
   unsigned piece_count = frame.expand && g_mmx_render_asset_repairs ? frame.expanded_count : frame.piece_count;
   const uint8_t *zero = stage || zero_menu || zero_title ? MmxZeroPose(frame.ram, &frame_zero) : NULL;
   const uint8_t *blade = stage && zero ? MmxZeroBlade(&frame_zero) : NULL;
+  const MmxWeaponShot *triad=NULL;
+  if (stage && !swapping) for (unsigned i=0;i<8;++i) {
+    const MmxWeaponShot *s=frame_weapon_combat.shots+i;
+    if (s->active && s->page==2 && s->weapon==3 && s->charged && !s->variant && s->muzzle_pose) triad=s;
+  }
+  if (triad && zero) {
+    /* X3 Zero has no ground-punch action. Reuse his original windup and
+     * crouched strike body poses, with the X3 Triad action's own timing. */
+    MmxZeroState strike=frame_zero;strike.burst=0;strike.air=0;
+    strike.slash=triad->pose==39?1:triad->pose==41?3:triad->pose==29?6:
+        triad->pose==30?9:triad->pose==31?12:triad->pose==32?15:21;
+    zero=MmxZeroPose(frame.ram,&strike);blade=NULL;
+  }
   Piece waiting[128];
   unsigned waiting_count = stage && g_mmx_render_asset_repairs ?
       fortress_waiting_pieces(waiting, pieces, piece_count) : 0;
@@ -903,13 +916,15 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
           frame.ram[0xd3]==2 && s.object==0x1ce8 && s.animation==0x19;
       bool menu_body = s.object == 0x1988 && (s.animation == 0 || s.animation == 0x18);
       bool zero_body = zero && (s.object == 0xba8 || menu_body);
+      bool triad_x_body=triad && !zero && s.object==0xba8;
+      bool triad_armor=triad && (s.object==0xc38 || s.object==0xc58 || s.object==0xc78);
       bool swap_actor = swapping && (s.object == 0xba8 || s.object == 0xc38 ||
           s.object == 0xc58 || s.object == 0xc78 || s.object == 0xc98);
       bool zero_charge = zero && stage && s.object == 0xc98 && s.animation == 0x71;
       bool zero_armor = zero && (s.object == 0xc38 || s.object == 0xc58 || s.object == 0xc78 ||
           (zero_menu && (s.object == 0x1928 || s.object == 0x1948 || s.object == 0x1968)));
       bool oam_match = false;
-      if (g_mmx_render_asset_repairs || zero_body || zero_armor || zero_charge || swap_actor || red_ready) for (int slot = 16; slot < 128; ++slot) {
+      if (g_mmx_render_asset_repairs || zero_body || zero_armor || zero_charge || swap_actor || red_ready || triad_x_body || triad_armor) for (int slot = 16; slot < 128; ++slot) {
         unsigned pos = r->oam[slot * 2], hi = r->high_oam[slot / 4] >> (slot % 4 * 2);
         int ox = (pos & 255) | ((hi & 1) << 8); if (ox >= 256) ox -= 512;
         if (ox == s.x && (pos >> 8) == ((unsigned)s.y & 255) && r->oam[slot * 2 + 1] == s.attr) {
@@ -924,7 +939,16 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       unsigned attr = asset ? (s.attr & 0xf000) | ((asset->attributes & 15) << 8) |
           (asset->live_tiles ? s.attr & 255 : 0) : s.attr;
       if (asset && asset->live_colors) attr = (attr & ~0x0e00u) | (s.attr & 0x0e00u);
-      if (zero_armor || swap_actor) continue;
+      if (zero_armor || swap_actor || triad_armor) continue;
+      if (triad_x_body) {
+        if (oam_match && !zero_drawn[0]) {
+          zero_drawn[0]=true;
+          weapon_sprite_row(triad,triad->pose,
+              (int16_t)(word(frame.ram,0xbad)-word(frame.ram,0x1e4d)),
+              (int16_t)(word(frame.ram,0xbb0)-word(frame.ram,0x1e50)),y,view,objects,object_colors);
+        }
+        continue;
+      }
       if (zero_body && !oam_match && !(frame.expand && frame.ram[s.object + 14] &&
           (s.x + s.size <= 0 || s.x >= 256))) continue;
       if (zero_body) {
@@ -1017,6 +1041,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
     if (stage && !swapping) for (unsigned i=0;i<24;++i) {
       const MmxWeaponShot *s=i<8 ? frame_weapon_combat.shots+i : frame_weapon_combat.effects+i-8;
       if (!s->active || !s->age) continue;
+      if (s->page==2 && s->weapon==3 && s->charged && (!s->variant || !s->muzzle_pose)) continue;
       if (i>=8 && !(frame_weapon_combat.tick&1)) continue; /* Original sparkle flicker. */
       if (s->page==1 && s->weapon==8 && s->charged && s->tether_pose) continue;
       if (s->page==1 && s->weapon==2 && s->charged && (!s->variant || !s->muzzle_pose)) continue;

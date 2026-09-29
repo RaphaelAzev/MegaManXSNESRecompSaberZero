@@ -136,14 +136,16 @@ Bytes zero_assets(const Rom& r) {
   return out;
 }
 struct GroupSource { unsigned id,frames,dma,restricted; uint64_t poses,inherited; int setup; unsigned palette,source;
-  unsigned animated_start,layout_start,layout_count,animated_dma; };
+  unsigned animated_start,layout_start,layout_count,animated_dma; int animation_sequence; };
 struct WeaponSource { unsigned game,id,body,palette,extra,groups; int resource; unsigned offset; GroupSource group[3]; };
 #include "mmx_weapon_sources.h"
-Bytes animations(const Rom& r,unsigned game,unsigned group) {
+Bytes animations(const Rom& r,unsigned game,unsigned group,int sequence) {
   unsigned base=r.integer((game==2?0x2fa000:0x3f8000)+group*3,3),header=r.integer(base),extent=header;
   require(header && !(header&1) && header<=1024,"Invalid source animation directory.");
   std::vector<unsigned> pending;std::set<unsigned> visited;
-  for (unsigned i=0;i<header;i+=2) pending.push_back(r.integer(base+i));
+  require(sequence<0 || unsigned(sequence)*2<header,"Invalid selected source sequence.");
+  if (sequence>=0) pending.push_back(r.integer(base+unsigned(sequence)*2));
+  else for (unsigned i=0;i<header;i+=2) pending.push_back(r.integer(base+i));
   while (!pending.empty()) {
     unsigned a=pending.back();pending.pop_back();if (!visited.insert(a).second) continue;
     require(a>=header && a<=8192,"Source animation exceeds group.");
@@ -203,7 +205,7 @@ Bytes weapon_assets(const Rom& r,unsigned game) {
     }
     for (unsigned j=0;j<w.groups;++j) {
       const auto& g=w.group[j];Tiles t=base;if (g.setup>=0) transfer(r,g.dma,unsigned(g.setup),t);
-      Bytes a=animations(r,game,g.source);put(out,g.id);put(out,g.frames);put(out,unsigned(a.size()));
+      Bytes a=animations(r,game,g.source,g.animation_sequence);put(out,g.id);put(out,g.frames);put(out,unsigned(a.size()));
       append(out,r.raw(g.palette,32));append(out,a);
       for (unsigned i=0;i<g.frames;++i) {
         bool animated=g.animated_start && i>=g.animated_start;unsigned layout=i;

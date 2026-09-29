@@ -580,6 +580,92 @@ static unsigned frost_slot(bool charged) {
   for(unsigned i=0;i<8;++i) if(c.shots[i].active && c.shots[i].weapon==7 && c.shots[i].charged==charged) return i;
   return 8;
 }
+static unsigned triad_count(bool charged,unsigned first,unsigned last) {
+  MmxWeaponCombatState c=MmxWeaponsGetCombatState();unsigned n=0;
+  for(unsigned i=0;i<8;++i) if(c.shots[i].active && c.shots[i].page==2 && c.shots[i].weapon==3 &&
+      c.shots[i].charged==charged && c.shots[i].variant>=first && c.shots[i].variant<=last) ++n;
+  return n;
+}
+static void weapon_triad_checks(const char *assets,const char *fixture,uint8 *start,
+                               uint8 *expected,uint8 *actual,size_t cap) {
+  check(MmxWeaponsLoad(assets),"Triad Thunder source assets load");
+  check(MmxWeaponsPose(2,3,51,34)->width>0,"original base-X punch art is extracted");
+  for(unsigned character=0;character<2;++character) {
+    check(RtlLoadSnapshot(fixture),"restore Triad fixture");if(character) zero_health_swap();
+    MmxWeaponsState w=MmxWeaponsGetState();w.page=2;w.weapon=3;MmxWeaponsSetState(w);
+    frame(SNES_PAD_Y);frame(0);
+    check(triad_count(false,0,2)==3 && MmxWeaponsEnergyAmount(2,3)==27*256,
+        "three Triad orbs launch for one energy");
+    zero_replay(45);
+    check(triad_count(false,0,2)==3 && triad_count(false,3,5)==3,"three original connecting arcs appear after orb formation");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-triad.cap":".zero-triad.cap");
+    size_t n=RtlSaveSnapshotToMemory(start,cap);zero_replay(40);size_t en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"restore Triad triangle");zero_replay(40);
+    size_t an=RtlSaveSnapshotToMemory(actual,cap);same(expected,en,actual,an,"Triad links and beam emission replay exactly");
+    check(triad_count(false,6,8)==3,"formation releases three original directional bolts");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-triad-rays.cap":".zero-triad-rays.cap");
+    zero_replay(160);check(!extended_shots(false) && !g_ram[0xbdd],"Triad debris and bolts retire without slot leaks");
+    frame(SNES_PAD_Y);frame(0);zero_replay(12);
+    for(unsigned press=0;press<4;++press) {frame(SNES_PAD_Y);frame(0);}
+    zero_replay(68);MmxWeaponCombatState c=MmxWeaponsGetCombatState();unsigned inverted=0;
+    for(unsigned i=0;i<8;++i) if(c.shots[i].active && c.shots[i].variant<3 && (c.shots[i].facing&128)) ++inverted;
+    check(inverted==3 && MmxWeaponsEnergyAmount(2,3)==25*256,"four fire edges invert the existing triangle for one more energy");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-triad-inverted.cap":".zero-triad-inverted.cap");
+    MmxWeaponsCancelShots(g_ram);zero_replay(2);
+    for(unsigned i=0;i<205;++i) frame(SNES_PAD_Y);frame(0);
+    check(!extended_shots(true),"charged Triad requires X1 arm upgrade");
+    check(RtlLoadSnapshot(fixture),"restore charged Triad fixture");if(character) zero_health_swap();
+    w=MmxWeaponsGetState();w.page=2;w.weapon=3;MmxWeaponsSetState(w);g_ram[0x1f99]|=2;
+    for(unsigned i=0;i<205;++i) frame(SNES_PAD_Y);frame(0);zero_replay(2);
+    check(triad_count(true,0,2)==3 && MmxWeaponsEnergyAmount(2,3)==24*256,
+        "charged release creates punch and two delayed waves for three energy");
+    int x=g_ram[0xbad]|g_ram[0xbae]<<8;
+    for(unsigned i=0;i<35;++i) frame(SNES_PAD_RIGHT|SNES_PAD_B|SNES_PAD_Y);
+    c=MmxWeaponsGetCombatState();unsigned body=8;
+    for(unsigned i=0;i<8;++i) if(c.shots[i].active && c.shots[i].charged && !c.shots[i].variant) body=i;
+    check(body<8 && c.shots[body].muzzle_pose==2 && c.shots[body].pose==34 &&
+        (g_ram[0xbad]|g_ram[0xbae]<<8)==x && g_ram[0x1e83]==3 && !(g_ram[0xc2f]&64),
+        "source punch pose locks movement, begins native quake, and stops charge audio");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-triad-punch.cap":".zero-triad-punch.cap");
+    n=RtlSaveSnapshotToMemory(start,cap);zero_replay(58);en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"restore charged Triad quake");zero_replay(58);
+    an=RtlSaveSnapshotToMemory(actual,cap);same(expected,en,actual,an,"native quake, body poses and wave release replay exactly");
+    c=MmxWeaponsGetCombatState();unsigned moving=0;
+    for(unsigned i=0;i<8;++i) if(c.shots[i].active && c.shots[i].charged && c.shots[i].variant && c.shots[i].muzzle_pose) ++moving;
+    check(moving>0 && triad_count(true,0,0)==1,"waves launch after the sixty-tick quake while body recovery continues");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-triad-waves.cap":".zero-triad-waves.cap");
+    zero_replay(180);check(!extended_shots(true) && !g_ram[0xbdd],"charged attack restores input and releases all slots");
+    frame(SNES_PAD_RIGHT);frame(SNES_PAD_RIGHT);
+    check((g_ram[0xbad]|g_ram[0xbae]<<8)>x,"player can move again after original recovery");
+    frame(0);for(unsigned i=0;i<205;++i) frame(SNES_PAD_Y);
+    for(unsigned i=0;i<10;++i) frame(SNES_PAD_Y|SNES_PAD_B);frame(0);frame(0);
+    c=MmxWeaponsGetCombatState();body=8;
+    for(unsigned i=0;i<8;++i) if(c.shots[i].active && c.shots[i].charged && !c.shots[i].variant) body=i;
+    check(body<8 && !c.shots[body].muzzle_pose,"air release waits for solid ground before punching");
+    zero_replay(60);c=MmxWeaponsGetCombatState();
+    check(c.shots[body].active && c.shots[body].muzzle_pose>=1,"air release lands and starts the committed punch");
+    g_ram[0xbaa]=14;frame(0);
+    check(!triad_count(true,0,2),"hurt cancels the punch and unreleased ground waves");
+  }
+  check(RtlLoadSnapshot(fixture),"restore Triad enemy encounter");unsigned victim=0;
+  for(unsigned i=0;i<400 && !victim;++i) {
+    frame(SNES_PAD_RIGHT);
+    for(unsigned d=0xe68;d<0x1228;d+=64)
+      if(g_ram[d] && (g_ram[d+0x27]&127) && (g_ram[d+0x20]|g_ram[d+0x21])) {victim=d;break;}
+  }
+  check(victim!=0,"native enemy available for Triad damage");
+  MmxWeaponsState w=MmxWeaponsGetState();w.page=2;w.weapon=3;MmxWeaponsSetState(w);
+  frame(0);frame(SNES_PAD_Y);frame(0);MmxWeaponCombatState c=MmxWeaponsGetCombatState();unsigned slot=8;
+  for(unsigned i=0;i<8;++i) if(c.shots[i].active && !c.shots[i].variant) {
+    c.shots[i].x=(g_ram[victim+5]|g_ram[victim+6]<<8)*256;
+    c.shots[i].y=(g_ram[victim+8]|g_ram[victim+9]<<8)*256;
+    c.shots[i].muzzle_pose=1;c.shots[i].radius=30;c.shots[i].vx=c.shots[i].vy=0;slot=i;break;
+  }
+  check(slot<8,"Triad orb is available for native collision");g_ram[victim+0x27]=32;MmxWeaponsSetCombatState(c);
+  zero_replay(1);
+  check((g_ram[victim+0x27]&127)==27,"native orb collision preserves five-buster damage ratio");
+  puts("MMX TRIAD THUNDER CHECKS PASSED");
+}
 static void weapon_fang_checks(const char *assets,const char *fixture,uint8 *start,
                               uint8 *expected,uint8 *actual,size_t cap) {
   check(MmxWeaponsLoad(assets),"Tornado Fang original assets load");
@@ -1460,6 +1546,7 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
     else if (getenv("MMX_WEAPON_FROST_TEST")) weapon_frost_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_BUBBLE_TEST")) weapon_bubble_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_MAGNET_TEST")) weapon_magnet_checks(weapons,fixture,start,expected,actual,cap);
+    else if (getenv("MMX_WEAPON_TRIAD_TEST")) weapon_triad_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_FANG_TEST")) weapon_fang_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_SILK_TEST")) weapon_silk_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_SPEED_TEST")) weapon_speed_checks(weapons,fixture,start,expected,actual,cap);

@@ -9,6 +9,8 @@ static size_t collision_rom_size;
 static bool collision_patch;
 static uint8_t previous_boxes[32];
 static void fang_player(uint8_t *r);
+static void triad_player(uint8_t *r);
+static void triad_box(const MmxWeaponShot *s,uint8_t *box);
 _Static_assert(sizeof(MmxWeaponShot) == 40 && offsetof(MmxWeaponCombatState,enemies) == MMX_WEAPON_COMBAT_LEGACY_SIZE &&
     offsetof(MmxWeaponCombatState,effects)==MMX_WEAPON_COMBAT_DAMAGE_SIZE &&
     sizeof(MmxWeaponCombatState) == 1028, "Weapon combat save ABI");
@@ -21,7 +23,7 @@ static bool owned(const uint8_t *r, unsigned d) { return slot_valid(d) && r[d] &
 static unsigned slot_index(unsigned d) { return (d - 0x1228) / 64; }
 static unsigned weapon_group(unsigned page, unsigned weapon) {
   return page == 1 ? (weapon == 2 ? 68 : weapon == 3 ? 72 : weapon == 4 ? 70 : weapon == 5 ? 65 : weapon == 7 ? 15 : weapon == 8 ? 37 : 0) :
-    page == 2 ? (weapon == 1 ? 5 : weapon == 4 ? 12 : weapon == 5 ? 13 : weapon == 7 ? 16 : weapon == 8 ? 19 : 0) : 0;
+    page == 2 ? (weapon == 1 ? 5 : weapon == 3 ? 11 : weapon == 4 ? 12 : weapon == 5 ? 13 : weapon == 7 ? 16 : weapon == 8 ? 19 : 0) : 0;
 }
 static void sound(uint8_t *r, unsigned command) {
   unsigned i = r[0xba3] & 30; r[0xb72 + i] = (uint8_t)command; r[0xb73 + i] = 0; r[0xba3] = (uint8_t)((i + 2) & 30);
@@ -46,6 +48,7 @@ bool MmxWeaponsValidCombatState(const MmxWeaponCombatState *s) {
            p->page == 1 && p->weapon == 5 && p->charged ? 135 :
            p->page == 1 && p->weapon == 7 ? (p->charged ? 19 : p->muzzle_pose==3 ? 8 : 15) :
            p->page == 1 && p->weapon == 8 && p->charged ? 38 :
+           p->page == 2 && p->weapon == 3 && p->charged && !p->variant ? 51 :
            weapon_group(p->page,p->weapon))))) return false;
     if (p->active && p->page == 1 && p->weapon == 5 &&
         (p->variant > 4 || p->radius > 2 || p->muzzle_pose > 3)) return false;
@@ -71,6 +74,8 @@ bool MmxWeaponsValidCombatState(const MmxWeaponCombatState *s) {
          p->radius > 8 || p->tether_pose > 1 || p->origin_x < 0 || p->origin_x > 360)) return false;
     if (p->active && p->page==2 && p->weapon==8 &&
         (p->variant>(p->charged?5:2) || p->muzzle_pose>4 || p->radius>64 || p->tether_pose>7)) return false;
+    if (p->active && p->page==2 && p->weapon==3 &&
+        (p->variant>(p->charged?2:8) || p->muzzle_pose>3 || p->tether_pose>19)) return false;
   }
   return true;
 }
@@ -202,6 +207,7 @@ void MmxWeaponsPlayerTick(uint8_t r[0x20000]) {
   }
   if (s.page==1 && s.weapon==7) r[0xc0f]=8; /* Planted mines release the source firing limit. */
   if (s.page==2 && s.weapon==8) fang_player(r);
+  if (s.page==2 && s.weapon==3) triad_player(r);
   if (s.page==1 && s.weapon==2) {
     bool shield=false;
     for (unsigned i=0;i<8;++i) if (combat.shots[i].active && combat.shots[i].page==1 &&
@@ -258,6 +264,7 @@ void MmxWeaponsMarkShot(uint8_t r[0x20000], unsigned d) {
   if (s->page == 1 && s->weapon == 5 && s->charged) s->group = 135;
   if (s->page == 1 && s->weapon == 7 && s->charged) s->group = 19;
   if (s->page == 1 && s->weapon == 8 && s->charged) s->group = 38;
+  if (s->page == 2 && s->weapon == 3 && s->charged) s->group = 51;
   s->facing = r[0xbb9] & 64;
   r[d + 10] = 0; putword(r+d+0x3e,0x5758);
 }
@@ -321,6 +328,7 @@ static void collision_box(unsigned index, const MmxWeaponShot *s) {
     else if (s->variant==2) { box[0]=252;box[1]=248; }
     else if (s->variant!=3) box[1]=250;
   }
+  if (s->page==2 && s->weapon==3) triad_box(s,box);
   memcpy(collision_rom + 0x37f80 + index*4,box,4);
 }
 static void native_object(uint8_t *r, unsigned d, const MmxWeaponShot *s) {
@@ -1249,7 +1257,7 @@ static void ray_tick(uint8_t *r, unsigned d, MmxWeaponShot *s) {
 }
 #include "mmx_weapon_fang.inc"
 #include "mmx_weapon_silk.inc"
-
+#include "mmx_weapon_triad.inc"
 unsigned MmxWeaponsProjectileTick(uint8_t r[0x20000], unsigned d, unsigned active) {
   if (!owned(r,d)) {
     if (slot_valid(d)) memset(combat.shots+slot_index(d),0,sizeof(MmxWeaponShot));
@@ -1267,6 +1275,7 @@ unsigned MmxWeaponsProjectileTick(uint8_t r[0x20000], unsigned d, unsigned activ
   if (s->page == 2 && s->weapon == 5) { ray_tick(r,d,s); return 0; }
   if (s->page == 2 && s->weapon == 7) { frost_tick(r,d,s); return 0; }
   if (s->page == 2 && s->weapon == 8) { fang_tick(r,d,s); return 0; }
+  if (s->page == 2 && s->weapon == 3) { triad_tick(r,d,s); return 0; }
   if (!s->charged && s->age && (r[d+1] >= 8 || s->variant == 128)) {
     if (s->variant != 128) { s->variant = 128; s->vy = 26; animation_start(s,1); }
     if (!s->vy || !s->active) { retire(r,d); return 0; }
@@ -1359,6 +1368,7 @@ static unsigned source_damage(const MmxWeaponShot *s) {
     if (s->weapon==5) return s->charged ? 1 : 4;
   } else if (s->page==2) {
     if (s->weapon==1) return s->variant==2 ? 5 : 9;
+    if (s->weapon==3) return s->charged ? (s->variant?9:15) : (s->variant<3?15:5);
     if (s->weapon==4) return s->charged ? 30 : 9;
     if (s->weapon==5) return s->variant>=2 ? 5 : 9;
     if (s->weapon==7) return s->charged && s->muzzle_pose==3 ? 9 : 15;
