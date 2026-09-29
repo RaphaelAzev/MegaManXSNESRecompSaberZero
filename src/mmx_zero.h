@@ -15,8 +15,8 @@ bool MmxZeroEnabled(void);
 const uint8_t *MmxZeroPose(const uint8_t ram[0x20000], const MmxZeroState *snapshot);
 const uint8_t *MmxZeroBlade(const MmxZeroState *snapshot);
 const uint16_t *MmxZeroColors(void);
-/* Private BGR555 badge pixel, or -1 to retain the native health-bar frame. */
-int MmxZeroHudColor(unsigned x, unsigned y, const uint16_t palette[16]);
+/* Original X3 BGR555 badge pixel; -2 is transparent, -1 retains native art. */
+int MmxZeroHudColor(unsigned x, unsigned y);
 void MmxZeroSetCollisionRom(uint8_t *rom, size_t size);
 unsigned MmxZeroUpgradeBits(unsigned pc, unsigned original);
 void MmxZeroPlayerTick(uint8_t ram[0x20000]);
