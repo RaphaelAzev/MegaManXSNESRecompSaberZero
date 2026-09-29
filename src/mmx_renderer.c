@@ -599,7 +599,7 @@ static uint16_t background(const Ppu *p, const Raster *r, unsigned layer, int x,
 static void sprite(const Ppu *p, const Raster *r, int x, int sy, unsigned attr, int size,
                     int y, MmxRenderView view, uint16_t *out, bool margins_only,
                     const MmxSpriteAsset *asset, unsigned raw_tile, int *object_color,
-                    bool full_coordinates, unsigned zero_icon) {
+                    bool full_coordinates, unsigned zero_icon, bool red_ready) {
   int row = full_coordinates ? y - sy : (y - sy) & 255;
   if (row < 0 || row >= size) return;
   if (attr & 0x8000) row = size - 1 - row;
@@ -627,6 +627,14 @@ static void sprite(const Ppu *p, const Raster *r, int x, int sy, unsigned attr, 
       out[dest] = (uint16_t)(z | pixel);
       object_color[dest] = hud_color >= 0 ? hud_color :
           asset && !asset->live_colors ? asset->colors[pixel] : -1;
+      if (red_ready) {
+        unsigned color=object_color[dest]>=0 ? (unsigned)object_color[dest] : r->palette[(z|pixel)&255];
+        unsigned red=color&31,green=(color>>5)&31,blue=(color>>10)&31;
+        /* Keep the original highlights/neutral outline. Convert only the
+         * blue ramp to red, using its existing dark-to-light shading. */
+        if (blue>red && blue>green)
+          object_color[dest]=(int)(blue | ((red<green ? red : green)<<5) | (red<<10));
+      }
       if (x + c < 0 || x + c >= 256) ++stats.margin_sprite_pixels;
     }
   }
@@ -787,7 +795,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
     for (int i = (int)waiting_count - 1; i >= 0; --i) {
       Piece s = waiting[i];
       const MmxSpriteAsset *asset = s.animation == 0x53 ? waiting_zero : NULL;
-      sprite(&p, r, s.x, s.y, s.attr, s.size, y, view, objects, true, asset, s.tile, object_colors, true, false);
+      sprite(&p, r, s.x, s.y, s.attr, s.size, y, view, objects, true, asset, s.tile, object_colors, true, false, false);
     }
     bool replaced[128] = {false};
     bool zero_drawn[2] = {false,false};
@@ -799,6 +807,10 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
        * their entire footprint, including x=255 which native D76A clips.
        * Only the explicit expanded list can add pieces beyond that budget. */
       bool center = g_mmx_render_asset_repairs;
+      /* $80:9A3E spawns READY in $1CE8; $81:F091 selects group $19.
+       * Restrict the recolor to this actor during the arrival phase. */
+      bool red_ready=stage && MmxZeroEnabled() && !frame_zero.active_x &&
+          frame.ram[0xd3]==2 && s.object==0x1ce8 && s.animation==0x19;
       bool menu_body = s.object == 0x1988 && (s.animation == 0 || s.animation == 0x18);
       bool zero_body = zero && (s.object == 0xba8 || menu_body);
       bool swap_actor = swapping && (s.object == 0xba8 || s.object == 0xc38 ||
@@ -807,7 +819,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       bool zero_armor = zero && (s.object == 0xc38 || s.object == 0xc58 || s.object == 0xc78 ||
           (zero_menu && (s.object == 0x1928 || s.object == 0x1948 || s.object == 0x1968)));
       bool oam_match = false;
-      if (g_mmx_render_asset_repairs || zero_body || zero_armor || zero_charge || swap_actor) for (int slot = 16; slot < 128; ++slot) {
+      if (g_mmx_render_asset_repairs || zero_body || zero_armor || zero_charge || swap_actor || red_ready) for (int slot = 16; slot < 128; ++slot) {
         unsigned pos = r->oam[slot * 2], hi = r->high_oam[slot / 4] >> (slot % 4 * 2);
         int ox = (pos & 255) | ((hi & 1) << 8); if (ox >= 256) ox -= 512;
         if (ox == s.x && (pos >> 8) == ((unsigned)s.y & 255) && r->oam[slot * 2 + 1] == s.attr) {
@@ -864,7 +876,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
         s.x += (s.x + s.size / 2 - cx) / 4;
         s.y += (s.y + s.size / 2 - cy) / 4 - 6;
       }
-      sprite(&p, r, s.x, s.y, attr, s.size, y, view, objects, !center, asset, s.tile, object_colors, true, false);
+      sprite(&p, r, s.x, s.y, attr, s.size, y, view, objects, !center, asset, s.tile, object_colors, true, false, red_ready);
     }
     int bar_first = -1, bar_count = 0;
     if (hud) for (int slot = 16; slot <= 48; ++slot) {
@@ -890,7 +902,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
           x == 8 && sy == 80 && attr == 0x3486 && size == 16;
       bool anchored = stage && hud && sy < 96 && (slot < 16 || (bar_count >= 4 && slot >= bar_first && slot < bar_first + bar_count));
       if (anchored) { if (x < 25) x -= view.extra; else if (x >= 216) x += view.extra; }
-      sprite(&p, r, x, sy, attr, size, y, view, objects, false, NULL, 0, object_colors, false, zero_icon);
+      sprite(&p, r, x, sy, attr, size, y, view, objects, false, NULL, 0, object_colors, false, zero_icon, false);
     }
     if (swapping) {
       unsigned pose = MmxZeroSwapPose(&frame_zero);
@@ -913,7 +925,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
         const uint8_t *layout = a ? sprite_arrangement(0,pose) : NULL;
         if (layout) for (int i = layout[0] - 1; i >= 0; --i) {
           Piece s = make_piece(layout + i * 4,x,sy,flip,0x22,0,0,0xba8);
-          sprite(&p,r,s.x,s.y,s.attr,s.size,y,view,objects,false,a,s.tile,object_colors,true,false);
+          sprite(&p,r,s.x,s.y,s.attr,s.size,y,view,objects,false,a,s.tile,object_colors,true,false,false);
         }
       }
     }
