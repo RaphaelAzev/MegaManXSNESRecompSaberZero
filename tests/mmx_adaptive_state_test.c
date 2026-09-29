@@ -317,6 +317,21 @@ static void zero_health_checks(const char *fixture, uint8 *start, uint8 *expecte
   check(respawned,"native death loses one life and respawn refills both HP pools");
   check(RtlLoadSnapshot(fixture),"restore after separate HP checks");
 }
+static void zero_half_charge_checks(const char *fixture) {
+  for (unsigned arms=0;arms<2;++arms) {
+    check(RtlLoadSnapshot(fixture),"restore for native half-charge check");
+    g_ram[0x1f99]=(uint8_t)(arms?2:0);
+    for(unsigned i=0;i<30;++i) frame(SNES_PAD_Y);
+    frame(0);
+    check(zero_projectiles(1)==1 && !zero_projectiles(2) && !zero_projectiles(3),
+          "first Zero charge emits native green class 1 with or without X1 arms");
+    check(!MmxZeroGetState().combo && !MmxZeroGetState().burst && !(g_ram[0xc2f]&64),
+          "half-charge has no stored beam sequence or looping charge sound");
+    zero_replay(2);
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),arms?".half-charge-arms.cap":".half-charge.cap");
+  }
+  check(RtlLoadSnapshot(fixture),"restore after native half-charge check");
+}
 static void zero_state_checks(const char *assets, const char *fixture, uint8 *start,
                               uint8 *expected, uint8 *actual, size_t cap) {
   check(fixture != NULL && MmxZeroLoad(assets), "Zero local assets load");
@@ -334,6 +349,7 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
   if(getenv("MMX_ZERO_HEALTH_ONLY")) { puts("MMX CHARACTER HP CHECKS PASSED"); return; }
   zero_motion_checks(fixture);
   zero_combat_checks(fixture);
+  zero_half_charge_checks(fixture);
   check(RtlLoadSnapshot(fixture), "restore for burst state replay");
   for(unsigned i=0;i<201;++i) frame(SNES_PAD_Y);
   zero_replay(4);

@@ -473,7 +473,9 @@ void MmxZeroPlayerTick(uint8_t r[0x20000]) {
         state.combo = 1; state.saber_ready = tier == 10;
         start_burst(r,1);
       } else if (tier >= 4) {
-        clear_charge(r); r[0xc01] = tier >= 6 ? 8 : 6;
+        /* X1 $81:94BF indexes $86:BA76 by command/2: command 2
+         * is class 1 (green half-shot); command 6 is class 2. */
+        clear_charge(r); r[0xc01] = tier >= 6 ? 8 : 2;
       }
       state.charge = 0;
     }

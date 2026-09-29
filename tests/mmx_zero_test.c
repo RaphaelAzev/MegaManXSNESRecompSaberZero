@@ -92,7 +92,7 @@ int main(void) {
     MmxZeroState z=MmxZeroGetState(); assert(MmxZeroChargeTier(&z)==tiers[c]);
     tick(0,0); z=MmxZeroGetState();
     assert(z.combo==(tiers[c]>=8) && z.saber_ready==(tiers[c]==10));
-    if(tiers[c] && tiers[c]<8) assert(ram[0xc01]==(tiers[c]==4?6:8));
+    if(tiers[c] && tiers[c]<8) assert(ram[0xc01]==(tiers[c]==4?2:8));
   }
   assert(MmxZeroGetState().burst == 1 && !ram[0x1228]);
   /* The native engine started a looping charge voice before host release. */
