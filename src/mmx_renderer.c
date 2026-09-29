@@ -1095,6 +1095,9 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
     if (stage && !swapping) for (unsigned i=0;i<24;++i) {
       const MmxWeaponShot *s=i<8 ? frame_weapon_combat.shots+i : frame_weapon_combat.effects+i-8;
       if (!s->active || !s->age) continue;
+      if(i<8 && s->page==1 && s->weapon==1 && !s->charged &&
+          s->muzzle_pose>=1 && s->muzzle_pose<=4)
+        moved_enemy_row(s,&p,r,y,view,objects,object_colors);
       if(s->page==2 && s->weapon==2) {
         if(s->variant==1) moved_enemy_row(s,&p,r,y,view,objects,object_colors);
         if(s->variant==2 && s->muzzle_pose==4) continue;

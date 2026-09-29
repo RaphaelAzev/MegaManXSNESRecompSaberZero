@@ -84,3 +84,17 @@ formation, standing, native shatter death without player damage, eight original
 shards, and debris/death replay. Crystal, debris and distortion captures were
 visually inspected. Original SPC sound effects remain part of the shared
 audio follow-up; no substitute sound is presented as X2 audio.
+
+### Playtest correction: frozen target visibility
+
+The first implementation suppressed the frozen actor's normal submission but
+only drew the crystal shell. The renderer now reconstructs the held enemy pose
+at the crystal's position, using its original X1 sprite resource and palette,
+before drawing the X2 shell. This keeps AI/animation frozen while the visible
+enemy falls and bounces with its prison. Native collision/shatter checks and
+save/replay passed again; the rendered highway target is visible inside the
+crystal. Tracked in `beads-8wg.1.48`.
+
+The charged effect intentionally slows X/Zero too: the original X2 frame-skip
+sites above skip player processing as well as enemies. It is not an accidental
+side effect of the port.
