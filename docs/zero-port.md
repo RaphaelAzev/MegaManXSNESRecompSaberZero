@@ -168,6 +168,17 @@ cursor animation and confirmation projectile. The HUD badge is independent of
 body blinking. Original X life-head pixels and native collection behavior are
 deliberate final requirements, superseding every earlier custom icon attempt.
 
+Ride Armor uses X1 player sprite group `$6B`, not the regular movement group.
+Its pose indices previously drove unrelated Zero run/jump frames and drew a
+full body over the cockpit. The compositor now uses that group's original
+pilot head placement for each boarding, walking and punching frame. Zero's
+original standing helmet/shoulder pixels occupy the exposed pilot area; the
+cockpit conceals the body. This is an adaptation: vanilla X3 prevents Zero
+from entering Ride Armor (`$83:9639`) and does not provide a dedicated Zero
+pilot sprite set. No fan-mod art is used. A private copy of the owner's slot
+05 checked boarding, idle, movement, punch and exit; rendered captures were
+reviewed. Normal body animation resumes when X1 leaves group `$6B`.
+
 ### Select and independent HP
 
 Select must be a new press during grounded, stationary, idle gameplay, outside

@@ -997,8 +997,22 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
           const uint8_t *body = menu_body ? MmxZeroMenuPose() : zero;
           int zx = menu_body ? 128 : (int16_t)(word(frame.ram, 0xbad) - word(frame.ram, 0x1e4d));
           int zy = menu_body ? 152 : (int16_t)(word(frame.ram, 0xbb0) - word(frame.ram, 0x1e50)) - 8;
+          bool pilot = !menu_body && s.animation==0x6b;
+          if(pilot) {
+            /* X1 switches to a separate pilot group on boarding. Its pose
+             * numbers are not movement poses. Keep its authored entry/walk/
+             * punch offsets and expose Zero's original helmet/shoulders over
+             * the cockpit. Vanilla X3 Zero has no Ride Armor pilot artwork. */
+            const uint8_t *layout=sprite_arrangement(0x6b,frame.ram[0xbbf]&127);
+            if(layout && layout[0]) {
+              int dx=(int8_t)layout[1]+5;
+              zx+=(frame.ram[0xbb9]&64)?-dx:dx;
+              zy+=8+(int8_t)layout[2]+20;
+            }
+            body=MmxZeroMenuPose();
+          }
           int row = y - zy + 64;
-          if (row >= 0 && row < MMX_ZERO_HEIGHT) {
+          if (row >= 0 && row < MMX_ZERO_HEIGHT && (!pilot || (row>=44 && row<64))) {
             const uint16_t *colors = MmxZeroColors();
             unsigned z = ((((s.attr >> 12) & 3) * 4 + 2) << 12) | 0x680;
             for (int col = 0; col < MMX_ZERO_WIDTH; ++col) {
