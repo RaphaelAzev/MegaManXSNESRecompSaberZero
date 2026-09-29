@@ -79,6 +79,7 @@ static void zero_motion_checks(const char *fixture) {
 }
 static void zero_menu_pixels(void) {
   static uint32_t pixels[256 * 224]; unsigned body = 0, icon = 0;
+  static uint32_t baseline[48 * 56]; static bool have_baseline;
   check(MmxRendererDraw(pixels,(MmxRenderView){256,0,4.0/3.0},false),"Zero menu renders");
   const uint32_t *stock = MmxRendererStockFrame(); check(stock != NULL,"menu stock reference exists");
   for (int y = 0; y < 224; ++y) for (int x = 0; x < 256; ++x) if (pixels[y * 256 + x] != stock[y * 256 + x]) {
@@ -87,6 +88,14 @@ static void zero_menu_pixels(void) {
     else { fprintf(stderr,"Unexpected Zero menu change at %d,%d\n",x,y); exit(1); }
   }
   check(body > 100 && icon > 50,"menu replaces body and life head while preserving other pixels");
+  bool same_body = true;
+  for (int y = 128; y < 184; ++y) for (int x = 104; x < 152; ++x) {
+    unsigned at = (y - 128) * 48 + x - 104;
+    if (have_baseline) same_body &= pixels[y * 256 + x] == baseline[at];
+    else baseline[at] = pixels[y * 256 + x];
+  }
+  check(same_body,"armor ownership leaves the same Zero menu body");
+  have_baseline = true;
 }
 static void zero_weapon_checks(const char *fixture, const char *capture) {
   for (unsigned weapon = 0; weapon <= 8; ++weapon) for (unsigned charged = 0; charged < 2; ++charged) {
@@ -123,6 +132,37 @@ static void zero_weapon_checks(const char *fixture, const char *capture) {
   check((int)(g_ram[0x122d] | g_ram[0x122e]<<8) - (int)(g_ram[0xbad] | g_ram[0xbae]<<8) == -27 &&
         (int)(g_ram[0x1230] | g_ram[0x1231]<<8) - (int)(g_ram[0xbb0] | g_ram[0xbb1]<<8) == -7,
         "native facing mirrors Zero muzzle without changing its height");
+}
+static void zero_menu_transition_checks(const char *fixture, const char *capture, unsigned armor) {
+  check(RtlLoadSnapshot(fixture),"restore for menu transition probe");
+  g_ram[0x1f99] = (uint8_t)armor;
+  bool repairs = g_mmx_render_asset_repairs; g_mmx_render_asset_repairs = false;
+  static uint32_t pixels[256 * 224]; unsigned previous = ~0u;
+  for (unsigned direction = 0; direction < 2; ++direction) for (unsigned i = 0; i < 120; ++i) {
+    frame(i == 0 ? SNES_PAD_START : 0);
+    check(MmxRendererDraw(pixels,(MmxRenderView){256,0,4.0/3.0},false),"menu transition renders");
+    MmxRenderStats stats = MmxRendererGetStats();
+    unsigned changed = 0, lit = 0;
+    const uint32_t *stock = MmxRendererStockFrame();
+    /* Keep background repair out of the comparison. Only the character can
+     * change this rectangle; the HUD badge and life head are outside it. */
+    for (int y = 80; y < 184; ++y) for (int x = 104; x < 152; ++x) {
+      unsigned p = y * 256 + x;
+      changed += pixels[p] != stock[p]; lit += stock[p] != 0;
+    }
+    if (lit && changed < 20) {
+      fprintf(stderr,"menu missing Zero %u/%u: changed %u lit %u\n",direction,i,changed,lit);
+      char suffix[80]; snprintf(suffix,sizeof(suffix),".missing%u-%u.cap",direction,i);zero_capture(capture,suffix);
+      check(false,"visible menu-transition body remains Zero");
+    }
+    unsigned signature = g_ram[0xd3] | g_ram[0xd4] << 8 | g_ram[0x1f10] << 16 | g_ram[0xc3] << 24;
+    if (signature != previous) {
+      fprintf(stderr,"menu transition %u/%u state %08x custom %u fallback %u\n",direction,i,signature,stats.custom_lines,stats.fallback_lines);
+      char suffix[80]; snprintf(suffix,sizeof(suffix),".transition%u-%u.cap",direction,i);zero_capture(capture,suffix);
+      previous = signature;
+    }
+  }
+  g_mmx_render_asset_repairs = repairs;
 }
 static void zero_state_checks(const char *assets, const char *fixture, uint8 *start,
                               uint8 *expected, uint8 *actual, size_t cap) {
@@ -225,6 +265,8 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
   check(RtlLoadSnapshot(fixture), "restore for upgraded menu probe");
   g_ram[0x1f99] = 15; frame(SNES_PAD_START); zero_replay(120);
   zero_capture(capture, ".menu-armor.cap"); zero_menu_pixels();
+  zero_menu_transition_checks(fixture,capture,0);
+  zero_menu_transition_checks(fixture,NULL,15);
   zero_weapon_checks(fixture,capture);
   MmxZeroDisable(); MmxBeforeFrame(); MmxPrepareFrame(1280,720,&w,&h);
   check(!g_mmx_custom_renderer && !MmxZeroEnabled(), "disabling returns to stock presentation");

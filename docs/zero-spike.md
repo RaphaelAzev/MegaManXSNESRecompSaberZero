@@ -159,10 +159,15 @@ Full-port progress on `feat/x3-zero-port`:
   mismatch that let X's tiles reappear. A renderer regression covers both the
   visible transition and the actual hidden frame.
 - The pause menu uses Zero's original standing body, including with all armor
-  upgrades owned. Menu and pickup life heads are adapted from original Zero
-  helmet/face pixels; vanilla X3 itself retains X's life icon. Native 1-up
+  upgrades owned. Menu and pickup life heads use a new front-facing 16x16 sprite
+  shaded with Zero's original palette; vanilla X3 itself retains X's life icon.
+  See [the life-head asset](../assets/zero/life-head.png). Native 1-up
   collection increments the life count normally. Menu pixel comparisons change
   only the character and head areas, including the fully upgraded menu.
+- Menu fades retain player attribution while X1 repeats OAM without submitting
+  a fresh sprite list. Exact matches to live OAM preserve real hidden blinks.
+  A 480-frame opening/closing check covers unupgraded and fully upgraded menus;
+  both show the same Zero body, including the first visible entry frame.
 - Native projectile initializers use Zero's original pose-specific X/Y firing
   offsets from X3 `$39:9161/$39:91D9`, translated to the shared foot position.
   X1 still owns facing, spread patterns, trajectories and weapon effects.

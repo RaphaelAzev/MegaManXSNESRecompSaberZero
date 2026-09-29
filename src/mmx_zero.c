@@ -72,12 +72,28 @@ const uint16_t *MmxZeroColors(void) { return colors; }
 const uint8_t *MmxZeroMenuPose(void) { return poses; }
 int MmxZeroLifeColor(unsigned x, unsigned y) {
   if (!poses || x >= 16 || y >= 16) return -2;
-  /* Vanilla X3 keeps X's life icon for both characters. Adapt the original
-   * Zero idle helmet/face to X1's 16px icon, excluding neck and shoulders. */
-  unsigned sx = 56 + x * 20 / 16, sy = 40 + y * 24 / 16;
-  if ((sy >= 58 && (sx < 59 || sx > 72)) || (sy >= 60 && (sx < 60 || sx > 68)) || sy >= 63) return -2;
-  unsigned pixel = poses[sy * MMX_ZERO_WIDTH + sx];
-  return pixel ? colors[pixel] : -2;
+  /* New front-facing 16px life art, shaded with Zero's original palette.
+   * Vanilla X3 retains X's life icon; no original Zero life tile exists. */
+  static const char half[16][9] = {
+    "........", "...K....", "..KRK...", "..KRRKKK",
+    ".KRRRWWG", ".KRrWWgG", "KRRrWKgg", "KRrWWKgg",
+    "KWWrKKKK", "KWWKWEKs", ".KWKssSS", ".KWWKSSS",
+    "..KWWSSS", "...KWKss", "....KKKK", "........"
+  };
+  unsigned color;
+  switch (half[y][x < 8 ? x : 15 - x]) {
+    case 'K': color = 31; break;
+    case 'R': color = 23; break;
+    case 'r': color = 24; break;
+    case 'W': color = 20; break;
+    case 'G': color = 28; break;
+    case 'g': color = 17; break;
+    case 's': color = 26; break;
+    case 'S': color = 27; break;
+    case 'E': color = 18; break;
+    default: return -2;
+  }
+  return colors[color];
 }
 static void animation_record(unsigned offset) {
   if (offset < 272 || offset + 3 > sizeof(animation) || !animation[offset] || animation[offset + 2] >= 117) {
