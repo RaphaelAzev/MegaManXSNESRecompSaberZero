@@ -280,6 +280,38 @@ static void zero_health_pickup(unsigned small) {
   zero_replay(55);
   check(!g_ram[0x1628],"native health pickup finishes collection");
 }
+static void zero_ready_checks(const char *fixture) {
+  for(unsigned character=0;character<2;++character) {
+    check(RtlLoadSnapshot(fixture),"restore READY fixture");
+    zero_replay(10);
+    if(character) zero_health_swap();
+    g_ram[0xbcf]=128; g_ram[0xbaa]=0x0c; g_ram[0xbab]=0;
+    bool seen=false;
+    for(unsigned i=0;i<1000;++i) {
+      frame(0);
+      if(g_ram[0xd3]==2 && g_ram[0x1ce9] && g_ram[0x1cfe]==0x19 && !g_ram[0x1cf4]) {
+        zero_replay(28); /* Group $19 pose 12: fully formed lettering. */
+        zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-ready.cap":".zero-ready.cap");
+        uint32_t pixels[256*224];
+        check(MmxRendererDraw(pixels,(MmxRenderView){256,0,4.0/3.0},true),"READY frame renders");
+        const uint32_t *stock=MmxRendererStockFrame();
+        unsigned changed=0,red_pixels=0;
+        for(unsigned y=96;y<128;++y) for(unsigned x=80;x<176;++x) {
+          unsigned index=y*256+x,color=pixels[index];
+          if(color!=stock[index]) {
+            ++changed;
+            if(((color>>16)&255)>(color&255)+40 && ((color>>16)&255)>((color>>8)&255)+40) ++red_pixels;
+          }
+        }
+        check(character ? !changed : changed>20 && changed==red_pixels,
+            "Zero READY changes only blue lettering to red; X READY matches original");
+        seen=true; break;
+      }
+    }
+    check(seen,"native respawn reaches the original READY banner");
+  }
+  puts("MMX READY CHECKS PASSED");
+}
 static void zero_health_checks(const char *fixture, uint8 *start, uint8 *expected, uint8 *actual, size_t cap) {
   check(RtlLoadSnapshot(fixture),"restore for separate HP");
   zero_replay(10);
@@ -343,6 +375,7 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
   g_config.widescreen = false;
   int w,h; MmxPrepareFrame(1280,720,&w,&h);
   check(w == 256 && g_mmx_custom_renderer, "Zero activates native-width compositor");
+  if(getenv("MMX_ZERO_READY_ONLY")) { zero_ready_checks(fixture); return; }
   zero_swap_checks(fixture,start,expected,actual,cap);
   if(getenv("MMX_ZERO_SWAP_ONLY")) { puts("MMX SELECT SWAP CHECKS PASSED"); return; }
   zero_health_checks(fixture,start,expected,actual,cap);
