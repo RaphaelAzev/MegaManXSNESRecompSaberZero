@@ -1,4 +1,5 @@
 #include "mmx_zero.h"
+#include "mmx_zero_life.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -71,29 +72,9 @@ bool MmxZeroLoad(const char *path) {
 const uint16_t *MmxZeroColors(void) { return colors; }
 const uint8_t *MmxZeroMenuPose(void) { return poses; }
 int MmxZeroLifeColor(unsigned x, unsigned y) {
-  if (!poses || x >= 16 || y >= 16) return -2;
-  /* New front-facing 16px life art, shaded with Zero's original palette.
-   * Vanilla X3 retains X's life icon; no original Zero life tile exists. */
-  static const char half[16][9] = {
-    "........", "...K....", "..KRK...", "..KRRKKK",
-    ".KRRRWWG", ".KRrWWgG", "KRRrWKgg", "KRrWWKgg",
-    "KWWrKKKK", "KWWKWEKs", ".KWKssSS", ".KWWKSSS",
-    "..KWWSSS", "...KWKss", "....KKKK", "........"
-  };
-  unsigned color;
-  switch (half[y][x < 8 ? x : 15 - x]) {
-    case 'K': color = 31; break;
-    case 'R': color = 23; break;
-    case 'r': color = 24; break;
-    case 'W': color = 20; break;
-    case 'G': color = 28; break;
-    case 'g': color = 17; break;
-    case 's': color = 26; break;
-    case 'S': color = 27; break;
-    case 'E': color = 18; break;
-    default: return -2;
-  }
-  return colors[color];
+  if (!poses || x >= 24 || y >= 24) return -2;
+  unsigned color = zero_life_pixels[y][x];
+  return color & 0x8000 ? -2 : (int)color;
 }
 static void animation_record(unsigned offset) {
   if (offset < 272 || offset + 3 > sizeof(animation) || !animation[offset] || animation[offset + 2] >= 117) {
@@ -158,6 +139,19 @@ int MmxZeroHudColor(unsigned x, unsigned y) {
   unsigned pixel = ((p[0] >> shift) & 1) | (((p[1] >> shift) & 1) << 1) |
       (((p[16] >> shift) & 1) << 2) | (((p[17] >> shift) & 1) << 3);
   return pixel ? hud_colors[pixel] : -2;
+}
+unsigned MmxZeroWeaponOrigin(const uint8_t r[0x20000], unsigned object,
+                             unsigned axis, unsigned original) {
+  if (!poses || !r || object < 0x1228 || object >= 0x1428 ||
+      (object & 63) != 0x28) return original;
+  /* These retail routines bypass the shared muzzle table. Apply the offset
+   * where they assign the real object origin, so art and collision agree.
+   * Tornado remains centered vertically; Boomerang keeps its return arc. */
+  unsigned kind = r[object + 10];
+  int delta = axis == 0 && kind == 0x0b ? (r[object + 17] & 64 ? 6 : -6) :
+              axis == 1 && kind == 0x0d ? -8 :
+              axis == 1 && kind == 0x12 ? -6 : 0;
+  return (original + delta) & 0xffff;
 }
 static unsigned slash_pose(const MmxZeroState *s) {
   /* Vanilla X3 group $4B actions $00/$0E: duration, frame. */

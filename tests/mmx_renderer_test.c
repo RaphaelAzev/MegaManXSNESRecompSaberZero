@@ -1114,7 +1114,7 @@ static void zero_blink_submission(void) {
   FILE *f = fopen("zero-render-test.bin", "wb"); assert(f);
   const uint8_t header[] = {'M','M','X','Z','E','R','O','6',128,0,128,0,64,0,64,0,117,0,35,0};
   uint8_t pixels[16384] = {0}, palette[256] = {0}, bounds[40] = {0};
-  palette[2] = 31; pixels[64 * 128 + 64] = 1;
+  palette[46] = 31; pixels[64 * 128 + 64] = 23;
   for (unsigned i = 0; i < 40; i += 4) bounds[i + 2] = bounds[i + 3] = 1;
   uint8_t badge[160] = {0};
   assert(fwrite(header,sizeof(header),1,f) == 1 && fwrite(palette,sizeof(palette),1,f) == 1 &&
@@ -1145,6 +1145,15 @@ static void zero_blink_submission(void) {
     assert(output[40 * 256 + 40] == 0xff0000);
     assert(output[40 * 256 + 41] == 0); /* Native X tile is fully suppressed. */
   }
+  ram[0xc31] = 2; ppu.cgram[151] = 31 << 5;
+  capture(); assert(MmxRendererDraw(output,view,false));
+  assert(output[40 * 256 + 40] == 0x00ff00); /* Live charged Sting green. */
+  ppu.cgram[151] = 31 << 10;
+  capture(); assert(MmxRendererDraw(output,view,false));
+  assert(output[40 * 256 + 40] == 0x0000ff); /* Next native palette phase. */
+  ram[0xc31] = 0;
+  capture(); assert(MmxRendererDraw(output,view,false));
+  assert(output[40 * 256 + 40] == 0xff0000); /* Effect ends: original Zero red. */
   /* A menu fade repeats OAM without rebuilding the object list. */
   MmxRendererLatchSprites(); capture();
   assert(MmxRendererDraw(output,view,false) && output[40 * 256 + 40] == 0xff0000);

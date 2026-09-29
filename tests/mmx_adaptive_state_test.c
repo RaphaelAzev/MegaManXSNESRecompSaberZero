@@ -84,7 +84,7 @@ static void zero_menu_pixels(void) {
   const uint32_t *stock = MmxRendererStockFrame(); check(stock != NULL,"menu stock reference exists");
   for (int y = 0; y < 224; ++y) for (int x = 0; x < 256; ++x) if (pixels[y * 256 + x] != stock[y * 256 + x]) {
     if (x >= 104 && x < 152 && y >= 128 && y < 184) ++body;
-    else if (x >= 192 && x < 216 && y >= 143 && y < 159) ++icon;
+    else if (x >= 192 && x < 216 && y >= 139 && y < 163) ++icon;
     else { fprintf(stderr,"Unexpected Zero menu change at %d,%d\n",x,y); exit(1); }
   }
   check(body > 100 && icon > 50,"menu replaces body and life head while preserving other pixels");
@@ -108,9 +108,10 @@ static void zero_weapon_checks(const char *fixture, const char *capture) {
     if (charged) {
       g_ram[0x1f99] = 2;
       for (int i = 0; i < 181; ++i) frame(SNES_PAD_Y);
+      if (!weapon) zero_capture(capture,".charge.cap");
     }
     unsigned seen = 0;
-    for (int i = 0; i < 35; ++i) {
+    for (int i = 0; i < (charged && weapon == 3 ? 95 : 35); ++i) {
       frame(!charged && i == 0 ? SNES_PAD_Y : 0);
       for (unsigned d = 0x1228; d < 0x1428; d += 64) if (g_ram[d] && g_ram[d + 10] < 32)
         seen |= 1u << g_ram[d + 10];
@@ -121,6 +122,20 @@ static void zero_weapon_checks(const char *fixture, const char *capture) {
               "standing shot uses original Zero pose 31 muzzle, translated to X1 feet");
       }
       if (i == 2) { char suffix[64]; snprintf(suffix,sizeof(suffix),".weapon%u-%u.cap",weapon,charged); zero_capture(capture,suffix); }
+      if (i == 26 && charged && (weapon == 2 || weapon == 3)) {
+        char suffix[64]; snprintf(suffix,sizeof(suffix),".effect%u.cap",weapon); zero_capture(capture,suffix);
+      }
+      if (i == 32 && charged && weapon == 2) zero_capture(capture,".chameleon-next.cap");
+      if (i == 84 && charged && weapon == 3) zero_capture(capture,".shield.cap");
+      if (i == 0 && !charged && weapon == 5)
+        check((int)(g_ram[0x122d] | g_ram[0x122e]<<8) - (int)(g_ram[0xbad] | g_ram[0xbae]<<8) == 22,
+              "Tornado starts six pixels farther along Zero's facing direction");
+      if (i == 0 && !charged && weapon == 7)
+        check((int)(g_ram[0x1230] | g_ram[0x1231]<<8) - (int)(g_ram[0xbb0] | g_ram[0xbb1]<<8) == -8,
+              "Boomerang launches above X's original origin");
+      if (i == 20 && charged && weapon == 3)
+        check((int)(g_ram[0x1230] | g_ram[0x1231]<<8) - (int)(g_ram[0xbb0] | g_ram[0xbb1]<<8) == -6,
+              "Rolling Shield collision and art follow Zero's raised center");
     }
     unsigned expected_kind = weapon ? weapon + (charged ? 15 : 6) : charged ? 3 : 0;
     check(seen & (1u << expected_kind),"X1 weapon produces its expected normal/charged projectile class");
