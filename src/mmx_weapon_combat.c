@@ -127,7 +127,14 @@ void MmxWeaponsPlayerTick(uint8_t r[0x20000]) {
     const MmxWeaponShot *p = combat.shots+i;
     if (p->active && p->page == 2 && p->weapon == 5 && p->variant < 2) {
       /* The normal burst owns one muzzle; holding can still build a charge. */
-      if (!p->charged) r[0xbe3] &= (uint8_t)~64;
+      if (!p->charged) {
+        r[0xbe3] &= (uint8_t)~64;
+        /* X3 keeps body +$50 active for the whole 60-frame burst. X1's
+         * ordinary shot overlay expires much sooner; retain its movement
+         * animation and use the actual firing timer, never beam count C25. */
+        if (p->age && p->age<60 && r[0xbaa]!=10 && r[0xbaa]!=12 && !r[0x1f0c])
+          r[0xbf8]=(uint8_t)(60-p->age);
+      }
     }
   }
 }

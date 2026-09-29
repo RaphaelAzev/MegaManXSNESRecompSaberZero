@@ -219,6 +219,44 @@ audio and contact-edge trail comparison remain open fidelity work.
 
 ## X1 charged-beam counter correction
 
+### Ray burst body comparison (owner playtest follow-up)
+
+The original normal muzzle actor lasts **60 ticks**, emits at each eighth
+tick, and produces **seven rays**. The reference player +$50 timer remains
+active through the burst: 58 at trace tick 0, 38 at tick 20, 8 at tick 50,
+0 at tick 58, then $FF and idle on tick 59. X3 body poses 49/50 retain the
+extended arm. This confirms the earlier projectile lifetime; the port's
+character overlay was the part ending early.
+
+X1's equivalent timer is `$BF8` (player `$BA8 + $50`), consumed by
+`$81:9540..9569` / `$956A..957F`. While the normal Ray muzzle exists, set it
+to the remaining burst duration before native player animation advances.
+This preserves the native movement/firing overlay and Zero's mirrored source
+animation, and naturally returns to idle when the burst ends. It is unrelated
+to the charged-beam counter `$C25`. Focused checks now inspect the late-burst
+body timer and Zero's original pose 50 as well as all seven ray emissions.
+
+### Damage investigation started with the stats goal
+
+The existing adapter only substitutes an attack's geometry and uses X1's
+ordinary buster damage. That explains the owner's weak-weapon report; these
+were never original damage numbers. X3's positive subtraction is
+`$84:CF38..CF3D`, using table `$86:E4A5` indexed by enemy +$28 and projectile
+class +$0A. X2's equivalent is `$88:DA9B..DB02`, table `$86:F3A4`.
+The tables contain per-enemy special responses, immunity and weaknesses;
+they are not a single universal number per weapon.
+
+Private original X3 encounter: actor $1F at $0D18 has 18 HP, damage category
+9, table row `$86:E725`. Buster class 0 deals 3; Ray child class $1C deals 5.
+Do not confuse the normal muzzle class $0B or turret class $14 with the rays
+that actually hit. Source ordinary/boss damage distinctions and multi-hit
+cooldowns must be adapted deliberately to X1's enemy HP scale. The stats goal
+requests source-based weapon strength; new boss-weakness tables remain out of
+scope. The owner was offered normalized buster ratios versus raw source HP
+numbers; normalized ratios are the stated default pending a preference.
+
+### Prior charged-beam counter finding
+
 RAM `$0C25` increments at `$81:A2E9` and decrements at `$81:A407` when a native
 class-3 full-charge beam finishes its disappearance. It is **not** a general
 firing-pose timer. The earlier Blade adapter pinned it to two as an attempted

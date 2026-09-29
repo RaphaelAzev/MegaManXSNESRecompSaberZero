@@ -213,7 +213,9 @@ and measured behaviors are in the [source notebook](x-weapons-source-notes.md).
 
 Ray Splasher now emits seven spread rays over its normal burst, using the
 original muzzle animation and ray/trail poses. The muzzle follows the active
-character, preserving its firing offset after X1's brief firing overlay ends.
+character, and the firing body pose now stays active for the complete 60-frame
+burst, matching the original X3 reference. Zero retains his original extended
+arm pose instead of returning to idle while the muzzle keeps emitting.
 The charged attack deploys the original floating turret, launches upward and
 cycles the source sixteen-direction pattern for twenty-two shots over 180
 active frames. Both characters pay one energy normally and exactly 2.5 for

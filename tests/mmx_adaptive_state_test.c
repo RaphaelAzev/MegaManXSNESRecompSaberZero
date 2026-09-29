@@ -732,9 +732,16 @@ static void weapon_ray_checks(const char *assets, const char *fixture, uint8 *st
     frame(SNES_PAD_Y);unsigned rays=0;
     for(unsigned i=0;i<65;++i) {
       frame(0);rays+=ray_births();
-      if(i==19) zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-ray.cap":".zero-ray.cap");
+      if(i==19 || i==45) {
+        check(g_ram[0xbf8]<128 && (g_ram[0xbbf]&127)!=0,
+            "Ray firing pose remains active through the complete source burst");
+        if(!character) check(MmxZeroGetState().anim_pose==50,
+            "Zero retains his original extended-arm firing pose during the late burst");
+        if(i==45) zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-ray.cap":".zero-ray.cap");
+      }
     }
     check(rays==7 && MmxWeaponsEnergyAmount(2,5)==27*256,"normal Ray Splasher emits seven spread rays for one energy");
+    check(g_ram[0xbf8]==255 && !(g_ram[0xbbf]&127),"Ray returns to idle after the source burst ends");
     zero_replay(40);check(!extended_shots(false) && !g_ram[0xbdd] && !g_ram[0xc25],"ray burst releases slots without leaking native charged-beam count");
     g_ram[0x1f99]|=2;
     for(unsigned i=0;i<150;++i) frame(SNES_PAD_Y);

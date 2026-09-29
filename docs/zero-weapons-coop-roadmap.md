@@ -91,8 +91,12 @@ X3 combat port does not itself supply these boss weapons.
 - Port actual attack behavior and original visuals to the best practical
   fidelity, including meaningful special effects such as Magnet Mine behavior.
   Adapt X2/X3 X firing poses to Zero where needed.
-- Use ordinary enemy damage initially. No new boss-weakness tables or extra
-  damage/balance project is included.
+- The first combat pass used X1 buster damage as a placeholder. The owner's
+  subsequent explicit goal includes all remaining weapon animations and stats:
+  compare source damage and restore each weapon's relative strength, with
+  normalization to X1's HP scale as the stated default. New boss weaknesses
+  remain out of scope. Resolve per-hit, repeated-hit and effect-only behavior
+  from source code/runtime; do not count generic buster damage as completed stats.
 - Add X1/X2/X3 pages to the existing pause weapon screen. L/R bumpers cycle
   pages. No instructional UI text; at most left/right caret symbols.
 - Include usable selection, charge/release, weapon energy, projectile lifetime,
