@@ -538,8 +538,9 @@ static void sprite(const Ppu *p, const Raster *r, int x, int sy, unsigned attr, 
       pixel = ((bits[0] >> shift) & 1) | (((bits[1] >> shift) & 1) << 1) |
           (((bits[16] >> shift) & 1) << 2) | (((bits[17] >> shift) & 1) << 3);
     } else pixel = tile_pixel(r->vram, base + tile * 16, cx & 7, row & 7, 4);
-    int hud_color = zero_icon ? MmxZeroHudColor(cx, row, r->palette + 128 + ((attr >> 9) & 7) * 16) : -1;
+    int hud_color = zero_icon ? MmxZeroHudColor(cx, row) : -1;
     if (hud_color >= 0) pixel = 1;
+    else if (hud_color == -2) pixel = 0;
     if (pixel) {
       out[dest] = (uint16_t)(z | pixel);
       object_color[dest] = hud_color >= 0 ? hud_color :

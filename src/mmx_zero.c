@@ -6,6 +6,8 @@
 static uint8_t *poses;
 static uint16_t colors[128];
 static uint8_t saber_bounds[40];
+static uint8_t hud_tiles[128];
+static uint16_t hud_colors[16];
 static MmxZeroState state;
 static unsigned word(const uint8_t *p) { return p[0] | p[1] << 8; }
 static void putword(uint8_t *p, unsigned v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
@@ -26,15 +28,16 @@ void MmxZeroDisable(void) {
 bool MmxZeroLoad(const char *path) {
   FILE *f = path ? fopen(path, "rb") : NULL;
   if (!f) return false;
-  uint8_t header[20], palette[256], bounds[40];
+  uint8_t header[20], palette[256], bounds[40], hud[160];
   size_t size = (size_t)MMX_ZERO_POSES * MMX_ZERO_WIDTH * MMX_ZERO_HEIGHT;
   uint8_t *data = NULL;
   bool ok = fread(header, 1, sizeof(header), f) == sizeof(header) &&
-      !memcmp(header, "MMXZERO3", 8) && word(header + 8) == MMX_ZERO_WIDTH &&
+      !memcmp(header, "MMXZERO4", 8) && word(header + 8) == MMX_ZERO_WIDTH &&
       word(header + 10) == MMX_ZERO_HEIGHT && word(header + 12) == 64 &&
       word(header + 14) == 64 && word(header + 16) == 117 && word(header + 18) == 35 &&
       fread(palette, 1, sizeof(palette), f) == sizeof(palette) &&
-      fread(bounds, 1, sizeof(bounds), f) == sizeof(bounds);
+      fread(bounds, 1, sizeof(bounds), f) == sizeof(bounds) &&
+      fread(hud, 1, sizeof(hud), f) == sizeof(hud);
   if (ok) { data = malloc(size); ok = data && fread(data, 1, size, f) == size && fgetc(f) == EOF; }
   fclose(f);
   if (ok) for (unsigned i = 0; i < sizeof(bounds); i += 4)
@@ -43,30 +46,20 @@ bool MmxZeroLoad(const char *path) {
   if (!ok) { free(data); return false; }
   MmxZeroDisable(); poses = data;
   memcpy(saber_bounds, bounds, sizeof(bounds));
+  memcpy(hud_tiles, hud, sizeof(hud_tiles));
+  for (unsigned i = 0; i < 16; ++i) hud_colors[i] = (uint16_t)(word(hud + 128 + 2 * i) & 0x7fff);
   for (unsigned i = 0; i < 128; ++i) colors[i] = (uint16_t)(word(palette + 2 * i) & 0x7fff);
   return true;
 }
 const uint16_t *MmxZeroColors(void) { return colors; }
-int MmxZeroHudColor(unsigned x, unsigned y, const uint16_t palette[16]) {
-  /* A red Z in the existing X1 badge. Keep the surrounding bar/frame live;
-   * character identity is resolved here, independently of player visibility. */
-  if (!MmxZeroEnabled() || x < 2 || x > 13 || y < 3 || y > 11) return -1;
-  static const char badge[9][13] = {
-    ".##########.",
-    ".#rrrrrrrr#.",
-    "..#####rr#..",
-    ".....#rr#...",
-    "....#rr#....",
-    "...#rr#.....",
-    "..#rr#####..",
-    ".#rrrrrrrr#.",
-    ".##########.",
-  };
-  switch (badge[y - 3][x - 2]) {
-    case '#': return palette[15];
-    case 'r': return 31 | (5 << 5) | (4 << 10);
-    default: return palette[1];
-  }
+int MmxZeroHudColor(unsigned x, unsigned y) {
+  /* Original X3 tile/palette data, independent of body visibility. */
+  if (!MmxZeroEnabled() || x >= 16 || y >= 16) return -1;
+  unsigned tile = (y / 8) * 2 + x / 8, shift = 7 - (x & 7);
+  const uint8_t *p = hud_tiles + tile * 32 + (y & 7) * 2;
+  unsigned pixel = ((p[0] >> shift) & 1) | (((p[1] >> shift) & 1) << 1) |
+      (((p[16] >> shift) & 1) << 2) | (((p[17] >> shift) & 1) << 3);
+  return pixel ? hud_colors[pixel] : -2;
 }
 static unsigned slash_pose(const MmxZeroState *s) {
   /* Vanilla X3 group $4B actions $00/$0E: duration, frame. */

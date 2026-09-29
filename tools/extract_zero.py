@@ -112,8 +112,12 @@ def extract(path):
     bounds = bytearray(rom.read(0x86b837, 40))
     for i in range(1, 40, 4):
         bounds[i] = (bounds[i] - 8) & 255
-    header = struct.pack('<8s6H', b'MMXZERO3', WIDTH, HEIGHT, ORIGIN_X, ORIGIN_Y, 117, 35)
-    return header + struct.pack('<128H', *colors) + bounds + b''.join(poses), colors, poses
+    # Vanilla $84:DCE6 selects DMA list $5C at $86:9AB3. Its two 64-byte
+    # transfers replace the four tiles of the 16x16 health badge at $6860/$6960.
+    # $81:804A with X=$20/Y=$1C loads its palette from $8C:B0E0 into CGRAM $A0.
+    hud = rom.read(0x2c8d20, 64) + rom.read(0x2c8de0, 64) + rom.read(0x8cb0e0, 32)
+    header = struct.pack('<8s6H', b'MMXZERO4', WIDTH, HEIGHT, ORIGIN_X, ORIGIN_Y, 117, 35)
+    return header + struct.pack('<128H', *colors) + bounds + hud + b''.join(poses), colors, poses
 
 
 def main():

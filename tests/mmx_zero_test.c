@@ -7,13 +7,14 @@
 static uint8_t ram[0x20000], before[0x20000], rom[0x180000], clean[0x180000];
 static void asset(const char *path) {
   FILE *f = fopen(path, "wb"); assert(f);
-  const uint8_t header[] = {'M','M','X','Z','E','R','O','3',128,0,128,0,64,0,64,0,117,0,35,0};
+  const uint8_t header[] = {'M','M','X','Z','E','R','O','4',128,0,128,0,64,0,64,0,117,0,35,0};
   uint8_t page[16384] = {0};
   assert(fwrite(header, sizeof(header), 1, f) == 1);
   assert(fwrite(page, 256, 1, f) == 1);
   uint8_t bounds[40];
   for (unsigned i = 0; i < 40; i += 4) { bounds[i] = 0; bounds[i+1] = 248; bounds[i+2] = 12; bounds[i+3] = 10; }
   assert(fwrite(bounds, sizeof(bounds), 1, f) == 1);
+  assert(fwrite(page, 160, 1, f) == 1);
   for (unsigned i = 0; i < MMX_ZERO_POSES; ++i) assert(fwrite(page, sizeof(page), 1, f) == 1);
   assert(!fclose(f));
 }

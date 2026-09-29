@@ -27,8 +27,10 @@ python tools/extract_zero.py ../MegamanX3SNESRecomp/mmx3.sfc build-zero/zero-x3.
 The extractor accepts an optional 512-byte copier header and checks the
 normalized X3 SHA-256:
 `65b03268afac296330e8ff8d60dd0825879e13ed658b37713c034a3bd074f1d7`.
-It extracts 117 body, 21 saber-body and 14 blade poses, palettes and the ground/air
-saber bounds. `--sheet path.png` also writes a labeled contact sheet if Pillow
+It extracts 117 body, 21 saber-body and 14 blade poses, palettes, the ground/air
+saber bounds, and Zero's original X3 health-bar badge and palette. The current
+cache format is `MMXZERO4`; rerun extraction to replace older caches.
+`--sheet path.png` also writes a labeled contact sheet if Pillow
 is installed. ROMs, generated code and extracted graphics stay local.
 
 In the launcher's Mods page, enable **Play as Zero (experimental)**. The asset
@@ -145,12 +147,15 @@ presented frame for visual proof.
 
 Owner playtest follow-up: projectile origins do not yet line up with Zero's arm,
 and some hurt/invulnerability flashes still show X. These confirmed issues are
-tracked in `beads-8wg.1.29`. The health-bar badge now uses a red Z while Zero is
-active, including when the player body is hidden; the native frame, health meter
-and weapon icon are retained (`beads-8wg.1.28`). Native and widescreen capture
-comparisons change only 50 badge pixels, and disabled-mod captures are identical.
-The updated local executable is `build-zero/hud-update/MegaManXSNESRecomp.exe`;
-it was built separately to leave the owner's running session intact.
+tracked in `beads-8wg.1.29`. Full-port work is on `feat/x3-zero-port`, tracked in
+`beads-8wg.1.31`. The earlier hand-drawn red HUD letter was an approximation and
+has been replaced with the original X3 Zero badge, including its original frame
+and palette. X3's `$84:DCE6` selects DMA list `$5C` at `$86:9AB3`: four tiles from
+`$2C:8D20/$2C:8DE0`, with palette `$8C:B0E0`. An independent ROM-to-compositor
+comparison matches all 218 nontransparent pixels exactly. The badge remains
+visible while Zero blinks; X1's health amount and weapon icon are retained.
+The current development executable is `build-zero/port-work/MegaManXSNESRecomp.exe`;
+the owner's earlier screenshot session remains in `build-zero/hud-update`.
 
 An optional Select-button X/Zero swap is a longer-term direction, tracked in
 `beads-8wg.1.30`. That feature will need an explicit active-character state
