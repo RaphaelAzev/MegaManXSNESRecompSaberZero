@@ -77,6 +77,14 @@ static bool zero_weapons_menu(void) {
        (frame.ram[0x1989] == 1 && word(frame.ram,0x198d) == 128 &&
         word(frame.ram,0x1990) == 160 && (frame.ram[0x199e] == 0 || frame.ram[0x199e] == 0x18)));
 }
+static bool zero_title_menu(void) {
+  /* Retail title-menu cursor is the player object, at one of three rows.
+   * Its native idle/firing animation and selection beam remain active. */
+  unsigned y = word(frame.ram,0xbb0);
+  return MmxZeroEnabled() && frame.ram[0xd1] == 0 && frame.ram[0xba9] == 2 &&
+      frame.ram[0xbbe] == 0 && word(frame.ram,0xbad) == 32 &&
+      y >= 166 && y <= 198;
+}
 static bool zero_actor(unsigned object, unsigned animation) {
   return object == 0xba8 || object == 0xc38 || object == 0xc58 || object == 0xc78 ||
       (object == 0x1928 && animation == 0x5f) || (object == 0x1948 && animation == 0x5e) ||
@@ -556,8 +564,8 @@ static uint16_t background(const Ppu *p, const Raster *r, unsigned layer, int x,
     }
   }
   if (!stage && layer == 1 && size == 8 && zero_weapons_menu() &&
-      px >= 192 && px < 216 && py >= 140 && py < 164)
-    life_color = MmxZeroLifeColor(px - 192, py - 140);
+      px >= 195 && px < 195 + MMX_ZERO_LIFE_WIDTH && py >= 144 && py < 144 + MMX_ZERO_LIFE_HEIGHT)
+    life_color = MmxZeroLifeColor(px - 195, py - 144);
   unsigned number = ((tile & 1023) + cx / 8 + cy / 8 * 16) & 1023;
   unsigned address = (PPU_bgTileAdr(p, layer) + number * bpp * 4) & 0x7fff;
   const uint8_t *bits = stage && g_mmx_render_asset_repairs && bpp == 4 && !(frame.ram[0x1f7a] == 1 && layer == 1) ?
@@ -712,6 +720,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
   memset(door_cache, 0, sizeof(door_cache));
   memset(out, 0, (size_t)view.width * 224 * sizeof(*out));
   bool zero_menu = zero_weapons_menu();
+  bool zero_title = zero_title_menu();
   bool stage = MmxWidePolicy_IsStageScene(frame.ram) && !zero_menu;
   prepare_stage_planes();
   LightBeam beams[2];
@@ -720,7 +729,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       MmxRenderAssetsDeathPaletteFade(frame.ram, frame.lines[0].palette) : 0;
   const Piece *pieces = frame.expand && g_mmx_render_asset_repairs ? frame.expanded : frame.pieces;
   unsigned piece_count = frame.expand && g_mmx_render_asset_repairs ? frame.expanded_count : frame.piece_count;
-  const uint8_t *zero = stage || zero_menu ? MmxZeroPose(frame.ram, &frame_zero) : NULL;
+  const uint8_t *zero = stage || zero_menu || zero_title ? MmxZeroPose(frame.ram, &frame_zero) : NULL;
   const uint8_t *blade = stage && zero ? MmxZeroBlade(&frame_zero) : NULL;
   Piece waiting[128];
   unsigned waiting_count = stage && g_mmx_render_asset_repairs ?
@@ -746,7 +755,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
     const Raster *r = &frame.lines[y]; Ppu p;
     memcpy(&p, r->registers, PPU_SAVESTATE_REGS_SIZE);
     if (beam_count) p.cgwsel = (p.cgwsel & 0xcf) | 0x20;
-    if ((p.bgmode & 7) != 1 || (!stage && !zero_menu)) {
+    if ((p.bgmode & 7) != 1 || (!stage && !zero_menu && !zero_title)) {
       memcpy(out + y * view.width + view.extra, frame.stock + y * 256, 256 * sizeof(*out));
       ++stats.fallback_lines; continue;
     }
@@ -813,9 +822,9 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       if (zero_life) {
         if (!life_drawn[s.object >> 5]) {
           life_drawn[s.object >> 5] = true;
-          int lx = (int16_t)(word(frame.ram,s.object + 5) - word(frame.ram,0x1e4d)) - 12;
-          int ly = (int16_t)(word(frame.ram,s.object + 8) - word(frame.ram,0x1e50)) - 12;
-          sprite(&p,r,lx,ly,s.attr & 0x3fff,24,y,view,objects,false,NULL,0,object_colors,true,2);
+          int lx = (int16_t)(word(frame.ram,s.object + 5) - word(frame.ram,0x1e4d)) - MMX_ZERO_LIFE_WIDTH / 2;
+          int ly = (int16_t)(word(frame.ram,s.object + 8) - word(frame.ram,0x1e50)) - MMX_ZERO_LIFE_HEIGHT / 2;
+          sprite(&p,r,lx,ly,s.attr & 0x3fff,MMX_ZERO_LIFE_WIDTH,y,view,objects,false,NULL,0,object_colors,true,2);
         }
         continue;
       }

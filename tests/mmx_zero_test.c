@@ -95,9 +95,16 @@ int main(void) {
     if(tiers[c] && tiers[c]<8) assert(ram[0xc01]==(tiers[c]==4?6:8));
   }
   assert(MmxZeroGetState().burst == 1 && !ram[0x1228]);
+  /* The native engine started a looping charge voice before host release. */
+  player();
+  for(unsigned i=0;i<201;++i) tick(64,i==0?64:0);
+  ram[0xc2f] |= 64;
+  tick(0,0);
+  assert(!(ram[0xc2f]&64) && ram[0xba3]==2 && ram[0xb72]==0x17);
   assert(ram[0x1f99] == 0); /* Dash/charge never grant equipment. */
   for(int i=2;i<=7;++i) tick(0,0);
   assert(!ram[0x1228]); tick(0,0); assert(ram[0x1228] && ram[0x1232]==3);
+  assert(ram[0xba3]==4 && ram[0xb74]==2);
   ram[0xc25]=1; ram[0x1f0d]=0;
   for(int i=9;i<=18;++i) tick(0,0);
   tick(64,64);
@@ -105,6 +112,7 @@ int main(void) {
   for(int i=2;i<=9;++i) tick(0,0);
   assert(!ram[0x1268]); tick(0,0);
   assert(ram[0x1268] == 1 && ram[0x1272] == 3 && ram[0xbdd] == 2);
+  assert(ram[0xba3]==6 && ram[0xb76]==2);
   assert(ram[0xc25] == 1); /* Native initializer, not us, increments that counter. */
   for(int i=11;i<=29;++i) tick(0,0);
   tick(64,64); assert(!MmxZeroGetState().slash); /* Live beams block saber. */
@@ -125,6 +133,7 @@ int main(void) {
   assert(MmxZeroHitbox(ram,0xea8,s.projectile,0xffb0) == 0xffb0);
   assert(MmxZeroDamage(ram,0xe68,s.projectile,3) == 0);
   assert(MmxZeroDamage(ram,0xea8,s.projectile,3) == 16);
+  assert(ram[0xba3]==6); /* No repeated stop/release sounds through recovery. */
   s = MmxZeroGetState(); MmxZeroResetState(); MmxZeroSetState(s);
   assert(MmxZeroGetState().hit_slots == s.hit_slots && MmxZeroGetState().slash == s.slash);
   MmxZeroState invalid = s; invalid.air = 2; MmxZeroSetState(invalid);
@@ -137,6 +146,11 @@ int main(void) {
   for(unsigned d=0x1228;d<0x1428;d+=64) ram[d] = 1;
   tick(64,64); assert(MmxZeroGetState().combo == 2 && !MmxZeroGetState().slash);
   ram[0xbaa] = 0x0e; tick(0,0); assert(!MmxZeroGetState().combo);
+  player(); tick(64,64); ram[0xc2f]|=64;
+  MmxZeroCancel(ram); MmxZeroCancel(ram);
+  assert(ram[0xba3]==2 && ram[0xb72]==0x17 && !(ram[0xc2f]&64));
+  ram[0xc2f]|=64; MmxZeroCancel(ram);
+  assert(ram[0xba3]==2 && (ram[0xc2f]&64)); /* Native special charge is untouched. */
   MmxZeroDisable(); MmxZeroSetCollisionRom(rom,sizeof(rom));
   assert(!memcmp(rom,clean,sizeof(rom)));
   remove("zero-test.bin"); remove("zero-test-bad.bin");
