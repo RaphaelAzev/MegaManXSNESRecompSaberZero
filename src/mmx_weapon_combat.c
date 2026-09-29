@@ -17,7 +17,7 @@ static bool owned(const uint8_t *r, unsigned d) { return slot_valid(d) && r[d] &
 static unsigned slot_index(unsigned d) { return (d - 0x1228) / 64; }
 static unsigned weapon_group(unsigned page, unsigned weapon) {
   return page == 1 ? (weapon == 4 ? 70 : weapon == 5 ? 65 : 0) :
-    page == 2 ? (weapon == 1 ? 5 : weapon == 4 ? 12 : weapon == 5 ? 13 : 0) : 0;
+    page == 2 ? (weapon == 1 ? 5 : weapon == 4 ? 12 : weapon == 5 ? 13 : weapon == 7 ? 16 : 0) : 0;
 }
 static void sound(uint8_t *r, unsigned command) {
   unsigned i = r[0xba3] & 30; r[0xb72 + i] = (uint8_t)command; r[0xb73 + i] = 0; r[0xba3] = (uint8_t)((i + 2) & 30);
@@ -46,6 +46,9 @@ bool MmxWeaponsValidCombatState(const MmxWeaponCombatState *s) {
         (p->muzzle_pose > 2 || p->radius > 10 ||
          (p->variant > 2 && p->variant != 128 && p->variant != 129 && p->variant != 130))) return false;
     if (p->active && p->page == 2 && p->weapon == 5 && (p->variant > 3 || p->radius > 16)) return false;
+    if (p->active && p->page == 2 && p->weapon == 7 &&
+        (p->variant > 2 || p->muzzle_pose > 7 ||
+         p->radius > 8 || p->tether_pose > 1 || p->origin_x < 0 || p->origin_x > 360)) return false;
   }
   return true;
 }
@@ -129,9 +132,11 @@ void MmxWeaponsPlayerTick(uint8_t r[0x20000]) {
   MmxWeaponsState s = MmxWeaponsGetState();
   if (!MmxWeaponsEnergyAmount(s.page,s.weapon)) { stop_charge(r); r[0xbdf] &= (uint8_t)~64; r[0xbe3] &= (uint8_t)~64; }
   for (unsigned i=0;i<8;++i) if (combat.shots[i].active && combat.shots[i].charged &&
-      combat.shots[i].page == 2 && combat.shots[i].weapon == 4) {
+      combat.shots[i].page == 2 && (combat.shots[i].weapon == 4 ||
+        (combat.shots[i].weapon == 7 && combat.shots[i].muzzle_pose < 3))) {
     /* A second press controls the extended blade, not a second buster shot. */
     stop_charge(r); r[0xbdf] &= (uint8_t)~64; r[0xbe3] &= (uint8_t)~64;
+    if (combat.shots[i].weapon==7 && r[0xbaa]!=14 && r[0xbaa]!=12 && !r[0x1f0c]) r[0xbf8]=2;
   }
   for (unsigned i=0;i<8;++i) {
     const MmxWeaponShot *p = combat.shots+i;
@@ -142,7 +147,7 @@ void MmxWeaponsPlayerTick(uint8_t r[0x20000]) {
         /* X3 keeps body +$50 active for the whole 60-frame burst. X1's
          * ordinary shot overlay expires much sooner; retain its movement
          * animation and use the actual firing timer, never beam count C25. */
-        if (p->age && p->age<60 && r[0xbaa]!=10 && r[0xbaa]!=12 && !r[0x1f0c])
+        if (p->age && p->age<60 && r[0xbaa]!=14 && r[0xbaa]!=12 && !r[0x1f0c])
           r[0xbf8]=(uint8_t)(60-p->age);
       }
     }
@@ -172,6 +177,15 @@ static void shot_bounds(const MmxWeaponShot *s, unsigned *rx, unsigned *ry) {
   if (s->page == 2 && s->weapon == 5) {
     *rx = s->charged && s->variant < 2 ? 16 : 8; *ry = 8;
   }
+  if (s->page == 2 && s->weapon == 7) {
+    *rx=5;*ry=7;
+    if (s->charged) {
+      *rx=s->muzzle_pose>=5 ? 16 : s->muzzle_pose==3 ? 11 : 10;
+      *ry=s->muzzle_pose>=5 ? 24 : s->muzzle_pose==3 ? 7 : 17;
+    }
+    else if (s->muzzle_pose==1) { *rx=s->variant ? 17 : 14;*ry=s->variant ? 9 : 7; }
+    else if (s->muzzle_pose==5) { *rx=s->variant ? 23 : 15;*ry=s->variant ? 14 : 9; }
+  }
 }
 static void collision_box(unsigned index, const MmxWeaponShot *s) {
   if (!collision_patch) return;
@@ -179,6 +193,11 @@ static void collision_box(unsigned index, const MmxWeaponShot *s) {
   uint8_t *box = previous_boxes + index*4;
   box[0] = box[1] = 0; box[2] = (uint8_t)rx; box[3] = (uint8_t)ry;
   if (s->page == 1 && s->weapon == 5 && s->charged) box[1] = 254;
+  if (s->page == 2 && s->weapon == 7) {
+    if (s->charged && s->muzzle_pose<3) box[0]=(uint8_t)-3;
+    else if (!s->charged && s->muzzle_pose==1) box[0]=(uint8_t)(s->variant ? -13 : -7);
+    else if (!s->charged && s->muzzle_pose==5) box[1]=(uint8_t)(s->variant ? -12 : -7);
+  }
   memcpy(collision_rom + 0x37f80 + index*4,box,4);
 }
 static void native_object(uint8_t *r, unsigned d, const MmxWeaponShot *s) {
@@ -187,6 +206,8 @@ static void native_object(uint8_t *r, unsigned d, const MmxWeaponShot *s) {
   putword(r+d+5,(unsigned)(s->x >> 8)); putword(r+d+8,(unsigned)(s->y >> 8));
   putword(r+d+0x20,0xff80 + slot_index(d) * 4); putword(r+d+0x3e,0x5758);
   r[d+0x30] = 0;
+  if (s->page==2 && s->weapon==7 && s->variant!=2)
+    r[d+0x30]=(uint8_t)(s->charged ? s->muzzle_pose<2 : s->age<3);
   collision_box(slot_index(d),s);
 }
 static unsigned free_slot(const uint8_t *r) {
@@ -232,6 +253,27 @@ static bool terrain_solid(const uint8_t *r, int x, int y, bool floor, int *surfa
   if (surface) *surface = (y & ~15) + height;
   return true;
 }
+static bool terrain_water(const uint8_t *r,int x,int y) {
+  unsigned type=terrain_type(r,x,y);
+  return type==13 || type==14; /* X1 $84:987E water probes. */
+}
+/* Extend the native terrain result, before the player consumes it. Both X
+ * and Zero's translated terrain boxes put their feet 16px below the origin.
+ * Native +$24 is the preceding Y position. Upward jumps pass through. */
+void MmxWeaponsTerrainEnd(uint8_t r[0x20000],unsigned object) {
+  if (!MmxWeaponsEnabled() || object!=0xba8) return;
+  for (unsigned i=0;i<8;++i) {
+    MmxWeaponShot *s=combat.shots+i;
+    if (!s->active || s->page!=2 || s->weapon!=7 || !s->charged || s->variant!=1 ||
+        s->muzzle_pose<5 || s->muzzle_pose>6) continue;
+    s->tether_pose=0;
+    int top=(s->y>>8)-24,x=(int)word(r+0xbad)-(s->x>>8);
+    int feet=(int)word(r+0xbb0)+16,previous=(int)word(r+0xbcc)+16;
+    if ((int16_t)word(r+0xbc4)>0 || x < -22 || x > 22 || previous>top+2 || feet<top ||
+        r[0xbaa]==14 || r[0xbaa]==12 || r[0x1f0c]) continue;
+    putword(r+0xbb0,top-16);r[0xbaf]=0;r[0xbd3]|=4;r[0xbd7]=0;s->tether_pose=1;
+  }
+}
 /* Sweep at one-pixel intervals, preserving the subpixel endpoint. Return
  * native-style contact bits: side 1, floor 4, ceiling 8. */
 static unsigned terrain_move(const uint8_t *r, MmxWeaponShot *s, unsigned rx, unsigned ry) {
@@ -263,6 +305,186 @@ static MmxWeaponShot *spawn_child(uint8_t *r, const MmxWeaponShot *parent) {
   MmxWeaponShot *s = combat.shots + slot_index(d); *s = *parent;
   s->age = 1; s->born = combat.tick; s->hit_slots = 0;
   memset(r+d,0,64); native_object(r,d,s); ++r[0xbdd]; return s;
+}
+static void frost_shards(uint8_t *r,const MmxWeaponShot *parent) {
+  /* X3 $81:A93A/$BD9E selects four class-$37 particles. Its shared
+   * initializer $82:FD66 uses these $86:DAE6/$DAF6 velocity rows and gravity
+   * 48. Sample the source rows deterministically from the saved frame/slot.
+   * Cosmetic particles share X1's finite projectile pool. */
+  static const int16_t vx[8]={-512,-256,128,384,-640,-384,256,512};
+  static const int16_t vy[8]={768,1024,1408,640,896,1152,1280,512};
+  for (unsigned i=0;i<4;++i) {
+    MmxWeaponShot *t=spawn_child(r,parent);if (!t) break;
+    unsigned index=(combat.tick+i*3+(unsigned)(parent->x>>8))&7;
+    t->variant=2;t->muzzle_pose=7;t->origin_x=0;t->radius=0;t->tether_pose=0;
+    t->vx=vx[index];t->vy=-vy[(index+i*2)&7];
+    animation_start(t,parent->charged ? (parent->variant ? 17 : 14) : 4);
+    putword(r+0x1228+(unsigned)(t-combat.shots)*64+0x20,0);
+  }
+}
+static void frost_break(uint8_t *r,MmxWeaponShot *s,bool shards) {
+  if (shards) frost_shards(r,s);
+  s->muzzle_pose=s->charged ? 4 : 7;s->vx=s->vy=0;s->origin_x=2;
+}
+static void frost_impact(MmxWeaponShot *s) {
+  s->muzzle_pose=2;s->vx=(int16_t)((-s->vx)>>2);
+  s->vy=s->variant ? -512 : -768;s->hit_slots=0;
+  animation_start(s,5);
+}
+static void frost_block(uint8_t *r,const MmxWeaponShot *s) {
+  /* X3 $84:CC0E clears a colliding, destructible enemy projectile. X1's
+   * pool is $1428..1627; its native damage category and hitbox remain the
+   * authority. Zero/immune categories are not made destructible. */
+  for (unsigned d=0x1428;d<0x1628;d+=64) {
+    unsigned box=word(r+d+0x20),type=r[d+0x28];
+    if (!r[d] || (r[d]&64) || !type || box<0x8000 || !collision_rom) continue;
+    size_t offset=0x30000+(box&0x7fff);
+    if (offset+4>collision_rom_size) continue;
+    const uint8_t *b=collision_rom+offset;
+    int x=(int)word(r+d+5)+(int8_t)b[0]*((r[d+17]&64) ? -1 : 1)-
+      ((s->x>>8)+(s->facing ? 3 : -3));
+    int y=(int)word(r+d+8)+(int8_t)b[1]-(s->y>>8);
+    if (x < -10-(int)b[2] || x > 10+(int)b[2] || y < -17-(int)b[3] || y > 17+(int)b[3]) continue;
+    memset(r+d,0,4);putword(r+d+14,0);putword(r+d+0x2c,0);return;
+  }
+}
+static void frost_tick(uint8_t *r,unsigned d,MmxWeaponShot *s) {
+  /* X3 $81:A6DF / $81:BAFC, group $10. Normal phases: form, rocket,
+   * falling core, landed core, spike growth, planted spike, failed form,
+   * shatter. Charged phases: form, shield growth, shield, released chunk,
+   * shatter, rising water platform, floating platform. origin_x holds phase
+   * lifetime; radius is the steering clock. */
+  if (!s->age) {
+    for (unsigned i=0;i<8;++i) if (combat.shots+i!=s && combat.shots[i].active &&
+        combat.shots[i].page==2 && combat.shots[i].weapon==7 &&
+        combat.shots[i].charged==s->charged) { retire(r,d);return; }
+    if (!MmxWeaponsSpend(2,7,s->charged ? 0x300 : 0x100)) { retire(r,d);return; }
+    muzzle_origin(r,d,s);s->born=combat.tick;s->age=1;
+    s->variant=(uint8_t)terrain_water(r,s->x>>8,s->y>>8);
+    if (s->charged) {
+      s->vx=(int16_t)(((s->x>>8)-(int)word(r+0xbad))*(s->facing ? 1 : -1));
+      s->origin_y=(int16_t)((s->y>>8)-(int)word(r+0xbb0));
+    } else s->vx=s->facing ? 16 : -16;
+    s->vy=0;s->origin_x=s->charged ? 360 : 0;
+    animation_start(s,s->charged ? 10 : s->variant*2);
+    native_object(r,d,s);return;
+  }
+  if (s->age==1 && s->born==combat.tick) return;
+  unsigned phase=s->muzzle_pose;
+  if (s->variant==2) {
+    s->vy+=48;s->x+=s->vx;s->y+=s->vy;
+    if (++s->age>180 || (s->y>>8)>(int)word(r+0x1e50)+256 ||
+        (s->x>>8)<(int)word(r+0x1e4d)-64 || (s->x>>8)>(int)word(r+0x1e4d)+320) { retire(r,d);return; }
+    native_object(r,d,s);putword(r+d+0x20,0);return;
+  } else if (phase==(s->charged ? 4u : 7u)) {
+    if (!s->origin_x || !--s->origin_x) { retire(r,d);return; }
+  } else if (s->charged && r[d+1]>=8) {
+    /* Source state 8 shatters on a surviving enemy; state 6 retains the
+     * shield after killing one. These are deliberately different. */
+    frost_break(r,s,false);
+  } else if (s->charged && phase>=5) {
+    int32_t previous_y=s->y;
+    if (!terrain_water(r,s->x>>8,s->y>>8)) frost_break(r,s,true);
+    else if (phase==5) {
+      if (!terrain_water(r,s->x>>8,(s->y>>8)-16)) {
+        s->muzzle_pose=6;s->origin_x=240;s->radius=0;s->vy=0;
+      } else {
+        s->vy-=240;if (s->vy < -256) s->vy=-256;
+        unsigned hit=terrain_move(r,s,16,24);
+        if (hit&8) frost_break(r,s,true);
+      }
+      if (!(s->flags&128)) animation_step(s);
+    } else if (!--s->origin_x) frost_break(r,s,true);
+    else {
+      static const int16_t bob[4]={0,32,0,-32};
+      s->vy=bob[((s->age>>5)&3)];s->y+=s->vy;
+    }
+    if (s->tether_pose && s->muzzle_pose>=5) {
+      int32_t target=(int32_t)word(r+0xbb0)*256+s->y-previous_y;
+      if (!terrain_solid(r,word(r+0xbad),(target>>8)-(MmxZeroActive()?26:18),false,NULL))
+        putword(r+0xbb0,(unsigned)(target>>8));
+      else frost_break(r,s,true);
+    }
+  } else if (s->charged) {
+    if (phase<3) {
+      if (r[0xbaa]==14 || r[0xbaa]==12 || r[0x1f0c] || r[0xbaa]>=0x18) frost_break(r,s,phase!=0);
+      else {
+        s->facing=r[0xbb9]&64;
+        int dx=(int8_t)MmxZeroMuzzle(r,d,r[d+0x3c],0,(uint8_t)s->vx);
+        int dy=(int8_t)MmxZeroMuzzle(r,d,r[d+0x3c],1,(uint8_t)s->origin_y);
+        s->x=((int)word(r+0xbad)+(s->facing ? dx : -dx))*256;
+        s->y=((int)word(r+0xbb0)+dy)*256;
+        if (phase<2) {
+          if (s->flags&128) {
+            ++s->muzzle_pose;
+            if (!phase) {
+              s->variant=(uint8_t)terrain_water(r,s->x>>8,s->y>>8);
+              if (s->variant) { s->muzzle_pose=5;s->vx=s->vy=0;s->tether_pose=0;animation_start(s,13); }
+              else animation_start(s,12);
+            }
+          } else animation_step(s);
+        } else if (!--s->origin_x) {
+          /* $81:BC07..BC24 releases class $21 after 360 shield ticks. */
+          frost_shards(r,s);
+          s->muzzle_pose=3;s->origin_x=180;s->vx=s->facing ? 256 : -256;
+          s->vy=-768;s->hit_slots=0;animation_start(s,15);
+        }
+        if (s->muzzle_pose==2) frost_block(r,s);
+      }
+    } else {
+      if (r[d+1]>=6 || !--s->origin_x) frost_break(r,s,true);
+      else {
+        s->vy+=32;if (s->vy>2048) s->vy=2048;
+        unsigned hit=terrain_move(r,s,11,7);
+        if (hit&1) frost_break(r,s,true);
+        else if (hit&4) { s->vy=0;if (!(s->age&7)) s->vx=s->facing ? 768 : -768; }
+        else if (hit&8) s->vy=0;
+      }
+    }
+  } else if (r[d+1]>=6 && phase<6) {
+    if (r[d+1]==6 && phase<2) { frost_shards(r,s);frost_impact(s); }
+    else frost_break(r,s,r[d+1]==6);
+  } else if (!phase) {
+    unsigned hit=terrain_move(r,s,5,7);
+    if ((hit&1) || terrain_solid(r,s->x>>8,s->y>>8,false,NULL)) {
+      s->muzzle_pose=6;s->origin_x=120;s->vx=s->facing ? 512 : -512;
+      animation_start(s,18+s->variant);
+    } else if (s->flags&128) { s->muzzle_pose=1;animation_start(s,1+s->variant*2); }
+    else animation_step(s);
+  } else if (phase==1) {
+    unsigned accel=s->variant ? 8 : 16,maximum=s->variant ? 768 : 1024;
+    int speed=(s->facing ? s->vx : -s->vx)+(int)accel;
+    if (speed>(int)maximum) speed=(int)maximum;
+    s->vx=(int16_t)(s->facing ? speed : -speed);s->vy=0;
+    /* Source $A7BF clears VY between single-pixel steering pulses. */
+    if (++s->radius==8) {
+      s->radius=0;s->vy=(r[0xbdf]&8) ? -256 : (r[0xbdf]&4) ? 256 : 0;
+    }
+    unsigned hit=terrain_move(r,s,5,7);
+    if (hit&1) { frost_shards(r,s);frost_impact(s); } else animation_step(s);
+  } else if (phase==2) {
+    s->vy+=s->variant ? 24 : 32;
+    if (s->vy>(s->variant ? 1024 : 1536)) s->vy=s->variant ? 1024 : 1536;
+    unsigned hit=terrain_move(r,s,5,7);
+    if (hit&4) { s->muzzle_pose=3;s->vx=s->vy=0; }
+    else if (hit&8) s->vy=0;
+  } else if (phase<6) {
+    if (!terrain_solid(r,s->x>>8,(s->y>>8)+8,true,NULL)) frost_break(r,s,true);
+    else if (phase==5) { if (!--s->origin_x) frost_break(r,s,true); }
+    else if (s->flags&128) {
+      ++s->muzzle_pose;
+      if (phase==3) animation_start(s,6+s->variant*2);
+      else { s->origin_x=240;animation_start(s,7+s->variant*2); }
+    } else animation_step(s);
+  } else {
+    if (!--s->origin_x) { retire(r,d);return; }
+    s->vx=-s->vx;s->x+=s->vx;animation_step(s);
+  }
+  if (++s->age>720 || !s->active || s->x/256<(int)word(r+0x1e4d)-96 ||
+      s->x/256>(int)word(r+0x1e4d)+352 || s->y/256<(int)word(r+0x1e50)-160 ||
+      s->y/256>(int)word(r+0x1e50)+320) { retire(r,d);return; }
+  native_object(r,d,s);
+  if ((s->charged && s->muzzle_pose==4) || (!s->charged && s->muzzle_pose>=6)) putword(r+d+0x20,0);
 }
 static unsigned wheel_spin_sequence(const MmxWeaponShot *s) {
   unsigned speed=s->origin_x>0 ? (unsigned)s->origin_x>>8 : 0;
@@ -563,7 +785,7 @@ static void ray_tick(uint8_t *r, unsigned d, MmxWeaponShot *s) {
     if (r[d+1] >= 8) { s->variant = 3; s->radius = 0; }
     else { s->x += s->vx; s->y += s->vy; }
   } else if (!s->charged) {
-    if (s->age >= 60 || r[0xbaa] == 10 || r[0xbaa] == 12 || r[0x1f0c]) { retire(r,d); return; }
+    if (s->age >= 60 || r[0xbaa] == 14 || r[0xbaa] == 12 || r[0x1f0c]) { retire(r,d); return; }
     s->facing = r[0xbb9] & 64;
     /* Keep the firing origin after the brief native firing overlay finishes;
      * movement-specific Zero poses can still supply updated arm coordinates. */
@@ -602,6 +824,7 @@ unsigned MmxWeaponsProjectileTick(uint8_t r[0x20000], unsigned d, unsigned activ
   if (s->page == 1 && s->weapon == 5) { sonic_tick(r,d,s); return 0; }
   if (s->page == 2 && s->weapon == 1) { acid_tick(r,d,s); return 0; }
   if (s->page == 2 && s->weapon == 5) { ray_tick(r,d,s); return 0; }
+  if (s->page == 2 && s->weapon == 7) { frost_tick(r,d,s); return 0; }
   if (!s->charged && s->age && (r[d+1] >= 8 || s->variant == 128)) {
     if (s->variant != 128) { s->variant = 128; s->vy = 26; animation_start(s,1); }
     if (!s->vy || !s->active) { retire(r,d); return 0; }
@@ -692,6 +915,7 @@ static unsigned source_damage(const MmxWeaponShot *s) {
     if (s->weapon==1) return s->variant==2 ? 5 : 9;
     if (s->weapon==4) return s->charged ? 30 : 9;
     if (s->weapon==5) return s->variant>=2 ? 5 : 9;
+    if (s->weapon==7) return s->charged && s->muzzle_pose==3 ? 9 : 15;
   }
   return 3;
 }

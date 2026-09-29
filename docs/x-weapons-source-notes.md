@@ -81,7 +81,8 @@ projectile data. Original menu capture and handlers `$81:970C` / `$81:AC82`
 confirm ID 2/group `$06` is the parasite bomb and its charged seeking bits;
 ID 7/group `$10` is the ice missile and charged shield. Names and icon selection
 are corrected in both native and Python extractors. Data groups/palettes did
-not need remapping. The five implemented combat weapons use other IDs.
+not need remapping. The first five implemented combat weapons used other IDs;
+Frost Shield subsequently implements the corrected ID 7.
 
 ## X3 Spinning Blade observations
 
@@ -109,7 +110,7 @@ The original 100-frame normal/charged recordings are discovery material, not
 proof of every charged form. The X2 fixture is near a wall. Some charged forms
 have eligibility constraints or activate while held. In particular, Sonic
 Slicer's charged discovery trace was superseded by the verified trace below;
-Frost Shield, Gravity Well and Tornado Fang still require follow-up source
+Frost Shield is now covered by the follow-up below. Gravity Well and Tornado Fang require source
 checks before implementing from those initial traces. Keep verified facts
 separate from inferred behavior; add new findings below as weapons are ported.
 
@@ -271,6 +272,7 @@ adaptation, not a transplant of every enemy-specific response.
 | Acid droplet | $18 | 5 | 5/3 |
 | Spinning Blade normal / charged | $0A / $13 | 9 / 30 | 3 / 10 |
 | Ray Splasher ray / turret contact | $1C / $14 | 5 / 9 | 5/3 / 3 |
+| Frost Shield normal / charged / released chunk | $0D / $16 / $21 | 15 / 15 / 9 | 5 / 5 / 3 |
 
 Multiply by the positive X1 basic-buster value for that enemy. Keep a
 remainder in thirds per enemy slot, initially 1, so the cumulative result
@@ -462,3 +464,67 @@ ground-effect time. Charged `muzzle_pose` is formation/flight (0/1), `variant`
 is direction 0..7, `origin_x/y` retain the center, and direction 0's `radius`
 drives the six-frame original flash. Charged `tether_pose` retains the original
 center facing. These fields are saved already, preserving the 40/328-byte ABI.
+
+## X3 Frost Shield: verified phases and X1 platform adaptation
+
+Normal dispatch `$81:A672`, table `$A677`: handlers A683/A702/A80E/A80E/
+A869/A933 for object states 0/2/4/6/8/10. Charged dispatch table `$81:BACD`:
+BAD9/BB5B/BD19/BCFE/BD19/BD2A. Source damage code `$84:CF4C..CF60` sets
+state 8 after nonlethal contact and 6 after lethal contact. These must not
+be conflated: normal state 6 produces the falling core and ice shards;
+normal 8 retires through generic impact. Charged 6 retains the arm shield
+(except released class $21); charged 8 breaks it. Private X3 contact capture
+confirmed 15 raw ordinary damage and retirement on a surviving target.
+
+Normal `$81:A6C6..A78D` starts horizontal magnitude $10, plays group $10
+sequence 0/2 (air/water), then 1/3. Formation lasts about 70 ticks. Rocket
+acceleration is $10/$08, capped at $400/$300. `$A7BF` clears vertical speed
+between single-pixel up/down pulses every eight ticks. Normal source `$30`
+initial collision grace depends on the first graphics upload; the port uses
+the two-tick first-upload grace. Contact core starts with reversed quarter
+horizontal speed and upward $300/$200; gravity $20/$18, fall cap $600/$400.
+Sequence 5 holds until floor contact, then advances into spike growth 6/8
+and planted loop 7/9 for 240 ticks. Failed formation uses 18/19 for 120 ticks.
+Source costs measured at `$1FC7`: one normal, three charged energy units.
+
+Charged `$81:BAFC..BC29` uses formation 10, dry growth 12, held pose 53.
+Collision stays disabled until the full shield. `$BC07` holds for 360 ticks,
+then `$BD43` releases class $21, sequence 15 (pose 23), for 180 ticks. Its
+initial horizontal/upward speeds are $100/$300, gravity $20, fall cap $800;
+ground rolling reaches $300. Bounds are shield (-3,0,10,17), chunk (0,0,11,7).
+X3 `$84:CC0E` erases destructible enemy projectiles. The port uses X1's pool
+`$1428..1627` and native `$84:9BC8..9C09` eligibility (active, not flag $40,
+nonzero damage category), with the actual source shield and projectile boxes.
+
+Charged water branch `$81:BB8F..BBD3` uses sequence 13/pose 57. `$BC2F..BC99`
+rises at acceleration $F0, capped at $100; `$BE34` probes center and center-16
+against the waterline, then holds for 240 ticks. Source bob table `$86:BAE6`
+maps to world velocities 0,$20,0,-$20 in 32-tick intervals. X1 water classes
+$0D/$0E (`$84:987E`) replace X3's stage-specific `$82:DF16` waterline lookup.
+The port extends native terrain return `$84:91DB` (interpreter PC $0491DC),
+only for player $BA8 and active water-platform phases. Previous Y is player
++$24 ($BCC); ground contact is +$2B ($BD3), not $BCB. Both translated player
+boxes have feet at origin+16. Descending across platform top (center-24)
+grounds the player; upward jumps pass through. Rider and platform motion
+serialize and replay exactly; ceiling contact prevents pushing into solid tiles.
+
+Normal shard creator `$81:A93A` selects four class-$37 particles, sequence 4
+(pose 19). Charged `$BD9E` selects 14/17 (air pose 12/water pose 62).
+Shared initializer `$82:FD23..FD94` uses $86:DAE6/$DAF6 velocity rows and
+gravity $30. Original particles use 32-byte slots `$1818..1D17`. The port
+uses those art/velocity rows, deterministic saved-frame selection, and the
+available X1 projectile slots; it does not reproduce the source RNG stream.
+
+Saved Frost fields: `muzzle_pose` normal form/rocket/core/land/grow/spike/
+failed/cleanup (0..7), charged form/grow/shield/chunk/cleanup/rise/float
+(0..6); `variant` air/water/cosmetic shard (0/1/2); `origin_x` phase lifetime,
+`radius` steering clock, `tether_pose` rider flag. No new save fields required.
+Cleanup slots have no hitbox and are hidden while source shards render.
+
+X1 action table `$81:82A6`: `$0A` is the four-frame landing state
+(`$81:8600..8658`); `$0E` is hurt (`$84:9F2F..9F3F`), `$0C` death.
+Frost and Ray firing holds now test the actual hurt state, preserving landing.
+Focused ROM checks cover both characters, terrain phases, charge gate/costs,
+shield blocking/contact responses, expiry/cleanup, and a private controlled
+water fixture for native platform landing, riding, jump-off and exact replay.
+Full water-stage traversal and original audio remain follow-up fidelity work.

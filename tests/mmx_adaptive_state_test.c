@@ -562,6 +562,107 @@ static void weapon_source_pack_checks(const char *fixture,uint8 *start,uint8 *ex
   check(MmxWeaponsPageEnabled(1) && MmxWeaponsPageEnabled(2) && MmxWeaponsPose(1,5,135,11),"second pack preserves first pack art");
   puts("MMX SOURCE PACK CHECKS PASSED");
 }
+static unsigned frost_slot(bool charged) {
+  MmxWeaponCombatState c=MmxWeaponsGetCombatState();
+  for(unsigned i=0;i<8;++i) if(c.shots[i].active && c.shots[i].weapon==7 && c.shots[i].charged==charged) return i;
+  return 8;
+}
+static void weapon_frost_checks(const char *assets,const char *fixture,uint8 *start,
+                               uint8 *expected,uint8 *actual,size_t cap) {
+  check(MmxWeaponsLoad(assets),"Frost Shield source assets load");
+  for(unsigned character=0;character<2;++character) {
+    check(RtlLoadSnapshot(fixture),"restore Frost Shield fixture");
+    if(character) zero_health_swap();
+    MmxWeaponsState w=MmxWeaponsGetState();w.page=2;w.weapon=7;MmxWeaponsSetState(w);
+    frame(SNES_PAD_Y);zero_replay(80);unsigned slot=frost_slot(false);
+    check(slot<8 && MmxWeaponsEnergyAmount(2,7)==27*256,"normal Frost Shield forms and costs one energy");
+    MmxWeaponCombatState c=MmxWeaponsGetCombatState();
+    check(c.shots[slot].muzzle_pose==1 && c.shots[slot].vx>16,"source formation becomes an accelerating ice missile");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-frost.cap":".zero-frost.cap");
+    size_t n=RtlSaveSnapshotToMemory(start,cap);zero_replay(25);size_t en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"restore ice missile");zero_replay(25);
+    size_t an=RtlSaveSnapshotToMemory(actual,cap);same(expected,en,actual,an,"ice flight and original animation replay exactly");
+    check(RtlLoadSnapshotFromMemory(start,n),"restore for ice impact");
+    g_ram[0x1228+slot*64+1]=6; /* Native lethal-contact result, X3 $84:CF60. */
+    unsigned phases=0;
+    for(unsigned i=0;i<150;++i) {
+      frame(0);c=MmxWeaponsGetCombatState();
+      if(c.shots[slot].active) phases|=1u<<c.shots[slot].muzzle_pose;
+    }
+    check((phases&60)==60,"ice core falls onto native terrain, lands, grows and plants a spike");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-frost-spike.cap":".zero-frost-spike.cap");
+    zero_replay(300);check(!extended_shots(false) && !g_ram[0xbdd],"planted ice expires and frees its slot");
+    for(unsigned i=0;i<150;++i) frame(SNES_PAD_Y);
+    frame(0);zero_replay(12);check(!extended_shots(true),"charged Frost Shield requires X1 arms");
+    MmxWeaponsCancelShots(g_ram);zero_replay(5);g_ram[0x1f99]|=2;
+    unsigned energy=MmxWeaponsEnergyAmount(2,7);
+    for(unsigned i=0;i<150;++i) frame(SNES_PAD_Y);
+    frame(0);zero_replay(50);slot=frost_slot(true);
+    check(slot<8 && MmxWeaponsEnergyAmount(2,7)==energy-4*256,"charged shield costs three after its initial normal shot");
+    c=MmxWeaponsGetCombatState();
+    check(c.shots[slot].muzzle_pose==2 && c.shots[slot].pose==53 && g_ram[0xbf8]<128,
+        "charged ice uses original full shield and sustained arm pose");
+    check(!(g_ram[0xc2f]&64),"charged shield clears charge sound");
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".x-frost-shield.cap":".zero-frost-shield.cap");
+    n=RtlSaveSnapshotToMemory(start,cap);
+    unsigned ice=0x1228+slot*64,bullet=0x1428;
+    memset(g_ram+bullet,0,64);g_ram[bullet]=1;g_ram[bullet+1]=2;g_ram[bullet+0x28]=1;
+    memcpy(g_ram+bullet+5,g_ram+ice+5,2);memcpy(g_ram+bullet+8,g_ram+ice+8,2);
+    memcpy(g_ram+bullet+0x20,g_ram+ice+0x20,2);
+    MmxWeaponsProjectileTick(g_ram,ice,1);
+    check(!g_ram[bullet],"charged shield intercepts a destructible enemy projectile");
+    g_ram[bullet]=1;g_ram[bullet+0x28]=0;
+    MmxWeaponsProjectileTick(g_ram,ice,1);
+    check(g_ram[bullet],"charged shield leaves immune enemy projectiles intact");
+    g_ram[ice+1]=6;MmxWeaponsProjectileTick(g_ram,ice,1);
+    check(MmxWeaponsGetCombatState().shots[slot].muzzle_pose==2,"charged shield survives its native lethal-contact result");
+    g_ram[ice+1]=8;MmxWeaponsProjectileTick(g_ram,ice,1);
+    check(MmxWeaponsGetCombatState().shots[slot].muzzle_pose==4,"charged shield shatters after a surviving enemy contact");
+    check(RtlLoadSnapshotFromMemory(start,n),"restore shield after contact checks");
+    zero_replay(375);en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"restore arm shield");zero_replay(375);
+    an=RtlSaveSnapshotToMemory(actual,cap);same(expected,en,actual,an,"shield expiry and released ice chunk replay exactly");
+    c=MmxWeaponsGetCombatState();check(c.shots[slot].active && c.shots[slot].muzzle_pose==3,
+        "shield releases the original moving ice chunk after its 360-tick hold");
+    zero_replay(250);check(!extended_shots(true) && !g_ram[0xbdd] && !g_ram[0xc25],"charged ice cleans up all native counters");
+  }
+  /* Controlled water tile in the private runtime. Exercise the real player
+   * terrain hook and jumping, without depending on an owner's stage save. */
+  check(RtlLoadSnapshot(fixture),"restore private water-platform fixture");
+  MmxWeaponsState w=MmxWeaponsGetState();w.page=2;w.weapon=7;MmxWeaponsSetState(w);g_ram[0x1f99]|=2;
+  unsigned px=g_ram[0xbad]|g_ram[0xbae]<<8,py=g_ram[0xbb0]|g_ram[0xbb1]<<8;
+  size_t offsets[256];uint8_t properties[256];unsigned changed=0;
+  for(int y=(int)py-160;y<=(int)py+16;y+=16) for(int x=(int)px-64;x<=(int)px+96;x+=16) {
+    if(x<0 || y<0) continue;
+    unsigned screen=g_ram[0xe800+(y>>8)*32+(x>>8)];
+    unsigned cell=0x2000+((screen*512+((y&240)<<1)+((x&240)>>3))&65535);
+    unsigned address=(g_ram[0xb92]|g_ram[0xb93]<<8|g_ram[0xb94]<<16)+(g_ram[cell]|g_ram[cell+1]<<8);
+    size_t offset=((address>>16)&127)*32768+(address&32767);
+    if((g_snes->cart->rom[offset]&63)!=0) continue;
+    check(changed<256,"private water properties fit fixture storage");
+    offsets[changed]=offset;properties[changed++]=g_snes->cart->rom[offset];g_snes->cart->rom[offset]=13;
+  }
+  for(unsigned i=0;i<150;++i) frame(SNES_PAD_Y);
+  frame(0);zero_replay(24);unsigned slot=frost_slot(true);
+  check(slot<8,"underwater charged ice is present");MmxWeaponCombatState c=MmxWeaponsGetCombatState();
+  check(c.shots[slot].muzzle_pose==5 && c.shots[slot].variant==1,"water produces the rising original ice platform");
+  int platform_y=c.shots[slot].y;zero_replay(8);c=MmxWeaponsGetCombatState();
+  check(c.shots[slot].y<platform_y,"underwater ice rises toward the surface");
+  px=(unsigned)(c.shots[slot].x>>8);py=(unsigned)((c.shots[slot].y>>8)-43);
+  g_ram[0xbad]=(uint8_t)px;g_ram[0xbae]=(uint8_t)(px>>8);
+  g_ram[0xbb0]=g_ram[0xbcc]=(uint8_t)py;g_ram[0xbb1]=g_ram[0xbcd]=(uint8_t)(py>>8);
+  g_ram[0xbc4]=g_ram[0xbc5]=0;g_ram[0xbaa]=6;g_ram[0xbab]=0;
+  zero_replay(12);c=MmxWeaponsGetCombatState();
+  check(c.shots[slot].active && c.shots[slot].tether_pose,"native terrain hook lands player on moving ice");
+  zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),".frost-platform.cap");
+  size_t n=RtlSaveSnapshotToMemory(start,cap);zero_replay(8);size_t en=RtlSaveSnapshotToMemory(expected,cap);
+  check(RtlLoadSnapshotFromMemory(start,n),"restore moving ice rider");zero_replay(8);
+  size_t an=RtlSaveSnapshotToMemory(actual,cap);same(expected,en,actual,an,"moving platform and rider replay exactly");
+  frame(SNES_PAD_B);c=MmxWeaponsGetCombatState();
+  check(!c.shots[slot].tether_pose && (int16_t)(g_ram[0xbc4]|g_ram[0xbc5]<<8)>0,"player jumps freely off the ice platform");
+  for(unsigned i=0;i<changed;++i) g_snes->cart->rom[offsets[i]]=properties[i];
+  puts("MMX FROST SHIELD CHECKS PASSED");
+}
 static void weapon_wheel_checks(const char *assets,const char *fixture,uint8 *start,
                                 uint8 *expected,uint8 *actual,size_t cap) {
   check(MmxWeaponsLoad(assets),"Spin Wheel original assets load");
@@ -985,6 +1086,7 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
   if (weapons) {
     if (getenv("MMX_WEAPON_DAMAGE_TEST")) weapon_damage_checks(weapons,fixture,start,cap);
     else if (getenv("MMX_WEAPON_CYCLE_TEST")) weapon_cycle_checks(weapons,fixture,start,cap);
+    else if (getenv("MMX_WEAPON_FROST_TEST")) weapon_frost_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_WHEEL_TEST")) weapon_wheel_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_SONIC_TEST")) weapon_sonic_checks(weapons,fixture,start,expected,actual,cap);
     else if (getenv("MMX_WEAPON_RAY_TEST")) weapon_ray_checks(weapons,fixture,start,expected,actual,cap);

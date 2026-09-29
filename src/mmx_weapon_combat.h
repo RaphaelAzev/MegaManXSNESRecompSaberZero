@@ -29,6 +29,7 @@ bool MmxWeaponsValidCombatState(const MmxWeaponCombatState *state);
 void MmxWeaponsSetCombatState(MmxWeaponCombatState state);
 bool MmxWeaponsCombatActive(void);
 void MmxWeaponsPlayerTick(uint8_t ram[0x20000]);
+void MmxWeaponsTerrainEnd(uint8_t ram[0x20000],unsigned object);
 void MmxWeaponsMarkShot(uint8_t ram[0x20000], unsigned slot);
 unsigned MmxWeaponsProjectileTick(uint8_t ram[0x20000], unsigned slot, unsigned active);
 void MmxWeaponsCancelShots(uint8_t ram[0x20000]);

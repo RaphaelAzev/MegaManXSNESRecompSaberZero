@@ -94,7 +94,7 @@ X3 combat port does not itself supply these boss weapons.
 - The first combat pass used X1 buster damage as a placeholder. The owner's
   subsequent explicit goal includes all remaining weapon animations and stats:
   compare source damage and restore each weapon's relative strength, with
-  normalization to X1's HP scale as the stated default. New boss weaknesses
+  normalization to X1's HP scale as explicitly selected by the owner. New boss weaknesses
   remain out of scope. Resolve per-hit, repeated-hit and effect-only behavior
   from source code/runtime; do not count generic buster damage as completed stats.
 - Add X1/X2/X3 pages to the existing pause weapon screen. L/R bumpers cycle

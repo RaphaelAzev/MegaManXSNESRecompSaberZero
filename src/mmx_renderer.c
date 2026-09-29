@@ -1016,6 +1016,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
     if (stage && !swapping) for (unsigned i=0;i<8;++i) {
       const MmxWeaponShot *s=frame_weapon_combat.shots+i;
       if (!s->active || !s->age) continue;
+      if (s->page==2 && s->weapon==7 && s->variant!=2 && s->muzzle_pose==(s->charged ? 4 : 7)) continue;
       if (s->page==1 && s->weapon==4) {
         if (s->charged && s->muzzle_pose && s->radius) {
           static const uint8_t flash[6]={15,16,16,17,17,18};

@@ -89,7 +89,7 @@ and X1 ownership filtering after returning to its page.
 Bounded generated/interpreter hooks virtualize the pause inventory reads and
 selection. X1 progression/energy stays untouched. An extended selection uses
 native buster resources as a safe underlying actor. The current
-implementation includes five combat weapons; remaining entries
+implementation includes six combat weapons; remaining entries
 are still unfinished.
 
 The game save chunk is version 12 when extended weapons are enabled; legacy
@@ -102,7 +102,7 @@ Game versions 9/10 and capture versions 8/9 retain their original 24-byte
 inventory prefix; new loads initialize the sixteen appended fraction bytes
 to zero. New inventory state is 40 bytes and preserves source 8.8 precision.
 
-The five playable attacks now use source ordinary-enemy damage divided by
+The six playable weapons now use source ordinary-enemy damage divided by
 their source buster value (3), multiplied by the X1 target's buster damage.
 Fractions carry between contacts to preserve ratios, including weak individual
 pellets and strong sustained weapons. Special encounter/armored profiles keep
@@ -287,9 +287,35 @@ Normal and charged original-art captures were inspected. Broader slope/wall
 and moving-platform comparisons, source sounds and X2-specific destructible
 terrain remain fidelity work; X1 has no equivalent source-only breakable blocks.
 
+## Sixth combat checkpoint: Frost Shield
+
+Normal fire uses the original X3 ice formation, accelerating rocket, falling
+core and planted spike. Air/water variants use source animation records,
+acceleration, steering, gravity and hitboxes. Charged fire forms the original
+arm shield, holds for 360 ticks, blocks destructible enemy shots, then releases
+the moving ice chunk. Killing contact preserves the charged shield; contact
+with a surviving enemy breaks it, as in X3. Normal/charged costs are 1/3.
+Damage is 15/3 buster strength, with 9/3 for the released charged chunk.
+
+Underwater charging creates the original rising platform. A bounded native
+terrain hook lets either character stand on it and jump off; it floats for
+240 ticks at the waterline. Ice shards use the original particle art and
+velocity tables. All 63 poses were already in the source-ROM cache, so no
+asset format or save size changes were needed. Landing is X1 action `$0A`,
+not hurt (`$0E`); both Frost Shield and Ray Splasher now preserve their firing
+poses across ordinary landings.
+
+Focused checks cover both characters, normal terrain phases, arms gating,
+energy, charged contact responses and projectile blocking, shield expiry,
+counter/audio cleanup, and deterministic replay. A private controlled water
+fixture exercises native landing, riding, jump-off and save/replay. Full water
+stage/camera traversal still needs playtesting. Source sounds, source RNG
+ordering for cosmetic shards and interactions with moving stage actors remain
+fidelity work. Cosmetic shards share X1's finite projectile slots.
+
 ## Remaining implementation
 
-Implement the other eleven weapons' normal and charged attacks, native
+Implement the other ten weapons' normal and charged attacks, native
 sound/effect cleanup, X/Zero firing origins, terrain/enemy interaction and
 meaningful special behaviors. Gate charging on X1's arm upgrade. Keep ordinary
 damage and existing X1 progression. Co-op remains a later, separate mod. The
@@ -303,7 +329,8 @@ Zero 0.0.1 is released independently (PR #52). This branch contains the entire
 X2/X3 weapon follow-up; do not merge unfinished weapons with the Zero release.
 The shared source-ROM provider uses the same framework pin as Zero. The Zero
 release notes describe only its v8 save / v7 capture layout. With weapons here,
-game chunks use v11 (40-byte inventory plus combat state), captures use v10;
-older v9/v10 game and v8/v9 capture inventories migrate their 24-byte prefix.
+game chunks use v12 (40-byte inventory plus 388-byte combat state), captures
+use v11. Older v9/v10 game and v8/v9 capture inventories migrate their 24-byte
+prefix; game v10/v11 and capture v9/v10 combat prefixes initialize empty damage carry.
 The full 40-byte Zero state is unchanged. Do not load weapon-branch saves in
 the Zero-only release. No co-op implementation belongs in this branch.
