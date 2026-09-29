@@ -3,6 +3,10 @@
  * Shot variants 0 well/orb, 1 body; effect variants 2 enemy, 3 particles.
  * Victim origin_x/y retain native slot/type, vx retains anchored X. */
 const MmxWeaponShot *MmxWeaponsMovedEnemy(const MmxWeaponCombatState *c,unsigned enemy) {
+  for(unsigned i=0;i<8;++i) {
+    const MmxWeaponShot *s=c->shots+i;
+    if(s->active && s->page==2 && s->weapon==2 && s->variant==1 && s->origin_x==(int)enemy) return s;
+  }
   for(unsigned i=0;i<16;++i) {
     const MmxWeaponShot *s=c->effects+i;
     if(s->active && s->page==2 && s->weapon==6 && s->variant==2 && s->origin_x==(int)enemy) return s;

@@ -762,3 +762,20 @@ both X and Zero from firing. It now restores the native buster limit. A ROM
 regression reproduces the failure before the fix and verifies actual shots
 after pause selection, forward/backward cycles, both shoulders, and the X1
 cycle, with both characters and both imported sets.
+
+## Utility weapon completion records
+
+The final three normal/charged ports have dedicated source records:
+
+- [Crystal Hunter](weapons/crystal-hunter.md): freeze response, original shard
+  velocities, native collision/platform/death adapter and source HDMA time effect.
+- [Gravity Well](weapons/gravity-well.md): normal capture/dissolve and return,
+  original ground/air casting poses, charged lift, particles and protected actors.
+- [Parasitic Bomb](weapons/parasitic-bomb.md): preserved enemy art, three payload
+  responses, four-cursor search/lock, per-unit energy, normalized damage and
+  original shared hit effects.
+
+All sixteen weapons now have normal and charged gameplay paths. These records
+separate observed source behavior from X1 enemy/stage and Zero-body adaptations.
+The shared combat state stays 1,028 bytes; no new snapshot ABI is required by
+these three ports. Remaining cosmetic/audio work is listed in the port document.

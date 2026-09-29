@@ -97,8 +97,7 @@ and X1 ownership filtering after returning to its page.
 Bounded generated/interpreter hooks virtualize the pause inventory reads and
 selection. X1 progression/energy stays untouched. An extended selection uses
 native buster resources as a safe underlying actor. The current
-implementation includes thirteen combat weapons; remaining entries
-are still unfinished.
+implementation includes normal and charged gameplay for all sixteen weapons.
 
 The game save chunk is version 13 when extended weapons are enabled; legacy
 saves initialize full energy without changing X1 inventory. Zero-only saves
@@ -110,7 +109,7 @@ Game versions 9/10 and capture versions 8/9 retain their original 24-byte
 inventory prefix; new loads initialize the sixteen appended fraction bytes
 to zero. New inventory state is 40 bytes and preserves source 8.8 precision.
 
-The thirteen playable weapons now use source ordinary-enemy damage divided by
+Damaging attacks use source ordinary-enemy damage divided by
 their source buster value (3), multiplied by the X1 target's buster damage.
 Fractions carry between contacts to preserve ratios, including weak individual
 pellets and strong sustained weapons. Special encounter/armored profiles keep
@@ -413,6 +412,7 @@ Native X1 still limits damaging actors to eight, compared with X2's nine.
 | [Strike Chain](weapons/strike-chain.md) | Original hook/links, normal and charged extension/retraction, wall pull, pickup retrieval and charged kill rewards |
 | [Crystal Hunter](weapons/crystal-hunter.md) | Falling projectile, enemy crystallization, solid platform, dash shatter/original debris, charged distortion and half-speed simulation |
 | [Gravity Well](weapons/gravity-well.md) | Normal pull/dissolve/return, original ground/air cast, charged enemy lift and rising particles, protected-enemy exclusion |
+| [Parasitic Bomb](weapons/parasitic-bomb.md) | Original captured-enemy art and formation, homing/stationary/rolling payloads, four charged targeting cursors, homing units and original impact effects |
 
 Spin Wheel's contact correction accepts hits during formation as well as
 falling/rolling, clears falling velocity, and restores X2's pause entry plus
@@ -424,15 +424,21 @@ effects are not yet imported; each weapon's notes identify remaining audio and
 stage-specific adaptations. X's Triad punch currently uses original base-X art,
 so X1 armor overlays are hidden for that action.
 
-## Remaining implementation
+## Completion checkpoint and follow-ups
 
-Fifteen of sixteen weapons now have normal and charged gameplay implemented.
-Implement Parasitic Bomb normal and charged attacks, native
-sound/effect cleanup, X/Zero firing origins, terrain/enemy interaction and
-meaningful special behaviors. Gate charging on X1's arm upgrade. Keep ordinary
-damage and existing X1 progression. Co-op remains a later, separate mod. The
-owner's running playtest is the weapons follow-up build; private fixtures must
-never be loaded into it.
+All sixteen weapons have normal and charged gameplay implemented. Crystal
+Hunter, Gravity Well and Parasitic Bomb complete the earlier thirteen ports.
+Charging retains X1's arm-upgrade gate; utility attacks have explicit X1 enemy
+adapters instead of treating special response bytes as damage. The extractor
+reads 669 source poses (491,317 bytes in the combined local cache).
+
+This is a playable implementation checkpoint, not a claim of identical game
+engines or finished audio. Follow-ups include original SPC effects, the small
+shared Tornado Fang impact debris, Speed Burner's underwater ambient bubbles,
+and the stage-specific object interactions documented per weapon. Ordinary
+damage keeps source-to-buster ratios without imported boss weaknesses.
+Co-op remains a later, separate mod. Private fixtures must never be loaded into
+the owner's running playtest.
 
 
 ## Branch boundary after Zero 0.0.1

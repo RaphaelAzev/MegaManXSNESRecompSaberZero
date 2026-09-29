@@ -17,6 +17,9 @@ static void crystal_contact(uint8_t *r,unsigned enemy,MmxWeaponShot *s);
 static void crystal_effect_tick(uint8_t *r,MmxWeaponShot *s);
 static void gravity_player(uint8_t *r);
 static void gravity_effect_tick(uint8_t *r,MmxWeaponShot *s);
+static void parasitic_player(uint8_t *r);
+static bool parasitic_contact(uint8_t *r,unsigned enemy,MmxWeaponShot *s);
+static void parasitic_release(uint8_t *r,const MmxWeaponShot *s);
 _Static_assert(sizeof(MmxWeaponShot) == 40 && offsetof(MmxWeaponCombatState,enemies) == MMX_WEAPON_COMBAT_LEGACY_SIZE &&
     offsetof(MmxWeaponCombatState,effects)==MMX_WEAPON_COMBAT_DAMAGE_SIZE &&
     sizeof(MmxWeaponCombatState) == 1028, "Weapon combat save ABI");
@@ -29,7 +32,7 @@ static bool owned(const uint8_t *r, unsigned d) { return slot_valid(d) && r[d] &
 static unsigned slot_index(unsigned d) { return (d - 0x1228) / 64; }
 static unsigned weapon_group(unsigned page, unsigned weapon) {
   return page == 1 ? (weapon == 1 ? 16 : weapon == 2 ? 68 : weapon == 3 ? 72 : weapon == 4 ? 70 : weapon == 5 ? 65 : weapon == 6 ? 71 : weapon == 7 ? 15 : weapon == 8 ? 37 : 0) :
-    page == 2 ? (weapon == 1 ? 5 : weapon == 3 ? 11 : weapon == 4 ? 12 : weapon == 5 ? 13 : weapon == 6 ? 15 : weapon == 7 ? 16 : weapon == 8 ? 19 : 0) : 0;
+    page == 2 ? (weapon == 1 ? 5 : weapon == 2 ? 6 : weapon == 3 ? 11 : weapon == 4 ? 12 : weapon == 5 ? 13 : weapon == 6 ? 15 : weapon == 7 ? 16 : weapon == 8 ? 19 : 0) : 0;
 }
 static void sound(uint8_t *r, unsigned command) {
   unsigned i = r[0xba3] & 30; r[0xb72 + i] = (uint8_t)command; r[0xb73 + i] = 0; r[0xba3] = (uint8_t)((i + 2) & 30);
@@ -57,6 +60,7 @@ bool MmxWeaponsValidCombatState(const MmxWeaponCombatState *s) {
            p->page == 1 && p->weapon == 8 && p->charged ? 38 :
            p->page == 2 && p->weapon == 3 && p->charged && !p->variant ? 51 :
            p->page == 2 && p->weapon == 6 && p->charged && p->variant==1 ? (p->group==52?52:51) :
+           p->page == 2 && p->weapon == 2 && p->variant==4 ? (p->muzzle_pose?23:8) :
            weapon_group(p->page,p->weapon))))) return false;
     if (p->active && p->page == 1 && p->weapon == 5 &&
         (p->variant > 4 || p->radius > 2 || p->muzzle_pose > 3)) return false;
@@ -92,6 +96,9 @@ bool MmxWeaponsValidCombatState(const MmxWeaponCombatState *s) {
     if (p->active && p->page==2 && p->weapon==6 &&
         (p->variant>(i<8?1:3) || p->muzzle_pose>4 || p->radius>180 ||
          (p->variant==2 && (p->origin_x<0xe68 || p->origin_x>=0x1228 || (p->origin_x&63)!=0x28)))) return false;
+    if (p->active && p->page==2 && p->weapon==2 &&
+        (p->variant>4 || p->muzzle_pose>4 || p->tether_pose>3 || p->radius>120 ||
+         (p->variant==1 && (p->origin_x<0xe68 || p->origin_x>=0x1228 || (p->origin_x&63)!=0x28)))) return false;
   }
   return true;
 }
@@ -105,6 +112,7 @@ bool MmxWeaponsCombatActive(void) {
 }
 static void retire(uint8_t *r, unsigned d) {
   const MmxWeaponShot *s=combat.shots+slot_index(d);
+  if(s->active && s->page==2 && s->weapon==2 && s->variant==1) parasitic_release(r,s);
   /* A crystallized source enemy is consumed when its crystal is discarded,
    * including weapon cancellation/offscreen cleanup ($81:8DDF). */
   if (s->active && s->page==1 && s->weapon==1 && !s->charged &&
@@ -239,6 +247,7 @@ void MmxWeaponsPlayerTick(uint8_t r[0x20000]) {
   if (s.page==2 && s.weapon==8) fang_player(r);
   if (s.page==2 && s.weapon==3) triad_player(r);
   if (s.page==2 && s.weapon==6) gravity_player(r);
+  if (s.page==2 && s.weapon==2) parasitic_player(r);
   if (s.page==1 && s.weapon==2) {
     bool shield=false;
     for (unsigned i=0;i<8;++i) if (combat.shots[i].active && combat.shots[i].page==1 &&
@@ -302,6 +311,7 @@ void MmxWeaponsMarkShot(uint8_t r[0x20000], unsigned d) {
 static void shot_bounds(const MmxWeaponShot *s, unsigned *rx, unsigned *ry) {
   *rx = 13; *ry = 10;
   if (s->page==1 && s->weapon==1) *rx=*ry=s->muzzle_pose==5 ? 24 : 8;
+  if (s->page==2 && s->weapon==2) {*rx=s->variant==1?16:s->charged?8:13;*ry=s->variant==1?16:s->charged?9:12;}
   if (s->page==1 && s->weapon==2) *rx=*ry=7;
   if (s->page==1 && s->weapon==3) *rx=*ry=(!s->charged && s->muzzle_pose==3) ? 5 : 8;
   if (s->page==1 && s->weapon==8) {
@@ -362,6 +372,7 @@ static void collision_box(unsigned index, const MmxWeaponShot *s) {
     else if (s->variant!=3) box[1]=250;
   }
   if (s->page==2 && s->weapon==3) triad_box(s,box);
+  if (s->page==2 && s->weapon==2 && s->variant==3) {box[0]=1;box[1]=254;}
   memcpy(collision_rom + 0x37f80 + index*4,box,4);
 }
 static void native_object(uint8_t *r, unsigned d, const MmxWeaponShot *s) {
@@ -1295,6 +1306,7 @@ static void ray_tick(uint8_t *r, unsigned d, MmxWeaponShot *s) {
 #include "mmx_weapon_chain.inc"
 #include "mmx_weapon_crystal.inc"
 #include "mmx_weapon_gravity.inc"
+#include "mmx_weapon_parasitic.inc"
 unsigned MmxWeaponsProjectileTick(uint8_t r[0x20000], unsigned d, unsigned active) {
   if (!owned(r,d)) {
     if (slot_valid(d)) memset(combat.shots+slot_index(d),0,sizeof(MmxWeaponShot));
@@ -1302,6 +1314,7 @@ unsigned MmxWeaponsProjectileTick(uint8_t r[0x20000], unsigned d, unsigned activ
   }
   MmxWeaponShot *s = combat.shots + slot_index(d);
   if (!MmxWeaponsEnabled() || !s->active) { retire(r,d); return 0; }
+  if (s->page == 2 && s->weapon == 2) { parasitic_tick(r,d,s); return 0; }
   if (s->page == 2 && s->weapon == 6) { gravity_tick(r,d,s); return 0; }
   if (s->page == 1 && s->weapon == 1) { crystal_tick(r,d,s); return 0; }
   if (s->page == 1 && s->weapon == 2) { bubble_tick(r,d,s); return 0; }
@@ -1410,6 +1423,7 @@ static unsigned source_damage(const MmxWeaponShot *s) {
     if (s->weapon==5) return s->charged ? 1 : 4;
   } else if (s->page==2) {
     if (s->weapon==1) return s->variant==2 ? 5 : 9;
+    if (s->weapon==2) return s->variant==1?15:s->charged?5:2;
     if (s->weapon==3) return s->charged ? (s->variant?9:15) : (s->variant<3?15:5);
     if (s->weapon==4) return s->charged ? 30 : 9;
     if (s->weapon==5) return s->variant>=2 ? 5 : 9;
@@ -1435,6 +1449,7 @@ unsigned MmxWeaponsDamage(uint8_t r[0x20000], unsigned enemy, unsigned d, unsign
     if (s->page==1 && s->weapon==6) chain_contact(r,s,enemy,original);
     return original;
   }
+  if(s->page==2 && s->weapon==2 && !s->charged && !s->variant && parasitic_contact(r,enemy,s)) return 0;
   if (s->page==1 && s->weapon==1 && !s->charged && !s->muzzle_pose)
     crystal_contact(r,enemy,s);
   MmxWeaponDamageState *e=combat.enemies+(enemy-0xe68)/64;

@@ -113,6 +113,12 @@ requirement (owner clarification, 2026-09-29).
 - Commit menu/state infrastructure and completed weapon groups separately;
   validate the important normal/charged behaviors and let the owner playtest.
 
+Current checkpoint: all sixteen weapons have normal and charged gameplay
+implemented, including source-relative damage and the three utility weapons.
+See [port status and remaining fidelity work](x-weapons-port.md) before treating
+this as a finished release. Cosmetic/source-audio follow-ups remain; the co-op
+dependency is still open.
+
 ## Later: separate simultaneous co-op mod
 
 Tracking: `beads-8wg.1.34`, dependent on completing `beads-8wg.1.32`.

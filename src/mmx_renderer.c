@@ -828,7 +828,7 @@ static void moved_enemy_row(const MmxWeaponShot *s,const Ppu *p,const Raster *r,
     unsigned attr=asset ? (piece.attr&0xf000)|((asset->attributes&15)<<8)|
         (asset->live_tiles?piece.attr&255:0) : piece.attr;
     if(y<piece.y || y>=piece.y+piece.size) continue;
-    if(!s->charged && s->muzzle_pose!=3 && s->age>30 && (s->age&1)) {
+    if(s->weapon==6 && !s->charged && s->muzzle_pose!=3 && s->age>30 && (s->age&1)) {
       uint16_t flash[MMX_RENDER_MAX_WIDTH]={0};int flash_colors[MMX_RENDER_MAX_WIDTH];
       sprite(p,r,piece.x,piece.y,attr,piece.size,y,view,flash,false,asset,piece.tile,flash_colors,true,false,false);
       for(int x=0;x<view.width;++x) if(flash[x]) {
@@ -1095,6 +1095,10 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
     if (stage && !swapping) for (unsigned i=0;i<24;++i) {
       const MmxWeaponShot *s=i<8 ? frame_weapon_combat.shots+i : frame_weapon_combat.effects+i-8;
       if (!s->active || !s->age) continue;
+      if(s->page==2 && s->weapon==2) {
+        if(s->variant==1) moved_enemy_row(s,&p,r,y,view,objects,object_colors);
+        if(s->variant==2 && s->muzzle_pose==4) continue;
+      }
       if(s->page==2 && s->weapon==6) {
         if(i>=8 && s->variant==2) {moved_enemy_row(s,&p,r,y,view,objects,object_colors);continue;}
         if(i<8 && (s->variant==1 || (s->charged && s->muzzle_pose!=1))) continue;
