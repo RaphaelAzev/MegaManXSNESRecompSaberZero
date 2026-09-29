@@ -30,12 +30,12 @@ samples were rendered directly from the extracted indexed pixels and inspected.
 | Native ID | X2 weapon / sprite group | X3 weapon / sprite group |
 | --- | --- | --- |
 | 1 | Crystal Hunter / `$10` | Acid Burst / `$05` |
-| 2 | Bubble Splash / `$44` | Frost Shield / `$06` |
+| 2 | Bubble Splash / `$44` | Parasitic Bomb / `$06` |
 | 3 | Silk Shot / `$48` | Triad Thunder / `$0B` |
 | 4 | Spin Wheel / `$46` | Spinning Blade / `$0C` |
 | 5 | Sonic Slicer / `$41`, charged `$87` | Ray Splasher / `$0D` |
 | 6 | Strike Chain / `$47` | Gravity Well / `$0F` |
-| 7 | Magnet Mine / `$0F`, charged `$13` | Parasitic Bomb / `$10` |
+| 7 | Magnet Mine / `$0F`, charged `$13` | Frost Shield / `$10` |
 | 8 | Speed Burner / `$25`, charged `$26` | Tornado Fang / `$13` |
 
 Both games use the sprite layout root at `$8D:8000`. Weapon-selection graphics
@@ -61,8 +61,8 @@ entries retain native pose numbering for explicitly omitted Silk Shot forms.
 The menu icons come from each game's compressed graphics resource `$4C`.
 Its five-byte record is in X2 `$86:FA01` / X3 `$86:F732`; the extractor decodes
 the original literal/backreference format and checks output bounds. It does
-not use projectile pose zero as a substitute for menu art. X3's menu order is
-mapped back to its actual weapon IDs (Frost Shield is ID 2, Parasitic Bomb 7).
+not use projectile pose zero as a substitute for menu art. Both menus follow
+native weapon IDs: X3 Parasitic Bomb is ID 2 and Frost Shield is ID 7.
 
 ## Pause selection and persistence
 

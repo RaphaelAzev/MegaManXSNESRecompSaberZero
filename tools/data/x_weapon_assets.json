@@ -172,7 +172,7 @@
   {
     "game": 3,
     "weapon": 2,
-    "name": "Frost Shield",
+    "name": "Parasitic Bomb",
     "sha256": "65b03268afac296330e8ff8d60dd0825879e13ed658b37713c034a3bd074f1d7",
     "groups": [
       {
@@ -250,7 +250,7 @@
   {
     "game": 3,
     "weapon": 7,
-    "name": "Parasitic Bomb",
+    "name": "Frost Shield",
     "sha256": "65b03268afac296330e8ff8d60dd0825879e13ed658b37713c034a3bd074f1d7",
     "groups": [
       {

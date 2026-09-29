@@ -170,7 +170,7 @@ const uint16_t *MmxWeaponsIconPalette(unsigned page, unsigned weapon) {
 }
 const char *MmxWeaponsLabel(unsigned page, unsigned weapon) {
   static const char *labels[16] = {"C.HUNTER", "B.SPLASH", "S.SHOT", "S.WHEEL", "S.SLICER", "S.CHAIN", "M.MINE", "S.BURNER",
-      "ACID.B", "F.SHIELD", "T.THUNDR", "S.BLADE", "R.SPLASH", "G.WELL", "P.BOMB", "T.FANG"};
+      "ACID.B", "P.BOMB", "T.THUNDR", "S.BLADE", "R.SPLASH", "G.WELL", "F.SHIELD", "T.FANG"};
   return valid_weapon(page, weapon) ? labels[weapon_index(page, weapon)] : "";
 }
 unsigned MmxWeaponsEnergyRead(unsigned address, unsigned original) {

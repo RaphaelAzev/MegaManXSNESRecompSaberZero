@@ -173,8 +173,7 @@ Bytes weapon_assets(const Rom& r,unsigned game) {
   for (const auto& w : weapon_sources) if (w.game==game) {
     put(out,game,1);put(out,w.id,1);put(out,w.groups,1);put(out,0,1);
     append(out,r.raw(w.body,32));append(out,r.raw(w.palette,32));append(out,r.raw(game==2?0x2cee0:0x62da0,32));
-    const unsigned order3[]={0,1,7,3,4,5,6,2,8};unsigned order=game==2?w.id:order3[w.id];
-    unsigned tile=order<8?0x30+order*2:0x50;
+    unsigned tile=w.id<8?0x30+w.id*2:0x50;
     for (unsigned y=0;y<16;++y) for (unsigned x=0;x<16;++x) {
       unsigned start=(game==2?-0x200:0)+(tile+x/8+y/8*16)*32+(y&7)*2,color=0;
       require(start+17<graphics.size(),"Source menu tile exceeds bounds.");

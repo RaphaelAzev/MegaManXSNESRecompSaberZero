@@ -73,9 +73,15 @@ walks all sequences, validates bounds, and stores these source records.
 
 Native IDs X2: 1 Crystal Hunter, 2 Bubble Splash, 3 Silk Shot, 4 Spin Wheel,
 5 Sonic Slicer, 6 Strike Chain, 7 Magnet Mine, 8 Speed Burner.
-Native IDs X3: 1 Acid Burst, 2 Frost Shield, 3 Triad Thunder, 4 Spinning Blade,
-5 Ray Splasher, 6 Gravity Well, 7 Parasitic Bomb, 8 Tornado Fang. X3's pause
-order differs: 1,7,3,4,5,6,2,8. Do not confuse menu order with actor IDs.
+Native IDs X3: 1 Acid Burst, 2 Parasitic Bomb, 3 Triad Thunder, 4 Spinning Blade,
+5 Ray Splasher, 6 Gravity Well, 7 Frost Shield, 8 Tornado Fang. Pause menu
+order follows these IDs. Earlier notes incorrectly swapped names 2/7 and
+compensated by swapping their menu icons, masking the mismatch with the source
+projectile data. Original menu capture and handlers `$81:970C` / `$81:AC82`
+confirm ID 2/group `$06` is the parasite bomb and its charged seeking bits;
+ID 7/group `$10` is the ice missile and charged shield. Names and icon selection
+are corrected in both native and Python extractors. Data groups/palettes did
+not need remapping. The five implemented combat weapons use other IDs.
 
 ## X3 Spinning Blade observations
 

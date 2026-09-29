@@ -131,9 +131,9 @@ def menu_graphics(rom, game):
 
 
 def menu_icon(rom, game, weapon, graphics):
-    # X3's native menu order differs from its actor/weapon IDs.
-    order = weapon if game == 2 else {1: 1, 2: 7, 3: 3, 4: 4, 5: 5, 6: 6, 7: 2, 8: 8}[weapon]
-    tile = 0x30 + order * 2 if order < 8 else 0x50
+    # Both source menus follow native weapon IDs; X3 ID 2 is Parasitic Bomb
+    # and ID 7 is Frost Shield, matching their projectile groups/palettes.
+    tile = 0x30 + weapon * 2 if weapon < 8 else 0x50
     offset = -0x200 if game == 2 else 0
     pixels = bytearray()
     for y in range(16):
