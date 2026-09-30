@@ -442,6 +442,45 @@ static void coop_capsule_checks(const char *fixture) {
   coop_image(0,"capsule-return");
   MmxCoopDisable();puts("MMX CO-OP CAPSULE DIALOGUE CHECKS PASSED");
 }
+static void coop_keyboard_checks(const char *fixture) {
+  uint8_t keys[512]={0};keybinds_init(NULL);
+  for(int p=1;p<=2;++p) {
+    keybinds_set_button(p,11,SDL_SCANCODE_RIGHT);
+    keybinds_set_button(p,7,SDL_SCANCODE_RSHIFT);
+  }
+  g_gamepad[0].joystick_id=1;g_gamepad[1].joystick_id=-1;
+  g_config.player_src[0]=2;g_config.player_src[1]=1;
+  keys[SDL_SCANCODE_RIGHT]=1;PollKeyboardControls(keys);g_pad_buttons=SNES_PAD_LEFT;
+  check(g_input_state==(SNES_PAD_RIGHT<<12) && OverlayNavInputs()==(SNES_PAD_RIGHT<<12|SNES_PAD_LEFT),
+      "keyboard P2 and gamepad P1 stay independent through desktop input routing");
+  check(GetActiveControllers()==(3u<<30),"P2 keyboard marks the second controller present");
+  g_config.player_src[0]=1;g_config.player_src[1]=2;PollKeyboardControls(keys);
+  check(g_input_state==SNES_PAD_RIGHT,"changing keyboard assignment clears the previous seat's held input");
+  g_config.player_src[0]=g_config.player_src[1]=0;PollKeyboardControls(keys);
+  check(!g_input_state,"unassigned seats ignore keyboard bindings");
+  g_config.player_src[0]=g_config.player_src[1]=1;PollKeyboardControls(keys);
+  check(g_input_state==(SNES_PAD_RIGHT<<12|SNES_PAD_RIGHT),"explicitly assigning both seats to keyboard preserves shared bindings");
+  g_config.player_src[0]=2;g_config.player_src[1]=1;g_pad_buttons=0;memset(keys,0,sizeof(keys));
+  MmxCoopDisable();check(RtlLoadSnapshot(fixture),"keyboard join fixture loads");
+  check(MmxCoopEnable(0),"keyboard co-op enables");coop_frames(8,0,0);
+  keys[SDL_SCANCODE_RSHIFT]=1;PollKeyboardControls(keys);frame(g_input_state);
+  check(MmxCoopTransitionActive(),"P2 Right Shift joins through the real keyboard poll");
+  keys[SDL_SCANCODE_RSHIFT]=0;
+  for(unsigned i=0;i<90;++i) {PollKeyboardControls(keys);frame(g_input_state);}
+  MmxCoopState s=MmxCoopGetState();unsigned x=coop_x(&s.players[0]);
+  check(s.players[1].status==MMX_COOP_ALIVE && !MmxCoopTransitionActive(),"keyboard join finishes");
+  keys[SDL_SCANCODE_RSHIFT]=1;
+  for(unsigned i=0;i<179;++i) {PollKeyboardControls(keys);frame(g_input_state);}
+  check(!MmxCoopTransitionActive(),"keyboard hold shorter than three seconds does not withdraw");
+  PollKeyboardControls(keys);frame(g_input_state);
+  check(MmxCoopTransitionActive(),"holding Right Shift for 180 frames starts P2 departure");
+  keys[SDL_SCANCODE_RSHIFT]=0;
+  for(unsigned i=0;i<90;++i) {PollKeyboardControls(keys);frame(g_input_state);}
+  s=MmxCoopGetState();
+  check(s.players[1].status==MMX_COOP_ABSENT && coop_x(&s.players[0])==x,
+      "keyboard withdrawal finishes without controlling P1");
+  MmxCoopDisable();puts("MMX CO-OP KEYBOARD ROUTING CHECKS PASSED");
+}
 static void coop_launcher_checks(const char *root,const char *rom,const char *x3) {
   check(x3!=NULL,"launcher check receives original X3 ROM");
   check(snes_mod_runtime_initialize_c(root,"megaman-x-us",
@@ -485,6 +524,7 @@ static void coop_checks(const char *assets, const char *fixture,
   MmxZeroRegisterHooks(); MmxCoopRegisterHooks();
   const char *x2=getenv("MMX_COOP_X2_ASSETS"),*x3=getenv("MMX_COOP_X3_ASSETS");
   if (x2 && x3) check(MmxWeaponsLoadPage(x2,1) && MmxWeaponsLoadPage(x3,2),"private original weapon source packs load");
+  if(getenv("MMX_COOP_KEYBOARD_TEST")) {coop_keyboard_checks(fixture);return;}
   if(getenv("MMX_COOP_CAPSULE_FIXTURE")) {coop_capsule_checks(getenv("MMX_COOP_CAPSULE_FIXTURE"));return;}
   const char *scene_fixture=getenv("MMX_COOP_SCENE_FIXTURE");
   if(scene_fixture) {coop_scene_checks(scene_fixture,start,expected,actual,cap);return;}
