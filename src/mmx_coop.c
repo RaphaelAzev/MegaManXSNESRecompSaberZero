@@ -46,7 +46,8 @@ bool MmxCoopValidState(const MmxCoopState *s) {
       s->contact_reserved || s->contact_pass > 2 || s->enrolled>1 ||
       s->select_hold>180 || s->select_armed>1 || s->stage_pending>2) return false;
   if (s->object_pass && s->object_entry != 0xd2bd && s->object_entry != 0xd3dd &&
-      s->object_entry != 0xd3fa && s->object_entry != 0xd43a && s->object_entry != 0xd457) return false;
+      s->object_entry != 0xd3fa && s->object_entry != 0xd43a && s->object_entry != 0xd457 &&
+      s->object_entry != 0x9d67) return false;
   if (s->contact_pass && s->contact_entry != 0x9b03 && s->contact_entry != 0x9b43) return false;
   for (unsigned i = 0; i < 2; ++i) {
     const MmxCoopPlayer *p = &s->players[i];
@@ -340,7 +341,7 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
 static void object_hook(CpuState *cpu, uint32_t pc) {
   if (!enabled || !state.initialized || state.players[1].status != MMX_COOP_ALIVE) return;
   unsigned at = pc & 65535;
-  bool entry = at == 0xd2bd || at == 0xd3dd || at == 0xd3fa || at == 0xd43a || at == 0xd457;
+  bool entry = at == 0xd2bd || at == 0xd3dd || at == 0xd3fa || at == 0xd43a || at == 0xd457 || at == 0x9d67;
   if (entry) {
     if (!state.object_pass && !state.current) {
       state.object_pass = 1; state.object_entry = (uint16_t)at;
@@ -359,6 +360,27 @@ static void object_hook(CpuState *cpu, uint32_t pc) {
     cpu->D = state.object_d; cpu->DB = state.object_db; cpu->P = state.object_p;
     cpu_p_to_mirrors(cpu); state.object_pass = 0;
   }
+}
+static bool shared_screen(void) {
+  return enabled && state.initialized && state.players[0].status==MMX_COOP_ALIVE &&
+      state.players[1].status==MMX_COOP_ALIVE && !MmxCoopTransitionActive() &&
+      g_ram[0xd1]==2 && g_ram[0xd2]==4 && g_ram[0xd3]==4 &&
+      !g_ram[0x1f0c] && !g_ram[0x1f23] && !g_ram[0x1f48];
+}
+static void constrain_player(uint8_t *r) {
+  if (!shared_screen()) return;
+  const MmxCoopPlayer *other=&state.players[state.current^1];
+  int x=word(r+0xbad),ox=word(other->body+5);
+  int limited=x<ox-224 ? ox-224 : x>ox+224 ? ox+224 : x;
+  if (limited!=x) {putword(r+0xbad,(unsigned)limited);r[0xbac]=0;putword(r+0xbc2,0);}
+}
+static void camera_hook(CpuState *cpu,uint32_t pc) {
+  if (!shared_screen()) return;
+  unsigned axis=((pc&65535)==0xdebf || (pc&65535)==0xdeca) ? 8 : 5;
+  unsigned a=word(state.players[0].body+axis),b=word(state.players[1].body+axis);
+  cpu->A=(uint16_t)((a+b)/2);
+  cpu->_flag_N=(cpu->A&0x8000)!=0;cpu->_flag_Z=cpu->A==0;
+  cpu->P=(cpu->P&~0x82)|(cpu->_flag_N?0x80:0)|(cpu->_flag_Z?2:0);
 }
 static void controller_hook(CpuState *cpu, uint32_t pc) {
   if (!enabled) return;
@@ -386,6 +408,7 @@ static void controller_hook(CpuState *cpu, uint32_t pc) {
     return;
   }
   if (!state.initialized || !state.controller_pass) return;
+  constrain_player(g_ram);
   if (state.controller_pass == 1 && state.players[1].status == MMX_COOP_ALIVE &&
       g_ram[0xd1] == 2 && g_ram[0xd2] == 4 && !g_ram[0x1f0c]) {
     state.return_a = cpu->A; state.return_x = cpu->X; state.return_y = cpu->Y;
@@ -420,11 +443,14 @@ void MmxCoopRegisterHooks(void) {
   interp_bridge_set_pre_opcode_hook(0x848fcb, controller_hook);
   interp_bridge_set_pre_opcode_hook(0x8280df, controller_hook);
   const unsigned objects[] = {0xd2bd,0xd2dd,0xd3dd,0xd3f9,0xd3fa,0xd422,
-      0xd43a,0xd456,0xd457,0xd47f};
+      0xd43a,0xd456,0xd457,0xd47f,0x819d67,0x819d79};
   for (unsigned i=0;i<sizeof(objects)/sizeof(objects[0]);++i)
     interp_bridge_set_pre_opcode_hook(objects[i],object_hook);
   const unsigned contacts[] = {0x849b03,0x849b43,0x849b42,0x849b7d,0x849d82,
       0x849dc9,0x849dcc,0x849ee9};
   for (unsigned i=0;i<sizeof(contacts)/sizeof(contacts[0]);++i)
     interp_bridge_set_pre_opcode_hook(contacts[i],contact_hook);
+  const unsigned cameras[]={0xdea0,0xdeab,0xdebf,0xdeca};
+  for(unsigned i=0;i<sizeof(cameras)/sizeof(cameras[0]);++i)
+    interp_bridge_set_pre_opcode_hook(cameras[i],camera_hook);
 }

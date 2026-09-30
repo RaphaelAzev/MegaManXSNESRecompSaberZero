@@ -177,6 +177,19 @@ static void coop_join_checks(unsigned character,const char *fixture,uint8_t *sta
   check((s.players[0].body[0x27]&127)==g_ram[0x1f9a] && (s.players[1].body[0x27]&127)==g_ram[0x1f9a],
       "full team restart refills both HP pools");
 }
+static void coop_camera_checks(unsigned character) {
+  MmxCoopState s=MmxCoopGetState();unsigned x0=coop_x(&s.players[0]);
+  coop_frames(230,0,SNES_PAD_RIGHT);s=MmxCoopGetState();
+  unsigned camera=g_ram[0x1e4d]|g_ram[0x1e4e]<<8;
+  check(coop_x(&s.players[0])==x0 && coop_x(&s.players[1])-x0<=224,
+      "P2 cannot move beyond the shared screen while P1 waits");
+  check(x0>=camera+12 && coop_x(&s.players[1])<=camera+244,
+      "native camera keeps both horizontal edges visible");
+  coop_image(character,"camera");
+  coop_frames(90,SNES_PAD_RIGHT,SNES_PAD_RIGHT);s=MmxCoopGetState();
+  check(coop_x(&s.players[0])>x0+60 && (g_ram[0x1e4d]|g_ram[0x1e4e]<<8)>camera+60,
+      "both players advancing releases the shared camera");
+}
 static void coop_checks(const char *assets, const char *fixture,
                         uint8_t *start, uint8_t *expected, uint8_t *actual, size_t cap) {
   check(assets && fixture, "co-op check requires private source assets and a grounded fixture");
@@ -242,6 +255,7 @@ static void coop_checks(const char *assets, const char *fixture,
     check(!MmxCoopValidState(&s), "malformed duplicate-character roster is rejected");
     coop_contact_checks(start,cap);
     coop_join_checks(character,fixture,start,expected,actual,cap);
+    coop_camera_checks(character);
     if (x2 && x3) {
       MmxCoopDisable();check(RtlLoadSnapshot(fixture),"restore independent weapon fixture");
       check(MmxCoopEnable(character),"restore chosen roster for weapons");coop_frames(8,0,0);

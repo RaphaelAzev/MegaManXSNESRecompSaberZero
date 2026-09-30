@@ -121,6 +121,15 @@ player tail without restoring those pointers permits movement but disables
 firing. New joins clear transient movement/hurt/charge state, preserve personal
 inventory on voluntary re-entry, and let native idle initialization resume.
 
+The post-enemy player terrain pass `$81:9D67..9D79` must also run for P2;
+it is separate from the movement controller. Camera helpers `$00:DE9D`
+(horizontal) and `$00:DEBC` (vertical) retain the original room bounds and
+scroll-rate logic, but read the pair's midpoint after each original coordinate
+load. Horizontal separation is capped at 224 native pixels. A private check
+holds P1 still while P2 reaches the right edge, verifies both remain visible,
+then moves both and confirms scrolling resumes. Vertical extremes, forced
+scrolling and boss transitions still need further handling.
+
 The existing shared SNES launcher profile already allows two players.
 MMX's desktop-host descriptor omitted `num_players`, so it advertised one.
 USA now advertises two; JP remains unchanged. No recomp-ui fork is needed for
