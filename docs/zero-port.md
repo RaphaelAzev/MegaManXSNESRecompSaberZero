@@ -429,3 +429,21 @@ existing Zero runtime suite and Zero/renderer CTests also pass. Native X3
 captures and corresponding port captures were visually inspected; this caught
 and corrected the distinction between common charge palette 0 and Zero's
 saber palette 3 before completion.
+
+### Highway Vile capture and rescue poses
+
+Owner co-op slot 04 exposed a separate X1 body group during the Vile rescue:
+`$0BBE=$66`, player state `$32/$06`, native pose `$03`. Its animation directory
+is `$AF:CF96`, sprite directory `$8D:9C47`, and CHR list `$85:A886`. The five
+native poses comprise four kneeling/blinking variants followed by the suspended
+pose. Interpreting these small sequence IDs through the ordinary group-0 map
+made playable Zero alternate between unrelated X3 movement/firing poses during
+dialogue (observed `$22/$66`).
+
+`MmxZeroPose` now adapts this group using original X3 group `$4A` art: `$49`
+for kneeling, `$34` for suspension/hurt. The kneeling sprite moves ten pixels
+up to align its feet with the native ground line. The shared pose selector covers both
+co-op seats and single-player Zero, including already-saved dialogue frames.
+The retail dialogue, pose timing and NPC Zero remain unchanged. Private source
+pose sheets and a 120-frame dialogue capture were visually reviewed; the art
+remains extracted from the user-provided X3 ROM, with no new asset pack version.

@@ -430,3 +430,26 @@ The full existing co-op suite plus focused keyboard routing and natural
 enemy/pit-death checks also pass with generated dispatch enabled. The owner
 still needs to play through this area and the rest of the campaign; a bounded
 regression does not establish complete stage coverage.
+
+### Stage change after finishing Highway as the surviving P2
+
+The owner's slot 05 had native Chill Penguin stage `$1F7A=8`, but co-op's stored
+stage remained Highway (`0`). P1's native body already had 16 HP; its stored
+status was still `FALLEN`, causing the empty HUD and stale presentation. P2 was
+`ABSENT` from native stage reset and never received the automatic arrival.
+
+`MmxCoopFrameTick` included the stage-ID mismatch in its early return. That
+made the subsequent stage-adoption block unreachable for every different
+stage, including later checkpoint deaths. Stage changes now request pending
+initialization independently of the native readiness guard. Once entry is
+ready, the existing block adopts the native P1 body, clears fallen/scene state,
+refills the partner, and performs the normal safe-ground arrival.
+
+The private `MMX_COOP_STAGE_FIXTURE` check loads the reported slot, verifies
+both full HP pools and identities, P2's completed automatic return, then kills
+both actors through the native death controller and requires a one-life
+checkpoint restart with both players restored. The fix also repairs the
+already-saved slot without editing its file or granting HP during ordinary
+play. Save layout is unchanged. The accompanying Zero rescue pose adaptation
+is documented in `zero-port.md`; `MMX_COOP_DIALOGUE_FIXTURE` exercises 120
+idle dialogue frames and saves a private capture for visual review.

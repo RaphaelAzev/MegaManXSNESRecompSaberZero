@@ -34,6 +34,7 @@ void MmxZeroHealthRespawn(const uint8_t ram[0x20000]);
 bool MmxZeroSwapTick(uint8_t ram[0x20000]);
 unsigned MmxZeroSwapPose(const MmxZeroState *snapshot);
 const uint8_t *MmxZeroTeleportPose(unsigned pose);
+int MmxZeroPoseOffsetY(const uint8_t ram[0x20000]);
 const uint8_t *MmxZeroPose(const uint8_t ram[0x20000], const MmxZeroState *snapshot);
 const uint8_t *MmxZeroBlade(const MmxZeroState *snapshot);
 const uint16_t *MmxZeroColors(void);

@@ -990,7 +990,7 @@ static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView 
     const uint8_t *blade = MmxZeroBlade(&partner->zero);
     const uint8_t *charge = !ram[0xbdb] && !partner->weapons.weapon ? MmxZeroChargePose(&partner->zero) : NULL;
     int x = (int16_t)(word(ram,0xbad)-word(ram,0x1e4d));
-    int sy = (int16_t)(word(ram,0xbb0)-word(ram,0x1e50))-8;
+    int sy = (int16_t)(word(ram,0xbb0)-word(ram,0x1e50))+MmxZeroPoseOffsetY(ram);
     if (cast) {
       MmxZeroState z=partner->zero;z.burst=z.air=0;blade=NULL;
       if (cast->weapon==3) z.slash=cast->pose==39?1:cast->pose==41?3:cast->pose==29?6:
@@ -1270,7 +1270,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
           zero_drawn[menu_body] = true;
           const uint8_t *body = menu_body ? MmxZeroMenuPose() : zero;
           int zx = menu_body ? 128 : (int16_t)(word(frame.ram, 0xbad) - word(frame.ram, 0x1e4d));
-          int zy = menu_body ? 152 : (int16_t)(word(frame.ram, 0xbb0) - word(frame.ram, 0x1e50)) - 8;
+          int zy = menu_body ? 152 : (int16_t)(word(frame.ram, 0xbb0) - word(frame.ram, 0x1e50)) + MmxZeroPoseOffsetY(frame.ram);
           bool pilot = !menu_body && s.animation==0x6b;
           if(pilot) {
             /* X1 switches to a separate pilot group on boarding. Its pose

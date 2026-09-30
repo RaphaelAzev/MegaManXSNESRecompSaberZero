@@ -135,7 +135,10 @@ bool MmxCoopFrameTick(uint8_t *r) {
     if (state.current==1) MmxCoopApplyInput(r);
     state.select_hold=0;return false;
   }
-  if (r[0xd1]!=2 || r[0xd2]!=4 || r[0xba9]!=2 || state.stage!=r[0x1f7a]) {
+  /* A changed stage requests initialization; it must not keep returning
+   * before the block below can adopt the new stage and revive the roster. */
+  if (state.stage!=r[0x1f7a]) state.stage_pending=1;
+  if (r[0xd1]!=2 || r[0xd2]!=4 || r[0xba9]!=2) {
     state.stage_pending=1;state.select_hold=0;
     /* A new stage/checkpoint is initialized for the configured P1, even
      * when P2 was the last survivor driving the preceding world tasks. */

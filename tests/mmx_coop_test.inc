@@ -579,6 +579,55 @@ static void coop_platform_checks(const char *fixture,const char *capture) {
   interp_bridge_set_pre_opcode_hook(0x808097,NULL);
   puts("MMX CO-OP PLATFORM CHECKS PASSED");
 }
+static void coop_dialogue_checks(const char *fixture) {
+  check(MmxCoopEnable(0),"dialogue co-op enables");
+  check(RtlLoadSnapshot(fixture),"private Vile rescue fixture loads");
+  check(g_ram[0xbbe]==0x66 && (g_ram[0xbbf]&127)==3,"native rescue holds its kneeling pose");
+  MmxZeroState z=MmxZeroGetState();
+  const uint8_t *pose=MmxZeroPose(g_ram,&z);
+  check(pose!=NULL,"rescued Zero uses source body art");
+  for(unsigned i=0;i<120;++i) {
+    coop_frames(1,0,0);z=MmxZeroGetState();
+    check(MmxZeroPose(g_ram,&z)==pose,"kneeling dialogue does not cycle through locomotion poses");
+  }
+  coop_image(0,"rescue-dialogue");
+  puts("MMX CO-OP RESCUE DIALOGUE CHECKS PASSED");
+}
+/* Owner's slot 05: Highway completed as P2, then native Chill Penguin entry.
+ * The old state still labels P1 fallen and P2 absent despite native full HP. */
+static void coop_stage_entry_checks(const char *fixture) {
+  check(MmxCoopEnable(0),"stage-entry co-op enables");
+  check(RtlLoadSnapshot(fixture),"private new-stage fixture loads");
+  unsigned stage=g_ram[0x1f7a],maximum=g_ram[0x1f9a];
+  coop_frames(1,0,0);
+  MmxCoopState s=MmxCoopGetState();
+  check(s.stage==stage && s.players[0].status==MMX_COOP_ALIVE &&
+      (s.players[0].body[0x27]&127)==maximum && (s.players[1].body[0x27]&127)==maximum,
+      "new stage adopts the living native P1 and refills both HP pools");
+  coop_frames(90,0,0);s=MmxCoopGetState();
+  check(!s.stage_pending && !MmxCoopTransitionActive() && s.enrolled &&
+      s.players[1].status==MMX_COOP_ALIVE && s.current==0 && s.anchor==0,
+      "enrolled P2 returns automatically after the stage changes");
+  check(s.players[0].zero.active_x && !s.players[1].zero.active_x,
+      "new stage preserves X and Zero identities");
+  coop_image(0,"new-stage-arrival");
+  unsigned lives=g_ram[0x1f80];
+  for(unsigned seat=0;seat<2;++seat) {
+    MmxCoopSelect(g_ram,seat);g_ram[0xbcf]=128;g_ram[0xbaa]=12;g_ram[0xbab]=0;
+  }
+  MmxCoopSelect(g_ram,0);
+  bool restarted=false;
+  for(unsigned i=0;i<800 && !restarted;++i) {
+    coop_frames(1,0,0);s=MmxCoopGetState();
+    restarted=g_ram[0x1f80]==lives-1 && s.stage==stage && !s.stage_pending &&
+        !MmxCoopTransitionActive() && s.players[0].status==MMX_COOP_ALIVE &&
+        s.players[1].status==MMX_COOP_ALIVE &&
+        (s.players[0].body[0x27]&127)==maximum && (s.players[1].body[0x27]&127)==maximum;
+  }
+  check(restarted,"team death in the new stage spends one life and restores both players");
+  coop_frames(30,0,0);coop_image(0,"new-stage-restart");
+  puts("MMX CO-OP STAGE ENTRY CHECKS PASSED");
+}
 static void coop_launcher_checks(const char *root,const char *rom,const char *x3) {
   check(x3!=NULL,"launcher check receives original X3 ROM");
   check(snes_mod_runtime_initialize_c(root,"megaman-x-us",
@@ -622,6 +671,8 @@ static void coop_checks(const char *assets, const char *fixture,
   MmxZeroRegisterHooks(); MmxCoopRegisterHooks();
   const char *x2=getenv("MMX_COOP_X2_ASSETS"),*x3=getenv("MMX_COOP_X3_ASSETS");
   if (x2 && x3) check(MmxWeaponsLoadPage(x2,1) && MmxWeaponsLoadPage(x3,2),"private original weapon source packs load");
+  if(getenv("MMX_COOP_DIALOGUE_FIXTURE")) {coop_dialogue_checks(getenv("MMX_COOP_DIALOGUE_FIXTURE"));return;}
+  if(getenv("MMX_COOP_STAGE_FIXTURE")) {coop_stage_entry_checks(getenv("MMX_COOP_STAGE_FIXTURE"));return;}
   if(getenv("MMX_COOP_PLATFORM_CAPTURE")) {coop_platform_checks(fixture,getenv("MMX_COOP_PLATFORM_CAPTURE"));return;}
   if(getenv("MMX_COOP_NATURAL_DEATH")) {coop_natural_death_checks(fixture);return;}
   if(getenv("MMX_COOP_KEYBOARD_TEST")) {coop_keyboard_checks(fixture);return;}

@@ -228,11 +228,23 @@ static unsigned slash_pose(const MmxZeroState *s) {
   }
   return 0;
 }
+int MmxZeroPoseOffsetY(const uint8_t ram[0x20000]) {
+  /* X3's kneeling art ends ten pixels below its ordinary standing origin.
+   * Align its feet with X1's authored kneeling ground line. */
+  return ram && ram[0xbbe] == 0x66 && (ram[0xbbf] & 127) != 4 ? -18 : -8;
+}
 const uint8_t *MmxZeroPose(const uint8_t ram[0x20000], const MmxZeroState *s) {
   /* Visibility belongs to the submitted sprite list, not this RAM snapshot.
    * During invulnerability the next update can hide the player while OAM
    * still contains the preceding visible frame. The compositor owns blinking. */
   if (!poses || !ram || (s && s->active_x)) return NULL;
+  /* X1's Vile capture/rescue uses group $66, not the normal body group.
+   * Its five poses are kneeling/blinking, then suspended. Use original X3
+   * kneeling/hurt art instead of reading these as running/firing sequences. */
+  if (ram[0xbbe] == 0x66) {
+    unsigned pose = (ram[0xbbf] & 127) == 4 ? 0x34 : 0x49;
+    return poses + (size_t)pose * MMX_ZERO_WIDTH * MMX_ZERO_HEIGHT;
+  }
   /* Old saves without mirrored animation state use the shared pose vocabulary
    * until the next native animation start. New saves retain the exact phase. */
   unsigned pose = s && s->anim_valid ? s->anim_pose : ram[0xbbf] & 127;
