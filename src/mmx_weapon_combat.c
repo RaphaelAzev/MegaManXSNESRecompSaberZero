@@ -455,6 +455,10 @@ static bool terrain_solid(const uint8_t *r, int x, int y, bool floor, int *surfa
   if (surface) *surface = (y & ~15) + height;
   return true;
 }
+unsigned MmxWeaponsTerrainClass(const uint8_t *r,int x,int y) {return terrain_type(r,x,y);}
+bool MmxWeaponsTerrainSolid(const uint8_t *r,int x,int y,bool floor,int *surface) {
+  return terrain_solid(r,x,y,floor,surface);
+}
 static bool terrain_water(const uint8_t *r,int x,int y) {
   unsigned type=terrain_type(r,x,y);
   return type==13 || type==14; /* X1 $84:987E water probes. */

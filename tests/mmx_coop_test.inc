@@ -124,6 +124,59 @@ static void coop_weapon_checks(unsigned character) {
   unsigned tick=g_ram[0xb9c];coop_frames(12,0,0);
   check((uint8_t)(g_ram[0xb9c]-tick)==6,"staggered time effects halve world speed without permanently freezing it");
 }
+static void coop_join_checks(unsigned character,const char *fixture,uint8_t *start,
+                             uint8_t *expected,uint8_t *actual,size_t cap) {
+  MmxCoopDisable();check(RtlLoadSnapshot(fixture),"restore private join fixture");
+  check(MmxCoopEnable(character),"join uses selected roster");coop_frames(8,0,0);
+  coop_frames(1,0,SNES_PAD_START);coop_frames(1,0,0);
+  check(MmxCoopGetState().players[1].status==MMX_COOP_ABSENT,"P2 Start does not join");
+  g_ram[0xbcf]=7|128;
+  uint16_t x,y;
+  check(MmxCoopFindLanding(g_ram,&x,&y),"live highway terrain supplies a safe landing");
+  unsigned tick=g_ram[0xb9c];coop_frames(1,0,SNES_PAD_SELECT);
+  check(MmxCoopTransitionActive() && MmxCoopGetState().enrolled,"P2 Select starts original arrival and session enrollment");
+  coop_frames(10,0,0);coop_image(character,"arrival");
+  for(unsigned i=0;i<80 && MmxCoopTransitionActive();++i) coop_frames(1,0,0);
+  check(!MmxCoopTransitionActive() && g_ram[0xb9c]==tick,"arrival freezes the world until original morph completes");
+  coop_frames(2,0,0);
+  check((g_ram[0xbcf]&127)==7,"joining does not heal P1");
+  MmxCoopSelect(g_ram,1);g_ram[0xbcf]=5|128;g_ram[0x1f88]=(g_ram[0x1f88]&192)|11;
+  g_ram[0x1f83]=(g_ram[0x1f83]&240)|9;MmxCoopSelect(g_ram,0);
+  coop_frames(179,0,SNES_PAD_SELECT);
+  check(!MmxCoopTransitionActive(),"shorter than three seconds does not withdraw P2");
+  coop_frames(1,0,SNES_PAD_SELECT);
+  check(MmxCoopTransitionActive(),"180 gameplay frames holding P2 Select begins withdrawal");
+  for(unsigned i=0;i<80 && MmxCoopTransitionActive();++i) coop_frames(1,0,0);
+  MmxCoopState s=MmxCoopGetState();
+  check(s.players[1].status==MMX_COOP_ABSENT && s.enrolled,"voluntary withdrawal retains session enrollment");
+  check((s.players[1].body[0x27]&127)==5 && s.players[1].energy[1]==11 && s.players[1].subtanks[0]==9,
+      "withdrawal retains HP, weapon energy and subtank reserves");
+  coop_frames(1,0,SNES_PAD_SELECT);coop_frames(2,0,0);
+  check(MmxCoopTransitionActive(),"voluntarily absent player can rejoin");
+  size_t n=RtlSaveSnapshotToMemory(start,cap);coop_frames(20,0,0);
+  size_t en=RtlSaveSnapshotToMemory(expected,cap);
+  check(RtlLoadSnapshotFromMemory(start,n),"mid-arrival snapshot restores");coop_frames(20,0,0);
+  size_t an=RtlSaveSnapshotToMemory(actual,cap);
+  same(expected,en,actual,an,"arrival timing, enrollment and retained stats replay exactly");
+  for(unsigned i=0;i<80 && MmxCoopTransitionActive();++i) coop_frames(1,0,0);
+  s=MmxCoopGetState();
+  check((s.players[1].body[0x27]&127)==5 && s.players[1].energy[1]==11 && s.players[1].subtanks[0]==9,
+      "rejoin does not refill the withdrawn player's stats");
+  s.players[1].status=MMX_COOP_FALLEN;MmxCoopSetState(&s);
+  coop_frames(1,0,SNES_PAD_SELECT);
+  check(MmxCoopGetState().players[1].status==MMX_COOP_FALLEN && !MmxCoopTransitionActive(),
+      "Select cannot revive a fallen player mid-stage");
+  unsigned lives=g_ram[0x1f80];g_ram[0xbcf]=128;g_ram[0xbaa]=12;g_ram[0xbab]=0;
+  bool returned=false;
+  for (unsigned i=0;i<1000;++i) {
+    coop_frames(1,0,0);s=MmxCoopGetState();
+    if (g_ram[0x1f80]+1==lives && s.players[1].status==MMX_COOP_ALIVE &&
+        !s.players[1].zero.swap_phase && !s.stage_pending && g_ram[0xd3]==4) {returned=true;break;}
+  }
+  check(returned && s.enrolled,"native checkpoint restart automatically returns enrolled P2 without another Select");
+  check((s.players[0].body[0x27]&127)==g_ram[0x1f9a] && (s.players[1].body[0x27]&127)==g_ram[0x1f9a],
+      "full team restart refills both HP pools");
+}
 static void coop_checks(const char *assets, const char *fixture,
                         uint8_t *start, uint8_t *expected, uint8_t *actual, size_t cap) {
   check(assets && fixture, "co-op check requires private source assets and a grounded fixture");
@@ -188,6 +241,7 @@ static void coop_checks(const char *assets, const char *fixture,
     s = MmxCoopGetState(); s.players[1].character = s.players[0].character;
     check(!MmxCoopValidState(&s), "malformed duplicate-character roster is rejected");
     coop_contact_checks(start,cap);
+    coop_join_checks(character,fixture,start,expected,actual,cap);
     if (x2 && x3) {
       MmxCoopDisable();check(RtlLoadSnapshot(fixture),"restore independent weapon fixture");
       check(MmxCoopEnable(character),"restore chosen roster for weapons");coop_frames(8,0,0);

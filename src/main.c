@@ -65,6 +65,7 @@ static void MmxBeforeFrame(void) {
     MmxZeroSetCollisionRom(g_snes->cart->rom, g_snes->cart->romSize);
     MmxWeaponsCollisionRom(g_snes->cart->rom, g_snes->cart->romSize);
   }
+  MmxRendererHoldFrame(MmxCoopTransitionActive());
   if (g_mmx_custom_renderer) MmxRendererLatchSprites();
 }
 static void MmxResetRenderer(void) {

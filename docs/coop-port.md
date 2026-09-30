@@ -20,7 +20,8 @@ later stage entries/team restarts. Holding P2 Select for approximately 180
 gameplay frames voluntarily withdraws P2, retaining HP, energy, selections
 and subtanks for a later rejoin. Withdrawal keeps session enrollment. Fallen
 players cannot use Select to rejoin until a new stage/team restart. These
-rules supersede Start-to-join; they are required behavior, not yet completed.
+rules supersede Start-to-join. The private join/withdrawal checkpoint below
+validates these controls; public activation remains pending the other systems.
 
 The initial code is a **development foundation**, not a playable co-op release.
 It has no launcher activation package yet. A private ROM-backed test enables
@@ -105,6 +106,21 @@ if either overlapped. Enemy AI itself still runs once. Native visibility
 `enemy+$0E` must be active: a just-spawned offscreen enemy is intentionally
 noninteractive, even when a test moves a player onto it.
 
+Join terrain uses the live collision map already decoded for imported weapons.
+At floor dispatch `$84:961C`, `$34..36` and `$3B..3D` call the ordinary solid
+handler `$84:96B5` (the highway floor is `$35`). `$33/$3E/$3F` dispatch to
+hurt/spike handlers; `$37/$38` are conveyors, and `$39/$3A` are one-way tops.
+Joining currently accepts clear ordinary ground/slopes within the native
+viewport and conservatively rejects special floors. The failed-password cue
+is command `$74`, verified at `$00:F1E4..F1EA`; failed landing uses that cue.
+The original morph poses and beam velocities are shared with SELECT exchange.
+
+Player setup requires the native action pointers `+$31=$A597` and
+`+$5F=$FA80` plus the constants from `$81:81A3..825A`. Clearing the entire
+player tail without restoring those pointers permits movement but disables
+firing. New joins clear transient movement/hurt/charge state, preserve personal
+inventory on voluntary re-entry, and let native idle initialization resume.
+
 The existing shared SNES launcher profile already allows two players.
 MMX's desktop-host descriptor omitted `num_players`, so it advertised one.
 USA now advertises two; JP remains unchanged. No recomp-ui fork is needed for
@@ -146,6 +162,16 @@ Private checks pass for both rosters with generated bounce on/off, and the
 Zero/custom-renderer regression checks pass. The coexistence captures were
 visually reviewed. This is not an exhaustive two-player audit of all weapons.
 
+Join checkpoint: P2 Start does not join; P2 Select performs the original
+arrival while the world counter stays frozen. A 179-frame hold leaves P2
+present; frame 180 starts the original departure. Withdrawal/rejoin retain HP,
+weapon energy and subtank reserves and never heal P1. Mid-arrival save/replay
+is byte-identical. Fallen status rejects Select re-entry. A real native P1
+death with P2 already fallen consumes one life, runs the checkpoint restart,
+and automatically returns enrolled P2 with both HP pools full. Both rosters
+pass these checks. Actual one-player death while the other survives, boss-door
+ownership, and later-stage arrival placement still need their own integration.
+
 `MmxCoopPlayer` owns native body/effects/projectiles, per-player weapon energy,
 subtank reserves, Zero combat/animation state, imported weapon state, and input.
 World progression and unlocks remain in native RAM. Switching the projected
@@ -168,10 +194,10 @@ Remaining integration, in order:
    remaining shared native palette/effect resources during playtesting.
 3. Check body damage and pickups for either player without duplicating enemy
    AI. Collector alone receives HP/energy; shared unlocks remain shared.
-4. Add safe Select-to-join, session enrollment and automatic later arrivals,
-   three-second voluntary withdrawal with retained stats, source teleports
-   and world freeze. Reject unsafe ground with the original error sound.
-   No voluntary rejoin after death.
+4. Select-to-join, session enrollment, three-second voluntary withdrawal with
+   retained stats, original teleports/world freeze: **private checkpoint
+   passed**, including automatic checkpoint return. Validate later-stage
+   arrivals alongside scene-transition work. No voluntary rejoin after death.
 5. Draw both characters with source art and the fixed four-column HUD. Preserve
    native foreground priority; no blanket sprite priority override.
 6. Independent pause inventory and subtanks; shared camera and boundaries;

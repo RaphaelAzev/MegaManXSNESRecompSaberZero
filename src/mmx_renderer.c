@@ -36,6 +36,8 @@ static MmxZeroState frame_zero;
 static MmxWeaponsState frame_weapons;
 static MmxWeaponCombatState frame_weapon_combat;
 static MmxCoopState frame_coop;
+static bool frame_held;
+void MmxRendererHoldFrame(bool held) {frame_held=held;}
 static uint8_t partner_ram[0x20000];
 static Piece building[MAX_PIECES], latched[MAX_PIECES];
 static unsigned building_count, latched_count;
@@ -239,7 +241,7 @@ void MmxRendererRecordPiece(const uint8_t ram[0x20000], uint16_t d) {
                                          ram[d + 0x10], animation, current_object);
 }
 void MmxRendererLatchSprites(void) {
-  if ((MmxZeroSwapping() || MmxWeaponsTimeActive()) && !building_count) return;
+  if ((frame_held || MmxZeroSwapping() || MmxWeaponsTimeActive()) && !building_count) return;
   /* Menu fades suspend OAM construction but the PPU keeps its previous
    * sprites. Retain only Zero's attribution; drawing still requires an exact
    * match in that raster's live OAM, so a real hidden blink stays hidden. */
@@ -293,7 +295,7 @@ void MmxRendererBeginFrame(const uint8_t ram[0x20000]) {
   frame_zero = MmxZeroGetState();
   frame_weapons = MmxWeaponsGetState();
   frame_weapon_combat = MmxWeaponsGetCombatState();
-  if ((MmxZeroSwapping() || MmxWeaponsTimeActive()) && !latched_count) {
+  if ((frame_held || MmxZeroSwapping() || MmxWeaponsTimeActive()) && !latched_count) {
     /* A mid-swap load has no preceding submission. Rebuild the frozen
      * native queues, including margin actors, before matching live OAM. */
     expanded_building_count = 0; expand_queues(ram);
@@ -927,11 +929,40 @@ static void weapon_effects_row(const MmxWeaponCombatState *combat,const Ppu *p,c
         (s->y>>8)-word(frame.ram,0x1e50),y,view,objects,object_colors);
   }
 }
+static void teleport_actor_row(const uint8_t *ram,const MmxZeroState *zero,const Ppu *p,
+                               const Raster *r,int y,MmxRenderView view,uint16_t *objects,int *object_colors) {
+  unsigned pose = MmxZeroSwapPose(zero);
+  int x = (int16_t)(word(ram,0xbad) - word(ram,0x1e4d));
+  int sy = (int16_t)(word(ram,0xbb0) - word(ram,0x1e50)) + zero->swap_y;
+  unsigned flip = ram[0xbb9] & 64;
+  if (!zero->active_x) {
+    const uint8_t *pixels = MmxZeroTeleportPose(pose);
+    int row = y - (sy - 8) + 64;
+    if (pixels && row >= 0 && row < 128) for (int col = 0; col < 128; ++col) {
+      unsigned pixel = pixels[row * 128 + col];
+      int dx = x + (flip ? 63 - col : col - 64) + view.extra;
+      if (pixel && dx >= 0 && dx < view.width) {
+        objects[dx] = (uint16_t)(0xa680 | (pixel & 15));
+        object_colors[dx] = MmxZeroColors()[pixel];
+      }
+    }
+  } else {
+    const MmxSpriteAsset *a = MmxRenderAssetsTeleportX(pose);
+    const uint8_t *layout = a ? sprite_arrangement(0,pose) : NULL;
+    if (layout) for (int i = layout[0] - 1; i >= 0; --i) {
+      Piece s = make_piece(layout + i * 4,x,sy,flip,0x22,0,0,0xba8);
+      sprite(p,r,s.x,s.y,s.attr,s.size,y,view,objects,false,a,s.tile,object_colors,true,false,false);
+    }
+  }
+}
 static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView view,
                              uint16_t *objects,int *colors) {
   const MmxCoopPlayer *partner = &frame_coop.players[1];
   if (!frame_coop.initialized || partner->status != MMX_COOP_ALIVE) return;
   const uint8_t *ram = partner_ram;
+  if (partner->zero.swap_phase) {
+    teleport_actor_row(ram,&partner->zero,ppu,r,y,view,objects,colors);return;
+  }
   bool zero = partner->character == MMX_COOP_ZERO;
   const MmxWeaponShot *cast=NULL;
   for (unsigned i=0;i<8;++i) {
@@ -1285,31 +1316,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       if (frame_coop.initialized && frame_coop.players[1].status==MMX_COOP_ALIVE)
         weapon_effects_row(&frame_coop.players[1].combat,&p,r,y,view,objects,object_colors);
     }
-    if (swapping) {
-      unsigned pose = MmxZeroSwapPose(&frame_zero);
-      int x = (int16_t)(word(frame.ram,0xbad) - word(frame.ram,0x1e4d));
-      int sy = (int16_t)(word(frame.ram,0xbb0) - word(frame.ram,0x1e50)) + frame_zero.swap_y;
-      unsigned flip = frame.ram[0xbb9] & 64;
-      if (!frame_zero.active_x) {
-        const uint8_t *pixels = MmxZeroTeleportPose(pose);
-        int row = y - (sy - 8) + 64;
-        if (pixels && row >= 0 && row < 128) for (int col = 0; col < 128; ++col) {
-          unsigned pixel = pixels[row * 128 + col];
-          int dx = x + (flip ? 63 - col : col - 64) + view.extra;
-          if (pixel && dx >= 0 && dx < view.width) {
-            objects[dx] = (uint16_t)(0xa680 | (pixel & 15));
-            object_colors[dx] = MmxZeroColors()[pixel];
-          }
-        }
-      } else {
-        const MmxSpriteAsset *a = MmxRenderAssetsTeleportX(pose);
-        const uint8_t *layout = a ? sprite_arrangement(0,pose) : NULL;
-        if (layout) for (int i = layout[0] - 1; i >= 0; --i) {
-          Piece s = make_piece(layout + i * 4,x,sy,flip,0x22,0,0,0xba8);
-          sprite(&p,r,s.x,s.y,s.attr,s.size,y,view,objects,false,a,s.tile,object_colors,true,false,false);
-        }
-      }
-    }
+    if (swapping) teleport_actor_row(frame.ram,&frame_zero,&p,r,y,view,objects,object_colors);
     for (int sx = 0; sx < view.width; ++sx) {
       int x = sx - view.extra;
       if (menu && (x < 0 || x >= 256)) { out[y * view.width + sx] = 0; continue; }

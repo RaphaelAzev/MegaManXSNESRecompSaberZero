@@ -33,6 +33,9 @@ void MmxWeaponsSetCombatState(MmxWeaponCombatState state);
  * single-player behavior. World enemy captures/time effects consider both. */
 void MmxWeaponsPartnerCombat(const MmxWeaponCombatState *state);
 unsigned MmxWeaponsTimePhase(const MmxWeaponCombatState *state);
+/* Live X1 terrain, available even when no imported weapon pack is enabled. */
+unsigned MmxWeaponsTerrainClass(const uint8_t ram[0x20000],int x,int y);
+bool MmxWeaponsTerrainSolid(const uint8_t ram[0x20000],int x,int y,bool floor,int *surface);
 bool MmxWeaponsCombatActive(void);
 void MmxWeaponsPlayerTick(uint8_t ram[0x20000]);
 void MmxWeaponsPlayerMotion(uint8_t ram[0x20000],unsigned object);

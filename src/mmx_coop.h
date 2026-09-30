@@ -35,6 +35,7 @@ typedef struct MmxCoopState {
   uint8_t object_p, object_db, object_pass, object_reserved;
   uint16_t contact_a, contact_x, contact_y, contact_s, contact_d, contact_entry;
   uint8_t contact_p, contact_db, contact_pass, contact_reserved;
+  uint8_t enrolled, select_hold, select_armed, stage_pending;
 } MmxCoopState;
 
 /* Development foundation; no launcher activation until join/combat/camera and
@@ -52,6 +53,8 @@ bool MmxCoopSelect(uint8_t ram[0x20000], unsigned player);
 void MmxCoopPoll(uint16_t p1, uint16_t p2);
 void MmxCoopApplyInput(uint8_t ram[0x20000]);
 bool MmxCoopFrameTick(uint8_t ram[0x20000]);
+bool MmxCoopTransitionActive(void);
+bool MmxCoopFindLanding(const uint8_t ram[0x20000],uint16_t *x,uint16_t *y);
 /* Caller must first validate the landing space. This does not grant re-entry
  * to a fallen player, and must not become the public join path by itself. */
 bool MmxCoopPlacePartner(uint8_t ram[0x20000], uint16_t x, uint16_t y);
