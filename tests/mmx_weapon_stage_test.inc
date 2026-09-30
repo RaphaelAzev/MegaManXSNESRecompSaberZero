@@ -1,8 +1,15 @@
 /* Optional owner-provided stage fixtures, copied into a private test folder.
- * Slot numbers in the UI are one-based: slot 05 is save4.sav, 06 save5.sav. */
+ * The shared state menu/OSD uses zero-based labels: Slot 6 is save6.sav. */
 static void weapon_stage_checks(const char *assets) {
   check(MmxWeaponsLoad(assets),"stage interaction assets load");
   const char *ride=getenv("MMX_RIDE_FIXTURE"),*igloo=getenv("MMX_IGLOO_FIXTURE");
+  const char *foreground=getenv("MMX_FOREGROUND_FIXTURE");
+  if(foreground) for(unsigned character=0;character<2;++character) {
+    check(RtlLoadSnapshot(foreground),"private canister foreground fixture loads");
+    if(character) zero_health_swap();
+    zero_replay(2);
+    zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),character?".canister-x.cap":".canister-zero.cap");
+  }
   if(ride) {
     check(RtlLoadSnapshot(ride),"private Ride Armor fixture loads");
     for(unsigned i=0;i<100;++i) {

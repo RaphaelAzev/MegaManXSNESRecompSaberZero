@@ -333,6 +333,26 @@ Open Zero acceptance work after the weapon priority:
 4. Mod/save compatibility UX: warn before loading incompatible mod states.
    Source-ROM setup and clean distribution staging are implemented for 0.0.1.
 
+### Penguin canister foreground overlap (2026-09-29)
+
+Tracked in `beads-8wg.1.49`. The owner's `Slot 6 loaded` screenshot corresponds
+to `save6.sav` (the shared menu/OSD uses zero-based slots). At this position,
+native foreground tiles mask part of the player at the snowy canister. Zero's
+wider firing pose makes the partial overlap more visible than X's.
+
+A private copy was captured as Zero and as X. Rendering the exact same Zero
+capture with original X art and comparing against the captured native PPU
+frame produced **zero differing pixels around the player and canister**. All
+68 differences in that comparison were confined to the imported weapon HUD
+footer at `(27..39,80..95)`. This is authored background priority, not the Zero
+compositor dropping body pieces. Preserve native layer order; no global
+foreground-priority override was added. A more coherent canister mask remains
+optional visual polish, separate from the accepted weapon integration.
+
+`MMX_WEAPON_STAGE_TEST=1` with `MMX_FOREGROUND_FIXTURE` set to a private copy
+and `MMX_ZERO_TEST_CAPTURE` set to an output prefix captures both characters
+for repeatable review without touching the owner's session.
+
 The weapon expansion remains on `feat/x2-x3-weapons` and is excluded from
 Zero 0.0.1. Co-op remains a later mutually exclusive mod after weapons finish.
 

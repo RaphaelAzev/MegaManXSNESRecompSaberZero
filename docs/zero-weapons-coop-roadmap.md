@@ -1,10 +1,12 @@
 # X1 character, weapon, and co-op roadmap
 
-Owner requirements recorded 2026-09-28. This is the durable scope document;
+Owner requirements recorded 2026-09-28 and updated 2026-09-29. This is the durable scope document;
 implementation status and findings are tracked in the central Beads database
 at `F:\Software\beads\issues`, under `beads-8wg.1` (Mega Man X / SNES).
 Zero 0.0.1 is released separately to main. Weapon branch: `feat/x2-x3-weapons`,
-worktree: `../_wt_mmx_zero`. Co-op starts only after that expansion is complete.
+worktree: `../_wt_mmx_zero`. The owner approved merging the current weapon mods
+after investigating the reported Penguin canister clipping, then starting couch co-op.
+Remaining source-audio and contact-audit refinements are separate follow-ups.
 
 ## Order of work
 
@@ -101,8 +103,10 @@ requirement (owner clarification, 2026-09-29).
 - The first combat pass used X1 buster damage as a placeholder. The owner's
   subsequent explicit goal includes all remaining weapon animations and stats:
   compare source damage and restore each weapon's relative strength, with
-  normalization to X1's HP scale as explicitly selected by the owner. New boss weaknesses
-  remain out of scope. Resolve per-hit, repeated-hit and effect-only behavior
+  normalization to X1's HP scale as explicitly selected by the owner. The
+  subsequent explicit exceptions map Speed Burner to X1 Fire Wave reactions
+  and Triad Thunder to Electric Spark reactions, including Armadillo's armor
+  break. Other new boss weaknesses remain out of scope. Resolve per-hit, repeated-hit and effect-only behavior
   from source code/runtime; do not count generic buster damage as completed stats.
 - Add X1/X2/X3 pages to the existing pause weapon screen. L/R bumpers cycle
   pages. No instructional UI text; at most left/right caret symbols.
@@ -115,11 +119,12 @@ requirement (owner clarification, 2026-09-29).
 
 Current checkpoint: all sixteen weapons have normal and charged gameplay
 implemented, including source-relative damage and the three utility weapons.
-See [port status and remaining fidelity work](x-weapons-port.md) before treating
-this as a finished release. Source-audio and stage-compatibility follow-ups
-remain; the co-op release dependency is still open.
+See [port status and remaining fidelity work](x-weapons-port.md) for remaining
+refinements. On 2026-09-29 the owner accepted this checkpoint for integration
+and authorized co-op next; original SPC sounds and the broader timing audit
+remain tracked separately in `beads-8wg.1.46` and `.47`.
 
-## Later: separate simultaneous co-op mod
+## Next: separate simultaneous couch co-op mod
 
 Tracking: `beads-8wg.1.34`, dependent on completing `beads-8wg.1.32`.
 
@@ -127,34 +132,63 @@ Create a second mod that is **mutually exclusive with the Select-exchange
 mod**. Share the completed character/weapon implementation where appropriate,
 but do not allow both gameplay modes to activate together.
 
-- Add a second controller/player input assignment. Working roster: player 1 is
-  X, player 2 is Zero. Both spawn and act simultaneously in every stage.
+- Add a second controller/player input assignment in recomp-ui. The existing
+  SNES profile already supports two ports; first verify whether MMX only needs
+  to advertise `num_players=2` before changing shared UI code.
+- Player 1 starts alone. A connected/mapped player 2 presses Start to join;
+  the character not currently on screen joins (X or Zero). This supersedes the
+  earlier rule that both players always spawn together at initial stage entry.
+- Briefly freeze gameplay during joining and use the character's original
+  stage-teleport assets. Find clear ground to the left or right of player 1
+  within the current screen. If no safe space fits the incoming body, reject
+  the join and play the existing wrong-save/password sound. Do not force the
+  character into terrain or relocate player 1.
 - Each player has independent movement, combat, collision and current HP.
-- HUD order from left to right: **X health, Zero health, then weapon energy
-  when applicable**. Move the existing weapon energy display to make room.
+- Independent weapon selections and weapon energy are confirmed. Each player's
+  L/R gameplay cycling stays within that player's selected X1/X2/X3 set.
+- HUD order from left to right is **P1 health, P1 weapon, P2 health, P2 weapon**.
+  Reserve the weapon-bar column as an empty gap when that player uses the
+  buster; do not shift the following bars. This supersedes the earlier HUD order.
+- Either present player may pause using Start and operate their own equipment
+  menu. P2 Start while absent is a join request, not P1's pause command.
+- Players can overlap each other; there is no player collision or friendly fire.
 - Keep both surviving players on the same screen. A player moving right cannot
   scroll the other player off the left edge; apply the shared-screen constraint
   consistently when movement would separate the pair.
-- During forced scene transitions/cutscenes, Zero teleports out using his
-  original red stage-exit effect, then returns with the original arrival effect
-  when normal gameplay resumes. Preserve native stage/script progression.
+- For a boss door, the character who touches the trigger owns the original
+  scripted walk. The other living player teleports out and back near the
+  triggering player before the fight. Use the correct blue/red original
+  character teleport assets. Apply the same ownership principle to forced
+  cutscenes; keep native stage/script progression authoritative.
 - When one player dies, that player remains absent for the rest of the stage.
   They return when the stage ends, or when the other player also dies and both
   restart. Cutscene return must never resurrect an already fallen player.
 - Shared maximum-HP progression remains consistent with the character mode.
-  Normal health pickups should heal their collector, not the other player
-  (working extension of the latest single-player pickup rule).
+  Health and weapon-energy pickups affect only their collector. No inactive
+  or partner healing. Fallen players cannot be revived by a scene transition.
 - Save/replay and mod activation must retain the mode, both players and their
   alive/absent state without contaminating stock or Select-exchange play.
 
-Resolve these details before co-op implementation, after weapons are finished:
+Confirmed in the owner's up-front replies: co-op remains mutually exclusive
+with Select exchange, SELECT switching is disabled, fallen players cannot
+rejoin mid-stage, weapon energy/selection are independent, and either player
+can pause for their own equipment.
 
-- Independent weapon energy/selection and how to display two simultaneous
-  special-weapon energy meters within the requested HUD order.
-- Pause ownership, subtank use, controller disconnects and input assignment UI.
+Implementation defaults to document and validate:
+
+- Preserve shared unlocks/progression and a shared team life count; spend one
+  life on a full team wipe and restart at the native checkpoint.
+- Keep pause input owned by its opener until that player resumes. Subtank use
+  heals its user. The owner confirmed separate subtank reserves, with shared
+  tank unlocks and other upgrades. Pause safely if an active controller disconnects.
+- The owner confirmed a configured P1 character, with the other character
+  reserved for P2. The brief fixed-X/Zero answer was explicitly withdrawn;
+  either X or Zero must be selectable for P1.
 - Vertical camera constraints and forced scrolling/platform sections.
 - Story scripts when X is dead and only Zero survives; how the surviving actor
   drives triggers without reviving the dead partner.
-- Shared life-count consumption on a full-team wipe and checkpoint selection.
 
-These are implementation/design questions, not additions to the weapon scope.
+Scope is couch co-op first. Consume the engine's two-port simulation inputs and
+serialize all player/weapon/join/camera state so future snesrecomp netplay can
+reuse the same deterministic simulation. Network compatibility must be tested
+later; it is not guaranteed merely by using the existing transport.

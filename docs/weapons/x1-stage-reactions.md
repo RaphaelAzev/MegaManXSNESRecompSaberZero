@@ -40,8 +40,8 @@ bubble form is explicitly excluded from fire mapping.
 ## Focused validation
 
 `MMX_WEAPON_STAGE_TEST=1` enables optional private stage-fixture checks in
-`mmx_state_tests`. `MMX_IGLOO_FIXTURE` takes a copied save from UI slot 06
-(`save5.sav`): walk right and fire Speed Burner until native bunker destruction,
+`mmx_state_tests`. `MMX_IGLOO_FIXTURE` takes a copied save from the earlier
+bunker report (`save5.sav`): walk right and fire Speed Burner until native bunker destruction,
 for both X and Zero. Player invulnerability is held only in this test to stop
 the fixture's flyers from interrupting the repeated firing sequence.
 
@@ -49,9 +49,13 @@ the fixture's flyers from interrupting the repeated firing sequence.
 armor flag, overlap an actual imported Triad bolt with the boss, and observe
 the native collision: HP 32 to 29, state 8/substate 2, then native break motion.
 These checks passed. The tests also accept `MMX_RIDE_FIXTURE` for copied UI
-slot 05 (`save4.sav`), capturing Zero boarding, riding, walking, punching and
+earlier Ride Armor report (`save4.sav`), capturing Zero boarding, riding, walking, punching and
 exiting. The owner game is never controlled or loaded by this harness.
 
 The old boss fixture can emit APU guest-clock synchronization warnings during
 headless replay; these checks validate gameplay/renderer behavior, not audio.
 Original imported SPC effects remain the separate `.46` follow-up.
+
+The shared state menu and its OSD label slots from zero: `Slot 6 loaded` refers
+to `save6.sav`. The earlier test fixture descriptions used one-based numbers;
+use the actual filenames above to reproduce those older encounters.
