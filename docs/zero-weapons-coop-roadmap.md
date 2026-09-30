@@ -135,9 +135,16 @@ but do not allow both gameplay modes to activate together.
 - Add a second controller/player input assignment in recomp-ui. The existing
   SNES profile already supports two ports; first verify whether MMX only needs
   to advertise `num_players=2` before changing shared UI code.
-- Player 1 starts alone. A connected/mapped player 2 presses Start to join;
-  the character not currently on screen joins (X or Zero). This supersedes the
-  earlier rule that both players always spawn together at initial stage entry.
+- Player 1 starts alone. A connected/mapped player 2 presses **Select** to join;
+  the character not currently on screen joins (X or Zero). Joining enrolls P2
+  for the rest of the current game session: automatically spawn both at later
+  stage entries and full-team restarts. A fresh session starts with P1 alone.
+- Holding **P2 Select for about three seconds** during normal gameplay
+  voluntarily despawns P2. Keep their current HP, weapon selection/energy and
+  subtank reserves; a later Select joins them at safe nearby ground with those
+  same stats. Voluntary withdrawal does not clear session enrollment. It must
+  never bypass the fallen-player lockout: only the next stage or a team restart
+  returns a player who died. This replaces the earlier Start-to-join rule.
 - Briefly freeze gameplay during joining and use the character's original
   stage-teleport assets. Find clear ground to the left or right of player 1
   within the current screen. If no safe space fits the incoming body, reject
@@ -150,7 +157,7 @@ but do not allow both gameplay modes to activate together.
   Reserve the weapon-bar column as an empty gap when that player uses the
   buster; do not shift the following bars. This supersedes the earlier HUD order.
 - Either present player may pause using Start and operate their own equipment
-  menu. P2 Start while absent is a join request, not P1's pause command.
+  menu. Start does not join an absent P2; Select owns join/withdrawal.
 - Players can overlap each other; there is no player collision or friendly fire.
 - Keep both surviving players on the same screen. A player moving right cannot
   scroll the other player off the left edge; apply the shared-screen constraint

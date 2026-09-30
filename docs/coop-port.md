@@ -14,6 +14,14 @@ mutually exclusive. The original X3 ROM path is shared with the Zero/X3 weapon
 packages; extraction happens internally. No source ROM or extracted art belongs
 in Git or the eventual downloadable mod.
 
+Latest join controls: P2 **Select** joins; Start remains pause/menu. Once P2
+joins, keep them enrolled for the session and automatically spawn them at
+later stage entries/team restarts. Holding P2 Select for approximately 180
+gameplay frames voluntarily withdraws P2, retaining HP, energy, selections
+and subtanks for a later rejoin. Withdrawal keeps session enrollment. Fallen
+players cannot use Select to rejoin until a new stage/team restart. These
+rules supersede Start-to-join; they are required behavior, not yet completed.
+
 The initial code is a **development foundation**, not a playable co-op release.
 It has no launcher activation package yet. A private ROM-backed test enables
 it directly. Do not announce joining, dual rendering, damage, pickups, camera,
@@ -147,8 +155,10 @@ Remaining integration, in order:
    enemy fractional damage and cross-player time/freeze effects.
 3. Check body damage and pickups for either player without duplicating enemy
    AI. Collector alone receives HP/energy; shared unlocks remain shared.
-4. Add safe Start-to-join, source teleports and world freeze. Reject unsafe
-   ground with the original error sound. No rejoin after death.
+4. Add safe Select-to-join, session enrollment and automatic later arrivals,
+   three-second voluntary withdrawal with retained stats, source teleports
+   and world freeze. Reject unsafe ground with the original error sound.
+   No voluntary rejoin after death.
 5. Draw both characters with source art and the fixed four-column HUD. Preserve
    native foreground priority; no blanket sprite priority override.
 6. Independent pause inventory and subtanks; shared camera and boundaries;
