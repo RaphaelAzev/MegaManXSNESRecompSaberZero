@@ -151,4 +151,8 @@ resolved by the startup fix.
 Subsequent [headed Highway checks](highway-pacing-2026-09-30.md) reproduce the
 same long updates in solo and co-op with VSync both on and off. They supersede
 the earlier boot/title-only samples for gameplay assessment and identify shared
-simulation/audio-time accounting as another investigation target.
+simulation/audio-time accounting as another investigation target. The follow-up
+localized and fixed a missing cooperative yield in X1's graphics streaming:
+the matched co-op walking maximum dropped from about 35 ms to 20 ms, with the
+same decoded graphics. See that document for final measurements and remaining
+display/audio-rollback limits.

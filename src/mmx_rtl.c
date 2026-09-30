@@ -19,6 +19,40 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "fiber_compat.h"   /* Win32 Fibers on Windows, ucontext shim on POSIX */
+#include "apu_frame_clock.h"
+
+#ifndef MMX_VARIANT_JP
+#define MMX_VARIANT_JP 0
+#endif
+
+/* The ROM streams graphics through $8121 every 256 output bytes. On the
+ * console a mid-task NMI makes that checkpoint yield; this frame-model host
+ * delivers NMI before the scheduler, so its flag stays clear during the task.
+ * Reserve enough time for another worst-case 256-byte literal batch plus its
+ * coroutine epilogue instead of decompressing the whole file in one tick.
+ * This origin is transient: every RtlRunFrame (including replay) renews it. */
+static uint64_t s_graphics_frame_start;
+static bool s_graphics_frame_active;
+
+bool MmxGraphicsShouldYield(const CpuState *cpu) {
+#if MMX_VARIANT_JP
+  (void)cpu;
+  return false; /* Checkpoint addresses below are verified against USA. */
+#else
+  const uint64_t reserve = 0x18000; /* 256 bytes * <=48 slow-bus CPU cycles. */
+  return s_graphics_frame_active && g_snes->nmiEnabled &&
+      !PPU_forcedBlank(g_ppu) && cpu->master_cycles >= s_graphics_frame_start &&
+      cpu->master_cycles - s_graphics_frame_start >=
+          RTL_MASTER_CYCLES_PER_FRAME - reserve;
+#endif
+}
+
+static void MmxGraphicsYieldHook(CpuState *cpu, uint32_t pc) {
+  if (MmxGraphicsShouldYield(cpu))
+    /* $8127 saves the live coroutine, delays it one tick, and returns to the
+     * scheduler's frame wait. Leave $0B9D alone; no synthetic extra NMI. */
+    interp_bridge_pre_opcode_redirect((pc & 0xff0000) | 0x8127);
+}
 
 static SnesrecompExecutionMode mmx_execution_mode(void) {
   /* LLE is the correctness floor. The C-host fiber scheduler remains an
@@ -43,10 +77,6 @@ static SnesrecompExecutionMode mmx_execution_mode(void) {
 jmp_buf g_mmx_task_jmp;             /* legacy — kept for build compat */
 uint8_t g_mmx_task_slot_x;
 uint8_t g_mmx_task_yield_countdown;
-
-#ifndef MMX_VARIANT_JP
-#define MMX_VARIANT_JP 0
-#endif
 
 static int mmx_rtl_diag_enabled(void);
 
@@ -597,13 +627,11 @@ void MmxSchedulerTick(void) {
    * against the object's ~+30f activation, so the tile base latched 0 and
    * the turtle rendered invisible).
    *
-   * Clearing here (the $80C6 timing) makes $8121 a no-op within a tick:
-   * the recomp has no mid-tick NMI, so vblank has NOT re-fired during the
-   * tick, so the decompressor correctly runs its block to completion this
-   * frame. $8121 is used ONLY by the decompressor, so no other task's
-   * per-frame pacing is affected. I_NMI (which owns the gated DMA path
-   * and reads $0B9D before this point each frame) is unaffected: the tick
-   * leaves $0B9D==0, exactly as the end-of-tick clear did. */
+   * Clearing here preserves that first-batch throughput. The frame-budget
+   * checkpoint in MmxGraphicsShouldYield now supplies the missing mid-tick
+   * boundary: $8121 takes its native coroutine yield before the next batch
+   * would overrun the frame. It does not set $0B9D or inject another NMI.
+   * I_NMI's gated DMA path still observes the same handshake flag. */
   g_ram[0x0B9D] = 0x00;
   for (uint8_t x = 0x00; x < 0x70; x += 0x10) {
     uint8_t slot_idx = x >> 4;
@@ -790,6 +818,11 @@ void MmxDrawPpuFrame(void) {
 }
 
 void RunOneFrameOfGame(void) {
+  s_graphics_frame_start = g_cpu.master_cycles;
+  s_graphics_frame_active = g_did_reset;
+#if !MMX_VARIANT_JP
+  interp_bridge_set_pre_opcode_hook(0x008121, MmxGraphicsYieldHook);
+#endif
   // First-call reset gate. Was previously `if (*(uint16*)$7F8000 == 0) I_RESET()`,
   // which silently relied on WRAM being zero-initialized at power-on. Real hardware
   // (and snes9x) power-on WRAM is 0x55, so that check would never fire and I_RESET

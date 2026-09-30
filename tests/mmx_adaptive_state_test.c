@@ -5,6 +5,7 @@
 #include MMX_GAME_MAIN
 #include "common/launcher_binds.h"
 #include "mmx_weapons.h"
+#include "snes/interp_bridge.h"
 
 static void check(int ok, const char *what) {
   if (!ok) { fprintf(stderr, "FAIL: %s\n", what); exit(1); }
@@ -45,6 +46,7 @@ static void zero_capture(const char *base, const char *suffix) {
 }
 #include "mmx_coop_test.inc"
 #include "mmx_netplay_test.inc"
+#include "mmx_graphics_pacing_test.inc"
 static void zero_motion_checks(const char *fixture) {
   const char *path = getenv("MMX_ZERO_MOTION_REFERENCE");
   if (!path) path = MMX_ZERO_MOTION_REFERENCE_DEFAULT;
@@ -1934,6 +1936,10 @@ int main(int argc, char **argv) {
   uint8 *start = malloc(cap), *expected = malloc(cap), *actual = malloc(cap);
   const char *zero_assets = getenv("MMX_ZERO_TEST_ASSETS");
   const char *zero_title = getenv("MMX_ZERO_TITLE_FIXTURE");
+  if (getenv("MMX_GRAPHICS_PACING_TEST")) {
+    graphics_pacing_checks(zero_assets, start, expected, actual, cap);
+    return 0;
+  }
   if (getenv("MMX_COOP_LAUNCHER_ROOT")) {
     coop_launcher_checks(getenv("MMX_COOP_LAUNCHER_ROOT"),argv[1],getenv("MMX_COOP_X3_ROM"));
     return 0;
