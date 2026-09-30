@@ -387,19 +387,46 @@ These checks pass with generated dispatch enabled and disabled. The existing
 co-op checks also pass after the fix, including either survivor's final death,
 one-life checkpoint restart, both rosters, menus, pickups and withdrawal.
 
-### Highway freeze remains open for another owner playtest
+### Highway falling-platform freeze: reproduced and fixed
 
-Read-only captures of the frozen process and all 50 rewind snapshots were
-preserved privately under `_research/owner-softlock/`. P1 was fallen, P2 was
-alive with 6 HP near `(4803,351)`, stage mode was `2/4/4`, and the main task
-remained in running state `$03` while the CPU scheduler had direct page
-`$1628` (the first item slot). All captured rewind frames were already frozen.
-This establishes a stranded native task; it does **not** establish the exact
-trigger or prove a generated-return fault.
+The owner reproduced the freeze with P1 X already fallen and P2 Zero walking
+right while charging on Highway's collapsing platforms. Both read-only captures
+had the first item slot at `$1628`, native item kind `$09`, with the platform's
+`.2F` countdown just set to `$1E`. The CPU eventually reached the retail panic
+loop at `$80:8097`; repeatedly trying to run that damaged task corrupted more
+of its stack. Private captures remain under `_research/owner-softlock/` and
+`_research/owner-softlock-2/`; none are distributed.
 
-A private diagnostic restored the main task's scheduler record/stack from a
-healthy fixture; that let the captured scene advance again. Walking and charge
-attack trials did not reproduce the original failure. No scheduler repair,
-forced execution-policy change, or automatic save loading ships in this fix.
-The owner requested another manual run instead of extending this investigation.
-If it recurs, preserve a recent healthy save/rewind and the input sequence.
+A bounded regression reconstructs the first captured scene's main task record
+and stack from a healthy fixture, then rearms that platform's countdown. The
+old generated-dispatch build freezes on the very first frame; interpretation
+alone succeeds. This is diagnostic fixture setup, not a runtime recovery patch.
+The second capture had accumulated additional corruption and could not serve
+as this regression: the same reconstruction failed with either execution mode.
+
+The native path is `$82:E777 -> JSR $E9ED`. Ground contact through `$84:9C0E`
+sets the 30-frame countdown and calls positional sound `$80:88A2` at `$82:EA27`.
+In the failing mixed execution, returning from that helper also interpreted the
+caller's continuation and popped its JSR frame. The outer interpreter then ran
+`$82:EA2B` a second time, over-popped, and continued in the wrong bank. Excluding
+only the sound helper moved the same failure to effect allocation `$82:EA34`
+(`$82:82D3`), so the sound itself was not the cause.
+
+The co-op wrapper previously entered the interpreter before the generated
+function's prologue consumed an inherited JMP/JML return context. The next
+compiled helper could adopt that stale context as its own. `apply_coop_hooks.py`
+now inserts the co-op boundary after the normal prologue, uses its inherited
+`_entry_s`/`_hrv`, and balances its host stack entry on return. All 23 existing
+co-op boundaries use the corrected placement. Native platform code, physics,
+and charge behavior are unchanged; the shared engine needs no new patch.
+
+Set `MMX_COOP_PLATFORM_CAPTURE` to the first private frozen snapshot alongside
+the ordinary ROM-backed co-op test variables to run the regression. It verifies
+the original 30-frame activation, 60 uninterrupted world ticks, the subsequent
+falling phase, and restoration of the task's direct page. An explicit panic
+hook fails immediately instead of waiting for the interpreter instruction cap.
+The platform regression passes with generated dispatch enabled and disabled.
+The full existing co-op suite plus focused keyboard routing and natural
+enemy/pit-death checks also pass with generated dispatch enabled. The owner
+still needs to play through this area and the rest of the campaign; a bounded
+regression does not establish complete stage coverage.

@@ -13,17 +13,23 @@ TARGETS = {0x01812e, 0x048fca, 0x0280b4, 0xd2bd, 0xd3dd, 0xd3fa, 0xd43a, 0xd457,
 
 def apply(text):
     output, found = [], set()
+    native_pc = 0
     for line in text.splitlines(keepends=True):
         if MARKER in line:
             continue
         output.append(line)
         entry = re.match(r'RecompReturn bank_([0-9A-Fa-f]{2})_([0-9A-Fa-f]{4})_M[01]X[01]\(CpuState \*cpu\) \{', line)
         pc = int(entry[1] + entry[2],16) if entry else 0
-        if (pc & 0x7fffff) in TARGETS:
-            # Native JSL already owns a guest return frame. This uses the
-            # bridge's existing paired/dispatch ABI, with no synthetic frame.
-            output.append(f'  {MARKER} {{ extern bool MmxCoopEnabled(void); if (MmxCoopEnabled()) return interp_tier_dispatch_bank_miss(cpu, 0x{pc:06x}u, cpu->S, cpu->host_return_valid); }}\n')
-            found.add(pc & 0x7fffff)
+        if entry:
+            native_pc = pc if (pc & 0x7fffff) in TARGETS else 0
+        if native_pc and 'g_cpu_entry_s[g_recomp_stack_top - 1] = _entry_s;' in line:
+            # Run the generated prologue first: a JMP/JML caller may have
+            # supplied an inherited return context. Leaving it pending lets
+            # an unrelated compiled child adopt the wrong frame and execute
+            # the platform's continuation twice (Highway $82:E9ED).
+            output.append(f'  {MARKER} {{ extern bool MmxCoopEnabled(void); if (MmxCoopEnabled()) {{ RecompReturn r = interp_tier_dispatch_bank_miss(cpu, 0x{native_pc:06x}u, _entry_s, _hrv); RecompStackPop(); return r; }} }}\n')
+            found.add(native_pc & 0x7fffff)
+            native_pc = 0
     return ''.join(output), found
 
 

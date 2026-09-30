@@ -544,6 +544,41 @@ static void coop_natural_death_checks(const char *fixture) {
   interp_bridge_set_pre_opcode_hook(0x818b09,NULL);
   puts("MMX CO-OP NATURAL DEATH CHECKS PASSED");
 }
+/* Optional private regression for the first captured Highway freeze.
+ * The capture is already wedged, so reconstruct its main task from the ordinary
+ * healthy fixture and rearm the just-activated platform. No repair is applied
+ * in the game itself; all captured assets stay outside the repository. */
+static void coop_platform_trap(CpuState *cpu,uint32_t pc) {
+  fprintf(stderr,"platform trap %06x D=%04x S=%04x\n",pc,cpu->D,cpu->S);
+  interp_bridge_dump_recent_steps(256,stderr);
+  check(false,"falling platform returns to the world task");
+}
+static void coop_platform_checks(const char *fixture,const char *capture) {
+  MmxCoopDisable();
+  check(RtlLoadSnapshot(fixture),"healthy platform scheduler fixture loads");
+  uint8_t task[16],stack[64];
+  memcpy(task,g_ram+0x30,sizeof(task));memcpy(stack,g_ram+0x100,sizeof(stack));
+  check(MmxCoopEnable(0),"platform co-op enables");
+  check(RtlLoadSnapshot(capture),"private platform capture loads");
+  MmxCoopState s=MmxCoopGetState();
+  check(s.players[0].status==MMX_COOP_FALLEN && s.players[1].status==MMX_COOP_ALIVE &&
+      s.players[1].character==MMX_COOP_ZERO && g_ram[0x1632]==9,
+      "platform fixture contains surviving P2 Zero and a native falling platform");
+  g_cpu.D=0;
+  memcpy(g_ram+0x30,task,sizeof(task));memcpy(g_ram+0x100,stack,sizeof(stack));
+  g_ram[0x1628]=1;g_ram[0x1629]=2;g_ram[0x1657]=0;
+  unsigned tick=g_ram[0xb9c];
+  interp_bridge_set_pre_opcode_hook(0x808097,coop_platform_trap);
+  coop_frames(1,0,SNES_PAD_RIGHT|SNES_PAD_Y);
+  check(g_ram[0x1657]==30,"walking and charging starts the original platform countdown");
+  coop_frames(59,0,SNES_PAD_RIGHT|SNES_PAD_Y);
+  check((uint8_t)(g_ram[0xb9c]-tick)==60 && g_cpu.D==0,
+      "survivor world advances through platform activation without stranding its task");
+  check(g_ram[0x1657]==0 && (!g_ram[0x1628] || g_ram[0x1629]!=2),
+      "platform finishes its countdown and enters the native falling phase");
+  interp_bridge_set_pre_opcode_hook(0x808097,NULL);
+  puts("MMX CO-OP PLATFORM CHECKS PASSED");
+}
 static void coop_launcher_checks(const char *root,const char *rom,const char *x3) {
   check(x3!=NULL,"launcher check receives original X3 ROM");
   check(snes_mod_runtime_initialize_c(root,"megaman-x-us",
@@ -587,6 +622,7 @@ static void coop_checks(const char *assets, const char *fixture,
   MmxZeroRegisterHooks(); MmxCoopRegisterHooks();
   const char *x2=getenv("MMX_COOP_X2_ASSETS"),*x3=getenv("MMX_COOP_X3_ASSETS");
   if (x2 && x3) check(MmxWeaponsLoadPage(x2,1) && MmxWeaponsLoadPage(x3,2),"private original weapon source packs load");
+  if(getenv("MMX_COOP_PLATFORM_CAPTURE")) {coop_platform_checks(fixture,getenv("MMX_COOP_PLATFORM_CAPTURE"));return;}
   if(getenv("MMX_COOP_NATURAL_DEATH")) {coop_natural_death_checks(fixture);return;}
   if(getenv("MMX_COOP_KEYBOARD_TEST")) {coop_keyboard_checks(fixture);return;}
   if(getenv("MMX_COOP_CAPSULE_FIXTURE")) {coop_capsule_checks(getenv("MMX_COOP_CAPSULE_FIXTURE"));return;}
