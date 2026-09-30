@@ -501,6 +501,20 @@ static void constrain_player(uint8_t *r) {
   if (limited!=x) {putword(r+0xbad,(unsigned)limited);r[0xbac]=0;putword(r+0xbc2,0);}
 }
 static void camera_hook(CpuState *cpu,uint32_t pc) {
+  if ((pc&65535)==0xe12d) {
+    /* The native bottom-camera clamp checks only $0BB0. Apply that same
+     * signed feet threshold to the other actor before the original check.
+     * $84:9F2F..9F79's fatal-hit state keeps the ordinary death controller,
+     * sound and orb objects; the shared camera still runs only once. */
+    if (!enabled || !state.initialized || state.menu_owner || state.scene_owner || MmxCoopTransitionActive()) return;
+    MmxCoopPlayer *p=&state.players[state.anchor^1];
+    if (p->status==MMX_COOP_ALIVE && (p->body[0x27]&127) &&
+        (int16_t)(word(p->body+8)-32-word(g_ram))>=0) {
+      ++p->body[0x30];p->body[0x2f]=8;p->body[0x26]=127;
+      p->body[2]=p->body[0x6a]=12;p->body[3]=0;p->body[0x27]=128;
+    }
+    return;
+  }
   if (!shared_screen()) return;
   unsigned axis=((pc&65535)==0xdebf || (pc&65535)==0xdeca) ? 8 : 5;
   unsigned a=word(state.players[0].body+axis),b=word(state.players[1].body+axis);
@@ -654,7 +668,7 @@ void MmxCoopRegisterHooks(void) {
       0x849dc9,0x849dcc,0x849ee9};
   for (unsigned i=0;i<sizeof(contacts)/sizeof(contacts[0]);++i)
     interp_bridge_set_pre_opcode_hook(contacts[i],contact_hook);
-  const unsigned cameras[]={0xdea0,0xdeab,0xdebf,0xdeca};
+  const unsigned cameras[]={0xdea0,0xdeab,0xdebf,0xdeca,0xe12d};
   for(unsigned i=0;i<sizeof(cameras)/sizeof(cameras[0]);++i)
     interp_bridge_set_pre_opcode_hook(cameras[i],camera_hook);
   interp_bridge_set_pre_opcode_hook(0x9e68,menu_hook);

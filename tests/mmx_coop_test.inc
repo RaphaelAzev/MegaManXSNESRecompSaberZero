@@ -481,6 +481,60 @@ static void coop_keyboard_checks(const char *fixture) {
       "keyboard withdrawal finishes without controlling P1");
   MmxCoopDisable();puts("MMX CO-OP KEYBOARD ROUTING CHECKS PASSED");
 }
+static unsigned coop_death_sounds,coop_death_orbs;
+static void coop_death_sound_check(CpuState *cpu,uint32_t pc) {
+  if(cpu->D!=0xba8) return;
+  if((pc&65535)==0x8aa4) ++coop_death_sounds; /* Original $0A sound. */
+  else for(unsigned d=0x1928;d<0x1d08;d+=32)
+    coop_death_orbs+=g_ram[d]!=0 && g_ram[d+10]==14;
+}
+static void coop_natural_death_checks(const char *fixture) {
+  interp_bridge_set_pre_opcode_hook(0x818aa4,coop_death_sound_check);
+  interp_bridge_set_pre_opcode_hook(0x818b09,coop_death_sound_check);
+  for(unsigned character=0;character<2;++character)
+  for(unsigned pit=0;pit<2;++pit) for(unsigned fallen=0;fallen<2;++fallen) {
+    MmxCoopDisable();check(RtlLoadSnapshot(fixture),"natural death fixture loads");
+    check(MmxCoopEnable(character),"natural death uses either roster");coop_frames(8,0,0);
+    MmxCoopState s=MmxCoopGetState();
+    check(MmxCoopPlacePartner(g_ram,coop_x(&s.players[0])+40,coop_y(&s.players[0])),"natural death partner placed");
+    unsigned enemy=0;
+    if(!pit) {
+      for(unsigned i=0;i<400 && !enemy;++i) {
+        coop_frames(1,SNES_PAD_RIGHT,SNES_PAD_RIGHT);
+        for(unsigned d=0xe68;d<0x1228;d+=64)
+          if(g_ram[d] && g_ram[d+14] && (g_ram[d+0x27]&127) && (g_ram[d+0x20]|g_ram[d+0x21])) {enemy=d;break;}
+      }
+      check(enemy!=0,"native enemy found for lethal contact");
+    }
+    MmxCoopSelect(g_ram,fallen);
+    if(pit) {
+      /* Start below the floor with HP intact; native gravity/camera must
+       * detect the fall. Do not preselect the death controller. */
+      unsigned y=(g_ram[0x1e50]|g_ram[0x1e51]<<8)+240;
+      g_ram[0xbb0]=(uint8_t)y;g_ram[0xbb1]=(uint8_t)(y>>8);
+      g_ram[0xbaa]=8;g_ram[0xbab]=2;
+    } else {
+      memcpy(g_ram+0xbad,g_ram+enemy+5,2);memcpy(g_ram+0xbb0,g_ram+enemy+8,2);
+      g_ram[0xc30]=g_ram[0xc32]=0;g_ram[0xbcf]=129;
+    }
+    MmxCoopSelect(g_ram,0);
+    unsigned lives=g_ram[0x1f80],tick=g_ram[0xb9c];
+    coop_death_sounds=coop_death_orbs=0;
+    for(unsigned f=0;f<90;++f) {
+      coop_frames(1,0,0);s=MmxCoopGetState();
+      if(character==0 && !pit && fallen==1 && f==35) coop_image(character,"p2-death-orbs");
+    }
+    check(s.players[fallen].status==MMX_COOP_FALLEN && !(s.players[fallen].body[0x27]&127),
+        "natural fatality empties its health and completes native death");
+    check(coop_death_sounds==1 && coop_death_orbs==8,"first death plays one native sound and spawns all eight native orbs");
+    check(s.players[fallen^1].status==MMX_COOP_ALIVE && g_ram[0x1f80]==lives &&
+        (uint8_t)(g_ram[0xb9c]-tick)==90,"survivor world keeps running without losing a life");
+    if(character==0 && !pit && fallen==1) coop_image(character,"p2-natural-death");
+  }
+  interp_bridge_set_pre_opcode_hook(0x818aa4,NULL);
+  interp_bridge_set_pre_opcode_hook(0x818b09,NULL);
+  puts("MMX CO-OP NATURAL DEATH CHECKS PASSED");
+}
 static void coop_launcher_checks(const char *root,const char *rom,const char *x3) {
   check(x3!=NULL,"launcher check receives original X3 ROM");
   check(snes_mod_runtime_initialize_c(root,"megaman-x-us",
@@ -524,6 +578,7 @@ static void coop_checks(const char *assets, const char *fixture,
   MmxZeroRegisterHooks(); MmxCoopRegisterHooks();
   const char *x2=getenv("MMX_COOP_X2_ASSETS"),*x3=getenv("MMX_COOP_X3_ASSETS");
   if (x2 && x3) check(MmxWeaponsLoadPage(x2,1) && MmxWeaponsLoadPage(x3,2),"private original weapon source packs load");
+  if(getenv("MMX_COOP_NATURAL_DEATH")) {coop_natural_death_checks(fixture);return;}
   if(getenv("MMX_COOP_KEYBOARD_TEST")) {coop_keyboard_checks(fixture);return;}
   if(getenv("MMX_COOP_CAPSULE_FIXTURE")) {coop_capsule_checks(getenv("MMX_COOP_CAPSULE_FIXTURE"));return;}
   const char *scene_fixture=getenv("MMX_COOP_SCENE_FIXTURE");

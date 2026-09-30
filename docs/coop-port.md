@@ -354,3 +354,50 @@ Prioritize these during owner playtests:
 
 Future netplay integration is separate. Deterministic snapshots include both
 players and scene continuation, but this does not certify online compatibility.
+
+## Owner playtest follow-ups: keyboard seats and pit deaths
+
+The desktop host polled both keyboard maps regardless of the launcher's input
+source assignment. With identical default maps, assigning P1 to Gamepad and P2
+to Keyboard therefore drove both actors. Shared engine commit `b403ec5` reads
+only the keyboard-assigned seats and replaces the entire keyboard word each
+poll, also releasing held keys after a source change. Controller presence now
+uses those same source assignments. The ROM-backed host harness covers source
+changes and P2 joining/withdrawing through the real keyboard polling function.
+Default Select is **Right Shift**; hold it for 180 gameplay frames to withdraw.
+
+The missing P2 death was reproduced as a **pit fall**, rather than ordinary
+enemy damage. Retail's camera bottom clamp at `$00:E11E..E152` checks only the
+projected actor. Once it clamps, `$E12D` compares `(player_y - 32)` to the bottom
+edge in scratch `$0000`, then deals a lethal `$7F` hit through `$84:9F2F`.
+The co-op hook applies the same signed comparison and fatal-hit state to the
+other living actor. The normal controller subsequently supplies the death
+pose, `$0A` sound, eight original orb objects, and the existing survivor/team
+restart handling. `$00:DE40` is an authoritative interpreter boundary so its
+embedded bottom-clamp hook also runs with generated dispatch enabled.
+
+Natural-death regression checks start with live players: either a lethal enemy
+contact or an airborne player below the floor. Both seats and both rosters
+must reach zero HP, emit one sound and eight orbs, and leave the survivor's
+world running without spending a life. Orbs are counted at emission because
+retail culls a pit death's offscreen objects before the rendered frame.
+These checks pass with generated dispatch enabled and disabled. The existing
+co-op checks also pass after the fix, including either survivor's final death,
+one-life checkpoint restart, both rosters, menus, pickups and withdrawal.
+
+### Highway freeze remains open for another owner playtest
+
+Read-only captures of the frozen process and all 50 rewind snapshots were
+preserved privately under `_research/owner-softlock/`. P1 was fallen, P2 was
+alive with 6 HP near `(4803,351)`, stage mode was `2/4/4`, and the main task
+remained in running state `$03` while the CPU scheduler had direct page
+`$1628` (the first item slot). All captured rewind frames were already frozen.
+This establishes a stranded native task; it does **not** establish the exact
+trigger or prove a generated-return fault.
+
+A private diagnostic restored the main task's scheduler record/stack from a
+healthy fixture; that let the captured scene advance again. Walking and charge
+attack trials did not reproduce the original failure. No scheduler repair,
+forced execution-policy change, or automatic save loading ships in this fix.
+The owner requested another manual run instead of extending this investigation.
+If it recurs, preserve a recent healthy save/rewind and the input sequence.
