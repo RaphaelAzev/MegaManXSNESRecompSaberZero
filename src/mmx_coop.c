@@ -11,8 +11,8 @@ extern Snes *g_snes;
 static MmxCoopState state;
 static bool enabled;
 static unsigned starting_character;
-_Static_assert(sizeof(MmxCoopPlayer) == 2272, "Co-op player save ABI");
-_Static_assert(sizeof(MmxCoopState) == 4600, "Co-op save ABI");
+_Static_assert(sizeof(MmxCoopPlayer) == 2268, "Co-op player save ABI");
+_Static_assert(sizeof(MmxCoopState) == 4616, "Co-op save ABI");
 static bool join_tick(uint8_t *r);
 static unsigned word(const uint8_t *p) {return p[0]|p[1]<<8;}
 static void putword(uint8_t *p,unsigned v) {p[0]=(uint8_t)v;p[1]=(uint8_t)(v>>8);}
@@ -45,7 +45,10 @@ bool MmxCoopValidState(const MmxCoopState *s) {
       s->reserved || s->object_reserved || s->object_pass > 2 ||
       s->contact_reserved || s->contact_pass > 2 || s->enrolled>1 ||
       s->select_hold>180 || s->select_armed>1 || s->stage_pending>2 ||
-      s->menu_owner>2 || s->menu_last>1 || s->menu_reserved[0] || s->menu_reserved[1]) return false;
+      s->menu_owner>2 || s->menu_last>1 || s->menu_reserved[0] || s->menu_reserved[1] ||
+      s->pickup_pass>2 || s->pickup_reserved[0] || s->pickup_reserved[1] || s->pickup_reserved[2]) return false;
+  for(unsigned i=0;i<16;++i) if(s->pickup_owner[i]>2) return false;
+  if(s->pickup_pass && (s->pickup_d<0x1628 || s->pickup_d>=0x1928 || (s->pickup_d-0x1628)%48)) return false;
   if (s->object_pass && s->object_entry != 0xd2bd && s->object_entry != 0xd3dd &&
       s->object_entry != 0xd3fa && s->object_entry != 0xd43a && s->object_entry != 0xd457 &&
       s->object_entry != 0x9d67) return false;
@@ -57,7 +60,6 @@ bool MmxCoopValidState(const MmxCoopState *s) {
         !MmxWeaponsValidState(&p->weapons) || !MmxWeaponsValidCombatState(&p->combat) ||
         !MmxZeroValidState(&p->zero)) return false;
     if (s->initialized && p->zero.active_x != (p->character == MMX_COOP_X)) return false;
-    for (unsigned n = 0; n < 4; ++n) if (p->subtanks[n] > 14) return false;
     for (unsigned n = 1; n < 16; n += 2) if (p->energy[n] > 28) return false;
   }
   return s->players[0].character != s->players[1].character;
@@ -77,7 +79,6 @@ void MmxCoopCapture(uint8_t *r) {
   memcpy(p->shots, r + 0x1228, sizeof(p->shots));
   memcpy(p->energy, r + 0x1f87, sizeof(p->energy));
   for (unsigned n = 1; n < 16; n += 2) p->energy[n] &= 63;
-  for (unsigned n = 0; n < 4; ++n) p->subtanks[n] = r[0x1f83 + n] & 15;
   p->zero = MmxZeroGetState();
   p->weapons = MmxWeaponsGetState();
   p->combat = MmxWeaponsGetCombatState();
@@ -97,8 +98,6 @@ bool MmxCoopSelect(uint8_t *r, unsigned player) {
   memcpy(r + 0x1228, p->shots, sizeof(p->shots));
   for (unsigned n = 0; n < 16; ++n)
     r[0x1f87 + n] = p->energy[n] | ((n & 1) ? r[0x1f87 + n] & 0xc0 : 0);
-  for (unsigned n = 0; n < 4; ++n)
-    r[0x1f83 + n] = (r[0x1f83 + n] & 0xf0) | p->subtanks[n];
   MmxZeroSetState(p->zero);
   MmxWeaponsSetState(p->weapons);
   MmxWeaponsSetCombatState(p->combat);
@@ -114,8 +113,8 @@ void MmxCoopInitialize(uint8_t *r) {
   state.players[0].status = MMX_COOP_ALIVE;
   MmxCoopCapture(r);
   MmxCoopPlayer *partner = &state.players[1];
-  /* Inventory starts full for a new partner. Shared unlocks remain in WRAM.
-   * Reserves are separately empty; joining never copies P1's stored healing. */
+  /* Inventory starts full for a new partner. Shared unlocks and subtanks
+   * remain in world WRAM; joining never creates another stored-healing pool. */
   for (unsigned n = 1; n < 16; n += 2) partner->energy[n] = 28;
   partner->weapons.initialized = 1; memset(partner->weapons.energy, 28, 16);
   partner->zero.active_x = partner->character == MMX_COOP_X;
@@ -135,6 +134,7 @@ bool MmxCoopFrameTick(uint8_t *r) {
     /* Native stage entry/reset has rebuilt P1. Preserve enrollment and
      * reserves, refill P2 as agreed, and wait for safe ground to arrive. */
     MmxCoopCapture(r);state.stage=r[0x1f7a];state.players[0].status=MMX_COOP_ALIVE;
+    memset(state.pickup_owner,0,sizeof(state.pickup_owner));state.pickup_pass=0;
     MmxCoopPlayer *p=&state.players[1];p->status=MMX_COOP_ABSENT;
     p->body[0x27]=r[0x1f9a]|128;
     memset(p->energy,0,sizeof(p->energy));
@@ -345,6 +345,39 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
     state.contact_pass = 0;
   }
 }
+static bool pickup_slot(unsigned d) {
+  if(d<0x1628 || d>=0x1928 || (d-0x1628)%48) return false;
+  unsigned kind=g_ram[d+10];
+  return kind==1 || kind==2 || kind==4 || kind==5 || kind==11;
+}
+static void pickup_hook(CpuState *cpu,uint32_t pc) {
+  if(!enabled || !state.initialized || state.menu_owner) return;
+  unsigned at=pc&65535,d=cpu->D;
+  if(at==0xd2ed || at==0xd31b) {MmxCoopSelect(g_ram,0);return;}
+  if(at==0xd2e6 || at==0xd308) {
+    if(d<0x1628 || d>=0x1928 || (d-0x1628)%48) return;
+    unsigned slot=(d-0x1628)/48;
+    if(!g_ram[d] || !g_ram[d+1] || !pickup_slot(d)) state.pickup_owner[slot]=0;
+    if(state.pickup_owner[slot]) MmxCoopSelect(g_ram,state.pickup_owner[slot]-1);
+    return;
+  }
+  if(at==0x9c0e) {
+    if(!state.pickup_pass && pickup_slot(d) && cpu->X==0xba8 &&
+        !state.pickup_owner[(d-0x1628)/48] && state.players[1].status==MMX_COOP_ALIVE) {
+      state.pickup_s=cpu->S;state.pickup_d=(uint16_t)d;state.pickup_pass=1;
+    }
+    return;
+  }
+  if(!state.pickup_pass || cpu->S!=state.pickup_s || d!=state.pickup_d) return;
+  if(cpu->_flag_C) {
+    state.pickup_owner[(d-0x1628)/48]=(uint8_t)(state.current+1);state.pickup_pass=0;
+  } else if(state.pickup_pass==1 && !state.current) {
+    /* Retry only native contact, never item movement or its refill task.
+     * Keep a successful collector projected through the rest of this item. */
+    MmxCoopSelect(g_ram,1);state.pickup_pass=2;
+    interp_bridge_pre_opcode_redirect(0x849c0e);
+  } else {MmxCoopSelect(g_ram,0);state.pickup_pass=0;}
+}
 static void object_hook(CpuState *cpu, uint32_t pc) {
   if (!enabled || !state.initialized || state.menu_owner || state.players[1].status != MMX_COOP_ALIVE) return;
   unsigned at = pc & 65535;
@@ -490,4 +523,7 @@ void MmxCoopRegisterHooks(void) {
   interp_bridge_set_pre_opcode_hook(0x9eac,menu_hook);
   interp_bridge_set_pre_opcode_hook(0xc579,menu_hook);
   interp_bridge_set_pre_opcode_hook(0xe57f,menu_hook);
+  const unsigned pickups[]={0xd2e6,0xd2ed,0xd308,0xd31b,0x849c0e,0x849c15,0x849c1d,0x849d06};
+  for(unsigned i=0;i<sizeof(pickups)/sizeof(pickups[0]);++i)
+    interp_bridge_set_pre_opcode_hook(pickups[i],pickup_hook);
 }

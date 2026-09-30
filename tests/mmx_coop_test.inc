@@ -82,6 +82,11 @@ static void coop_weapon_select(unsigned seat,unsigned page,unsigned weapon) {
   MmxWeaponsSetState(w);MmxCoopCapture(g_ram);MmxCoopSelect(g_ram,0);
 }
 static void coop_weapon_checks(unsigned character) {
+  for(unsigned seat=0;seat<2;++seat) {
+    MmxCoopSelect(g_ram,seat);MmxWeaponsState w=MmxWeaponsGetState();
+    memset(w.energy,28,sizeof(w.energy));memset(w.fraction,0,sizeof(w.fraction));MmxWeaponsSetState(w);
+  }
+  MmxCoopSelect(g_ram,0);
   coop_weapon_select(0,2,1);coop_weapon_select(1,2,4);
   coop_frames(1,0,SNES_PAD_Y);coop_frames(6,0,0);
   MmxCoopState s=MmxCoopGetState();
@@ -149,8 +154,8 @@ static void coop_join_checks(unsigned character,const char *fixture,uint8_t *sta
   for(unsigned i=0;i<80 && MmxCoopTransitionActive();++i) coop_frames(1,0,0);
   MmxCoopState s=MmxCoopGetState();
   check(s.players[1].status==MMX_COOP_ABSENT && s.enrolled,"voluntary withdrawal retains session enrollment");
-  check((s.players[1].body[0x27]&127)==5 && s.players[1].energy[1]==11 && s.players[1].subtanks[0]==9,
-      "withdrawal retains HP, weapon energy and subtank reserves");
+  check((s.players[1].body[0x27]&127)==5 && s.players[1].energy[1]==11 && (g_ram[0x1f83]&15)==9,
+      "withdrawal retains personal HP/energy and shared subtanks");
   coop_frames(1,0,SNES_PAD_SELECT);coop_frames(2,0,0);
   check(MmxCoopTransitionActive(),"voluntarily absent player can rejoin");
   size_t n=RtlSaveSnapshotToMemory(start,cap);coop_frames(20,0,0);
@@ -160,7 +165,7 @@ static void coop_join_checks(unsigned character,const char *fixture,uint8_t *sta
   same(expected,en,actual,an,"arrival timing, enrollment and retained stats replay exactly");
   for(unsigned i=0;i<80 && MmxCoopTransitionActive();++i) coop_frames(1,0,0);
   s=MmxCoopGetState();
-  check((s.players[1].body[0x27]&127)==5 && s.players[1].energy[1]==11 && s.players[1].subtanks[0]==9,
+  check((s.players[1].body[0x27]&127)==5 && s.players[1].energy[1]==11 && (g_ram[0x1f83]&15)==9,
       "rejoin does not refill the withdrawn player's stats");
   s.players[1].status=MMX_COOP_FALLEN;MmxCoopSetState(&s);
   coop_frames(1,0,SNES_PAD_SELECT);
@@ -240,6 +245,54 @@ static void coop_hud_checks(unsigned character) {
   coop_frames(1,SNES_PAD_R,0);coop_frames(3,0,0);coop_image(character,"hud-gap");
   check(!g_ram[0xbdb],"P1 buster leaves reserved weapon column empty");
 }
+static void coop_spawn_pickup(unsigned seat,unsigned kind) {
+  MmxCoopState s=MmxCoopGetState();
+  memset(g_ram+0x1628,0,48);g_ram[0x1628]=1;
+  g_ram[0x1632]=(uint8_t)kind;g_ram[0x1633]=129;
+  unsigned x=coop_x(&s.players[seat]),y=coop_y(&s.players[seat])-16;
+  g_ram[0x162d]=(uint8_t)x;g_ram[0x162e]=(uint8_t)(x>>8);
+  g_ram[0x1630]=(uint8_t)y;g_ram[0x1631]=(uint8_t)(y>>8);
+}
+static void coop_pickup_checks(uint8_t *start,uint8_t *expected,uint8_t *actual,size_t cap) {
+  MmxCoopSelect(g_ram,1);g_ram[0xbcf]=7|128;MmxCoopSelect(g_ram,0);
+  g_ram[0xbcf]=5|128;MmxCoopCapture(g_ram);
+  for(unsigned seat=0;seat<2;++seat) {
+    coop_spawn_pickup(seat,2);coop_frames(55,0,0);
+    MmxCoopState s=MmxCoopGetState();
+    fprintf(stderr,"pickup seat=%u HP=%u/%u item=%u/%u/%u owner=%u current=%u\n",seat,
+        s.players[0].body[0x27]&127,s.players[1].body[0x27]&127,g_ram[0x1628],g_ram[0x162a],g_ram[0x162b],s.pickup_owner[0],s.current);
+    check(!g_ram[0x1628] && (s.players[0].body[0x27]&127)==7 &&
+        (s.players[1].body[0x27]&127)==7+seat*2,"native health pickup heals only its collector");
+  }
+  coop_weapon_select(0,2,1);coop_weapon_select(1,1,7);
+  for(unsigned seat=0;seat<2;++seat) {
+    MmxCoopSelect(g_ram,seat);MmxWeaponsState w=MmxWeaponsGetState();
+    w.energy[(w.page-1)*8+w.weapon-1]=10;MmxWeaponsSetState(w);
+  }
+  MmxCoopSelect(g_ram,0);coop_spawn_pickup(1,1);coop_frames(5,0,0);
+  size_t n=RtlSaveSnapshotToMemory(start,cap);coop_frames(50,0,0);
+  size_t en=RtlSaveSnapshotToMemory(expected,cap);
+  check(RtlLoadSnapshotFromMemory(start,n),"mid-refill snapshot restores collector ownership");coop_frames(50,0,0);
+  size_t an=RtlSaveSnapshotToMemory(actual,cap);same(expected,en,actual,an,"collector refill replays exactly");
+  MmxCoopState s=MmxCoopGetState();
+  check(!g_ram[0x1628] && s.players[0].weapons.energy[8]==10 && s.players[1].weapons.energy[6]==12,
+      "native weapon pickup refills only its collector's selected imported weapon");
+  g_ram[0x1f83]=0x80;
+  MmxCoopSelect(g_ram,1);g_ram[0xbcf]=g_ram[0x1f9a]|128;MmxCoopSelect(g_ram,0);
+  coop_spawn_pickup(1,2);coop_frames(55,0,0);s=MmxCoopGetState();
+  check((g_ram[0x1f83]&15)==1 && (s.players[0].body[0x27]&127)==7,
+      "full-health pickup fills shared subtanks without healing the other player");
+  g_ram[0x1f83]=0x83;MmxCoopSelect(g_ram,1);g_ram[0xbcf]=9|128;
+  MmxCoopSelect(g_ram,0);
+  coop_frames(1,0,SNES_PAD_START);coop_frames(75,0,0);
+  g_ram[0x1ed2]=g_ram[0x1ed3]=10; /* Select the shared unlocked first tank. */
+  coop_frames(1,0,SNES_PAD_Y);coop_frames(30,0,0);
+  s=MmxCoopGetState();
+  check(!(g_ram[0x1f83]&15) && (s.players[0].body[0x27]&127)==7 && (s.players[1].body[0x27]&127)>9,
+      "P2 menu consumes the shared subtank and heals only P2");
+  coop_frames(1,0,SNES_PAD_START);coop_frames(75,0,0);
+  check(!(g_ram[0x1f83]&15),"returning to P1 cannot restore spent shared subtank reserves");
+}
 static void coop_checks(const char *assets, const char *fixture,
                         uint8_t *start, uint8_t *expected, uint8_t *actual, size_t cap) {
   check(assets && fixture, "co-op check requires private source assets and a grounded fixture");
@@ -311,6 +364,7 @@ static void coop_checks(const char *assets, const char *fixture,
       MmxCoopDisable();check(RtlLoadSnapshot(fixture),"restore independent weapon fixture");
       check(MmxCoopEnable(character),"restore chosen roster for weapons");coop_frames(8,0,0);
       s=MmxCoopGetState();check(MmxCoopPlacePartner(g_ram,coop_x(&s.players[0])+40,coop_y(&s.players[0])),"place weapon test partner");
+      coop_pickup_checks(start,expected,actual,cap);
       coop_hud_checks(character);
       coop_weapon_checks(character);
     }

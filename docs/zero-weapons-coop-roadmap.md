@@ -140,9 +140,9 @@ but do not allow both gameplay modes to activate together.
   for the rest of the current game session: automatically spawn both at later
   stage entries and full-team restarts. A fresh session starts with P1 alone.
 - Holding **P2 Select for about three seconds** during normal gameplay
-  voluntarily despawns P2. Keep their current HP, weapon selection/energy and
-  subtank reserves; a later Select joins them at safe nearby ground with those
-  same stats. Voluntary withdrawal does not clear session enrollment. It must
+  voluntarily despawns P2. Keep their current HP and weapon selection/energy;
+  a later Select joins them at safe nearby ground with those same stats.
+  Shared subtank contents remain unchanged by joining or withdrawal. Voluntary withdrawal does not clear session enrollment. It must
   never bypass the fallen-player lockout: only the next stage or a team restart
   returns a player who died. This replaces the earlier Start-to-join rule.
 - Briefly freeze gameplay during joining and use the character's original
@@ -186,8 +186,10 @@ Implementation defaults to document and validate:
 - Preserve shared unlocks/progression and a shared team life count; spend one
   life on a full team wipe and restart at the native checkpoint.
 - Keep pause input owned by its opener until that player resumes. Subtank use
-  heals its user. The owner confirmed separate subtank reserves, with shared
-  tank unlocks and other upgrades. Pause safely if an active controller disconnects.
+  heals only the player whose menu is open. **Subtank contents and unlocks are
+  shared**, per the later owner correction; this supersedes separate reserves.
+  Health pickup overflow from either full-health player fills that shared pool.
+  Other upgrades remain shared. Pause safely if an active controller disconnects.
 - The owner confirmed a configured P1 character, with the other character
   reserved for P2. The brief fixed-X/Zero answer was explicitly withdrawn;
   either X or Zero must be selectable for P1.

@@ -8,13 +8,12 @@ enum { MMX_COOP_ABSENT, MMX_COOP_ALIVE, MMX_COOP_FALLEN };
 
 /* Native routines keep their original addresses. Only these owned ranges are
  * projected into WRAM when a different player runs; world/task RAM stays live.
- * $1F83..86 are subtanks, NOT buster energy. Weapons start at $1F87. */
+ * $1F83..86 are shared subtanks, not projected. Weapons start at $1F87. */
 typedef struct MmxCoopPlayer {
   uint8_t body[0x90];                /* $0BA8..0C37 */
   uint8_t auxiliaries[0x1e0];        /* armor/charge objects $0C38..0E17 */
   uint8_t shots[0x200];              /* $1228..1427 */
   uint8_t energy[16];               /* $1F87..96, shared unlock bits excluded */
-  uint8_t subtanks[4];              /* low nibble of $1F83..86 */
   MmxZeroState zero;
   MmxWeaponsState weapons;
   MmxWeaponCombatState combat;
@@ -37,6 +36,9 @@ typedef struct MmxCoopState {
   uint8_t contact_p, contact_db, contact_pass, contact_reserved;
   uint8_t enrolled, select_hold, select_armed, stage_pending;
   uint8_t menu_owner, menu_last, menu_reserved[2]; /* owner 0=none, 1/2=seat */
+  uint8_t pickup_owner[16]; /* Native item slots $1628 + index*$30. */
+  uint16_t pickup_s, pickup_d;
+  uint8_t pickup_pass, pickup_reserved[3];
 } MmxCoopState;
 
 /* Development foundation; no launcher activation until join/combat/camera and

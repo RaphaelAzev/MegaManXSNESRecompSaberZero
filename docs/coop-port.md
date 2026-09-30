@@ -17,8 +17,8 @@ in Git or the eventual downloadable mod.
 Latest join controls: P2 **Select** joins; Start remains pause/menu. Once P2
 joins, keep them enrolled for the session and automatically spawn them at
 later stage entries/team restarts. Holding P2 Select for approximately 180
-gameplay frames voluntarily withdraws P2, retaining HP, energy, selections
-and subtanks for a later rejoin. Withdrawal keeps session enrollment. Fallen
+gameplay frames voluntarily withdraws P2, retaining HP, energy and selections
+for a later rejoin; shared subtanks are unchanged. Withdrawal keeps session enrollment. Fallen
 players cannot use Select to rejoin until a new stage/team restart. These
 rules supersede Start-to-join. The private join/withdrawal checkpoint below
 validates these controls; public activation remains pending the other systems.
@@ -54,7 +54,7 @@ original path.
 | `$0E18..0E67` | Ride armor; stage object, not copied into player context |
 | `$0E68..1227` | Enemy pool; world state, not copied |
 | `$1228..1427` | Eight 64-byte native player projectiles |
-| `$1F83..86` | Four subtanks; low nibble is reserve, high bits shared unlocks |
+| `$1F83..86` | Four shared subtanks; reserve and unlock bits stay in world RAM |
 | `$1F87..96` | Eight X1 weapon energy words; retain shared high unlock bits |
 | `$1F99`, `$1F9A` | Shared upgrades and maximum HP |
 | `$1F0D`, `$1F12` | Per-player firing command and weapon HUD state |
@@ -131,7 +131,7 @@ then moves both and confirms scrolling resumes. Vertical extremes, forced
 scrolling and boss transitions still need further handling.
 
 Native pause entry `$00:9E68` runs against the requesting player's projected
-context, including their HP, subtanks and weapon inventory. `$00:9EAC` rejects
+context, including their HP and weapon inventory; subtanks remain shared. `$00:9EAC` rejects
 an invalid request; `$00:C579` returns after the menu commits its selection.
 The owner remains projected during the menu and is serialized in snapshots.
 Input mapping `$00:E543..E57F` runs inside the game scheduler, so P2 input must
@@ -139,7 +139,7 @@ replace the native P1 mapping at its return, not only before each frame.
 Private checks for both rosters verify that P1 cannot change P2's open menu,
 P2 can change imported weapon pages/selection, exit returns both controllers,
 and saving/replaying the menu produces an identical full snapshot. Menu
-captures were visually reviewed. Subtank consumption/pickups remain pending.
+captures were visually reviewed. Subtank consumption/pickups are covered by the later checkpoint below.
 
 The co-op HUD uses fixed columns at native X coordinates 8/24/40/56:
 P1 health, P1 weapon, P2 health, P2 weapon. Buster selections leave their
@@ -158,6 +158,30 @@ rosters, all eight X1 health/weapon meter comparisons matched original
 renderer pixels at partial HP/energy. Four-column and buster-gap captures
 were visually reviewed, along with an imported weapon pair. Co-op runtime
 checks passed with scheduler bounce on/off, plus Zero/renderer regressions.
+
+Native collectible contact `$84:9C0E` retries its original hitbox check for
+P2 after P1 misses. Item kinds 1/2/4/5/11 are energy, health, life, Sub Tank and
+Heart Tank; other actors in that pool are not treated as pickups. Scheduler
+boundaries `$00:D2E6/D308` select the saved collector for an ongoing refill;
+`$00:D2ED/D31B` restore the world player after each item. Item movement and
+refill tasks still run once. Owner metadata resets when a slot is initialized
+or empty, and travels in saves/rollback. Native collision returns at
+`$84:9C15/9C1D/9D06` are matched by stack/DP before retrying.
+
+The owner changed subtanks to **shared contents** during this work. `$1F83..86`
+now remain in native world RAM and are never projected with a player. Ordinary
+HP pickups heal only the collector. Full-health overflow fills the common
+tanks; using a tank in either player's menu spends the common contents and
+heals that menu's owner. X1's small health pickup stores one native tank unit
+at full HP (versus healing two HP when hurt); preserve that original behavior.
+
+Pickup checkpoint: both rosters pass collector-only native HP and imported
+weapon-energy collection, with byte-identical save/replay during refill.
+Full-health overflow fills shared subtanks without healing the partner. P2's
+native pause action consumes the common tank, heals only P2, and returning to
+P1 cannot restore spent reserves. These checks pass with generated bounce on
+and off. Heart/Sub Tank unlocks retain shared native RAM; collecting those
+stage upgrades and native boomerang retrieval still need playtest coverage.
 
 The existing shared SNES launcher profile already allows two players.
 MMX's desktop-host descriptor omitted `num_players`, so it advertised one.
@@ -211,7 +235,8 @@ pass these checks. Actual one-player death while the other survives, boss-door
 ownership, and later-stage arrival placement still need their own integration.
 
 `MmxCoopPlayer` owns native body/effects/projectiles, per-player weapon energy,
-subtank reserves, Zero combat/animation state, imported weapon state, and input.
+Zero combat/animation state, imported weapon state, and input. Subtank reserves
+and unlocks are shared world state, following the owner's later correction.
 World progression and unlocks remain in native RAM. Switching the projected
 player also updates the existing character collision-table patch.
 
@@ -238,7 +263,7 @@ Remaining integration, in order:
    arrivals alongside scene-transition work. No voluntary rejoin after death.
 5. Draw both characters with source art and the fixed four-column HUD. Preserve
    native foreground priority; no blanket sprite priority override.
-6. Independent pause inventory and subtanks; shared camera and boundaries;
+6. Independent pause inventory with shared subtanks; shared camera and boundaries;
    one-player death, team wipe/checkpoint, boss doors and cutscene ownership.
 7. Add the mutually exclusive launcher package and P1 character choice,
    build a playtest executable, and run focused two-controller acceptance.
