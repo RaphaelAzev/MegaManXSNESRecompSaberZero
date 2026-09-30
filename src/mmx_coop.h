@@ -30,7 +30,7 @@ typedef struct MmxCoopState {
    * during an interpreter deadline. Guest cycles are never rolled back. */
   uint16_t return_a, return_x, return_y, return_s;
   uint8_t return_p, return_db;
-  uint8_t reserved[2];
+  uint8_t time_tick, reserved;
   uint16_t object_a, object_x, object_y, object_s, object_d, object_entry;
   uint8_t object_p, object_db, object_pass, object_reserved;
   uint16_t contact_a, contact_x, contact_y, contact_s, contact_d, contact_entry;
@@ -51,6 +51,7 @@ void MmxCoopCapture(uint8_t ram[0x20000]);
 bool MmxCoopSelect(uint8_t ram[0x20000], unsigned player);
 void MmxCoopPoll(uint16_t p1, uint16_t p2);
 void MmxCoopApplyInput(uint8_t ram[0x20000]);
+bool MmxCoopFrameTick(uint8_t ram[0x20000]);
 /* Caller must first validate the landing space. This does not grant re-entry
  * to a fallen player, and must not become the public join path by itself. */
 bool MmxCoopPlacePartner(uint8_t ram[0x20000], uint16_t x, uint16_t y);

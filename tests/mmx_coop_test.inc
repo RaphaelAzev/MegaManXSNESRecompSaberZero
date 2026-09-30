@@ -75,11 +75,62 @@ static void coop_contact_checks(uint8_t *start,size_t cap) {
   fprintf(stderr,"P2 buster enemy HP=%u contact=%u\n",g_ram[enemy+0x27]&127,MmxCoopGetState().contact_pass);
   check((g_ram[enemy+0x27]&127)==31,"P2 native buster deals one X1 buster hit");
 }
+static void coop_weapon_select(unsigned seat,unsigned page,unsigned weapon) {
+  MmxCoopSelect(g_ram,seat);
+  MmxWeaponsCancelShots(g_ram);MmxZeroCancel(g_ram);
+  MmxWeaponsState w=MmxWeaponsGetState();w.page=(uint8_t)page;w.weapon=(uint8_t)weapon;
+  MmxWeaponsSetState(w);MmxCoopCapture(g_ram);MmxCoopSelect(g_ram,0);
+}
+static void coop_weapon_checks(unsigned character) {
+  coop_weapon_select(0,2,1);coop_weapon_select(1,2,4);
+  coop_frames(1,0,SNES_PAD_Y);coop_frames(6,0,0);
+  MmxCoopState s=MmxCoopGetState();
+  check(s.players[0].weapons.energy[8]==28 && s.players[1].weapons.energy[11]<28,
+      "P2 special consumes only P2 weapon energy");
+  check(s.players[1].combat.shots[0].active && s.players[1].combat.shots[0].weapon==4,
+      "P2 imported projectile advances independently");
+  coop_frames(1,SNES_PAD_Y,0);coop_frames(4,0,0);
+  s=MmxCoopGetState();
+  check(s.players[0].combat.shots[0].active && s.players[0].combat.shots[0].weapon==1 &&
+      s.players[1].combat.shots[0].active && s.players[1].combat.shots[0].weapon==4,
+      "different imported weapons coexist in their own pools");
+  coop_image(character,"specials");
+  coop_weapon_select(0,2,5);coop_weapon_select(1,2,5);
+  coop_frames(1,SNES_PAD_Y,SNES_PAD_Y);coop_frames(9,0,0);
+  unsigned total=0;
+  g_ram[0xe68]=1;g_ram[0xe69]=2;g_ram[0xe72]=0x1f;g_ram[0xe8f]=32;g_ram[0xe90]=3;
+  for (unsigned seat=0;seat<2;++seat) {
+    MmxCoopSelect(g_ram,seat);
+    MmxWeaponCombatState c=MmxWeaponsGetCombatState();unsigned slot=8;
+    for (unsigned i=0;i<8;++i) if(c.shots[i].active && c.shots[i].variant>=2) {slot=i;break;}
+    check(slot<8,"each player has a source Ray Splasher projectile");
+    unsigned damage=MmxWeaponsDamage(g_ram,0xe68,0x1228+slot*64,1);
+    total+=damage;g_ram[0xe8f]-=(uint8_t)damage;
+  }
+  MmxCoopSelect(g_ram,0);
+  check(total==3,"two attackers share the enemy's fractional damage carry");
+  memset(g_ram+0xe68,0,64);
+  coop_weapon_select(0,1,1);coop_weapon_select(1,1,1);g_ram[0x1f99]|=2;
+  coop_frames(205,SNES_PAD_Y,SNES_PAD_Y);coop_frames(1,0,0);
+  for (unsigned seat=0;seat<2;++seat) {
+    MmxCoopSelect(g_ram,seat);
+    MmxWeaponCombatState c=MmxWeaponsGetCombatState();unsigned slot=8;
+    for (unsigned i=0;i<8;++i) if(c.shots[i].active && c.shots[i].charged) {slot=i;break;}
+    check(slot<8,"both players create charged Crystal Hunter");
+    c.shots[slot].age=(uint16_t)(200+seat);c.shots[slot].muzzle_pose=1;
+    MmxWeaponsSetCombatState(c);
+  }
+  MmxCoopSelect(g_ram,0);
+  unsigned tick=g_ram[0xb9c];coop_frames(12,0,0);
+  check((uint8_t)(g_ram[0xb9c]-tick)==6,"staggered time effects halve world speed without permanently freezing it");
+}
 static void coop_checks(const char *assets, const char *fixture,
                         uint8_t *start, uint8_t *expected, uint8_t *actual, size_t cap) {
   check(assets && fixture, "co-op check requires private source assets and a grounded fixture");
   check(MmxZeroLoad(assets), "co-op uses original X3 Zero assets");
   MmxZeroRegisterHooks(); MmxCoopRegisterHooks();
+  const char *x2=getenv("MMX_COOP_X2_ASSETS"),*x3=getenv("MMX_COOP_X3_ASSETS");
+  if (x2 && x3) check(MmxWeaponsLoadPage(x2,1) && MmxWeaponsLoadPage(x3,2),"private original weapon source packs load");
   for (unsigned character = 0; character < 2; ++character) {
     MmxCoopDisable();
     check(RtlLoadSnapshot(fixture), "private co-op fixture loads");
@@ -137,6 +188,12 @@ static void coop_checks(const char *assets, const char *fixture,
     s = MmxCoopGetState(); s.players[1].character = s.players[0].character;
     check(!MmxCoopValidState(&s), "malformed duplicate-character roster is rejected");
     coop_contact_checks(start,cap);
+    if (x2 && x3) {
+      MmxCoopDisable();check(RtlLoadSnapshot(fixture),"restore independent weapon fixture");
+      check(MmxCoopEnable(character),"restore chosen roster for weapons");coop_frames(8,0,0);
+      s=MmxCoopGetState();check(MmxCoopPlacePartner(g_ram,coop_x(&s.players[0])+40,coop_y(&s.players[0])),"place weapon test partner");
+      coop_weapon_checks(character);
+    }
   }
   MmxCoopDisable();
   puts("MMX CO-OP CONTROLLER FOUNDATION CHECKS PASSED");

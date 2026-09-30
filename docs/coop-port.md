@@ -134,6 +134,18 @@ context. These checks exercise the native enemy routine, not a replacement
 damage calculation. Pickup ownership and special scripted enemy reactions
 still require integration.
 
+Imported-weapon checkpoint: each player can select/fire a different imported
+weapon and spends only their own energy. Both source-art projectile/effect
+pools render, including P2 X's source weapon palette and adapted casting poses.
+The same native enemy has one damage-fraction ledger across attackers; both
+serialized player copies synchronize on projection. Frozen/captured enemies
+are excluded from ordinary AI/contact for either player's ownership. Both
+charged Crystal Hunter effects age every display frame, but share one
+half-speed cadence so staggered effects cannot freeze every alternating frame.
+Private checks pass for both rosters with generated bounce on/off, and the
+Zero/custom-renderer regression checks pass. The coexistence captures were
+visually reviewed. This is not an exhaustive two-player audit of all weapons.
+
 `MmxCoopPlayer` owns native body/effects/projectiles, per-player weapon energy,
 subtank reserves, Zero combat/animation state, imported weapon state, and input.
 World progression and unlocks remain in native RAM. Switching the projected
@@ -151,8 +163,9 @@ Remaining integration, in order:
 1. Independent native movement and exact save/replay for both roster orders:
    **controller checkpoint passed**, including generated dispatch.
 2. Native body, armor, effect and projectile pool passes plus basic dual-body
-   drawing: **checkpoint passed**. Finish imported weapon presentation, shared
-   enemy fractional damage and cross-player time/freeze effects.
+   drawing: **checkpoint passed**, including basic imported-weapon coexistence,
+   shared enemy fractional damage and cross-player time/freeze effects. Audit
+   remaining shared native palette/effect resources during playtesting.
 3. Check body damage and pickups for either player without duplicating enemy
    AI. Collector alone receives HP/energy; shared unlocks remain shared.
 4. Add safe Select-to-join, session enrollment and automatic later arrivals,

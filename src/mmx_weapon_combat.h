@@ -29,6 +29,10 @@ typedef struct MmxWeaponCombatState {
 MmxWeaponCombatState MmxWeaponsGetCombatState(void);
 bool MmxWeaponsValidCombatState(const MmxWeaponCombatState *state);
 void MmxWeaponsSetCombatState(MmxWeaponCombatState state);
+/* Optional second actor; the caller owns this stable snapshot. NULL restores
+ * single-player behavior. World enemy captures/time effects consider both. */
+void MmxWeaponsPartnerCombat(const MmxWeaponCombatState *state);
+unsigned MmxWeaponsTimePhase(const MmxWeaponCombatState *state);
 bool MmxWeaponsCombatActive(void);
 void MmxWeaponsPlayerTick(uint8_t ram[0x20000]);
 void MmxWeaponsPlayerMotion(uint8_t ram[0x20000],unsigned object);

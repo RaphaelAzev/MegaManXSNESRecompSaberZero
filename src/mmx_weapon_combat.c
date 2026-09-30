@@ -4,6 +4,8 @@
 #include <string.h>
 
 static MmxWeaponCombatState combat;
+static const MmxWeaponCombatState *partner_combat;
+void MmxWeaponsPartnerCombat(const MmxWeaponCombatState *s) { partner_combat=s; }
 static uint8_t *collision_rom;
 static size_t collision_rom_size;
 static bool collision_patch;
@@ -1448,8 +1450,7 @@ unsigned MmxWeaponsDamage(uint8_t r[0x20000], unsigned enemy, unsigned d, unsign
   return damage>127 ? 127 : damage;
 }
 unsigned MmxWeaponsHitbox(const uint8_t r[0x20000], unsigned enemy, unsigned d, unsigned original) {
-  if (MmxWeaponsMovedEnemy(&combat,enemy) || MmxWeaponsMovedEnemy(&combat,d)) return 0;
-  if (MmxWeaponsFrozenEnemy(&combat,enemy) || MmxWeaponsFrozenEnemy(&combat,d)) return 0;
+  if (!MmxWeaponsEnemyActive(r,enemy,1) || !MmxWeaponsEnemyActive(r,d,1)) return 0;
   /* A shattering crystal resumes its host's native collision to deliver
    * the lethal hit. That must not also let the host hurt the dashing player. */
   if (enemy==0xba8 || d==0xba8) for(unsigned i=0;i<8;++i) {

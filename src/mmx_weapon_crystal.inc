@@ -10,7 +10,14 @@ static const MmxWeaponShot *crystal_time(const MmxWeaponCombatState *c) {
   }
   return NULL;
 }
-bool MmxWeaponsTimeActive(void) { return MmxWeaponsEnabled() && crystal_time(&combat); }
+unsigned MmxWeaponsTimePhase(const MmxWeaponCombatState *c) {
+  const MmxWeaponShot *s=c ? crystal_time(c) : NULL;
+  return !s ? 0 : s->muzzle_pose ? 2 : 1;
+}
+bool MmxWeaponsTimeActive(void) {
+  return MmxWeaponsEnabled() && (crystal_time(&combat) ||
+      (partner_combat && crystal_time(partner_combat)));
+}
 bool MmxWeaponsFrameTick(uint8_t r[0x20000]) {
   if(!MmxWeaponsEnabled()) return false;
   const MmxWeaponShot *p=crystal_time(&combat);if(!p) return false;
@@ -60,7 +67,8 @@ bool MmxWeaponsFrozenEnemy(const MmxWeaponCombatState *c,unsigned enemy) {
 unsigned MmxWeaponsEnemyActive(const uint8_t r[0x20000],unsigned enemy,unsigned active) {
   (void)r;
   return MmxWeaponsEnabled() && (MmxWeaponsFrozenEnemy(&combat,enemy) ||
-      MmxWeaponsMovedEnemy(&combat,enemy)) ? 0 : active;
+      MmxWeaponsMovedEnemy(&combat,enemy) || (partner_combat &&
+      (MmxWeaponsFrozenEnemy(partner_combat,enemy) || MmxWeaponsMovedEnemy(partner_combat,enemy)))) ? 0 : active;
 }
 static void crystal_contact(uint8_t *r,unsigned enemy,MmxWeaponShot *s) {
   s->origin_x=(int16_t)enemy;s->origin_y=r[enemy+10];s->muzzle_pose=1;

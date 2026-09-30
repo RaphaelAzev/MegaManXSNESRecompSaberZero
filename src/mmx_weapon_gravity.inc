@@ -89,7 +89,7 @@ static void gravity_effect_tick(uint8_t *r,MmxWeaponShot *s) {
 static void gravity_capture(uint8_t *r,MmxWeaponShot *well) {
   for(unsigned d=0xe68;d<0x1228;d+=64) {
     if(!r[d] || r[d+1]!=2 || !(r[d+0x27]&127) || r[d+0x28]>=6 ||
-        !word(r+d+0x20) || MmxWeaponsFrozenEnemy(&combat,d) || MmxWeaponsMovedEnemy(&combat,d)) continue;
+        !word(r+d+0x20) || !MmxWeaponsEnemyActive(r,d,1)) continue;
     int x=(int)word(r+d+5)-(int)word(r+0x1e4d),y=(int)word(r+d+8)-(int)word(r+0x1e50);
     if(x<0 || x>=256 || y<0 || y>=224) continue;
     unsigned box=word(r+d+0x20);

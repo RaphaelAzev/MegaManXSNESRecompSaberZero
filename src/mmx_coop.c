@@ -17,6 +17,7 @@ _Static_assert(sizeof(MmxCoopState) == 4592, "Co-op save ABI");
 bool MmxCoopEnabled(void) { return enabled; }
 void MmxCoopReset(void) {
   memset(&state, 0, sizeof(state));
+  MmxWeaponsPartnerCombat(NULL);
   state.players[0].character = (uint8_t)starting_character;
   state.players[1].character = (uint8_t)(starting_character ^ 1);
   if (enabled) {
@@ -32,7 +33,7 @@ void MmxCoopDisable(void) { enabled = false; starting_character = 0; MmxCoopRese
 MmxCoopState MmxCoopGetState(void) { return state; }
 bool MmxCoopValidState(const MmxCoopState *s) {
   if (!s || s->initialized > 1 || s->current > 1 || s->controller_pass > 2 ||
-      s->reserved[0] || s->reserved[1] || s->object_reserved || s->object_pass > 2 ||
+      s->reserved || s->object_reserved || s->object_pass > 2 ||
       s->contact_reserved || s->contact_pass > 2) return false;
   if (s->object_pass && s->object_entry != 0xd2bd && s->object_entry != 0xd3dd &&
       s->object_entry != 0xd3fa && s->object_entry != 0xd43a && s->object_entry != 0xd457) return false;
@@ -50,7 +51,10 @@ bool MmxCoopValidState(const MmxCoopState *s) {
   return s->players[0].character != s->players[1].character;
 }
 void MmxCoopSetState(const MmxCoopState *s) {
-  if (enabled && MmxCoopValidState(s)) state = *s;
+  if (enabled && MmxCoopValidState(s)) {
+    state = *s;
+    MmxWeaponsPartnerCombat(state.initialized ? &state.players[state.current^1].combat : NULL);
+  }
   else MmxCoopReset();
 }
 void MmxCoopCapture(uint8_t *r) {
@@ -65,6 +69,9 @@ void MmxCoopCapture(uint8_t *r) {
   p->zero = MmxZeroGetState();
   p->weapons = MmxWeaponsGetState();
   p->combat = MmxWeaponsGetCombatState();
+  /* Fractional damage belongs to the world enemy, not to the attacker.
+   * Keep the two serialized copies synchronized before projecting either. */
+  memcpy(state.players[state.current^1].combat.enemies,p->combat.enemies,sizeof(p->combat.enemies));
   p->shot_command = r[0x1f0d]; p->hud_state = r[0x1f12];
 }
 bool MmxCoopSelect(uint8_t *r, unsigned player) {
@@ -83,6 +90,7 @@ bool MmxCoopSelect(uint8_t *r, unsigned player) {
   MmxZeroSetState(p->zero);
   MmxWeaponsSetState(p->weapons);
   MmxWeaponsSetCombatState(p->combat);
+  MmxWeaponsPartnerCombat(&state.players[player^1].combat);
   r[0x1f0d] = p->shot_command; r[0x1f12] = p->hud_state;
   if (g_snes && g_snes->cart)
     MmxZeroSetCollisionRom(g_snes->cart->rom, g_snes->cart->romSize);
@@ -99,6 +107,26 @@ void MmxCoopInitialize(uint8_t *r) {
   for (unsigned n = 1; n < 16; n += 2) partner->energy[n] = 28;
   partner->weapons.initialized = 1; memset(partner->weapons.energy, 28, 16);
   partner->zero.active_x = partner->character == MMX_COOP_X;
+  MmxWeaponsPartnerCombat(&partner->combat);
+}
+bool MmxCoopFrameTick(uint8_t *r) {
+  if (!enabled || !state.initialized) return MmxWeaponsFrameTick(r);
+  if (r[0x1f10]) return false;
+  unsigned phases[2]={0,0};
+  for (unsigned seat=0;seat<2;++seat) if (state.players[seat].status==MMX_COOP_ALIVE) {
+    MmxCoopSelect(r,seat);
+    MmxWeaponsFrameTick(r);
+    MmxCoopCapture(r);
+    phases[seat]=MmxWeaponsTimePhase(&state.players[seat].combat);
+  }
+  MmxCoopSelect(r,0);
+  /* Two staggered half-speed effects must not alternate into a permanent
+   * freeze. Advance one shared display-frame cadence, while both ages tick. */
+  ++state.time_tick;
+  bool frozen=phases[0]==1 || phases[1]==1 ||
+      ((phases[0]==2 || phases[1]==2) && !(state.time_tick&1));
+  if (frozen) r[0xb9d]=r[0xba0]=0;
+  return frozen;
 }
 void MmxCoopPoll(uint16_t p1, uint16_t p2) {
   if (!enabled) return;
