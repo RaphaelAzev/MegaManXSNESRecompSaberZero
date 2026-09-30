@@ -147,3 +147,8 @@ Offline traces also measured occasional longer host intervals. A trial of a
 different wait primitive gave mixed results and was reverted. The remaining
 player-observed microstutter is tracked in `beads-8wg.1.56`; it is not declared
 resolved by the startup fix.
+
+Subsequent [headed Highway checks](highway-pacing-2026-09-30.md) reproduce the
+same long updates in solo and co-op with VSync both on and off. They supersede
+the earlier boot/title-only samples for gameplay assessment and identify shared
+simulation/audio-time accounting as another investigation target.
