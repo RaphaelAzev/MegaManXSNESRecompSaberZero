@@ -1657,6 +1657,7 @@ static void zero_charge_visual_checks(const char *fixture,uint8 *start,uint8 *ex
 #include "mmx_weapon_gravity_test.inc"
 #include "mmx_weapon_parasitic_test.inc"
 #include "mmx_weapon_stage_test.inc"
+#include "mmx_weapon_weakness_test.inc"
 static void zero_state_checks(const char *assets, const char *fixture, uint8 *start,
                               uint8 *expected, uint8 *actual, size_t cap) {
   check(fixture != NULL && MmxZeroLoad(assets), "Zero local assets load");
@@ -1920,6 +1921,10 @@ int main(int argc, char **argv) {
   check(SnesInit(rom, rom_size) != NULL, "game initializes");
   g_spc_player = SmwSpcPlayer_Create();
   g_spc_player->initialize(g_spc_player);
+  if (getenv("MMX_WEAKNESS_TEST")) {
+    weapon_weakness_checks();
+    return 0;
+  }
   MkDir("saves");
   size_t cap = 2u * 1024u * 1024u;
   uint8 *start = malloc(cap), *expected = malloc(cap), *actual = malloc(cap);

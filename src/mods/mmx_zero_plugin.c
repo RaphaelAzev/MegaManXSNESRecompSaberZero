@@ -111,6 +111,14 @@ static void hook(CpuState *cpu, uint32_t pc) {
       cpu->P = (cpu->P & ~0x82) | (cpu->_flag_Z ? 2 : 0) | (cpu->_flag_N ? 128 : 0);
       break;
     }
+    case 0x049e1d: case 0x049e3a: {
+      bool reaction=(pc&65535)==0x9e3a;
+      unsigned value=MmxWeaponsContactClass(g_ram,cpu->D,cpu->X,cpu->A,reaction);
+      cpu->A=(uint16_t)value;
+      cpu->_flag_Z=!(value&(reaction?255:65535));cpu->_flag_N=(value&(reaction?128:32768))!=0;
+      cpu->P=(cpu->P&~0x82)|(cpu->_flag_Z?2:0)|(cpu->_flag_N?128:0);
+      break;
+    }
     case 0x049e76: {
       unsigned original = cpu_read8(cpu, cpu->DB, (uint16_t)(0xef37 + cpu->Y));
       unsigned damage = MmxWeaponsDamage(g_ram, cpu->D, cpu->X,
@@ -149,7 +157,7 @@ static void hook(CpuState *cpu, uint32_t pc) {
 }
 void MmxZeroRegisterHooks(void) {
   const unsigned pcs[] = {0x009dca, 0x00d6a7, 0x00d76a, 0x01971f, 0x019796, 0x0198ff,
-                          0x01815c, 0x018165, 0x019d47, 0x0194af, 0x00d3e7, 0x00d4f4, 0x00d511, 0x049e76, 0x049c19, 0x048f07, 0x048eea, 0x018b04, 0x0491dc, 0x02823e,
+                          0x01815c, 0x018165, 0x019d47, 0x0194af, 0x00d3e7, 0x00d4f4, 0x00d511, 0x049e1d, 0x049e3a, 0x049e76, 0x049c19, 0x048f07, 0x048eea, 0x018b04, 0x0491dc, 0x02823e,
                           0x028403,0x03958f,0x039dcf,
                           0x01a57d,0x038b6f,0x038d87,0x038ed7,0x03951d,0x039841,0x039993,0x03a3cd,
                           0x01a589,0x038b7b,0x038d93,0x038ee3,0x039529,0x03984d,0x03999f,0x03a3d9};

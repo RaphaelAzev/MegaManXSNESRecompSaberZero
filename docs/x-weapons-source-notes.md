@@ -256,8 +256,9 @@ Private original X3 encounter: actor $1F at $0D18 has 18 HP, damage category
 Do not confuse the normal muzzle class $0B or turret class $14 with the rays
 that actually hit. Source ordinary/boss damage distinctions and multi-hit
 cooldowns must be adapted deliberately to X1's enemy HP scale. The stats goal
-requests source-based weapon strength; new boss-weakness tables remain out of
-scope. The owner was offered normalized buster ratios versus raw source HP
+requests source-based weapon strength. The later owner-approved
+[X1 boss mappings](weapons/x1-boss-weaknesses.md) extend that original scope.
+The owner was offered normalized buster ratios versus raw source HP
 numbers; the owner explicitly selected normalized buster ratios.
 
 ### Normalized source damage implementation

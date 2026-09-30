@@ -51,5 +51,8 @@ void MmxWeaponsSelectShot(const uint8_t ram[0x20000], unsigned slot);
 unsigned MmxWeaponsProjectileTick(uint8_t ram[0x20000], unsigned slot, unsigned active);
 void MmxWeaponsCancelShots(uint8_t ram[0x20000]);
 void MmxWeaponsCollisionRom(uint8_t *rom, size_t size);
+/* Per-contact native table index, or the separately published reaction class.
+ * The actual projectile ID, graphics, hit cadence and movement stay intact. */
+unsigned MmxWeaponsContactClass(const uint8_t *ram,unsigned enemy,unsigned projectile,unsigned original,bool reaction);
 unsigned MmxWeaponsDamage(uint8_t ram[0x20000], unsigned enemy, unsigned projectile, unsigned original);
 unsigned MmxWeaponsHitbox(const uint8_t ram[0x20000], unsigned enemy, unsigned projectile, unsigned original);

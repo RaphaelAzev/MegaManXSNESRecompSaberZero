@@ -399,6 +399,7 @@ static unsigned native_damage_class(const MmxWeaponShot *s) {
   if(s->page==2 && s->weapon==3) return s->charged ? 0x15 : 0x0c;
   return 0;
 }
+#include "mmx_weapon_weakness.inc"
 static void native_object(uint8_t *r, unsigned d, const MmxWeaponShot *s) {
   r[d] = 1; r[d+1] = 2; r[d+10] = (uint8_t)native_damage_class(s); r[d+14] = 0;
   r[d+17] = (uint8_t)(0x22 | s->facing); r[d+0x28] = 1;
@@ -1422,9 +1423,10 @@ unsigned MmxWeaponsDamage(uint8_t r[0x20000], unsigned enemy, unsigned d, unsign
   /* X1 categories 0..5 are ordinary enemies; 6..19 contain the eight
    * Maverick and special encounter/armored response rows at $86:EF37.
    * Source bosses mostly take one from these attacks and one from buster.
-   * Preserve that neutral ratio, with the owner's explicit Fire Wave /
-   * Electric Spark compatibility using X1's native response instead. */
-  if (r[enemy+0x28]>=6) {
+   * Explicit weaknesses already selected the original boss weakness column
+   * before native immunity/reaction dispatch; never scale that value again. */
+  unsigned charged;
+  if (r[enemy+0x28]>=6 || boss_weakness(r,enemy,d,&charged)) {
     if (s->page==1 && s->weapon==6) chain_contact(r,s,enemy,original);
     if (s->page==2 && s->weapon==8) fang_contact(r,s,enemy);
     return original;

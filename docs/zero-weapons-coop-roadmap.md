@@ -106,7 +106,9 @@ requirement (owner clarification, 2026-09-29).
   normalization to X1's HP scale as explicitly selected by the owner. The
   subsequent explicit exceptions map Speed Burner to X1 Fire Wave reactions
   and Triad Thunder to Electric Spark reactions, including Armadillo's armor
-  break. Other new boss weaknesses remain out of scope. Resolve per-hit, repeated-hit and effect-only behavior
+  break. The later [explicit boss weakness sets](weapons/x1-boss-weaknesses.md)
+  add thirteen pairings while preserving all original X1 weaknesses and
+  appropriate special reactions. Keep these mappings extensible. Resolve per-hit, repeated-hit and effect-only behavior
   from source code/runtime; do not count generic buster damage as completed stats.
 - Add X1/X2/X3 pages to the existing pause weapon screen. L/R bumpers cycle
   pages. No instructional UI text; at most left/right caret symbols.
