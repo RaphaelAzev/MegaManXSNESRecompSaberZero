@@ -12,7 +12,7 @@ static MmxCoopState state;
 static bool enabled;
 static unsigned starting_character;
 _Static_assert(sizeof(MmxCoopPlayer) == 2272, "Co-op player save ABI");
-_Static_assert(sizeof(MmxCoopState) == 4576, "Co-op save ABI");
+_Static_assert(sizeof(MmxCoopState) == 4592, "Co-op save ABI");
 
 bool MmxCoopEnabled(void) { return enabled; }
 void MmxCoopReset(void) {
@@ -32,7 +32,11 @@ void MmxCoopDisable(void) { enabled = false; starting_character = 0; MmxCoopRese
 MmxCoopState MmxCoopGetState(void) { return state; }
 bool MmxCoopValidState(const MmxCoopState *s) {
   if (!s || s->initialized > 1 || s->current > 1 || s->controller_pass > 2 ||
-      s->reserved[0] || s->reserved[1] || s->object_reserved || s->object_pass > 2) return false;
+      s->reserved[0] || s->reserved[1] || s->object_reserved || s->object_pass > 2 ||
+      s->contact_reserved || s->contact_pass > 2) return false;
+  if (s->object_pass && s->object_entry != 0xd2bd && s->object_entry != 0xd3dd &&
+      s->object_entry != 0xd3fa && s->object_entry != 0xd43a && s->object_entry != 0xd457) return false;
+  if (s->contact_pass && s->contact_entry != 0x9b03 && s->contact_entry != 0x9b43) return false;
   for (unsigned i = 0; i < 2; ++i) {
     const MmxCoopPlayer *p = &s->players[i];
     if (p->character > MMX_COOP_ZERO || p->status > MMX_COOP_FALLEN ||
@@ -138,6 +142,38 @@ bool MmxCoopPlacePartner(uint8_t *r, uint16_t x, uint16_t y) {
   return true;
 }
 
+static void contact_hook(CpuState *cpu,uint32_t pc) {
+  if (!enabled || !state.initialized || state.players[1].status != MMX_COOP_ALIVE) return;
+  unsigned at = pc & 65535;
+  if (at == 0x9b03 || at == 0x9b43) {
+    if (!state.current && !state.contact_pass) {
+      state.contact_pass = 1; state.contact_entry = (uint16_t)at;
+      state.contact_s = cpu->S; state.contact_d = cpu->D;
+    }
+    return;
+  }
+  /* A helper may return through a shared RTL; only the owning guest call's
+   * balanced return boundary can complete or restart this pass. */
+  if (!state.contact_pass || cpu->S != state.contact_s || cpu->D != state.contact_d) return;
+  if (state.contact_pass == 1) {
+    /* Retail stops the projectile scan after its first contact, including
+     * immune/reflecting hits. Extend the scan to P2 only after a real miss. */
+    if (state.contact_entry == 0x9b43 && at != 0x9b7d) { state.contact_pass = 0; return; }
+    state.contact_a = cpu->A; state.contact_x = cpu->X; state.contact_y = cpu->Y;
+    state.contact_db = cpu->DB; cpu_mirrors_to_p(cpu); state.contact_p = cpu->P;
+    MmxCoopSelect(g_ram,1); state.contact_pass = 2;
+    interp_bridge_pre_opcode_redirect(0x840000 | state.contact_entry);
+  } else {
+    bool first_hit = (state.contact_a & 255) != 0;
+    bool no_second_hit = !(cpu->A & 255);
+    MmxCoopSelect(g_ram,0);
+    if (first_hit || no_second_hit) {
+      cpu->A = state.contact_a; cpu->X = state.contact_x; cpu->Y = state.contact_y;
+      cpu->DB = state.contact_db; cpu->P = state.contact_p; cpu_p_to_mirrors(cpu);
+    }
+    state.contact_pass = 0;
+  }
+}
 static void object_hook(CpuState *cpu, uint32_t pc) {
   if (!enabled || !state.initialized || state.players[1].status != MMX_COOP_ALIVE) return;
   unsigned at = pc & 65535;
@@ -224,4 +260,8 @@ void MmxCoopRegisterHooks(void) {
       0xd43a,0xd456,0xd457,0xd47f};
   for (unsigned i=0;i<sizeof(objects)/sizeof(objects[0]);++i)
     interp_bridge_set_pre_opcode_hook(objects[i],object_hook);
+  const unsigned contacts[] = {0x849b03,0x849b43,0x849b42,0x849b7d,0x849d82,
+      0x849dc9,0x849dcc,0x849ee9};
+  for (unsigned i=0;i<sizeof(contacts)/sizeof(contacts[0]);++i)
+    interp_bridge_set_pre_opcode_hook(contacts[i],contact_hook);
 }

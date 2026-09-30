@@ -29,6 +29,52 @@ static void coop_image(unsigned character,const char *action) {
   snprintf(path,sizeof(path),"%s.coop-%u-%s.cap",base,character,action);
   check(MmxRendererSaveCapture(path),"two-player capture writes");
 }
+static void coop_contact_checks(uint8_t *start,size_t cap) {
+  unsigned enemy = 0;
+  for (unsigned i=0;i<400 && !enemy;++i) {
+    coop_frames(1,SNES_PAD_RIGHT,SNES_PAD_RIGHT);
+    for (unsigned d=0xe68;d<0x1228;d+=64)
+      if (g_ram[d] && g_ram[d+14] && (g_ram[d+0x27]&127) &&
+          (g_ram[d+0x20]|g_ram[d+0x21])) {enemy=d;break;}
+  }
+  check(enemy!=0,"native highway enemy supplies two-player collision target");
+  size_t n = RtlSaveSnapshotToMemory(start,cap);
+  for (unsigned both=0;both<2;++both) {
+    check(RtlLoadSnapshotFromMemory(start,n),"restore private contact encounter");
+    unsigned ex=g_ram[enemy+5]|g_ram[enemy+6]<<8, ey=g_ram[enemy+8]|g_ram[enemy+9]<<8;
+    unsigned hp[2];
+    for (unsigned seat=0;seat<2;++seat) {
+      MmxCoopSelect(g_ram,seat);
+      unsigned x=ex-(!both && !seat ? 80 : 0);
+      g_ram[0xbad]=(uint8_t)x;g_ram[0xbae]=(uint8_t)(x>>8);
+      g_ram[0xbb0]=(uint8_t)ey;g_ram[0xbb1]=(uint8_t)(ey>>8);
+      g_ram[0xc30]=g_ram[0xc32]=0;
+      g_ram[0xbcf]=g_ram[0x1f9a]|128;hp[seat]=g_ram[0xbcf]&127;
+    }
+    MmxCoopSelect(g_ram,0);
+    coop_frames(3,0,0); /* Native visibility updates after the first contact pass. */
+    MmxCoopState s=MmxCoopGetState();
+    fprintf(stderr,"contact both=%u enemy=%04x kind=%02x damage=%u hp=%u/%u -> %u/%u pass=%u\n",
+      both,enemy,g_ram[enemy+10],g_ram[enemy+0x26],hp[0],hp[1],
+      s.players[0].body[0x27]&127,s.players[1].body[0x27]&127,s.contact_pass);
+    check((s.players[1].body[0x27]&127)<hp[1],"enemy contact damages P2 independently");
+    check(both ? (s.players[0].body[0x27]&127)<hp[0] : (s.players[0].body[0x27]&127)==hp[0],
+      "contact damages only overlapping players");
+    check(!s.contact_pass && s.current==0,"native contact restores its caller context");
+  }
+  check(RtlLoadSnapshotFromMemory(start,n),"restore P2 projectile encounter");
+  coop_frames(1,0,SNES_PAD_Y);
+  MmxCoopSelect(g_ram,1);
+  unsigned shot=0;
+  for (unsigned d=0x1228;d<0x1428;d+=64) if(g_ram[d]) {shot=d;break;}
+  check(shot!=0,"P2 buster exists for native enemy collision");
+  memcpy(g_ram+shot+5,g_ram+enemy+5,2);memcpy(g_ram+shot+8,g_ram+enemy+8,2);
+  g_ram[enemy+0x27]=32;g_ram[enemy+0x30]=0;
+  MmxCoopSelect(g_ram,0);
+  coop_frames(3,0,0);
+  fprintf(stderr,"P2 buster enemy HP=%u contact=%u\n",g_ram[enemy+0x27]&127,MmxCoopGetState().contact_pass);
+  check((g_ram[enemy+0x27]&127)==31,"P2 native buster deals one X1 buster hit");
+}
 static void coop_checks(const char *assets, const char *fixture,
                         uint8_t *start, uint8_t *expected, uint8_t *actual, size_t cap) {
   check(assets && fixture, "co-op check requires private source assets and a grounded fixture");
@@ -90,6 +136,7 @@ static void coop_checks(const char *assets, const char *fixture,
     same(expected,en,actual,an,"two-port replay preserves both actors and world state exactly");
     s = MmxCoopGetState(); s.players[1].character = s.players[0].character;
     check(!MmxCoopValidState(&s), "malformed duplicate-character roster is rejected");
+    coop_contact_checks(start,cap);
   }
   MmxCoopDisable();
   puts("MMX CO-OP CONTROLLER FOUNDATION CHECKS PASSED");

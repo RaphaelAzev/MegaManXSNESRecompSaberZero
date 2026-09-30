@@ -86,6 +86,17 @@ poses draw Zero. Co-op suppresses only Zero body/armor CHR transfers at
 `$84:8FCB` and returns through the original PLP/RTL, preserving the one X
 actor's native dynamic tiles. The renderer keeps original OBJ/BG priorities.
 
+Enemy contact entries are `$84:9B03` (body) and `$84:9B43` (player shots).
+They retain the enemy in DP and return through shared RTL boundaries. The
+co-op adapter remembers the entry stack/DP, then retries the other player's
+context at the balanced return. Projectile scanning retries only after the
+native miss at `$84:9B7D`; a hit, immune contact, or reflection at `$84:9EE9`
+still consumes that enemy's native first-contact opportunity for the frame.
+Body contact checks both players, preserving the caller's successful result
+if either overlapped. Enemy AI itself still runs once. Native visibility
+`enemy+$0E` must be active: a just-spawned offscreen enemy is intentionally
+noninteractive, even when a test moves a player onto it.
+
 The existing shared SNES launcher profile already allows two players.
 MMX's desktop-host descriptor omitted `num_players`, so it advertised one.
 USA now advertises two; JP remains unchanged. No recomp-ui fork is needed for
@@ -107,6 +118,13 @@ check verifies P2 contributes sprite pixels for either roster; Zero and custom
 renderer unit checks pass. Render captures use MMXC v13 when they contain the
 co-op snapshot; ordinary captures retain MMXC v12. Enemy damage and imported
 weapon presentation are not covered by this checkpoint.
+
+Third checkpoint: in both roster orders, the real highway enemy takes one
+native buster hit from P2; contact hurts P2 alone when P1 is elsewhere and
+hurts both when both overlap. Each return restores the caller's original
+context. These checks exercise the native enemy routine, not a replacement
+damage calculation. Pickup ownership and special scripted enemy reactions
+still require integration.
 
 `MmxCoopPlayer` owns native body/effects/projectiles, per-player weapon energy,
 subtank reserves, Zero combat/animation state, imported weapon state, and input.

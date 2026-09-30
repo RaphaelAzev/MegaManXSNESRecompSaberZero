@@ -33,6 +33,8 @@ typedef struct MmxCoopState {
   uint8_t reserved[2];
   uint16_t object_a, object_x, object_y, object_s, object_d, object_entry;
   uint8_t object_p, object_db, object_pass, object_reserved;
+  uint16_t contact_a, contact_x, contact_y, contact_s, contact_d, contact_entry;
+  uint8_t contact_p, contact_db, contact_pass, contact_reserved;
 } MmxCoopState;
 
 /* Development foundation; no launcher activation until join/combat/camera and
