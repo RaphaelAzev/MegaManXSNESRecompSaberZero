@@ -123,3 +123,27 @@ python tools/test_netplay_desktop.py --exe build-netplay/MegaManXSNESRecomp.exe 
 ```
 
 Remote playtesting is tracked separately in `beads-8wg.1.55`.
+
+## Startup and frame delivery follow-up (2026-09-30)
+
+The shared host now batches diagnostic formatting. On this Windows machine,
+unbuffered MinGW logs to PowerShell write-through handles took 3–4 seconds
+per line. The same launcher/config reached GUI initialization in 0.115 seconds
+after the fix, versus 13.232 seconds before. Startup breadcrumbs still flush
+immediately. This is the reproduced logging stall; confirmation of the owner's
+double-click experience remains useful.
+
+An optional `SNESRECOMP_FRAME_TIMING=<absolute CSV path>` records up to 36,000
+presentations in memory and writes them on normal exit. It works offline and
+online; regular launches do not enable it. It measures completed host presents,
+not physical monitor scanout. See the pinned engine's
+[investigation and capture notes](../snesrecomp/docs/WINDOWS_STARTUP_TIMING.md).
+
+Two real desktop/audio UDP peers completed 1,200 frames each with matching boot
+digests and steady mean intervals of 16.64 ms. A 165 Hz fixed-refresh display
+cannot show native 60.0988 Hz content with equal refresh holds, so display
+cadence is one plausible source of uneven motion despite a stable FPS counter.
+Offline traces also measured occasional longer host intervals. A trial of a
+different wait primitive gave mixed results and was reverted. The remaining
+player-observed microstutter is tracked in `beads-8wg.1.56`; it is not declared
+resolved by the startup fix.
