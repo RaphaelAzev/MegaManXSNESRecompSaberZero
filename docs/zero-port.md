@@ -447,3 +447,19 @@ co-op seats and single-player Zero, including already-saved dialogue frames.
 The retail dialogue, pose timing and NPC Zero remain unchanged. Private source
 pose sheets and a 120-frame dialogue capture were visually reviewed; the art
 remains extracted from the user-provided X3 ROM, with no new asset pack version.
+
+### Character-specific death particles
+
+The original orb allocator at `$81:8ADD` creates small effect `$0E`; its update
+is `$81:F2D6` and its sprite group is `$1D`. After each successful spawn's
+position store (`$81:8B04`, or the matching generated block `$81:8AE8`), the
+Zero adapter records the emitter in the orb's unused secondary state byte
+`.02`: `$5A` for Zero, zero for X. The effect update never reads that byte.
+This preserves identity after co-op switches to the survivor, travels with
+ordinary WRAM snapshots, and clears the marker when X reuses a slot.
+
+Only marked death orbs receive the existing blue-to-red ramp conversion in the
+compositor. Original art, white highlights, movement, timing and sound remain
+native. Both seats and roster orders pass the natural death checks, and private
+captures show Zero's red rings with a living X and X's blue rings with a living
+Zero. No new extracted artwork or save-layout change is required.

@@ -9,7 +9,7 @@ PCS = {0x81971c, 0x819793, 0x8198fc}
 MUZZLE_PCS = {0x81a566, 0x81a578, 0x838b6a, 0x838d82, 0x838eb4,
               0x839518, 0x83983c, 0x839974, 0x83a3a9}
 ORIGIN_PCS = {0x8283ed: 1, 0x83958c: 0, 0x839dc5: 1}
-REQUIRED = PCS | MUZZLE_PCS | ORIGIN_PCS.keys() | {0x009da6, 0x81815c, 0x818165, 0x00d3e5, 0x849e73, 0x849c16, 0x848f07, 0x848eea, 0x8491db, 0x82823e, 0x8194af}
+REQUIRED = PCS | MUZZLE_PCS | ORIGIN_PCS.keys() | {0x009da6, 0x81815c, 0x818165, 0x00d3e5, 0x849e73, 0x849c16, 0x848f07, 0x848eea, 0x8491db, 0x82823e, 0x8194af, 0x818ae8}
 OPTIONAL = {0x00d4f2, 0x00d50f}  # Current enemy loops run through the interpreter.
 
 
@@ -20,6 +20,11 @@ def apply(text):
         block = re.search(r'cpu_trace_block\(cpu, 0x([0-9A-Fa-f]+)\);', line)
         if block:
             pc = int(block[1], 16)
+        if pc == 0x818ae8 and 'cpu_write16' in line and '0x0008' in line:
+            output.append(line)
+            output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern void MmxZeroDeathOrbSpawn(uint8_t *, unsigned, unsigned); MmxZeroDeathOrbSpawn(g_ram, cpu->D, cpu->X); }}\n')
+            found.add(pc)
+            continue
         if pc in ORIGIN_PCS:
             axis = ORIGIN_PCS[pc]
             store = re.search(r'cpu_write16\(cpu, 0x00, \(uint16\)\(cpu->D \+ 0x000([58])\), (_v\d+)\);', line)

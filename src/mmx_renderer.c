@@ -701,7 +701,7 @@ static uint16_t background(const Ppu *p, const Raster *r, unsigned layer, int x,
 static void sprite(const Ppu *p, const Raster *r, int x, int sy, unsigned attr, int size,
                     int y, MmxRenderView view, uint16_t *out, bool margins_only,
                     const MmxSpriteAsset *asset, unsigned raw_tile, int *object_color,
-                    bool full_coordinates, unsigned zero_icon, bool red_ready) {
+                    bool full_coordinates, unsigned zero_icon, bool red_tint) {
   int row = full_coordinates ? y - sy : (y - sy) & 255;
   if (row < 0 || row >= size) return;
   if (attr & 0x8000) row = size - 1 - row;
@@ -729,7 +729,7 @@ static void sprite(const Ppu *p, const Raster *r, int x, int sy, unsigned attr, 
       out[dest] = (uint16_t)(z | pixel);
       object_color[dest] = hud_color >= 0 ? hud_color :
           asset && !asset->live_colors ? asset->colors[pixel] : -1;
-      if (red_ready) {
+      if (red_tint) {
         unsigned color=object_color[dest]>=0 ? (unsigned)object_color[dest] : r->palette[(z|pixel)&255];
         unsigned red=color&31,green=(color>>5)&31,blue=(color>>10)&31;
         /* Keep the original highlights/neutral outline. Convert only the
@@ -1227,6 +1227,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
        * Restrict the recolor to this actor during the arrival phase. */
       bool red_ready=stage && MmxZeroEnabled() && !frame_zero.active_x &&
           frame.ram[0xd3]==2 && s.object==0x1ce8 && s.animation==0x19;
+      bool red_death = stage && s.animation == 0x1d && MmxZeroDeathOrbRed(frame.ram,s.object);
       bool menu_body = s.object == 0x1988 && (s.animation == 0 || s.animation == 0x18);
       bool zero_body = zero && (s.object == 0xba8 || menu_body);
       bool triad_x_body=cast_body && !zero && s.object==0xba8;
@@ -1237,7 +1238,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       bool zero_armor = zero && (s.object == 0xc38 || s.object == 0xc58 || s.object == 0xc78 ||
           (zero_menu && (s.object == 0x1928 || s.object == 0x1948 || s.object == 0x1968)));
       bool oam_match = false;
-      if (g_mmx_render_asset_repairs || zero_body || zero_armor || zero_charge || swap_actor || red_ready || triad_x_body || triad_armor || frozen_enemy) for (int slot = 16; slot < 128; ++slot) {
+      if (g_mmx_render_asset_repairs || zero_body || zero_armor || zero_charge || swap_actor || red_ready || red_death || triad_x_body || triad_armor || frozen_enemy) for (int slot = 16; slot < 128; ++slot) {
         unsigned pos = r->oam[slot * 2], hi = r->high_oam[slot / 4] >> (slot % 4 * 2);
         int ox = (pos & 255) | ((hi & 1) << 8); if (ox >= 256) ox -= 512;
         if (ox == s.x && (pos >> 8) == ((unsigned)s.y & 255) && r->oam[slot * 2 + 1] == s.attr) {
@@ -1324,7 +1325,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
        * weapon while navigating the pause screen. Preserve hit flashes. */
       if (frame_zero.active_x && weapon_colors && zero_actor(s.object, s.animation) &&
           (menu || (attr & 0x0e00))) asset = &x_weapon_palette;
-      sprite(&p, r, s.x, s.y, attr, s.size, y, view, objects, !center, asset, s.tile, object_colors, true, false, red_ready);
+      sprite(&p, r, s.x, s.y, attr, s.size, y, view, objects, !center, asset, s.tile, object_colors, true, false, red_ready || red_death);
     }
     if (stage) coop_partner_row(&p,r,y,view,objects,object_colors);
     int bar_first = -1, bar_count = 0;

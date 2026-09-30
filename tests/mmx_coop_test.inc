@@ -494,8 +494,10 @@ static unsigned coop_death_sounds,coop_death_orbs;
 static void coop_death_sound_check(CpuState *cpu,uint32_t pc) {
   if(cpu->D!=0xba8) return;
   if((pc&65535)==0x8aa4) ++coop_death_sounds; /* Original $0A sound. */
-  else for(unsigned d=0x1928;d<0x1d08;d+=32)
-    coop_death_orbs+=g_ram[d]!=0 && g_ram[d+10]==14;
+  else for(unsigned d=0x1928;d<0x1d08;d+=32) if(g_ram[d] && g_ram[d+10]==14) {
+    ++coop_death_orbs;
+    check(MmxZeroDeathOrbRed(g_ram,d)==MmxZeroActive(),"death orbs retain the emitting character's color");
+  }
 }
 static void coop_natural_death_checks(const char *fixture) {
   interp_bridge_set_pre_opcode_hook(0x818aa4,coop_death_sound_check);
@@ -531,7 +533,7 @@ static void coop_natural_death_checks(const char *fixture) {
     coop_death_sounds=coop_death_orbs=0;
     for(unsigned f=0;f<90;++f) {
       coop_frames(1,0,0);s=MmxCoopGetState();
-      if(character==0 && !pit && fallen==1 && f==35) coop_image(character,"p2-death-orbs");
+      if(!pit && f==35) coop_image(character,fallen==1?"p2-death-orbs":"p1-death-orbs");
     }
     check(s.players[fallen].status==MMX_COOP_FALLEN && !(s.players[fallen].body[0x27]&127),
         "natural fatality empties its health and completes native death");

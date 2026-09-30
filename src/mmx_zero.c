@@ -138,6 +138,18 @@ bool MmxZeroNativeChargeObject(unsigned object, unsigned kind) {
   /* $82:82ED allocates any of twelve small actors, not just $0C98. */
   return object >= 0xc98 && object < 0xe18 && ((object - 0xc98) % 32) == 0 && kind == 1;
 }
+void MmxZeroDeathOrbSpawn(uint8_t r[0x20000], unsigned source, unsigned orb) {
+  if (!poses || !r || source != 0xba8 || orb < 0x1928 || orb >= 0x1d08 ||
+      (orb - 0x1928) % 32 || r[orb + 10] != 14) return;
+  /* Effect $0E never uses its secondary state byte ($02). Store its owner
+   * color there at allocation, before co-op projects the surviving actor.
+   * This follows native snapshots and resets explicitly on X's allocation. */
+  r[orb + 2] = state.active_x ? 0 : 0x5a;
+}
+bool MmxZeroDeathOrbRed(const uint8_t r[0x20000], unsigned orb) {
+  return poses && r && orb >= 0x1928 && orb < 0x1d08 && !((orb - 0x1928) % 32) &&
+      r[orb] && r[orb + 10] == 14 && r[orb + 2] == 0x5a;
+}
 const uint8_t *MmxZeroMenuPose(void) { return poses; }
 static void animation_record(unsigned offset) {
   if (offset < 272 || offset + 3 > sizeof(animation) || !animation[offset] || animation[offset + 2] >= 117) {

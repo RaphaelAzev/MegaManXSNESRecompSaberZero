@@ -41,6 +41,8 @@ const uint16_t *MmxZeroColors(void);
 const uint16_t *MmxZeroBodyColors(const MmxZeroState *snapshot);
 const uint8_t *MmxZeroChargePose(const MmxZeroState *snapshot);
 bool MmxZeroHasChargeArt(void);
+void MmxZeroDeathOrbSpawn(uint8_t ram[0x20000], unsigned source, unsigned orb);
+bool MmxZeroDeathOrbRed(const uint8_t ram[0x20000], unsigned orb);
 bool MmxZeroNativeChargeObject(unsigned object, unsigned kind);
 const uint8_t *MmxZeroMenuPose(void);
 /* Original X3 BGR555 badge pixel; -2 is transparent, -1 retains native art. */
