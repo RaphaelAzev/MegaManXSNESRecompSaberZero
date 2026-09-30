@@ -15,6 +15,8 @@ const MmxSpriteAsset *MmxRenderAssetsSprite(unsigned stage, unsigned section, un
 const MmxSpriteAsset *MmxRenderAssetsCaptiveZero(void);
 /* Original X1 body/beam CHR and blue palette, decoded without touching VRAM. */
 const MmxSpriteAsset *MmxRenderAssetsTeleportX(unsigned pose);
+/* Native X1 weapon-selection DMA and palettes, isolated from the other seat. */
+const MmxSpriteAsset *MmxRenderAssetsWeaponX(unsigned weapon, bool body);
 const MmxSpriteAsset *MmxRenderAssetsObjectSprite(const uint8_t ram[0x20000],
                                                 unsigned object, unsigned animation);
 bool MmxRenderAssetsRideArmorPalettePending(const uint8_t ram[0x20000], const uint16_t colors[16]);

@@ -43,6 +43,7 @@ static void zero_capture(const char *base, const char *suffix) {
   char path[4096]; snprintf(path, sizeof(path), "%s%s", base, suffix);
   check(MmxRendererSaveCapture(path), "Zero renderer capture saved");
 }
+#include "mmx_coop_test.inc"
 static void zero_motion_checks(const char *fixture) {
   const char *path = getenv("MMX_ZERO_MOTION_REFERENCE");
   if (!path) path = MMX_ZERO_MOTION_REFERENCE_DEFAULT;
@@ -1656,6 +1657,7 @@ static void zero_charge_visual_checks(const char *fixture,uint8 *start,uint8 *ex
 #include "mmx_weapon_gravity_test.inc"
 #include "mmx_weapon_parasitic_test.inc"
 #include "mmx_weapon_stage_test.inc"
+#include "mmx_weapon_weakness_test.inc"
 static void zero_state_checks(const char *assets, const char *fixture, uint8 *start,
                               uint8 *expected, uint8 *actual, size_t cap) {
   check(fixture != NULL && MmxZeroLoad(assets), "Zero local assets load");
@@ -1919,11 +1921,23 @@ int main(int argc, char **argv) {
   check(SnesInit(rom, rom_size) != NULL, "game initializes");
   g_spc_player = SmwSpcPlayer_Create();
   g_spc_player->initialize(g_spc_player);
+  if (getenv("MMX_WEAKNESS_TEST")) {
+    weapon_weakness_checks();
+    return 0;
+  }
   MkDir("saves");
   size_t cap = 2u * 1024u * 1024u;
   uint8 *start = malloc(cap), *expected = malloc(cap), *actual = malloc(cap);
   const char *zero_assets = getenv("MMX_ZERO_TEST_ASSETS");
   const char *zero_title = getenv("MMX_ZERO_TITLE_FIXTURE");
+  if (getenv("MMX_COOP_LAUNCHER_ROOT")) {
+    coop_launcher_checks(getenv("MMX_COOP_LAUNCHER_ROOT"),argv[1],getenv("MMX_COOP_X3_ROM"));
+    return 0;
+  }
+  if (getenv("MMX_COOP_TEST")) {
+    coop_checks(zero_assets,getenv("MMX_ZERO_TEST_FIXTURE"),start,expected,actual,cap);
+    return 0;
+  }
   if (zero_assets && zero_title) {
     check(MmxZeroLoad(zero_assets),"title Zero assets load");
     MmxZeroRegisterHooks();

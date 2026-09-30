@@ -106,7 +106,9 @@ requirement (owner clarification, 2026-09-29).
   normalization to X1's HP scale as explicitly selected by the owner. The
   subsequent explicit exceptions map Speed Burner to X1 Fire Wave reactions
   and Triad Thunder to Electric Spark reactions, including Armadillo's armor
-  break. Other new boss weaknesses remain out of scope. Resolve per-hit, repeated-hit and effect-only behavior
+  break. The later [explicit boss weakness sets](weapons/x1-boss-weaknesses.md)
+  add thirteen pairings while preserving all original X1 weaknesses and
+  appropriate special reactions. Keep these mappings extensible. Resolve per-hit, repeated-hit and effect-only behavior
   from source code/runtime; do not count generic buster damage as completed stats.
 - Add X1/X2/X3 pages to the existing pause weapon screen. L/R bumpers cycle
   pages. No instructional UI text; at most left/right caret symbols.
@@ -135,9 +137,17 @@ but do not allow both gameplay modes to activate together.
 - Add a second controller/player input assignment in recomp-ui. The existing
   SNES profile already supports two ports; first verify whether MMX only needs
   to advertise `num_players=2` before changing shared UI code.
-- Player 1 starts alone. A connected/mapped player 2 presses Start to join;
-  the character not currently on screen joins (X or Zero). This supersedes the
-  earlier rule that both players always spawn together at initial stage entry.
+- Co-op enrolls player 2 automatically from the first stage. The counterpart
+  (X or Zero) arrives using the original teleport sequence once safe nearby
+  ground is available, and both automatically return at later stage entries
+  and full-team restarts. No initial Select press is required.
+- Holding **P2 Select for 1.5 seconds (90 gameplay frames)** during normal gameplay
+  voluntarily despawns P2. Keep their current HP and weapon selection/energy;
+  a later Select joins them at safe nearby ground with those same stats.
+  Shared subtank contents remain unchanged by joining or withdrawal. Voluntary withdrawal does not clear session enrollment. It must
+  never bypass the fallen-player lockout: only the next stage or a team restart
+  returns a player who died. Automatic first arrival and the shorter hold
+  supersede the earlier manual first join and three-second hold.
 - Briefly freeze gameplay during joining and use the character's original
   stage-teleport assets. Find clear ground to the left or right of player 1
   within the current screen. If no safe space fits the incoming body, reject
@@ -150,7 +160,7 @@ but do not allow both gameplay modes to activate together.
   Reserve the weapon-bar column as an empty gap when that player uses the
   buster; do not shift the following bars. This supersedes the earlier HUD order.
 - Either present player may pause using Start and operate their own equipment
-  menu. P2 Start while absent is a join request, not P1's pause command.
+  menu. Start does not join an absent P2; Select owns join/withdrawal.
 - Players can overlap each other; there is no player collision or friendly fire.
 - Keep both surviving players on the same screen. A player moving right cannot
   scroll the other player off the left edge; apply the shared-screen constraint
@@ -160,6 +170,9 @@ but do not allow both gameplay modes to activate together.
   triggering player before the fight. Use the correct blue/red original
   character teleport assets. Apply the same ownership principle to forced
   cutscenes; keep native stage/script progression authoritative.
+  Later scope clarification: P1-only door/capsule/script triggers are acceptable
+  where this materially reduces complexity; either player is preferred when
+  the native trigger can be extended with a small, contained change.
 - When one player dies, that player remains absent for the rest of the stage.
   They return when the stage ends, or when the other player also dies and both
   restart. Cutscene return must never resurrect an already fallen player.
@@ -179,8 +192,10 @@ Implementation defaults to document and validate:
 - Preserve shared unlocks/progression and a shared team life count; spend one
   life on a full team wipe and restart at the native checkpoint.
 - Keep pause input owned by its opener until that player resumes. Subtank use
-  heals its user. The owner confirmed separate subtank reserves, with shared
-  tank unlocks and other upgrades. Pause safely if an active controller disconnects.
+  heals only the player whose menu is open. **Subtank contents and unlocks are
+  shared**, per the later owner correction; this supersedes separate reserves.
+  Health pickup overflow from either full-health player fills that shared pool.
+  Other upgrades remain shared. Pause safely if an active controller disconnects.
 - The owner confirmed a configured P1 character, with the other character
   reserved for P2. The brief fixed-X/Zero answer was explicitly withdrawn;
   either X or Zero must be selectable for P1.

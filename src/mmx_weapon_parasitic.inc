@@ -25,7 +25,7 @@ static bool parasitic_target(const uint8_t *r,unsigned enemy,int kind) {
   if(enemy<0xe68 || enemy>=0x1228 || (enemy&63)!=0x28 || !r[enemy] ||
       r[enemy+1]!=2 || !(r[enemy+0x27]&127) || r[enemy+0x28]>=6 ||
       (kind>=0 && r[enemy+10]!=kind) || !word(r+enemy+0x20) ||
-      MmxWeaponsFrozenEnemy(&combat,enemy) || MmxWeaponsMovedEnemy(&combat,enemy)) return false;
+      !MmxWeaponsEnemyActive(r,enemy,1)) return false;
   int x=(int)word(r+enemy+5)-(int)word(r+0x1e4d),y=(int)word(r+enemy+8)-(int)word(r+0x1e50);
   return x>=0 && x<256 && y>=0 && y<224;
 }

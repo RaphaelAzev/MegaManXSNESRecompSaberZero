@@ -4,6 +4,8 @@
 #include <string.h>
 
 static MmxWeaponCombatState combat;
+static const MmxWeaponCombatState *partner_combat;
+void MmxWeaponsPartnerCombat(const MmxWeaponCombatState *s) { partner_combat=s; }
 static uint8_t *collision_rom;
 static size_t collision_rom_size;
 static bool collision_patch;
@@ -397,6 +399,7 @@ static unsigned native_damage_class(const MmxWeaponShot *s) {
   if(s->page==2 && s->weapon==3) return s->charged ? 0x15 : 0x0c;
   return 0;
 }
+#include "mmx_weapon_weakness.inc"
 static void native_object(uint8_t *r, unsigned d, const MmxWeaponShot *s) {
   r[d] = 1; r[d+1] = 2; r[d+10] = (uint8_t)native_damage_class(s); r[d+14] = 0;
   r[d+17] = (uint8_t)(0x22 | s->facing); r[d+0x28] = 1;
@@ -452,6 +455,10 @@ static bool terrain_solid(const uint8_t *r, int x, int y, bool floor, int *surfa
   if (height > (y & 15)) return false;
   if (surface) *surface = (y & ~15) + height;
   return true;
+}
+unsigned MmxWeaponsTerrainClass(const uint8_t *r,int x,int y) {return terrain_type(r,x,y);}
+bool MmxWeaponsTerrainSolid(const uint8_t *r,int x,int y,bool floor,int *surface) {
+  return terrain_solid(r,x,y,floor,surface);
 }
 static bool terrain_water(const uint8_t *r,int x,int y) {
   unsigned type=terrain_type(r,x,y);
@@ -1416,9 +1423,10 @@ unsigned MmxWeaponsDamage(uint8_t r[0x20000], unsigned enemy, unsigned d, unsign
   /* X1 categories 0..5 are ordinary enemies; 6..19 contain the eight
    * Maverick and special encounter/armored response rows at $86:EF37.
    * Source bosses mostly take one from these attacks and one from buster.
-   * Preserve that neutral ratio, with the owner's explicit Fire Wave /
-   * Electric Spark compatibility using X1's native response instead. */
-  if (r[enemy+0x28]>=6) {
+   * Explicit weaknesses already selected the original boss weakness column
+   * before native immunity/reaction dispatch; never scale that value again. */
+  unsigned charged;
+  if (r[enemy+0x28]>=6 || boss_weakness(r,enemy,d,&charged)) {
     if (s->page==1 && s->weapon==6) chain_contact(r,s,enemy,original);
     if (s->page==2 && s->weapon==8) fang_contact(r,s,enemy);
     return original;
@@ -1448,8 +1456,7 @@ unsigned MmxWeaponsDamage(uint8_t r[0x20000], unsigned enemy, unsigned d, unsign
   return damage>127 ? 127 : damage;
 }
 unsigned MmxWeaponsHitbox(const uint8_t r[0x20000], unsigned enemy, unsigned d, unsigned original) {
-  if (MmxWeaponsMovedEnemy(&combat,enemy) || MmxWeaponsMovedEnemy(&combat,d)) return 0;
-  if (MmxWeaponsFrozenEnemy(&combat,enemy) || MmxWeaponsFrozenEnemy(&combat,d)) return 0;
+  if (!MmxWeaponsEnemyActive(r,enemy,1) || !MmxWeaponsEnemyActive(r,d,1)) return 0;
   /* A shattering crystal resumes its host's native collision to deliver
    * the lethal hit. That must not also let the host hurt the dashing player. */
   if (enemy==0xba8 || d==0xba8) for(unsigned i=0;i<8;++i) {

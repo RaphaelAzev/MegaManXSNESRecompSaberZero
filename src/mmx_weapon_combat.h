@@ -29,6 +29,13 @@ typedef struct MmxWeaponCombatState {
 MmxWeaponCombatState MmxWeaponsGetCombatState(void);
 bool MmxWeaponsValidCombatState(const MmxWeaponCombatState *state);
 void MmxWeaponsSetCombatState(MmxWeaponCombatState state);
+/* Optional second actor; the caller owns this stable snapshot. NULL restores
+ * single-player behavior. World enemy captures/time effects consider both. */
+void MmxWeaponsPartnerCombat(const MmxWeaponCombatState *state);
+unsigned MmxWeaponsTimePhase(const MmxWeaponCombatState *state);
+/* Live X1 terrain, available even when no imported weapon pack is enabled. */
+unsigned MmxWeaponsTerrainClass(const uint8_t ram[0x20000],int x,int y);
+bool MmxWeaponsTerrainSolid(const uint8_t ram[0x20000],int x,int y,bool floor,int *surface);
 bool MmxWeaponsCombatActive(void);
 void MmxWeaponsPlayerTick(uint8_t ram[0x20000]);
 void MmxWeaponsPlayerMotion(uint8_t ram[0x20000],unsigned object);
@@ -44,5 +51,8 @@ void MmxWeaponsSelectShot(const uint8_t ram[0x20000], unsigned slot);
 unsigned MmxWeaponsProjectileTick(uint8_t ram[0x20000], unsigned slot, unsigned active);
 void MmxWeaponsCancelShots(uint8_t ram[0x20000]);
 void MmxWeaponsCollisionRom(uint8_t *rom, size_t size);
+/* Per-contact native table index, or the separately published reaction class.
+ * The actual projectile ID, graphics, hit cadence and movement stay intact. */
+unsigned MmxWeaponsContactClass(const uint8_t *ram,unsigned enemy,unsigned projectile,unsigned original,bool reaction);
 unsigned MmxWeaponsDamage(uint8_t ram[0x20000], unsigned enemy, unsigned projectile, unsigned original);
 unsigned MmxWeaponsHitbox(const uint8_t ram[0x20000], unsigned enemy, unsigned projectile, unsigned original);

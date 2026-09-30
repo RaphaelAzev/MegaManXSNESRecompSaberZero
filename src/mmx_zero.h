@@ -34,12 +34,15 @@ void MmxZeroHealthRespawn(const uint8_t ram[0x20000]);
 bool MmxZeroSwapTick(uint8_t ram[0x20000]);
 unsigned MmxZeroSwapPose(const MmxZeroState *snapshot);
 const uint8_t *MmxZeroTeleportPose(unsigned pose);
+int MmxZeroPoseOffsetY(const uint8_t ram[0x20000]);
 const uint8_t *MmxZeroPose(const uint8_t ram[0x20000], const MmxZeroState *snapshot);
 const uint8_t *MmxZeroBlade(const MmxZeroState *snapshot);
 const uint16_t *MmxZeroColors(void);
 const uint16_t *MmxZeroBodyColors(const MmxZeroState *snapshot);
 const uint8_t *MmxZeroChargePose(const MmxZeroState *snapshot);
 bool MmxZeroHasChargeArt(void);
+void MmxZeroDeathOrbSpawn(uint8_t ram[0x20000], unsigned source, unsigned orb);
+bool MmxZeroDeathOrbRed(const uint8_t ram[0x20000], unsigned orb);
 bool MmxZeroNativeChargeObject(unsigned object, unsigned kind);
 const uint8_t *MmxZeroMenuPose(void);
 /* Original X3 BGR555 badge pixel; -2 is transparent, -1 retains native art. */
@@ -59,6 +62,7 @@ unsigned MmxZeroWeaponTick(uint8_t ram[0x20000], unsigned object, unsigned activ
 unsigned MmxZeroDamage(uint8_t ram[0x20000], unsigned enemy, unsigned projectile, unsigned original);
 unsigned MmxZeroHitbox(const uint8_t ram[0x20000], unsigned enemy, unsigned projectile, unsigned original);
 MmxZeroState MmxZeroGetState(void);
+bool MmxZeroValidState(const MmxZeroState *state);
 void MmxZeroSetState(MmxZeroState state);
 void MmxZeroResetState(void);
 void MmxZeroCancel(uint8_t ram[0x20000]);

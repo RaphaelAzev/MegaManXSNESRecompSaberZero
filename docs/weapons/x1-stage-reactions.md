@@ -2,6 +2,8 @@
 
 Owner-approved exceptions to the original neutral-boss-damage scope, tracked
 in `beads-8wg.1.48`. No X2/X3 boss weakness tables are imported.
+Additional owner-approved boss pairings and their separate damage/reaction
+mapping are documented in [X1 boss weaknesses](x1-boss-weaknesses.md).
 
 | Imported attack | X1 collision class | X1 reaction |
 | --- | --- | --- |

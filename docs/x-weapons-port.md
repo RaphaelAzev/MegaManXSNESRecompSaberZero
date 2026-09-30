@@ -11,10 +11,11 @@ in X1 is deliberately adapted: original weapon artwork and mechanics with
 Zero-appropriate poses, firing origins and body actions. It is not presented as
 a reproduction of native X3 Zero boss-weapon behavior.
 
-Latest playtest exceptions: Speed Burner now uses X1 Fire Wave's stage/enemy
-reactions, and Triad Thunder uses Electric Spark's reactions, including
-Armadillo's armor break. This supersedes the earlier blanket neutral-damage
-rule for these two elements; see [source paths and tests](weapons/x1-stage-reactions.md).
+The owner-approved [additional boss weaknesses](weapons/x1-boss-weaknesses.md)
+now extend the original X1 sets without replacing them. Damage and reaction
+mapping are separate, so a physical weakness does not accidentally freeze or
+burn a boss. Speed Burner and Triad Thunder also retain their broader native
+fire/electric stage reactions; see [source paths and tests](weapons/x1-stage-reactions.md).
 
 ## Asset extraction foundation
 
@@ -118,8 +119,8 @@ Damaging attacks use source ordinary-enemy damage divided by
 their source buster value (3), multiplied by the X1 target's buster damage.
 Fractions carry between contacts to preserve ratios, including weak individual
 pellets and strong sustained weapons. Special encounter/armored profiles keep
-neutral buster damage; native immunity remains unchanged. No boss weaknesses
-are added. See the source notebook for the exact per-phase values. Combat state
+native damage except for the explicit elemental and boss mappings linked above;
+native immunity remains unchanged. See the source notebook for the exact per-phase values. Combat state
 is 1,028 bytes, including sixteen independent visual-particle slots; v12 game
 saves and v11 captures migrate the old 388-byte prefix with empty effects.
 V10/v11 game saves and v9/v10 captures migrate their old 328-byte
@@ -444,7 +445,8 @@ engines or finished audio. Tornado Fang impact debris and Speed Burner's
 underwater ambient bubbles are also implemented with original assets.
 Follow-ups include original SPC effects and stage-specific object interactions
 documented per weapon. Ordinary
-damage keeps source-to-buster ratios without imported boss weaknesses.
+damage keeps source-to-buster ratios; the owner-approved boss mappings above
+extend this earlier checkpoint.
 Co-op remains a later, separate mod. Private fixtures must never be loaded into
 the owner's running playtest.
 

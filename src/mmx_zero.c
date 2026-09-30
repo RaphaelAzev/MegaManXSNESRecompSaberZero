@@ -25,9 +25,10 @@ static unsigned word(const uint8_t *p) { return p[0] | p[1] << 8; }
 static void putword(uint8_t *p, unsigned v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
 MmxZeroState MmxZeroGetState(void) { return state; }
 void MmxZeroResetState(void) { memset(&state, 0, sizeof(state)); }
-void MmxZeroSetState(MmxZeroState s) {
-  MmxZeroResetState();
-  if (poses && s.combo <= 2 && s.slash <= 44 && s.charge <= 201 &&
+bool MmxZeroValidState(const MmxZeroState *value) {
+  if (!value) return false;
+  MmxZeroState s = *value;
+  return s.combo <= 2 && s.slash <= 44 && s.charge <= 201 &&
       s.active_x <= 1 && s.swap_phase <= 6 && s.swap_tick <= 30 && s.swap_y <= 0 && s.swap_y >= -320 &&
       s.hp_valid <= 1 && s.hp_max <= 32 && s.hp[0] <= 32 && s.hp[1] <= 32 &&
       (!s.hp_valid || (s.hp_max >= 16 && s.hp[0] <= s.hp_max && s.hp[1] <= s.hp_max)) &&
@@ -37,7 +38,11 @@ void MmxZeroSetState(MmxZeroState s) {
                     s.burst_timer && animation[s.burst_offset + 2] < 117)) &&
       (!s.anim_valid || (s.anim_offset >= 272 && s.anim_offset + 3 <= sizeof(animation) &&
                         s.anim_timer && s.anim_pose < 117)) &&
-      (!s.projectile || (s.projectile >= 0x1228 && s.projectile < 0x1428 && (s.projectile & 63) == 0x28))) state = s;
+      (!s.projectile || (s.projectile >= 0x1228 && s.projectile < 0x1428 && (s.projectile & 63) == 0x28));
+}
+void MmxZeroSetState(MmxZeroState s) {
+  MmxZeroResetState();
+  if (poses && MmxZeroValidState(&s)) state = s;
 }
 unsigned MmxZeroChargeTier(const MmxZeroState *s) {
   return !s || s->charge < 21 ? 0 : s->charge < 81 ? 4 :
@@ -133,6 +138,18 @@ bool MmxZeroNativeChargeObject(unsigned object, unsigned kind) {
   /* $82:82ED allocates any of twelve small actors, not just $0C98. */
   return object >= 0xc98 && object < 0xe18 && ((object - 0xc98) % 32) == 0 && kind == 1;
 }
+void MmxZeroDeathOrbSpawn(uint8_t r[0x20000], unsigned source, unsigned orb) {
+  if (!poses || !r || source != 0xba8 || orb < 0x1928 || orb >= 0x1d08 ||
+      (orb - 0x1928) % 32 || r[orb + 10] != 14) return;
+  /* Effect $0E never uses its secondary state byte ($02). Store its owner
+   * color there at allocation, before co-op projects the surviving actor.
+   * This follows native snapshots and resets explicitly on X's allocation. */
+  r[orb + 2] = state.active_x ? 0 : 0x5a;
+}
+bool MmxZeroDeathOrbRed(const uint8_t r[0x20000], unsigned orb) {
+  return poses && r && orb >= 0x1928 && orb < 0x1d08 && !((orb - 0x1928) % 32) &&
+      r[orb] && r[orb + 10] == 14 && r[orb + 2] == 0x5a;
+}
 const uint8_t *MmxZeroMenuPose(void) { return poses; }
 static void animation_record(unsigned offset) {
   if (offset < 272 || offset + 3 > sizeof(animation) || !animation[offset] || animation[offset + 2] >= 117) {
@@ -223,11 +240,23 @@ static unsigned slash_pose(const MmxZeroState *s) {
   }
   return 0;
 }
+int MmxZeroPoseOffsetY(const uint8_t ram[0x20000]) {
+  /* X3's kneeling art ends ten pixels below its ordinary standing origin.
+   * Align its feet with X1's authored kneeling ground line. */
+  return ram && ram[0xbbe] == 0x66 && (ram[0xbbf] & 127) != 4 ? -18 : -8;
+}
 const uint8_t *MmxZeroPose(const uint8_t ram[0x20000], const MmxZeroState *s) {
   /* Visibility belongs to the submitted sprite list, not this RAM snapshot.
    * During invulnerability the next update can hide the player while OAM
    * still contains the preceding visible frame. The compositor owns blinking. */
   if (!poses || !ram || (s && s->active_x)) return NULL;
+  /* X1's Vile capture/rescue uses group $66, not the normal body group.
+   * Its five poses are kneeling/blinking, then suspended. Use original X3
+   * kneeling/hurt art instead of reading these as running/firing sequences. */
+  if (ram[0xbbe] == 0x66) {
+    unsigned pose = (ram[0xbbf] & 127) == 4 ? 0x34 : 0x49;
+    return poses + (size_t)pose * MMX_ZERO_WIDTH * MMX_ZERO_HEIGHT;
+  }
   /* Old saves without mirrored animation state use the shared pose vocabulary
    * until the next native animation start. New saves retain the exact phase. */
   unsigned pose = s && s->anim_valid ? s->anim_pose : ram[0xbbf] & 127;

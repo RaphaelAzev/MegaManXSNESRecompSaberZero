@@ -7,8 +7,10 @@
 #include "mmx_weapons.h"
 #include "mmx_weapon_combat.h"
 #include "mmx_source_assets.h"
+#include "mmx_coop.h"
 #include "sdl_compat.h"
 #include <stdio.h>
+#include <string.h>
 
 extern uint8_t g_ram[0x20000];
 static void weapon_energy_hook(CpuState *cpu, uint32_t pc) {
@@ -70,6 +72,7 @@ static void hook(CpuState *cpu, uint32_t pc) {
     case 0x018165: MmxZeroPlayerEnd(g_ram); break;
     case 0x0491dc: MmxWeaponsTerrainEnd(g_ram,cpu->D); break;
     case 0x02823e: MmxWeaponsPlayerMotion(g_ram,cpu->D); break;
+    case 0x018b04: MmxZeroDeathOrbSpawn(g_ram, cpu->D, cpu->X); break;
     case 0x048f07: MmxZeroAnimationStart(cpu->D, cpu->A & 255); break;
     case 0x048eea: MmxZeroAnimationAdvance(cpu->D); break;
     case 0x028403: case 0x03958f: case 0x039dcf: {
@@ -106,6 +109,14 @@ static void hook(CpuState *cpu, uint32_t pc) {
       cpu->A = (cpu->A & 0xff00) | value;
       cpu->_flag_Z = !value; cpu->_flag_N = (value & 128) != 0;
       cpu->P = (cpu->P & ~0x82) | (cpu->_flag_Z ? 2 : 0) | (cpu->_flag_N ? 128 : 0);
+      break;
+    }
+    case 0x049e1d: case 0x049e3a: {
+      bool reaction=(pc&65535)==0x9e3a;
+      unsigned value=MmxWeaponsContactClass(g_ram,cpu->D,cpu->X,cpu->A,reaction);
+      cpu->A=(uint16_t)value;
+      cpu->_flag_Z=!(value&(reaction?255:65535));cpu->_flag_N=(value&(reaction?128:32768))!=0;
+      cpu->P=(cpu->P&~0x82)|(cpu->_flag_Z?2:0)|(cpu->_flag_N?128:0);
       break;
     }
     case 0x049e76: {
@@ -146,7 +157,7 @@ static void hook(CpuState *cpu, uint32_t pc) {
 }
 void MmxZeroRegisterHooks(void) {
   const unsigned pcs[] = {0x009dca, 0x00d6a7, 0x00d76a, 0x01971f, 0x019796, 0x0198ff,
-                          0x01815c, 0x018165, 0x019d47, 0x0194af, 0x00d3e7, 0x00d4f4, 0x00d511, 0x049e76, 0x049c19, 0x048f07, 0x048eea, 0x0491dc, 0x02823e,
+                          0x01815c, 0x018165, 0x019d47, 0x0194af, 0x00d3e7, 0x00d4f4, 0x00d511, 0x049e1d, 0x049e3a, 0x049e76, 0x049c19, 0x048f07, 0x048eea, 0x018b04, 0x0491dc, 0x02823e,
                           0x028403,0x03958f,0x039dcf,
                           0x01a57d,0x038b6f,0x038d87,0x038ed7,0x03951d,0x039841,0x039993,0x03a3cd,
                           0x01a589,0x038b7b,0x038d93,0x038ee3,0x039529,0x03984d,0x03999f,0x03a3d9};
@@ -175,6 +186,9 @@ static int prepare(const char *package, const char *feature, unsigned game, int 
   return 0;
 }
 static void activate(void) {
+  /* Co-op claims this existing plugin as its character-mode exclusion key.
+   * Its dedicated activation below owns preparation in that mode. */
+  if(snes_mod_runtime_feature_enabled_c("megaman-x.coop","coop")) return;
   char path[4096];
   if (!prepare("megaman-x.character.zero","zero",3,1,path)) return;
   if (!MmxZeroLoad(path)) {
@@ -182,6 +196,18 @@ static void activate(void) {
   }
   MmxZeroRegisterHooks();
   fprintf(stderr, "[mmx-zero] Zero 0.0.1 enabled\n");
+}
+static void activate_coop(void) {
+  char path[4096],character[32]={0};
+  if(!prepare("megaman-x.coop","coop",3,1,path) || !MmxZeroLoad(path)) return;
+  snes_mod_runtime_feature_option_value_c("megaman-x.coop","coop","player1",character,sizeof(character));
+  unsigned p1=!strcmp(character,"zero") ? MMX_COOP_ZERO : MMX_COOP_X;
+  MmxZeroRegisterHooks();MmxCoopRegisterHooks();
+  if(!MmxCoopEnable(p1)) {
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,"Cannot enable co-op","Cannot initialize the selected characters.",NULL);
+    return;
+  }
+  fprintf(stderr,"[mmx-coop] Couch co-op enabled; P1 is %s\n",p1==MMX_COOP_X?"X":"Zero");
 }
 static void activate_weapons(unsigned game) {
   char path[4096];
@@ -197,12 +223,14 @@ static void activate_weapons(unsigned game) {
 static void activate_x2(void) { activate_weapons(2); }
 static void activate_x3(void) { activate_weapons(3); }
 static void reset(void) {
+  MmxCoopDisable();
   if (MmxWeaponsEnabled()) g_ram[0x1f12] = 0;
   MmxWeaponsCancelShots(g_ram); MmxZeroCancel(g_ram); MmxZeroDisable(); MmxWeaponsDisable();
 }
 SNES_MOD_CONSTRUCTOR(mmx_register_zero_plugin) {
   (void)snes_mod_register_reset_callback(reset);
   (void)snes_mod_register_activation_plugin("megaman-x.zero", activate);
+  (void)snes_mod_register_activation_plugin("megaman-x.coop",activate_coop);
   (void)snes_mod_register_activation_plugin("megaman-x.weapons.x2",activate_x2);
   (void)snes_mod_register_activation_plugin("megaman-x.weapons.x3",activate_x3);
 }

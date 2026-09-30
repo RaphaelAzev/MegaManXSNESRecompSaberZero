@@ -22,7 +22,7 @@ because they are small or embedded in another file.
 | X2 weapons alone | Supported X2 ROM, in addition to X1 |
 | X3 weapons alone | Supported X3 ROM, in addition to X1 |
 | Complete X2/X3 boss-weapon expansion | Supported X2 and X3 ROMs, in addition to X1 |
-| Later X/Zero co-op with the completed weapon set | The same X1/X2/X3 sources |
+| X/Zero couch co-op | Supported X3 ROM, in addition to X1; X2/X3 weapon packs remain optional |
 
 Extract needed data locally from the supplied ROMs. Ship the mod's code,
 extractors, address descriptors and documentation. Keep generated caches on
@@ -32,14 +32,15 @@ is part of setup.
 
 ## Launcher setup and automatic extraction
 
-The launcher exposes three independent options: **X3 Zero Experiment**,
-**X2 Weapons (experimental)** and **X3 Weapons (experimental)**. Users select
+The launcher exposes **X3 Zero**, **X2 Weapons**, **X3 Weapons** and
+**X / Zero Couch Co-op**. Co-op replaces the single-player Zero exchange mode;
+the two character modes cannot be enabled together. Users select
 original USA `.sfc`/`.smc` ROMs, never extracted `.bin` files. X2/X3 weapon packs
 also work with X alone when Zero is disabled. Pause L/R skips disabled packs.
 
-Zero and X3 weapons both bind `shared_key = "megaman-x.source.x3"`; choosing,
-replacing or clearing either picker changes the same canonical X3 path and
-immediately appears on the other. X2 uses `megaman-x.source.x2`. The shared
+Zero, co-op and X3 weapons bind `shared_key = "megaman-x.source.x3"`; choosing,
+replacing or clearing any of these pickers changes the same canonical X3 path
+and immediately appears on the others. X2 uses `megaman-x.source.x2`. The shared
 runtime persists these values as `[[shared_resource]]` entries in mod state.
 An enabled feature with a missing or incorrect ROM cannot launch. Original
 ROM SHA-256 is checked after stripping an optional 512-byte copier header:
