@@ -8,7 +8,7 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/mmx_weapon_sources.h"
         "${CMAKE_CURRENT_BINARY_DIR}/mmx_weapon_sources.h"
     DEPENDS tools/generate_x_weapon_tables.py tools/data/x_weapon_assets.json VERBATIM)
 
-set(SNESRECOMP_BUILD_VERSION "${PROJECT_VERSION}" CACHE STRING "Release stamp for crash reports")
+set(SNESRECOMP_BUILD_VERSION "${PROJECT_VERSION}-rc.1" CACHE STRING "Release stamp for crash reports")
 set(SNESRECOMP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/snesrecomp" CACHE PATH "snesrecomp checkout")
 set(RECOMP_UI_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/recomp-ui" CACHE PATH "recomp-ui checkout")
 set(SNESRECOMP_ENABLE_MODS ON CACHE BOOL "Shared mod package runtime" FORCE)

@@ -70,6 +70,10 @@ New-Item -ItemType Directory -Path $stage -Force | Out-Null
 Copy-Item -LiteralPath $exe -Destination $stage
 Copy-Item -LiteralPath (Join-Path $root 'config.ini') -Destination $stage
 Copy-Item -LiteralPath (Join-Path $root 'README.md') -Destination $stage
+$releaseNotes = Join-Path $root "RELEASE_NOTES_v$Version.md"
+if (Test-Path -LiteralPath $releaseNotes) {
+  Copy-Item -LiteralPath $releaseNotes -Destination $stage
+}
 Copy-Item -LiteralPath $assets -Destination $stage -Recurse
 if (Test-Path -LiteralPath $mods) {
   Copy-Item -LiteralPath $mods -Destination $stage -Recurse
