@@ -12,7 +12,7 @@ static MmxCoopState state;
 static bool enabled;
 static unsigned starting_character;
 _Static_assert(sizeof(MmxCoopPlayer) == 2272, "Co-op player save ABI");
-_Static_assert(sizeof(MmxCoopState) == 4560, "Co-op save ABI");
+_Static_assert(sizeof(MmxCoopState) == 4576, "Co-op save ABI");
 
 bool MmxCoopEnabled(void) { return enabled; }
 void MmxCoopReset(void) {
@@ -32,11 +32,11 @@ void MmxCoopDisable(void) { enabled = false; starting_character = 0; MmxCoopRese
 MmxCoopState MmxCoopGetState(void) { return state; }
 bool MmxCoopValidState(const MmxCoopState *s) {
   if (!s || s->initialized > 1 || s->current > 1 || s->controller_pass > 2 ||
-      s->reserved[0] || s->reserved[1]) return false;
+      s->reserved[0] || s->reserved[1] || s->object_reserved || s->object_pass > 2) return false;
   for (unsigned i = 0; i < 2; ++i) {
     const MmxCoopPlayer *p = &s->players[i];
     if (p->character > MMX_COOP_ZERO || p->status > MMX_COOP_FALLEN ||
-        p->input > 4095 || p->pressed > 4095 || p->reserved[0] || p->reserved[1] ||
+        p->input > 4095 || p->pressed > 4095 ||
         !MmxWeaponsValidState(&p->weapons) || !MmxWeaponsValidCombatState(&p->combat) ||
         !MmxZeroValidState(&p->zero)) return false;
     if (s->initialized && p->zero.active_x != (p->character == MMX_COOP_X)) return false;
@@ -61,6 +61,7 @@ void MmxCoopCapture(uint8_t *r) {
   p->zero = MmxZeroGetState();
   p->weapons = MmxWeaponsGetState();
   p->combat = MmxWeaponsGetCombatState();
+  p->shot_command = r[0x1f0d]; p->hud_state = r[0x1f12];
 }
 bool MmxCoopSelect(uint8_t *r, unsigned player) {
   if (!enabled || !state.initialized || !r || player > 1) return false;
@@ -78,6 +79,7 @@ bool MmxCoopSelect(uint8_t *r, unsigned player) {
   MmxZeroSetState(p->zero);
   MmxWeaponsSetState(p->weapons);
   MmxWeaponsSetCombatState(p->combat);
+  r[0x1f0d] = p->shot_command; r[0x1f12] = p->hud_state;
   if (g_snes && g_snes->cart)
     MmxZeroSetCollisionRom(g_snes->cart->rom, g_snes->cart->romSize);
   return true;
@@ -136,8 +138,49 @@ bool MmxCoopPlacePartner(uint8_t *r, uint16_t x, uint16_t y) {
   return true;
 }
 
+static void object_hook(CpuState *cpu, uint32_t pc) {
+  if (!enabled || !state.initialized || state.players[1].status != MMX_COOP_ALIVE) return;
+  unsigned at = pc & 65535;
+  bool entry = at == 0xd2bd || at == 0xd3dd || at == 0xd3fa || at == 0xd43a || at == 0xd457;
+  if (entry) {
+    if (!state.object_pass && !state.current) {
+      state.object_pass = 1; state.object_entry = (uint16_t)at;
+    }
+    return;
+  }
+  if (state.object_pass == 1) {
+    state.object_a = cpu->A; state.object_x = cpu->X; state.object_y = cpu->Y;
+    state.object_s = cpu->S; state.object_d = cpu->D; state.object_db = cpu->DB;
+    cpu_mirrors_to_p(cpu); state.object_p = cpu->P;
+    MmxCoopSelect(g_ram,1); state.object_pass = 2;
+    interp_bridge_pre_opcode_redirect((pc & 0xff0000) | state.object_entry);
+  } else if (state.object_pass == 2) {
+    MmxCoopSelect(g_ram,0);
+    cpu->A = state.object_a; cpu->X = state.object_x; cpu->Y = state.object_y;
+    cpu->D = state.object_d; cpu->DB = state.object_db; cpu->P = state.object_p;
+    cpu_p_to_mirrors(cpu); state.object_pass = 0;
+  }
+}
 static void controller_hook(CpuState *cpu, uint32_t pc) {
   if (!enabled) return;
+  if ((pc & 0x7fffff) == 0x048fcb) {
+    /* There is exactly one X. Preserve his native CHR allocation; Zero's
+     * complete body comes from the original X3 asset compositor. PHP has
+     * already run, so the native PLP/RTL remains balanced. */
+    if (MmxZeroActive() && cpu->D >= 0xba8 && cpu->D < 0xc98) {
+      g_ram[cpu->D + 0x17] &= 127;
+      interp_bridge_pre_opcode_redirect(0x848fc8);
+    }
+    return;
+  }
+  if ((pc & 0x7fffff) == 0x0280df) {
+    /* Keep native visibility/culling, but do not enqueue a second pointer to
+     * the projected P1 address. P2 is drawn from its immutable context. */
+    if (state.initialized && state.current == 1 &&
+        ((cpu->D >= 0xba8 && cpu->D < 0xe18) || (cpu->D >= 0x1228 && cpu->D < 0x1428)))
+      interp_bridge_pre_opcode_redirect(0x82810a);
+    return;
+  }
   if ((pc & 0xffff) == 0x8136) {
     MmxCoopInitialize(g_ram);
     if (state.initialized && !state.controller_pass) state.controller_pass = 1;
@@ -150,6 +193,12 @@ static void controller_hook(CpuState *cpu, uint32_t pc) {
     state.return_s = cpu->S; state.return_db = cpu->DB;
     cpu_mirrors_to_p(cpu); state.return_p = cpu->P;
     MmxCoopSelect(g_ram, 1); MmxCoopApplyInput(g_ram);
+    /* $00:D1F3..D206 prepares these outside the player routine. P2 needs
+     * its own previous position and per-frame fire-command reset too. */
+    if (!g_ram[0x1f19]) {
+      memcpy(g_ram+0xbca,g_ram+0xbad,2); memcpy(g_ram+0xbcc,g_ram+0xbb0,2);
+    }
+    g_ram[0x1f0d] = 0;
     state.controller_pass = 2;
     cpu->P |= 0x30; cpu_p_to_mirrors(cpu); cpu->X &= 255; cpu->Y &= 255;
     /* Re-enter AFTER PHP/PHD/PLD. Both passes share exactly one prologue and
@@ -158,6 +207,7 @@ static void controller_hook(CpuState *cpu, uint32_t pc) {
     return;
   }
   if (state.controller_pass == 2) {
+    g_ram[0xbd4] = 0; /* P2's counterpart of $00:D21A. */
     MmxCoopSelect(g_ram, 0);
     cpu->A = state.return_a; cpu->X = state.return_x; cpu->Y = state.return_y;
     cpu->DB = state.return_db; cpu->P = state.return_p; cpu_p_to_mirrors(cpu);
@@ -168,4 +218,10 @@ static void controller_hook(CpuState *cpu, uint32_t pc) {
 void MmxCoopRegisterHooks(void) {
   interp_bridge_set_pre_opcode_hook(0x818136, controller_hook);
   interp_bridge_set_pre_opcode_hook(0x81819c, controller_hook);
+  interp_bridge_set_pre_opcode_hook(0x848fcb, controller_hook);
+  interp_bridge_set_pre_opcode_hook(0x8280df, controller_hook);
+  const unsigned objects[] = {0xd2bd,0xd2dd,0xd3dd,0xd3f9,0xd3fa,0xd422,
+      0xd43a,0xd456,0xd457,0xd47f};
+  for (unsigned i=0;i<sizeof(objects)/sizeof(objects[0]);++i)
+    interp_bridge_set_pre_opcode_hook(objects[i],object_hook);
 }

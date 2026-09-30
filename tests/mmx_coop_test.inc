@@ -5,6 +5,30 @@ static unsigned coop_y(const MmxCoopPlayer *p) { return p->body[8] | p->body[9] 
 static void coop_frames(unsigned count, unsigned p1, unsigned p2) {
   while (count--) frame(p1 | p2 << 12);
 }
+static void coop_image(unsigned character,const char *action) {
+  const char *base = getenv("MMX_ZERO_TEST_CAPTURE");
+  if (!base) return;
+  uint32_t pixels[256*224];
+  check(MmxRendererDraw(pixels,(MmxRenderView){256,0,4.0/3.0},false), "two-player frame renders");
+  MmxCoopState snapshot = MmxCoopGetState();
+  uint32_t without_partner[256*224];
+  MmxRendererCoopFrame(NULL);
+  check(MmxRendererDraw(without_partner,(MmxRenderView){256,0,4.0/3.0},false), "solo render reference draws");
+  MmxRendererCoopFrame(&snapshot);
+  unsigned changed = 0;
+  for (unsigned i=0;i<256*224;++i) changed += pixels[i] != without_partner[i];
+  check(changed>100,"partner contributes visible original sprite pixels");
+  char path[4096]; snprintf(path,sizeof(path),"%s.coop-%u-%s.bmp",base,character,action);
+  FILE *f = fopen(path,"wb"); check(f!=NULL,"private co-op image opens");
+  const uint8_t signature[2] = {'B','M'};
+  uint32_t header[] = {54+sizeof(pixels),0,54,40,256,224,0x200001,0,sizeof(pixels),0,0,0,0};
+  check(fwrite(signature,2,1,f)==1 && fwrite(header,sizeof(header),1,f)==1,"private image header writes");
+  bool written = true;
+  for (int y=223;y>=0;--y) written &= fwrite(pixels+y*256,1024,1,f)==1;
+  check(fclose(f)==0 && written,"private co-op image writes");
+  snprintf(path,sizeof(path),"%s.coop-%u-%s.cap",base,character,action);
+  check(MmxRendererSaveCapture(path),"two-player capture writes");
+}
 static void coop_checks(const char *assets, const char *fixture,
                         uint8_t *start, uint8_t *expected, uint8_t *actual, size_t cap) {
   check(assets && fixture, "co-op check requires private source assets and a grounded fixture");
@@ -31,12 +55,31 @@ static void coop_checks(const char *assets, const char *fixture,
           "P2 moves using port 2 while P1 stays still");
     check((uint8_t)(g_ram[0xb9c]-world_tick) == 20, "world frame counter advances once per two-player frame");
     check(s.current == 0 && !s.controller_pass, "second controller restores native P1 context and stack path");
+    coop_image(character,"walk");
     unsigned p2x = coop_x(&s.players[1]);
     coop_frames(8,SNES_PAD_LEFT,SNES_PAD_B);
     s = MmxCoopGetState();
     check(coop_x(&s.players[0]) < x0 && coop_x(&s.players[1]) == p2x && coop_y(&s.players[1]) < y0,
           "P1 walks independently while P2 jumps with original character physics");
     check(MmxCoopValidState(&s), "both native player contexts validate");
+    coop_image(character,"jump");
+    coop_frames(1,SNES_PAD_Y,SNES_PAD_Y);
+    s = MmxCoopGetState();
+    for (unsigned seat=0;seat<2;++seat) {
+      const MmxCoopPlayer *p=&s.players[seat];
+      fprintf(stderr,"seat %u shoot input=%04x buttons=%02x edge=%02x slots=",seat,p->input,p->body[0x37],p->body[0x3b]);
+      for(unsigned i=0;i<8;++i) fprintf(stderr," %02x/%02x",p->shots[i*64],p->shots[i*64+10]);
+      fprintf(stderr," counts=%u/%u weapon=%u fire=%u\n",p->body[0x35],p->body[0x7d],p->body[0x33],p->body[0x50]);
+    }
+    check(s.players[0].shots[0] && s.players[1].shots[0], "both players create independent buster projectiles");
+    unsigned shot_x[2] = {s.players[0].shots[5]|s.players[0].shots[6]<<8,
+        s.players[1].shots[5]|s.players[1].shots[6]<<8};
+    coop_frames(3,0,0);
+    s = MmxCoopGetState();
+    check((s.players[0].shots[5]|s.players[0].shots[6]<<8)!=shot_x[0] &&
+          (s.players[1].shots[5]|s.players[1].shots[6]<<8)!=shot_x[1],
+          "both native projectile pools advance");
+    coop_image(character,"shots");
     size_t n = RtlSaveSnapshotToMemory(start,cap);
     check(n != 0, "both players save in the native snapshot");
     coop_frames(12,SNES_PAD_RIGHT,SNES_PAD_LEFT);

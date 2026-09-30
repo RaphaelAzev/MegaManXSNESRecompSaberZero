@@ -20,7 +20,7 @@ typedef struct MmxCoopPlayer {
   MmxWeaponCombatState combat;
   uint16_t input, pressed;          /* engine's 12-bit seat input */
   uint8_t character, status;
-  uint8_t reserved[2];
+  uint8_t shot_command, hud_state;  /* $1F0D and $1F12 */
 } MmxCoopPlayer;
 
 typedef struct MmxCoopState {
@@ -31,6 +31,8 @@ typedef struct MmxCoopState {
   uint16_t return_a, return_x, return_y, return_s;
   uint8_t return_p, return_db;
   uint8_t reserved[2];
+  uint16_t object_a, object_x, object_y, object_s, object_d, object_entry;
+  uint8_t object_p, object_db, object_pass, object_reserved;
 } MmxCoopState;
 
 /* Development foundation; no launcher activation until join/combat/camera and

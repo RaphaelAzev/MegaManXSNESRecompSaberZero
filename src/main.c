@@ -86,6 +86,8 @@ static void MmxBeginFrame(unsigned number) {
   extern void MmxWsChrRebindSweep(void);
   MmxWsChrRebindSweep();
   MmxRendererBeginFrame(g_ram);
+  MmxCoopState coop = MmxCoopGetState();
+  MmxRendererCoopFrame(MmxCoopEnabled() ? &coop : NULL);
 }
 static void MmxEndFrame(const uint8_t *field, unsigned number) {
   if (!g_mmx_custom_renderer) return;

@@ -1,6 +1,7 @@
 #pragma once
 #include "snes/ppu.h"
 #include "mmx_display.h"
+#include "mmx_coop.h"
 
 enum { MMX_RENDER_HEIGHT = 224, MMX_RENDER_MAX_WIDTH = 1024 };
 typedef enum MmxRenderAspect {
@@ -30,6 +31,7 @@ void MmxRendererRecordPiece(const uint8_t ram[0x20000], uint16_t scratch);
 void MmxRendererObserveObject(const uint8_t ram[0x20000], uint16_t object);
 void MmxRendererLatchSprites(void);
 void MmxRendererBeginFrame(const uint8_t ram[0x20000]);
+void MmxRendererCoopFrame(const MmxCoopState *state);
 void MmxRendererCaptureLine(const Ppu *ppu, unsigned line);
 bool MmxRendererEndFrame(const uint32_t stock[256 * 224]);
 bool MmxRendererDraw(uint32_t *output, MmxRenderView view, bool anchor_hud);

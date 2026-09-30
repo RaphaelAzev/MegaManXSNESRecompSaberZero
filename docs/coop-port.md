@@ -48,6 +48,7 @@ original path.
 | `$1F83..86` | Four subtanks; low nibble is reserve, high bits shared unlocks |
 | `$1F87..96` | Eight X1 weapon energy words; retain shared high unlock bits |
 | `$1F99`, `$1F9A` | Shared upgrades and maximum HP |
+| `$1F0D`, `$1F12` | Per-player firing command and weapon HUD state |
 | `$7E:FFC0..FFC5` | Native configurable action button masks |
 
 In particular, copying eighteen bytes beginning at `$1F85` as “buster plus
@@ -62,6 +63,29 @@ that mapping to seat 2, preserving native in-game control configuration.
 Seat inputs come from `RtlGetPadState`, with the engine's 12-bit button format;
 they must not be read directly from SDL. `RtlRunFrame` packs P2 at bit 12.
 
+`$00:D1F3..D206` prepares previous X/Y coordinates and clears the firing
+command before entering the player routine. P2 needs the same preparation;
+without it, a P1 shot leaves `$1F0D` set and prevents P2 shooting that frame.
+The native `$00:D21A` post-controller `$0BD4` clear is also per player.
+
+The second context now runs these native object loops once after P1's pass:
+
+| Pool | Entry | Common return |
+| --- | --- | --- |
+| Armor | `$00:D2BD` | `$00:D2DD` |
+| Player projectiles | `$00:D3DD` | `$00:D3F9` |
+| Projectiles while frozen | `$00:D3FA` | `$00:D422` |
+| Charge/small effects | `$00:D43A` | `$00:D456` |
+| Charge/small effects while frozen | `$00:D457` | `$00:D47F` |
+
+Native `$82:80B4` still determines visibility, but P2 skips its draw-queue
+insertion at `$82:80DF`: a second queued pointer to `$0BA8` would display P1
+again after projection restores P1. The compositor receives an immutable P2
+snapshot instead. Native X sprite arrangements and CHR draw X; extracted X3
+poses draw Zero. Co-op suppresses only Zero body/armor CHR transfers at
+`$84:8FCB` and returns through the original PLP/RTL, preserving the one X
+actor's native dynamic tiles. The renderer keeps original OBJ/BG priorities.
+
 The existing shared SNES launcher profile already allows two players.
 MMX's desktop-host descriptor omitted `num_players`, so it advertised one.
 USA now advertises two; JP remains unchanged. No recomp-ui fork is needed for
@@ -75,6 +99,14 @@ P2 walking while P1 stays still, P1 walking while P2 jumps, one world-counter
 advance per frame, and byte-exact full snapshot replay with both input streams.
 The existing Zero unit test also passes. These checks do not cover the remaining
 systems listed below and do not make co-op ready for playtesting.
+
+Second checkpoint: independent buster creation and movement pass for both
+roster orders with scheduler bounce on and off. Private captures were visually
+reviewed for walking, jumping, and shots with both characters visible. A render
+check verifies P2 contributes sprite pixels for either roster; Zero and custom
+renderer unit checks pass. Render captures use MMXC v13 when they contain the
+co-op snapshot; ordinary captures retain MMXC v12. Enemy damage and imported
+weapon presentation are not covered by this checkpoint.
 
 `MmxCoopPlayer` owns native body/effects/projectiles, per-player weapon energy,
 subtank reserves, Zero combat/animation state, imported weapon state, and input.
@@ -92,8 +124,9 @@ Remaining integration, in order:
 
 1. Independent native movement and exact save/replay for both roster orders:
    **controller checkpoint passed**, including generated dispatch.
-2. Advance and draw both players' effects/projectiles; resolve shared enemy
-   fractional damage and cross-player time/freeze effects.
+2. Native body, armor, effect and projectile pool passes plus basic dual-body
+   drawing: **checkpoint passed**. Finish imported weapon presentation, shared
+   enemy fractional damage and cross-player time/freeze effects.
 3. Check body damage and pickups for either player without duplicating enemy
    AI. Collector alone receives HP/energy; shared unlocks remain shared.
 4. Add safe Start-to-join, source teleports and world freeze. Reject unsafe

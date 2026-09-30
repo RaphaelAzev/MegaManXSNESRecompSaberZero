@@ -35,6 +35,8 @@ static Frame frame;
 static MmxZeroState frame_zero;
 static MmxWeaponsState frame_weapons;
 static MmxWeaponCombatState frame_weapon_combat;
+static MmxCoopState frame_coop;
+static uint8_t partner_ram[0x20000];
 static Piece building[MAX_PIECES], latched[MAX_PIECES];
 static unsigned building_count, latched_count;
 static uint8_t building_stage, latched_stage;
@@ -284,6 +286,7 @@ static void trace_objects(const uint8_t *ram) {
   }
 }
 void MmxRendererBeginFrame(const uint8_t ram[0x20000]) {
+  memset(&frame_coop,0,sizeof(frame_coop));
   trace_objects(ram);
   frame.valid = false; frame.captured = 0;
   memcpy(frame.ram, ram, sizeof(frame.ram));
@@ -348,15 +351,26 @@ bool MmxRendererEndFrame(const uint32_t stock[256 * 224]) {
 }
 MmxRenderStats MmxRendererGetStats(void) { return stats; }
 const uint32_t *MmxRendererStockFrame(void) { return frame.valid ? frame.stock : NULL; }
+void MmxRendererCoopFrame(const MmxCoopState *s) {
+  if (!s || !s->initialized) { memset(&frame_coop,0,sizeof(frame_coop)); return; }
+  frame_coop = *s;
+  memcpy(partner_ram,frame.ram,sizeof(partner_ram));
+  memcpy(partner_ram+0xba8,s->players[1].body,sizeof(s->players[1].body));
+  memcpy(partner_ram+0xc38,s->players[1].auxiliaries,sizeof(s->players[1].auxiliaries));
+  memcpy(partner_ram+0x1228,s->players[1].shots,sizeof(s->players[1].shots));
+}
 bool MmxRendererSaveCapture(const char *path) {
   if (!frame.valid || !path) return false;
   FILE *f = fopen(path, "wb");
   if (!f) return false;
-  uint32_t header[] = {0x4d4d5843, 12, sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons) + sizeof(frame_weapon_combat)};
+  uint32_t header[] = {0x4d4d5843, frame_coop.initialized ? 13 : 12,
+      sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons) + sizeof(frame_weapon_combat) +
+      (frame_coop.initialized ? sizeof(frame_coop) : 0)};
   bool ok = fwrite(header, sizeof(header), 1, f) == 1 && fwrite(&frame, sizeof(frame), 1, f) == 1 &&
       fwrite(&frame_zero, sizeof(frame_zero), 1, f) == 1 &&
       fwrite(&frame_weapons, sizeof(frame_weapons), 1, f) == 1 &&
       fwrite(&frame_weapon_combat, sizeof(frame_weapon_combat), 1, f) == 1;
+  if (ok && frame_coop.initialized) ok = fwrite(&frame_coop,sizeof(frame_coop),1,f) == 1;
   return fclose(f) == 0 && ok;
 }
 bool MmxRendererLoadCapture(const char *path) {
@@ -368,6 +382,7 @@ bool MmxRendererLoadCapture(const char *path) {
   memset(&frame_zero, 0, sizeof(frame_zero));
   memset(&frame_weapons, 0, sizeof(frame_weapons));
   memset(&frame_weapon_combat, 0, sizeof(frame_weapon_combat));
+  memset(&frame_coop,0,sizeof(frame_coop));
   bool ok = fread(h, sizeof(h), 1, f) == 1 && h[0] == 0x4d4d5843 &&
       ((h[1] == 2 && h[2] == sizeof(frame)) || (h[1] == 3 && h[2] == sizeof(frame) + MMX_ZERO_LEGACY_STATE_SIZE) ||
        (h[1] == 4 && h[2] == sizeof(frame) + MMX_ZERO_ANIMATION_STATE_SIZE) ||
@@ -378,7 +393,8 @@ bool MmxRendererLoadCapture(const char *path) {
        (h[1] == 9 && h[2] == sizeof(frame) + sizeof(frame_zero) + MMX_WEAPONS_LEGACY_STATE_SIZE + MMX_WEAPON_COMBAT_LEGACY_SIZE) ||
        (h[1] == 10 && h[2] == sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons) + MMX_WEAPON_COMBAT_LEGACY_SIZE) ||
        (h[1] == 11 && h[2] == sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons) + MMX_WEAPON_COMBAT_DAMAGE_SIZE) ||
-       (h[1] == 12 && h[2] == sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons) + sizeof(frame_weapon_combat))) &&
+       (h[1] == 12 && h[2] == sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons) + sizeof(frame_weapon_combat)) ||
+       (h[1] == 13 && h[2] == sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons) + sizeof(frame_weapon_combat) + sizeof(frame_coop))) &&
       fread(&frame, sizeof(frame), 1, f) == 1 &&
       frame.captured == 224 && frame.piece_count <= MAX_PIECES && frame.expanded_count <= MAX_PIECES && frame.valid;
   size_t zero_size = h[1] == 3 ? MMX_ZERO_LEGACY_STATE_SIZE :
@@ -396,6 +412,14 @@ bool MmxRendererLoadCapture(const char *path) {
   if (ok && h[1] >= 9) ok = fread(&frame_weapon_combat,
       h[1]>=12 ? sizeof(frame_weapon_combat) : h[1]==11 ? MMX_WEAPON_COMBAT_DAMAGE_SIZE : MMX_WEAPON_COMBAT_LEGACY_SIZE, 1, f) == 1 &&
       MmxWeaponsValidCombatState(&frame_weapon_combat);
+  if (ok && h[1] == 13) {
+    MmxCoopState coop;
+    ok = fread(&coop,sizeof(coop),1,f) == 1 && coop.initialized == 1;
+    for (unsigned i=0;ok && i<2;++i) ok = coop.players[i].character <= MMX_COOP_ZERO &&
+        coop.players[i].status <= MMX_COOP_FALLEN && MmxZeroValidState(&coop.players[i].zero) &&
+        MmxWeaponsValidState(&coop.players[i].weapons) && MmxWeaponsValidCombatState(&coop.players[i].combat);
+    if (ok) MmxRendererCoopFrame(&coop);
+  }
   ok = ok && fgetc(f) == EOF;
   fclose(f); frame.valid = ok; return ok;
 }
@@ -837,6 +861,51 @@ static void moved_enemy_row(const MmxWeaponShot *s,const Ppu *p,const Raster *r,
     } else sprite(p,r,piece.x,piece.y,attr,piece.size,y,view,objects,false,asset,piece.tile,colors,true,false,false);
   }
 }
+static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView view,
+                             uint16_t *objects,int *colors) {
+  const MmxCoopPlayer *partner = &frame_coop.players[1];
+  if (!frame_coop.initialized || partner->status != MMX_COOP_ALIVE) return;
+  const uint8_t *ram = partner_ram;
+  bool zero = partner->character == MMX_COOP_ZERO;
+  if (zero && ram[0xbb6]) {
+    const uint8_t *body = MmxZeroPose(ram,&partner->zero);
+    const uint8_t *blade = MmxZeroBlade(&partner->zero);
+    const uint8_t *charge = !ram[0xbdb] && !partner->weapons.weapon ? MmxZeroChargePose(&partner->zero) : NULL;
+    int x = (int16_t)(word(ram,0xbad)-word(ram,0x1e4d));
+    int sy = (int16_t)(word(ram,0xbb0)-word(ram,0x1e50))-8;
+    int row = y-sy+64;
+    unsigned priority = ((ram[0xbb9]>>4 & 3)*4+2)<<12;
+    if (body && row>=0 && row<128) for (int col=0;col<128;++col) {
+      unsigned pixel = body[row*128+col];
+      if (blade && blade[row*128+col]) pixel = blade[row*128+col];
+      int dest = x + ((ram[0xbb9]&64) ? 63-col : col-64) + view.extra;
+      if (pixel && dest>=0 && dest<view.width) {
+        objects[dest] = (uint16_t)(priority|0x680|(pixel&15));
+        colors[dest] = pixel>=16 && pixel<32 ? MmxZeroBodyColors(&partner->zero)[pixel-16] : MmxZeroColors()[pixel];
+      }
+      if (charge && charge[row*128+col] && dest>=0 && dest<view.width) {
+        unsigned pixel = charge[row*128+col];
+        unsigned palette = partner->zero.charge>=81 && partner->zero.charge<201 ? 32 : 0;
+        objects[dest] = (uint16_t)(0xe680|pixel); colors[dest] = MmxZeroColors()[palette+pixel];
+      }
+    }
+  }
+  for (unsigned i=0;i<24;++i) {
+    unsigned d = i==0 ? 0xba8 : i<16 ? 0xc38+(i-1)*32 : 0x1228+(i-16)*64;
+    if (d==0xba8 ? !ram[d+1] || !ram[d+14] : !ram[d] || !(ram[d+14]&128)) continue;
+    if (zero && (d==0xba8 || d<0xc98 || MmxZeroNativeChargeObject(d,ram[d+10]))) continue;
+    if (d>=0x1228 && partner->combat.shots[(d-0x1228)/64].active) continue;
+    unsigned group = ram[d+22];
+    const uint8_t *a = sprite_arrangement(group,ram[d+23]&127);
+    if (!a) continue;
+    int x = (int16_t)(word(ram,d+5)-word(ram,0x1e4d));
+    int sy = (int16_t)(word(ram,d+8)+(int8_t)ram[d+25]-word(ram,0x1e50));
+    for (int j=(int)a[0]-1;j>=0;--j) {
+      Piece s = make_piece(a+j*4,x,sy,ram[d+17]&64,ram[d+17]&63,ram[d+24],group,d);
+      sprite(ppu,r,s.x,s.y,s.attr,s.size,y,view,objects,false,NULL,s.tile,colors,true,false,false);
+    }
+  }
+}
 bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
   if (!out || !frame.valid || view.width < 256 || view.width > MMX_RENDER_MAX_WIDTH ||
       view.extra != (view.width - 256) / 2 || (view.width & 1)) return false;
@@ -1052,6 +1121,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
           (menu || (attr & 0x0e00))) asset = &x_weapon_palette;
       sprite(&p, r, s.x, s.y, attr, s.size, y, view, objects, !center, asset, s.tile, object_colors, true, false, red_ready);
     }
+    if (stage) coop_partner_row(&p,r,y,view,objects,object_colors);
     int bar_first = -1, bar_count = 0;
     if (hud) for (int slot = 16; slot <= 48; ++slot) {
       unsigned pos = r->oam[slot * 2], attr = r->oam[slot * 2 + 1];
