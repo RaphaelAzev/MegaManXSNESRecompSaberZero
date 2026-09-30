@@ -188,6 +188,36 @@ MMX's desktop-host descriptor omitted `num_players`, so it advertised one.
 USA now advertises two; JP remains unchanged. No recomp-ui fork is needed for
 the controller assignment cards.
 
+## Independent deaths and stage ownership
+
+The native controller's death initializer is `$81:8A5C`; it sets global
+freeze flags at `$1F13..19`, waits 30 frames at `$81:8A92`, then creates the
+original expanding death orbs at `$81:8ADD`. With a living partner, preserve
+those shared flags around initialization/countdown and stop the dead actor
+at `$81:8B0B`, after the first orb allocation. Mark that seat fallen and clear
+its personal attacks. Enemy logic and the survivor continue normally.
+
+The main stage loop at `$00:9AC7` otherwise changes to mode 6 on zero HP.
+Mode 6 omits controller polling and pause handling, so suppress that change
+when another player is alive. The surviving seat becomes the native world
+anchor: enemy/pickup passes, camera, menus and draw submission restore it.
+P2 cannot voluntarily withdraw while P1 is fallen, because that would leave
+no living player to advance the stage. Select never revives a fallen seat.
+
+When the last survivor dies, retain X1's original stage mode 6, life decrement
+and checkpoint. Simultaneous fatalities use one death controller and spend
+one life. `$00:9D9E` runs after native actor pools have been cleared: adopt
+that cleared body as configured P1 rather than copying an old corpse over
+it. Reset personal combat, then let native stage initialization create P1;
+enrolled P2 arrives on safe ground with both HP pools full.
+
+Private ROM-backed checks cover either death order and both rosters, continued
+movement/shooting/pause, no mid-stage revival, exact survivor-only snapshot
+replay, full team restart, and simultaneous fatalities. Generated bounce
+on/off both pass the survivor checks; the simultaneous case also passes.
+The P2-survivor capture was visually reviewed. These do not yet cover script
+ownership at boss doors or a death during a scripted scene.
+
 ## State and remaining integration
 
 Validated controller checkpoint: private ROM-backed checks pass with scheduler
@@ -231,8 +261,8 @@ weapon energy and subtank reserves and never heal P1. Mid-arrival save/replay
 is byte-identical. Fallen status rejects Select re-entry. A real native P1
 death with P2 already fallen consumes one life, runs the checkpoint restart,
 and automatically returns enrolled P2 with both HP pools full. Both rosters
-pass these checks. Actual one-player death while the other survives, boss-door
-ownership, and later-stage arrival placement still need their own integration.
+pass these checks. Actual one-player death is covered by the later checkpoint above; boss-door
+ownership and later-stage arrival placement still need integration.
 
 `MmxCoopPlayer` owns native body/effects/projectiles, per-player weapon energy,
 Zero combat/animation state, imported weapon state, and input. Subtank reserves

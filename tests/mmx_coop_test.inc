@@ -17,7 +17,8 @@ static void coop_image(unsigned character,const char *action) {
   MmxRendererCoopFrame(&snapshot);
   unsigned changed = 0;
   for (unsigned i=0;i<256*224;++i) changed += pixels[i] != without_partner[i];
-  if (!snapshot.menu_owner) check(changed>100,"partner contributes visible original sprite pixels");
+  if (!snapshot.menu_owner && snapshot.players[snapshot.current^1].status==MMX_COOP_ALIVE)
+    check(changed>100,"partner contributes visible original sprite pixels");
   char path[4096]; snprintf(path,sizeof(path),"%s.coop-%u-%s.bmp",base,character,action);
   FILE *f = fopen(path,"wb"); check(f!=NULL,"private co-op image opens");
   const uint8_t signature[2] = {'B','M'};
@@ -293,6 +294,88 @@ static void coop_pickup_checks(uint8_t *start,uint8_t *expected,uint8_t *actual,
   coop_frames(1,0,SNES_PAD_START);coop_frames(75,0,0);
   check(!(g_ram[0x1f83]&15),"returning to P1 cannot restore spent shared subtank reserves");
 }
+static void coop_death_checks(unsigned character,const char *fixture,uint8_t *start,
+                              uint8_t *expected,uint8_t *actual,size_t cap) {
+  for(unsigned fallen=0;fallen<2;++fallen) {
+    MmxCoopDisable();check(RtlLoadSnapshot(fixture),"restore survivor fixture");
+    check(MmxCoopEnable(character),"survivor check uses chosen roster");coop_frames(8,0,0);
+    MmxCoopState s=MmxCoopGetState();
+    check(MmxCoopPlacePartner(g_ram,coop_x(&s.players[0])+40,coop_y(&s.players[0])),"place death check partner");
+    unsigned survivor=fallen^1,lives=g_ram[0x1f80];
+    s=MmxCoopGetState();unsigned before=coop_x(&s.players[survivor]);
+    MmxCoopSelect(g_ram,fallen);g_ram[0xbcf]=128;g_ram[0xbaa]=12;g_ram[0xbab]=0;
+    MmxCoopSelect(g_ram,0);
+    for(unsigned i=0;i<65;++i) coop_frames(1,survivor?0:SNES_PAD_RIGHT,survivor?SNES_PAD_RIGHT:0);
+    s=MmxCoopGetState();
+    fprintf(stderr,"death fallen=%u status=%u/%u anchor=%u current=%u lives=%u/%u flags=%u/%u/%u HP=%u/%u\n",
+        fallen,s.players[0].status,s.players[1].status,s.anchor,s.current,lives,g_ram[0x1f80],g_ram[0x1f13],
+        g_ram[0x1f19],g_ram[0x1f0b],s.players[0].body[0x27]&127,s.players[1].body[0x27]&127);
+    check(s.players[fallen].status==MMX_COOP_FALLEN && s.players[survivor].status==MMX_COOP_ALIVE &&
+        s.anchor==survivor && s.current==survivor && g_ram[0x1f80]==lives,
+        "one native death leaves the survivor in control without spending a life");
+    check(coop_x(&s.players[survivor])>before+60,"survivor can move during and after partner death");
+    coop_frames(1,0,SNES_PAD_SELECT);coop_frames(2,0,0);
+    check(MmxCoopGetState().players[fallen].status==MMX_COOP_FALLEN,"Select cannot revive a fallen partner");
+    coop_frames(1,survivor?0:SNES_PAD_Y,survivor?SNES_PAD_Y:0);coop_frames(3,0,0);
+    s=MmxCoopGetState();bool shot=false;
+    for(unsigned i=0;i<8;++i) shot|=s.players[survivor].shots[i*64]!=0;
+    if(!shot) fprintf(stderr,"survivor buster missing action=%u/%u nativeweapon=%u page=%u/%u input=%04x edge=%02x%02x held=%02x%02x command=%u flags=%u/%u/%u\n",
+        g_ram[0xbaa],g_ram[0xbab],g_ram[0xbdb],s.players[survivor].weapons.page,s.players[survivor].weapons.weapon,
+        s.players[survivor].input,g_ram[0xbe3],g_ram[0xbe2],g_ram[0xbdf],g_ram[0xbde],g_ram[0x1f0d],g_ram[0x1f0c],g_ram[0x1f1a],g_ram[0x1f19]);
+    check(shot,"surviving controller fires its own buster");
+    size_t n=RtlSaveSnapshotToMemory(start,cap);
+    coop_frames(10,survivor?0:SNES_PAD_RIGHT,survivor?SNES_PAD_RIGHT:0);
+    size_t en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"survivor snapshot restores world ownership");
+    coop_frames(10,survivor?0:SNES_PAD_RIGHT,survivor?SNES_PAD_RIGHT:0);
+    size_t an=RtlSaveSnapshotToMemory(actual,cap);same(expected,en,actual,an,"survivor-only world replay matches");
+    coop_image(character,survivor?"p2-survives":"p1-survives");
+    coop_frames(1,survivor?0:SNES_PAD_START,survivor?SNES_PAD_START:0);
+    s=MmxCoopGetState();fprintf(stderr,"survivor pause first owner=%u current=%u trigger=%02x flags=%u/%u stage=%u/%u/%u HP=%u\n",
+        s.menu_owner,s.current,g_ram[0xbe3],g_ram[0x1f3b],g_ram[0x1f10],g_ram[0xd1],g_ram[0xd2],g_ram[0xd3],g_ram[0xbcf]);
+    coop_frames(75,0,0);
+    s=MmxCoopGetState();fprintf(stderr,"survivor pause last owner=%u current=%u trigger=%02x flags=%u/%u stage=%u/%u/%u\n",
+        s.menu_owner,s.current,g_ram[0xbe3],g_ram[0x1f3b],g_ram[0x1f10],g_ram[0xd1],g_ram[0xd2],g_ram[0xd3]);
+    check(MmxCoopGetState().menu_owner==survivor+1,"survivor opens their own pause menu");
+    coop_frames(1,survivor?0:SNES_PAD_START,survivor?SNES_PAD_START:0);coop_frames(75,0,0);
+    g_ram[0xbcf]=128;g_ram[0xbaa]=12;g_ram[0xbab]=0;
+    bool returned=false;
+    for(unsigned i=0;i<1200;++i) {
+      coop_frames(1,0,0);s=MmxCoopGetState();
+      if(g_ram[0x1f80]+1==lives && !s.stage_pending && !MmxCoopTransitionActive() &&
+          s.players[0].status==MMX_COOP_ALIVE && s.players[1].status==MMX_COOP_ALIVE &&
+          (s.players[0].body[0x27]&127)==g_ram[0x1f9a] && (s.players[1].body[0x27]&127)==g_ram[0x1f9a]) {
+        returned=true;break;
+      }
+    }
+    if(!returned) fprintf(stderr,"team return failed stage=%u/%u/%u anchor=%u current=%u pending=%u status=%u/%u lives=%u/%u\n",
+        g_ram[0xd1],g_ram[0xd2],g_ram[0xd3],s.anchor,s.current,s.stage_pending,s.players[0].status,s.players[1].status,lives,g_ram[0x1f80]);
+    if(!returned) {uint16_t lx=0,ly=0;bool land=MmxCoopFindLanding(g_ram,&lx,&ly);
+      fprintf(stderr,"return body=%u/%u/%u HP=%u xy=%u/%u camera=%u/%u freezes=%u/%u/%u/%u land=%u %u/%u enrolled=%u\n",
+          g_ram[0xba9],g_ram[0xbaa],g_ram[0xbab],g_ram[0xbcf],coop_x(&s.players[0]),coop_y(&s.players[0]),
+          g_ram[0x1e4d]+256*g_ram[0x1e4e],g_ram[0x1e50]+256*g_ram[0x1e51],g_ram[0x1f0c],g_ram[0x1f10],g_ram[0x1f23],g_ram[0x1f48],land,lx,ly,s.enrolled);}
+    check(returned,"either survivor's death loses one life and returns both enrolled players");
+  }
+  MmxCoopDisable();check(RtlLoadSnapshot(fixture),"restore simultaneous death fixture");
+  check(MmxCoopEnable(character),"simultaneous death uses chosen roster");coop_frames(8,0,0);
+  MmxCoopState s=MmxCoopGetState();
+  check(MmxCoopPlacePartner(g_ram,coop_x(&s.players[0])+40,coop_y(&s.players[0])),"place simultaneous death partner");
+  unsigned lives=g_ram[0x1f80];
+  for(unsigned seat=0;seat<2;++seat) {
+    MmxCoopSelect(g_ram,seat);g_ram[0xbcf]=128;g_ram[0xbaa]=12;g_ram[0xbab]=0;
+  }
+  MmxCoopSelect(g_ram,0);bool returned=false;
+  for(unsigned i=0;i<1200;++i) {
+    coop_frames(1,0,0);s=MmxCoopGetState();
+    if(g_ram[0x1f80]+1==lives && !s.stage_pending && !MmxCoopTransitionActive() &&
+        s.players[0].status==MMX_COOP_ALIVE && s.players[1].status==MMX_COOP_ALIVE &&
+        (s.players[0].body[0x27]&127)==g_ram[0x1f9a] && (s.players[1].body[0x27]&127)==g_ram[0x1f9a]) {
+      returned=true;break;
+    }
+  }
+  check(returned,"simultaneous fatalities spend one life and restart both players");
+
+}
 static void coop_checks(const char *assets, const char *fixture,
                         uint8_t *start, uint8_t *expected, uint8_t *actual, size_t cap) {
   check(assets && fixture, "co-op check requires private source assets and a grounded fixture");
@@ -368,6 +451,7 @@ static void coop_checks(const char *assets, const char *fixture,
       coop_hud_checks(character);
       coop_weapon_checks(character);
     }
+    coop_death_checks(character,fixture,start,expected,actual,cap);
   }
   MmxCoopDisable();
   puts("MMX CO-OP CONTROLLER FOUNDATION CHECKS PASSED");

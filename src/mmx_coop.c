@@ -12,7 +12,7 @@ static MmxCoopState state;
 static bool enabled;
 static unsigned starting_character;
 _Static_assert(sizeof(MmxCoopPlayer) == 2268, "Co-op player save ABI");
-_Static_assert(sizeof(MmxCoopState) == 4616, "Co-op save ABI");
+_Static_assert(sizeof(MmxCoopState) == 4636, "Co-op save ABI");
 static bool join_tick(uint8_t *r);
 static unsigned word(const uint8_t *p) {return p[0]|p[1]<<8;}
 static void putword(uint8_t *p,unsigned v) {p[0]=(uint8_t)v;p[1]=(uint8_t)(v>>8);}
@@ -46,7 +46,8 @@ bool MmxCoopValidState(const MmxCoopState *s) {
       s->contact_reserved || s->contact_pass > 2 || s->enrolled>1 ||
       s->select_hold>180 || s->select_armed>1 || s->stage_pending>2 ||
       s->menu_owner>2 || s->menu_last>1 || s->menu_reserved[0] || s->menu_reserved[1] ||
-      s->pickup_pass>2 || s->pickup_reserved[0] || s->pickup_reserved[1] || s->pickup_reserved[2]) return false;
+      s->pickup_pass>2 || s->pickup_reserved[0] || s->pickup_reserved[1] || s->pickup_reserved[2] ||
+      s->anchor>1 || s->solo_death[0]>1 || s->solo_death[1]>1 || s->death_reserved) return false;
   for(unsigned i=0;i<16;++i) if(s->pickup_owner[i]>2) return false;
   if(s->pickup_pass && (s->pickup_d<0x1628 || s->pickup_d>=0x1928 || (s->pickup_d-0x1628)%48)) return false;
   if (s->object_pass && s->object_entry != 0xd2bd && s->object_entry != 0xd3dd &&
@@ -128,6 +129,9 @@ bool MmxCoopFrameTick(uint8_t *r) {
   }
   if (r[0xd1]!=2 || r[0xd2]!=4 || r[0xba9]!=2 || state.stage!=r[0x1f7a]) {
     state.stage_pending=1;state.select_hold=0;
+    /* A new stage/checkpoint is initialized for the configured P1, even
+     * when P2 was the last survivor driving the preceding world tasks. */
+    if(state.anchor && (r[0xd1]!=2 || r[0xd2]!=4)) {MmxCoopSelect(r,0);state.anchor=0;}
     return false;
   }
   if (state.stage_pending==1 && r[0xd3]==4 && !r[0x1f0c]) {
@@ -135,6 +139,7 @@ bool MmxCoopFrameTick(uint8_t *r) {
      * reserves, refill P2 as agreed, and wait for safe ground to arrive. */
     MmxCoopCapture(r);state.stage=r[0x1f7a];state.players[0].status=MMX_COOP_ALIVE;
     memset(state.pickup_owner,0,sizeof(state.pickup_owner));state.pickup_pass=0;
+    memset(state.solo_death,0,sizeof(state.solo_death));
     MmxCoopPlayer *p=&state.players[1];p->status=MMX_COOP_ABSENT;
     p->body[0x27]=r[0x1f9a]|128;
     memset(p->energy,0,sizeof(p->energy));
@@ -145,6 +150,14 @@ bool MmxCoopFrameTick(uint8_t *r) {
     memset(&p->zero,0,sizeof(p->zero));p->zero.active_x=p->character==MMX_COOP_X;
     state.stage_pending=state.enrolled?2:0;
   }
+  /* Simultaneous fatalities must leave only one native death controller
+   * responsible for the life decrement/checkpoint transition. */
+  MmxCoopCapture(r);
+  if(state.players[0].status==MMX_COOP_ALIVE && state.players[1].status==MMX_COOP_ALIVE &&
+      !(state.players[0].body[0x27]&127) && !(state.players[1].body[0x27]&127)) {
+    state.players[state.anchor^1].status=MMX_COOP_FALLEN;
+    state.solo_death[state.anchor]=0;
+  }
   if (join_tick(r)) return true;
   if (r[0x1f10]) return false;
   unsigned phases[2]={0,0};
@@ -154,7 +167,7 @@ bool MmxCoopFrameTick(uint8_t *r) {
     MmxCoopCapture(r);
     phases[seat]=MmxWeaponsTimePhase(&state.players[seat].combat);
   }
-  MmxCoopSelect(r,0);
+  MmxCoopSelect(r,state.anchor);
   /* Two staggered half-speed effects must not alternate into a permanent
    * freeze. Advance one shared display-frame cadence, while both ages tick. */
   ++state.time_tick;
@@ -293,6 +306,7 @@ static bool join_tick(uint8_t *r) {
   if (p->status==MMX_COOP_FALLEN) {state.select_hold=0;return false;}
   if (p->status==MMX_COOP_ALIVE) {
     if (!(p->body[0x27]&127) || p->body[2]==12) {state.select_hold=0;return false;}
+    if(state.players[0].status==MMX_COOP_FALLEN) {state.select_hold=0;return false;}
     if ((p->input&4) && state.select_armed && ++state.select_hold>=180) {
       clear_partner_combat(r);z=&p->zero;z->swap_phase=1;z->swap_tick=z->swap_fraction=0;z->swap_y=0;
       state.select_hold=0;sound(r,0x0f);r[0xb9d]=r[0xba0]=0;return true;
@@ -314,10 +328,10 @@ static bool join_tick(uint8_t *r) {
 }
 
 static void contact_hook(CpuState *cpu,uint32_t pc) {
-  if (!enabled || !state.initialized || state.menu_owner || state.players[1].status != MMX_COOP_ALIVE) return;
+  if (!enabled || !state.initialized || state.menu_owner || state.players[state.anchor^1].status != MMX_COOP_ALIVE) return;
   unsigned at = pc & 65535;
   if (at == 0x9b03 || at == 0x9b43) {
-    if (!state.current && !state.contact_pass) {
+    if (state.current==state.anchor && !state.contact_pass) {
       state.contact_pass = 1; state.contact_entry = (uint16_t)at;
       state.contact_s = cpu->S; state.contact_d = cpu->D;
     }
@@ -332,12 +346,12 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
     if (state.contact_entry == 0x9b43 && at != 0x9b7d) { state.contact_pass = 0; return; }
     state.contact_a = cpu->A; state.contact_x = cpu->X; state.contact_y = cpu->Y;
     state.contact_db = cpu->DB; cpu_mirrors_to_p(cpu); state.contact_p = cpu->P;
-    MmxCoopSelect(g_ram,1); state.contact_pass = 2;
+    MmxCoopSelect(g_ram,state.anchor^1); state.contact_pass = 2;
     interp_bridge_pre_opcode_redirect(0x840000 | state.contact_entry);
   } else {
     bool first_hit = (state.contact_a & 255) != 0;
     bool no_second_hit = !(cpu->A & 255);
-    MmxCoopSelect(g_ram,0);
+    MmxCoopSelect(g_ram,state.anchor);
     if (first_hit || no_second_hit) {
       cpu->A = state.contact_a; cpu->X = state.contact_x; cpu->Y = state.contact_y;
       cpu->DB = state.contact_db; cpu->P = state.contact_p; cpu_p_to_mirrors(cpu);
@@ -353,7 +367,7 @@ static bool pickup_slot(unsigned d) {
 static void pickup_hook(CpuState *cpu,uint32_t pc) {
   if(!enabled || !state.initialized || state.menu_owner) return;
   unsigned at=pc&65535,d=cpu->D;
-  if(at==0xd2ed || at==0xd31b) {MmxCoopSelect(g_ram,0);return;}
+  if(at==0xd2ed || at==0xd31b) {MmxCoopSelect(g_ram,state.anchor);return;}
   if(at==0xd2e6 || at==0xd308) {
     if(d<0x1628 || d>=0x1928 || (d-0x1628)%48) return;
     unsigned slot=(d-0x1628)/48;
@@ -363,7 +377,7 @@ static void pickup_hook(CpuState *cpu,uint32_t pc) {
   }
   if(at==0x9c0e) {
     if(!state.pickup_pass && pickup_slot(d) && cpu->X==0xba8 &&
-        !state.pickup_owner[(d-0x1628)/48] && state.players[1].status==MMX_COOP_ALIVE) {
+        !state.pickup_owner[(d-0x1628)/48] && state.players[state.anchor^1].status==MMX_COOP_ALIVE) {
       state.pickup_s=cpu->S;state.pickup_d=(uint16_t)d;state.pickup_pass=1;
     }
     return;
@@ -371,19 +385,19 @@ static void pickup_hook(CpuState *cpu,uint32_t pc) {
   if(!state.pickup_pass || cpu->S!=state.pickup_s || d!=state.pickup_d) return;
   if(cpu->_flag_C) {
     state.pickup_owner[(d-0x1628)/48]=(uint8_t)(state.current+1);state.pickup_pass=0;
-  } else if(state.pickup_pass==1 && !state.current) {
+  } else if(state.pickup_pass==1 && state.current==state.anchor) {
     /* Retry only native contact, never item movement or its refill task.
      * Keep a successful collector projected through the rest of this item. */
-    MmxCoopSelect(g_ram,1);state.pickup_pass=2;
+    MmxCoopSelect(g_ram,state.anchor^1);state.pickup_pass=2;
     interp_bridge_pre_opcode_redirect(0x849c0e);
-  } else {MmxCoopSelect(g_ram,0);state.pickup_pass=0;}
+  } else {MmxCoopSelect(g_ram,state.anchor);state.pickup_pass=0;}
 }
 static void object_hook(CpuState *cpu, uint32_t pc) {
-  if (!enabled || !state.initialized || state.menu_owner || state.players[1].status != MMX_COOP_ALIVE) return;
+  if (!enabled || !state.initialized || state.menu_owner || state.players[state.anchor^1].status != MMX_COOP_ALIVE) return;
   unsigned at = pc & 65535;
   bool entry = at == 0xd2bd || at == 0xd3dd || at == 0xd3fa || at == 0xd43a || at == 0xd457 || at == 0x9d67;
   if (entry) {
-    if (!state.object_pass && !state.current) {
+    if (!state.object_pass && state.current==state.anchor) {
       state.object_pass = 1; state.object_entry = (uint16_t)at;
     }
     return;
@@ -392,10 +406,10 @@ static void object_hook(CpuState *cpu, uint32_t pc) {
     state.object_a = cpu->A; state.object_x = cpu->X; state.object_y = cpu->Y;
     state.object_s = cpu->S; state.object_d = cpu->D; state.object_db = cpu->DB;
     cpu_mirrors_to_p(cpu); state.object_p = cpu->P;
-    MmxCoopSelect(g_ram,1); state.object_pass = 2;
+    MmxCoopSelect(g_ram,state.anchor^1); state.object_pass = 2;
     interp_bridge_pre_opcode_redirect((pc & 0xff0000) | state.object_entry);
   } else if (state.object_pass == 2) {
-    MmxCoopSelect(g_ram,0);
+    MmxCoopSelect(g_ram,state.anchor);
     cpu->A = state.object_a; cpu->X = state.object_x; cpu->Y = state.object_y;
     cpu->D = state.object_d; cpu->DB = state.object_db; cpu->P = state.object_p;
     cpu_p_to_mirrors(cpu); state.object_pass = 0;
@@ -426,7 +440,7 @@ static void menu_hook(CpuState *cpu,uint32_t pc) {
   if (!enabled || !state.initialized || MmxCoopTransitionActive()) return;
   switch (pc&65535) {
     case 0xe57f:
-      if (state.menu_owner==2 && state.current==1) {
+      if (state.current==1) {
         MmxCoopApplyInput(g_ram);cpu->A=(uint16_t)word(g_ram+0xbe2);
         cpu->_flag_N=(cpu->A&0x8000)!=0;cpu->_flag_Z=cpu->A==0;
         cpu->P=(cpu->P&~0x82)|(cpu->_flag_N?0x80:0)|(cpu->_flag_Z?2:0);
@@ -434,17 +448,63 @@ static void menu_hook(CpuState *cpu,uint32_t pc) {
       break;
     case 0x9e68: {
       if (state.menu_owner) return;
-      unsigned seat=(g_ram[0xbe3]&0x10) ? 0 : 1;
-      if (state.players[seat].status!=MMX_COOP_ALIVE ||
-          (seat && !(state.players[1].pressed&8))) return;
+      unsigned seat=(state.players[state.anchor].pressed&8) ? state.anchor : state.anchor^1;
+      if (state.players[seat].status!=MMX_COOP_ALIVE || !(state.players[seat].pressed&8)) return;
       state.menu_owner=(uint8_t)(seat+1);state.menu_last=(uint8_t)seat;
       MmxCoopSelect(g_ram,seat);
-      if (seat) {MmxCoopApplyInput(g_ram);g_ram[0xbe3]|=0x10;}
+      MmxCoopApplyInput(g_ram);g_ram[0xbe3]|=0x10;
       break;
     }
     case 0x9eac: /* Native pause guards rejected the request. */
     case 0xc579: /* Equipment and subtank changes are now committed. */
-      if(state.menu_owner) {MmxCoopSelect(g_ram,0);state.menu_owner=0;}
+      if(state.menu_owner) {MmxCoopSelect(g_ram,state.anchor);state.menu_owner=0;}
+      break;
+  }
+}
+static void death_hook(CpuState *cpu,uint32_t pc) {
+  if(!enabled || !state.initialized || state.menu_owner) return;
+  unsigned seat=state.current,other=seat^1;
+  if((pc&65535)==0x9d9e) {
+    /* Native reset has already cleared the actor pools. Adopt that new body
+     * for P1 instead of projecting a stored corpse back over the cleared RAM. */
+    state.current=state.anchor=0;state.stage_pending=1;
+    state.players[1].status=MMX_COOP_ABSENT;
+    MmxZeroState z={0};z.active_x=state.players[0].character==MMX_COOP_X;
+    MmxZeroSetState(z);MmxWeaponsSetState(state.players[0].weapons);
+    MmxWeaponsCancelShots(g_ram);MmxWeaponsPartnerCombat(&state.players[1].combat);
+    if(g_snes && g_snes->cart) MmxZeroSetCollisionRom(g_snes->cart->rom,g_snes->cart->romSize);
+    return;
+  }
+  if((pc&65535)==0x9ac7) {
+    /* Main stage mode 6 assumes the whole team is dead and stops input/pause
+     * polling. Keep mode 4 when another player still has HP. */
+    if(state.players[other].status==MMX_COOP_ALIVE && (state.players[other].body[0x27]&127))
+      interp_bridge_pre_opcode_redirect((pc&0xff0000)|0x9ad9);
+    return;
+  }
+  if(cpu->D!=0xba8) return;
+  switch(pc&65535) {
+    case 0x8a5c:
+      state.solo_death[seat]=state.players[other].status==MMX_COOP_ALIVE &&
+          (state.players[other].body[0x27]&127)!=0;
+      if(state.solo_death[seat]) memcpy(state.death_flags[seat],g_ram+0x1f13,7);
+      break;
+    case 0x8ab7:
+      if(state.solo_death[seat]) memcpy(state.death_flags[seat],g_ram+0x1f13,7);
+      break;
+    case 0x8a78:
+    case 0x8acc:
+      /* Keep the native death pose, countdown, sound and expanding orbs,
+       * but do not freeze the partner or erase another task's freeze flags. */
+      if(state.solo_death[seat]) memcpy(g_ram+0x1f13,state.death_flags[seat],7);
+      break;
+    case 0x8b0b:
+      if(state.solo_death[seat]) {
+        state.solo_death[seat]=0;state.players[seat].status=MMX_COOP_FALLEN;
+        MmxZeroCancel(g_ram);MmxWeaponsCancelShots(g_ram);
+        memset(g_ram+0xc38,0,0x1e0);g_ram[0xbb6]=0;g_ram[0xbcf]=128;
+        MmxCoopCapture(g_ram);
+      }
       break;
   }
 }
@@ -463,24 +523,29 @@ static void controller_hook(CpuState *cpu, uint32_t pc) {
   if ((pc & 0x7fffff) == 0x0280df) {
     /* Keep native visibility/culling, but do not enqueue a second pointer to
      * the projected P1 address. P2 is drawn from its immutable context. */
-    if (state.initialized && state.current == 1 &&
+    if (state.initialized && state.current != state.anchor &&
         ((cpu->D >= 0xba8 && cpu->D < 0xe18) || (cpu->D >= 0x1228 && cpu->D < 0x1428)))
       interp_bridge_pre_opcode_redirect(0x82810a);
     return;
   }
   if ((pc & 0xffff) == 0x8136) {
     MmxCoopInitialize(g_ram);
-    if (state.initialized && !state.controller_pass) state.controller_pass = 1;
+    if (state.initialized && !state.controller_pass) {
+      if(state.current==1) MmxCoopApplyInput(g_ram);
+      state.controller_pass=1;
+    }
     return;
   }
   if (!state.initialized || !state.controller_pass) return;
   constrain_player(g_ram);
-  if (state.controller_pass == 1 && !state.menu_owner && state.players[1].status == MMX_COOP_ALIVE &&
+  unsigned other=state.current^1;
+  if (state.controller_pass == 1 && !state.menu_owner && state.players[other].status == MMX_COOP_ALIVE &&
       g_ram[0xd1] == 2 && g_ram[0xd2] == 4 && !g_ram[0x1f0c]) {
     state.return_a = cpu->A; state.return_x = cpu->X; state.return_y = cpu->Y;
     state.return_s = cpu->S; state.return_db = cpu->DB;
     cpu_mirrors_to_p(cpu); state.return_p = cpu->P;
-    MmxCoopSelect(g_ram, 1); MmxCoopApplyInput(g_ram);
+    if(state.players[state.current].status==MMX_COOP_FALLEN) state.anchor=(uint8_t)other;
+    MmxCoopSelect(g_ram,other); MmxCoopApplyInput(g_ram);
     /* $00:D1F3..D206 prepares these outside the player routine. P2 needs
      * its own previous position and per-frame fire-command reset too. */
     if (!g_ram[0x1f19]) {
@@ -496,7 +561,7 @@ static void controller_hook(CpuState *cpu, uint32_t pc) {
   }
   if (state.controller_pass == 2) {
     g_ram[0xbd4] = 0; /* P2's counterpart of $00:D21A. */
-    MmxCoopSelect(g_ram, 0);
+    MmxCoopSelect(g_ram,state.anchor);
     cpu->A = state.return_a; cpu->X = state.return_x; cpu->Y = state.return_y;
     cpu->DB = state.return_db; cpu->P = state.return_p; cpu_p_to_mirrors(cpu);
   }
@@ -526,4 +591,7 @@ void MmxCoopRegisterHooks(void) {
   const unsigned pickups[]={0xd2e6,0xd2ed,0xd308,0xd31b,0x849c0e,0x849c15,0x849c1d,0x849d06};
   for(unsigned i=0;i<sizeof(pickups)/sizeof(pickups[0]);++i)
     interp_bridge_set_pre_opcode_hook(pickups[i],pickup_hook);
+  const unsigned deaths[]={0x9d9e,0x9ac7,0x818a5c,0x818a78,0x818ab7,0x818acc,0x818b0b};
+  for(unsigned i=0;i<sizeof(deaths)/sizeof(deaths[0]);++i)
+    interp_bridge_set_pre_opcode_hook(deaths[i],death_hook);
 }
