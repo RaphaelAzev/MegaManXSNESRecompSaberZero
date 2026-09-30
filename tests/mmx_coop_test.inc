@@ -152,6 +152,7 @@ static void coop_join_checks(unsigned character,const char *fixture,uint8_t *sta
   check(!MmxCoopTransitionActive() && g_ram[0xb9c]==tick,"arrival freezes the world until original morph completes");
   coop_frames(2,0,0);
   check((g_ram[0xbcf]&127)==7,"joining does not heal P1");
+  if(MmxWeaponsPageEnabled(1)) coop_weapon_select(1,1,8);
   MmxCoopSelect(g_ram,1);g_ram[0xbcf]=5|128;g_ram[0x1f88]=(g_ram[0x1f88]&192)|11;
   g_ram[0x1f83]=(g_ram[0x1f83]&240)|9;MmxCoopSelect(g_ram,0);
   coop_frames(89,0,SNES_PAD_SELECT);
@@ -177,6 +178,8 @@ static void coop_join_checks(unsigned character,const char *fixture,uint8_t *sta
   s=MmxCoopGetState();
   check((s.players[1].body[0x27]&127)==5 && s.players[1].energy[1]==11 && (g_ram[0x1f83]&15)==9,
       "rejoin does not refill the withdrawn player's stats");
+  if(MmxWeaponsPageEnabled(1)) check(s.players[1].weapons.page==1 && s.players[1].weapons.weapon==8,
+      "voluntary rejoin retains P2's Speed Burner selection");
   s.players[1].status=MMX_COOP_FALLEN;MmxCoopSetState(&s);
   coop_frames(1,0,SNES_PAD_SELECT);
   check(MmxCoopGetState().players[1].status==MMX_COOP_FALLEN && !MmxCoopTransitionActive(),
@@ -191,6 +194,8 @@ static void coop_join_checks(unsigned character,const char *fixture,uint8_t *sta
   check(returned && s.enrolled,"native checkpoint restart automatically returns enrolled P2 without another Select");
   check((s.players[0].body[0x27]&127)==g_ram[0x1f9a] && (s.players[1].body[0x27]&127)==g_ram[0x1f9a],
       "full team restart refills both HP pools");
+  check(!s.players[1].body[0x33] && !s.players[1].weapons.page && !s.players[1].weapons.weapon &&
+      !s.players[1].weapons.menu_page,"checkpoint restart resets P2 to X1 buster");
 }
 static void coop_camera_checks(unsigned character) {
   MmxCoopState s=MmxCoopGetState();unsigned x0=coop_x(&s.players[0]);
@@ -687,6 +692,13 @@ static void coop_stage_entry_checks(const char *fixture) {
   check(MmxCoopEnable(0),"stage-entry co-op enables");
   check(RtlLoadSnapshot(fixture),"private new-stage fixture loads");
   unsigned stage=g_ram[0x1f7a],maximum=g_ram[0x1f9a];
+  MmxCoopState previous=MmxCoopGetState();
+  previous.players[1].body[0x33]=8; /* Stale native Fire Wave selection. */
+  if(MmxWeaponsPageEnabled(1)) {
+    previous.players[1].weapons.page=previous.players[1].weapons.menu_page=1;
+    previous.players[1].weapons.weapon=8; /* Owner's preceding Speed Burner. */
+  }
+  MmxCoopSetState(&previous);
   coop_frames(1,0,0);
   MmxCoopState s=MmxCoopGetState();
   check(s.stage==stage && s.players[0].status==MMX_COOP_ALIVE &&
@@ -698,6 +710,8 @@ static void coop_stage_entry_checks(const char *fixture) {
       "enrolled P2 returns automatically after the stage changes");
   check(s.players[0].zero.active_x && !s.players[1].zero.active_x,
       "new stage preserves X and Zero identities");
+  check(!s.players[1].body[0x33] && !s.players[1].weapons.page && !s.players[1].weapons.weapon &&
+      !s.players[1].weapons.menu_page,"new stage clears P2 native/imported weapon and pause page");
   coop_image(0,"new-stage-arrival");
   unsigned lives=g_ram[0x1f80];
   for(unsigned seat=0;seat<2;++seat) {

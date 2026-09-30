@@ -477,6 +477,13 @@ initialization independently of the native readiness guard. Once entry is
 ready, the existing block adopts the native P1 body, clears fallen/scene state,
 refills the partner, and performs the normal safe-ground arrival.
 
+Stage/checkpoint entry also resets P2's native selection (`body+$33`) and
+both players' imported selection/pause page to the X1 buster. Previously the
+partner refill cleared charge and projectiles but retained the preceding
+stage's weapon (reported with Speed Burner after Penguin). Voluntary Select
+withdrawal/rejoin and cutscene transport still preserve selections. The stage
+fixture and checkpoint regression check this distinction (`beads-8wg.1.51`).
+
 The private `MMX_COOP_STAGE_FIXTURE` check loads the reported slot, verifies
 both full HP pools and identities, P2's completed automatic return, then kills
 both actors through the native death controller and requires a one-life

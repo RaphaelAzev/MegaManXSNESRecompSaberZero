@@ -157,11 +157,17 @@ bool MmxCoopFrameTick(uint8_t *r) {
   if (state.stage_pending==1 && r[0xd3]==4 && !r[0x1f0c]) {
     /* Native stage entry/reset has rebuilt P1. Preserve enrollment and
      * reserves, refill P2 as agreed, and wait for safe ground to arrive. */
+    MmxWeaponsState weapons=MmxWeaponsGetState();
+    weapons.page=weapons.weapon=weapons.menu_page=0;weapons.charge=weapons.cooldown=0;
+    MmxWeaponsSetState(weapons);
     MmxCoopCapture(r);state.stage=r[0x1f7a];state.players[0].status=MMX_COOP_ALIVE;
     memset(state.pickup_owner,0,sizeof(state.pickup_owner));state.pickup_pass=0;
     memset(state.solo_death,0,sizeof(state.solo_death));
     state.scene_owner=state.scene_phase=state.door_pass=0;
     MmxCoopPlayer *p=&state.players[1];p->status=MMX_COOP_ABSENT;
+    /* Match native P1's buster reset, for X1 and imported selections alike.
+     * Voluntary withdrawal and scene transport retain their own selection. */
+    p->body[0x33]=0;p->weapons.page=p->weapons.weapon=p->weapons.menu_page=0;
     p->body[0x27]=r[0x1f9a]|128;
     memset(p->energy,0,sizeof(p->energy));
     for(unsigned i=1;i<16;i+=2)p->energy[i]=28;
