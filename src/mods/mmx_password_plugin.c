@@ -3,6 +3,7 @@
 #include "recomp_launcher.h"
 #include "snes/interp_bridge.h"
 #include "mmx_password_save.h"
+#include "mmx_netplay.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -26,6 +27,9 @@ static void reset(void) {
 }
 
 static void activate(void) {
+  /* Local progress is not a match input. Manual password entry still works
+   * through the synchronized pad; offline files remain untouched. */
+  if (MmxNetplayActive()) return;
   char path[4096];
   const RecompLauncherCModProvider *provider = snes_mod_runtime_launcher_provider_c();
   RecompLauncherCModResource resource = {0};

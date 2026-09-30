@@ -17,6 +17,7 @@
 #include "snes/cart.h"
 #include "mmx_spc_player.h"
 #include "mmx_default_config.h"
+#include "mmx_netplay.h"
 
 #ifndef MMX_VARIANT_JP
 #define MMX_VARIANT_JP 0
@@ -37,13 +38,16 @@ static void MmxRomLoaded(const uint8_t *rom, size_t size) {
 }
 
 static void MmxPrepareFrame(int dw, int dh, int *w, int *h) {
+  /* A room has one logical field. Window size and each peer's offline pixel
+   * preference cannot widen it. The offline setting is never overwritten. */
+  SnesDisplayAspect aspect = SnesDisplayAspect_Clamp(MmxNetplayActive() ? 0 : g_config.display_aspect);
   g_mmx_custom_renderer = !MMX_VARIANT_JP && (g_config.widescreen || MmxZeroEnabled() || MmxWeaponsEnabled());
   g_mmx_custom_view = MmxRendererViewport(g_mmx_custom_aspect, dw, dh,
-      SnesDisplayAspect_Clamp(g_config.display_aspect));
+      aspect);
   if (!g_config.widescreen) {
     int pw, ph;
     MmxDisplay_ComputePresentationSize(256, 224,
-        SnesDisplayAspect_Clamp(g_config.display_aspect), &pw, &ph);
+        aspect, &pw, &ph);
     g_mmx_custom_view = (MmxRenderView){256, 0, (double)pw / ph};
   }
   *w = g_mmx_custom_renderer ? g_mmx_custom_view.width : 256;
@@ -117,7 +121,7 @@ static void MmxViewport(int w, int h, int dw, int dh, SnesDisplayViewport *view)
       SnesDisplayAspect_Clamp(g_config.display_aspect), g_config.ignore_aspect_ratio, false, view);
 }
 static int MmxWindowWidth(int w) {
-  return MmxDisplay_GetWindowBaseWidth(w, SnesDisplayAspect_Clamp(g_config.display_aspect));
+  return MmxDisplay_GetWindowBaseWidth(w, SnesDisplayAspect_Clamp(MmxNetplayActive() ? 0 : g_config.display_aspect));
 }
 
 /* Keep the existing benchmark entry points while using the host's run limit. */
@@ -220,6 +224,9 @@ int MMX_DESKTOP_ENTRY(int argc, char **argv) {
     .window_base_width = MmxWindowWidth,
     .window_base_height = MmxDisplay_GetWindowBaseHeight,
     .after_config = MmxAfterConfig, .after_run_frame = MmxAfterFrame,
+    .configure_launcher = MmxNetplayConfigureLauncher,
+    .prepare_netplay = MmxNetplayPrepare,
+    .netplay_ready = MmxNetplayReady,
   };
   return snesrecomp_desktop_main(&game, argc, argv);
 }

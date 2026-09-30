@@ -44,6 +44,7 @@ static void zero_capture(const char *base, const char *suffix) {
   check(MmxRendererSaveCapture(path), "Zero renderer capture saved");
 }
 #include "mmx_coop_test.inc"
+#include "mmx_netplay_test.inc"
 static void zero_motion_checks(const char *fixture) {
   const char *path = getenv("MMX_ZERO_MOTION_REFERENCE");
   if (!path) path = MMX_ZERO_MOTION_REFERENCE_DEFAULT;
@@ -1845,6 +1846,9 @@ int main(int argc, char **argv) {
   check(snesrecomp_sdl_init(SDL_INIT_EVENTS), "SDL initializes");
   g_audio_mutex = SDL_CreateMutex();
   static const SnesDesktopHostGame game = {
+    .display_name = "MMX private netplay test", .build_version = "netplay-test-1",
+    .num_players = 2,
+    .before_run_frame = MmxBeforeFrame,
     .native_widescreen = 0, .state_menu_hotkeys = 1,
     .prepare_frame = MmxPrepareFrame, .begin_sim_frame = MmxBeginFrame,
     .end_sim_frame = MmxEndFrame, .draw_frame = MmxDrawFrame,
@@ -1934,6 +1938,17 @@ int main(int argc, char **argv) {
     coop_launcher_checks(getenv("MMX_COOP_LAUNCHER_ROOT"),argv[1],getenv("MMX_COOP_X3_ROM"));
     return 0;
   }
+  if (getenv("MMX_NETPLAY_POLICY_ROOT")) {
+    netplay_policy_checks(getenv("MMX_NETPLAY_POLICY_ROOT"), argv[1], getenv("MMX_COOP_X3_ROM"));
+    return 0;
+  }
+#if defined(SNES_HAS_LOBBY_CLIENT)
+  if (getenv("MMX_NETPLAY_PAIR_ROOT")) {
+    netplay_pair_checks(getenv("MMX_NETPLAY_PAIR_ROOT"), argv[1], getenv("MMX_COOP_X3_ROM"),
+        getenv("MMX_ZERO_TEST_FIXTURE"), getenv("MMX_NETPLAY_PAIR_GUEST") != NULL);
+    return 0;
+  }
+#endif
   if (getenv("MMX_COOP_TEST")) {
     coop_checks(zero_assets,getenv("MMX_ZERO_TEST_FIXTURE"),start,expected,actual,cap);
     return 0;

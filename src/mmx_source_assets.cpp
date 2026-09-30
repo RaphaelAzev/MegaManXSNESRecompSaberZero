@@ -12,6 +12,8 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include <unistd.h>
 #endif
 
 namespace {
@@ -231,7 +233,14 @@ Bytes weapon_assets(const Rom& r,unsigned game) {
   return out;
 }
 void publish(const char *output,const Bytes& bytes) {
-  fs::path path=fs::u8path(output),temp=path;temp+=".tmp";
+  fs::path path=fs::u8path(output),temp=path;
+  /* Two local peers can prepare the same verified ROM concurrently. Each
+   * writer publishes a complete pack atomically from its own temporary file. */
+#ifdef _WIN32
+  temp+="."+std::to_string(GetCurrentProcessId())+".tmp";
+#else
+  temp+="."+std::to_string(getpid())+".tmp";
+#endif
   if (!path.parent_path().empty()) fs::create_directories(path.parent_path());
   try {
     std::ofstream f(temp,std::ios::binary|std::ios::trunc);require(bool(f),"Cannot create local mod cache.");
