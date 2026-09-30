@@ -1925,6 +1925,10 @@ int main(int argc, char **argv) {
   uint8 *start = malloc(cap), *expected = malloc(cap), *actual = malloc(cap);
   const char *zero_assets = getenv("MMX_ZERO_TEST_ASSETS");
   const char *zero_title = getenv("MMX_ZERO_TITLE_FIXTURE");
+  if (getenv("MMX_COOP_LAUNCHER_ROOT")) {
+    coop_launcher_checks(getenv("MMX_COOP_LAUNCHER_ROOT"),argv[1],getenv("MMX_COOP_X3_ROM"));
+    return 0;
+  }
   if (getenv("MMX_COOP_TEST")) {
     coop_checks(zero_assets,getenv("MMX_ZERO_TEST_FIXTURE"),start,expected,actual,cap);
     return 0;

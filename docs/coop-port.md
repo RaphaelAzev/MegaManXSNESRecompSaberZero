@@ -20,13 +20,20 @@ later stage entries/team restarts. Holding P2 Select for approximately 180
 gameplay frames voluntarily withdraws P2, retaining HP, energy and selections
 for a later rejoin; shared subtanks are unchanged. Withdrawal keeps session enrollment. Fallen
 players cannot use Select to rejoin until a new stage/team restart. These
-rules supersede Start-to-join. The private join/withdrawal checkpoint below
-validates these controls; public activation remains pending the other systems.
+rules supersede Start-to-join.
 
-The initial code is a **development foundation**, not a playable co-op release.
-It has no launcher activation package yet. A private ROM-backed test enables
-it directly. Do not announce joining, dual rendering, damage, pickups, camera,
-death, menus or transitions as complete based on the controller test.
+This branch provides a **development playtest build**, not an end-to-end
+campaign certification. The launcher package is `megaman-x.coop` 0.0.1,
+disabled by default. Enable Couch co-op, choose P1's character, select your
+original X3 USA ROM, and assign both controllers in Controls. P2 receives
+the other character. The real launcher provider rejects simultaneous co-op
+and exchange activation, propagates the shared X3 ROM path, extracts assets
+internally, and restores stock behavior after disabling the mod. Both roster
+choices pass activation checks. No source assets are distributed.
+
+Current executable: `build-coop/MegaManXSNESRecomp.exe` in this worktree.
+Normal launches start through the launcher; owner playtests must never
+implicitly load a save. Private fixture tests below use separate directories.
 
 ## Source findings (X1 USA, 2026-09-29)
 
@@ -256,7 +263,12 @@ replay during arrival byte-for-byte, and reject revival of a fallen partner.
 They pass with generated bounce on and off. Hidden/returned partner captures
 were visually reviewed. Existing controller, weapons, pickup, menu, shared
 tank, camera and independent-death checks also still pass in both modes.
-This does not establish coverage of every boss door, capsule or story scene.
+A private Storm Eagle capsule approach also checks P1 triggering Dr. Light's
+dialogue, the partner leaving, ordinary dialogue advancement, and the partner
+returning when control resumes. Capsule interaction follows the current world
+actor (normally P1); the second player's touch is not separately retried. This
+check does not cover the later upgrade-acquisition animation, every boss door,
+or every story scene.
 
 ## State and remaining integration
 
@@ -317,23 +329,28 @@ saves reset the co-op context; normal public loading must still enforce the
 mod-set compatibility policy. State storage alone does not establish netplay
 compatibility.
 
-Remaining integration, in order:
+## Playtest coverage still needed
 
-1. Independent native movement and exact save/replay for both roster orders:
-   **controller checkpoint passed**, including generated dispatch.
-2. Native body, armor, effect and projectile pool passes plus basic dual-body
-   drawing: **checkpoint passed**, including basic imported-weapon coexistence,
-   shared enemy fractional damage and cross-player time/freeze effects. Audit
-   remaining shared native palette/effect resources during playtesting.
-3. Check body damage and pickups for either player without duplicating enemy
-   AI. Collector alone receives HP/energy; shared unlocks remain shared.
-4. Select-to-join, session enrollment, three-second voluntary withdrawal with
-   retained stats, original teleports/world freeze: **private checkpoint
-   passed**, including automatic checkpoint return. Validate later-stage
-   arrivals alongside scene-transition work. No voluntary rejoin after death.
-5. Draw both characters with source art and the fixed four-column HUD. Preserve
-   native foreground priority; no blanket sprite priority override.
-6. Independent pause inventory with shared subtanks; shared camera and boundaries;
-   one-player death, team wipe/checkpoint, boss doors and cutscene ownership.
-7. Add the mutually exclusive launcher package and P1 character choice,
-   build a playtest executable, and run focused two-controller acceptance.
+The focused milestones above cover both roster orders, native/generated
+execution, two-player rendering/combat, collector pickups, shared subtanks,
+independent pause inventories, horizontal separation/camera, Select enrollment,
+withdrawal/rejoin, death/team restart, boss doors, capsule dialogue and launcher
+activation. They are bounded checks, not a complete two-player campaign.
+
+Prioritize these during owner playtests:
+
+- Vertical shafts, moving platforms and forced scrolling. Horizontal separation
+  is limited to 224 native pixels and the camera follows the pair's midpoint;
+  there is no artificial midair support to stop a player's fall.
+- Vile/highway ending, fortress story sequences, left-facing doors and scripted
+  deaths. Complex scripts currently use one world actor, while doors retry
+  either living player. The single surviving player owns the world after a death.
+- Ride armor ownership, boomerang-carried pickups, and overlapping native charged
+  effects or moving weapon platforms. These share retail world resources and
+  have not received a full pairwise audit.
+- Physical controller assignment/hotplug and both players using the real pause
+  screen. Port 2 is exposed in the shared launcher; automated checks inject both
+  input streams but cannot establish physical-controller behavior.
+
+Future netplay integration is separate. Deterministic snapshots include both
+players and scene continuation, but this does not certify online compatibility.

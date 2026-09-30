@@ -45,8 +45,8 @@ typedef struct MmxCoopState {
   uint16_t door_s, door_d, door_entry, door_reserved;
 } MmxCoopState;
 
-/* Development foundation; no launcher activation until join/combat/camera and
- * both actors' rendering are integrated. Asset preparation remains external. */
+/* The trusted co-op plugin prepares the owner-supplied X3 ROM, then enables
+ * the chosen roster. This mode excludes single-player character exchange. */
 bool MmxCoopEnable(unsigned p1_character);
 void MmxCoopDisable(void);
 bool MmxCoopEnabled(void);

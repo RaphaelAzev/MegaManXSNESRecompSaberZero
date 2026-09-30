@@ -10,6 +10,7 @@
 #include "mmx_coop.h"
 #include "sdl_compat.h"
 #include <stdio.h>
+#include <string.h>
 
 extern uint8_t g_ram[0x20000];
 static void weapon_energy_hook(CpuState *cpu, uint32_t pc) {
@@ -176,6 +177,9 @@ static int prepare(const char *package, const char *feature, unsigned game, int 
   return 0;
 }
 static void activate(void) {
+  /* Co-op claims this existing plugin as its character-mode exclusion key.
+   * Its dedicated activation below owns preparation in that mode. */
+  if(snes_mod_runtime_feature_enabled_c("megaman-x.coop","coop")) return;
   char path[4096];
   if (!prepare("megaman-x.character.zero","zero",3,1,path)) return;
   if (!MmxZeroLoad(path)) {
@@ -183,6 +187,18 @@ static void activate(void) {
   }
   MmxZeroRegisterHooks();
   fprintf(stderr, "[mmx-zero] Zero 0.0.1 enabled\n");
+}
+static void activate_coop(void) {
+  char path[4096],character[32]={0};
+  if(!prepare("megaman-x.coop","coop",3,1,path) || !MmxZeroLoad(path)) return;
+  snes_mod_runtime_feature_option_value_c("megaman-x.coop","coop","player1",character,sizeof(character));
+  unsigned p1=!strcmp(character,"zero") ? MMX_COOP_ZERO : MMX_COOP_X;
+  MmxZeroRegisterHooks();MmxCoopRegisterHooks();
+  if(!MmxCoopEnable(p1)) {
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,"Cannot enable co-op","Cannot initialize the selected characters.",NULL);
+    return;
+  }
+  fprintf(stderr,"[mmx-coop] Couch co-op enabled; P1 is %s\n",p1==MMX_COOP_X?"X":"Zero");
 }
 static void activate_weapons(unsigned game) {
   char path[4096];
@@ -205,6 +221,7 @@ static void reset(void) {
 SNES_MOD_CONSTRUCTOR(mmx_register_zero_plugin) {
   (void)snes_mod_register_reset_callback(reset);
   (void)snes_mod_register_activation_plugin("megaman-x.zero", activate);
+  (void)snes_mod_register_activation_plugin("megaman-x.coop",activate_coop);
   (void)snes_mod_register_activation_plugin("megaman-x.weapons.x2",activate_x2);
   (void)snes_mod_register_activation_plugin("megaman-x.weapons.x3",activate_x3);
 }

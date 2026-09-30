@@ -65,8 +65,13 @@ buster/saber combo, and grounded Select exchange with X. Both characters have
 separate current health; pickups heal only the active character. Enable it in
 **Mods** and select your **Mega Man X3 USA ROM**. Assets are prepared locally
 automatically. See [setup and release notes](docs/zero-0.0.1.md) and the
-[technical handoff](docs/zero-port.md). This branch contains the [X2/X3 weapon follow-up](docs/x-weapons-port.md),
-with thirteen weapons implemented and three still using the development fallback.
+[technical handoff](docs/zero-port.md). The [X2/X3 weapon mods](docs/x-weapons-port.md) add all sixteen boss weapons
+and their charged attacks, using your original X2/X3 ROMs.
+
+This development branch also adds **X / Zero Couch Co-op**. Choose P1's
+character in Mods, assign the second controller in Controls, and press P2
+Select to join. Co-op replaces single-player exchange. See the
+[co-op notes and current validation limits](docs/coop-port.md).
 
 <p align="center">
   <img src="docs/screenshots/widescreen-ocean.png" width="32%" alt="Mega Man X experimental widescreen rendering in an ocean scene">

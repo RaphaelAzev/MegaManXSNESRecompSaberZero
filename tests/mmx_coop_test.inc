@@ -425,6 +425,59 @@ static void coop_scene_checks(const char *fixture,uint8_t *start,uint8_t *expect
   }
   MmxCoopDisable();puts("MMX CO-OP DOOR CHECKS PASSED");
 }
+static void coop_capsule_checks(const char *fixture) {
+  MmxCoopDisable();check(RtlLoadSnapshot(fixture),"capsule approach fixture loads");
+  check(MmxCoopEnable(0),"capsule roster enables");coop_frames(8,0,0);
+  MmxCoopState s=MmxCoopGetState();
+  check(MmxCoopPlacePartner(g_ram,coop_x(&s.players[0])-32,coop_y(&s.players[0])),"capsule partner placed");
+  bool hidden=false,returned=false;
+  for(unsigned f=0;f<1100;++f) {
+    unsigned input=g_ram[0x1f31] ? (f%60==0?SNES_PAD_B:0) : SNES_PAD_RIGHT;
+    coop_frames(1,input,0);s=MmxCoopGetState();
+    if(s.scene_phase==2) hidden=true;
+    if(hidden && !s.scene_phase && !g_ram[0xc16]) {returned=true;break;}
+  }
+  check(hidden && returned && s.players[1].status==MMX_COOP_ALIVE,
+      "P1 capsule dialogue transports the partner out and back");
+  coop_image(0,"capsule-return");
+  MmxCoopDisable();puts("MMX CO-OP CAPSULE DIALOGUE CHECKS PASSED");
+}
+static void coop_launcher_checks(const char *root,const char *rom,const char *x3) {
+  check(x3!=NULL,"launcher check receives original X3 ROM");
+  check(snes_mod_runtime_initialize_c(root,"megaman-x-us",
+      "b8f70a6e7fb93819f79693578887e2c11e196bdf1ac6ddc7cb924b1ad0be2d32"),
+      "private co-op catalog parses");
+  const RecompLauncherCModProvider *p=snes_mod_runtime_launcher_provider_c();
+  check(p && p->feature_enable && p->feature_resource_get,"real launcher feature provider exists");
+  check(p->feature_enable(p->ctx,"megaman-x.coop","coop",1),"launcher enables co-op");
+  check(p->feature_resource_set_path(p->ctx,"megaman-x.coop","coop","x3-rom",x3),
+      "launcher accepts original X3 ROM");
+  const char *packages[]={"megaman-x.coop","megaman-x.character.zero","megaman-x.weapons.x3"};
+  const char *features[]={"coop","zero","weapons"};
+  for(unsigned i=0;i<3;++i) {
+    RecompLauncherCModResource r={0};
+    check(p->feature_resource_get(p->ctx,packages[i],features[i],0,&r) && !strcmp(r.path,x3),
+        "co-op, exchange and X3 weapons share one source ROM selection");
+  }
+  check(p->feature_enable(p->ctx,"megaman-x.character.zero","zero",1),"stage conflicting character mode");
+  check(!p->commit(p->ctx,rom) && p->diagnostic_count(p->ctx,"megaman-x.coop","coop")>0,
+      "launcher rejects simultaneous co-op and exchange");
+  check(p->feature_enable(p->ctx,"megaman-x.character.zero","zero",0),"disable exchange for co-op");
+  for(unsigned character=0;character<2;++character) {
+    check(p->feature_set_option(p->ctx,"megaman-x.coop","coop","player1",character?"zero":"x"),
+        "launcher selects either P1 character");
+    check(p->commit(p->ctx,rom),"co-op source validation and plan commit");
+    snes_mod_runtime_activate_plugins_c();
+    MmxCoopState s=MmxCoopGetState();
+    check(MmxCoopEnabled() && MmxZeroEnabled() && s.players[0].character==character &&
+        s.players[1].character==(character^1),"real plugin extracts source ROM and activates chosen roster");
+  }
+  check(p->feature_enable(p->ctx,"megaman-x.coop","coop",0) && p->commit(p->ctx,rom),
+      "launcher disables co-op");
+  snes_mod_runtime_activate_plugins_c();
+  check(!MmxCoopEnabled() && !MmxZeroEnabled(),"plugin reset restores stock mode");
+  puts("MMX CO-OP LAUNCHER CHECKS PASSED");
+}
 static void coop_checks(const char *assets, const char *fixture,
                         uint8_t *start, uint8_t *expected, uint8_t *actual, size_t cap) {
   check(assets && fixture, "co-op check requires private source assets and a grounded fixture");
@@ -432,6 +485,7 @@ static void coop_checks(const char *assets, const char *fixture,
   MmxZeroRegisterHooks(); MmxCoopRegisterHooks();
   const char *x2=getenv("MMX_COOP_X2_ASSETS"),*x3=getenv("MMX_COOP_X3_ASSETS");
   if (x2 && x3) check(MmxWeaponsLoadPage(x2,1) && MmxWeaponsLoadPage(x3,2),"private original weapon source packs load");
+  if(getenv("MMX_COOP_CAPSULE_FIXTURE")) {coop_capsule_checks(getenv("MMX_COOP_CAPSULE_FIXTURE"));return;}
   const char *scene_fixture=getenv("MMX_COOP_SCENE_FIXTURE");
   if(scene_fixture) {coop_scene_checks(scene_fixture,start,expected,actual,cap);return;}
   for (unsigned character = 0; character < 2; ++character) {
