@@ -31,6 +31,7 @@
 #include "cpu_trace.h"
 #include "variables.h"
 #include "widescreen.h"
+#include "mmx_rtl.h"
 
 /* Yield primitives bridge from recompiled task bodies to the host
  * fiber-based scheduler in mmx_rtl.c. mmx_host_yield switches to the
@@ -194,6 +195,8 @@ RecompReturn HleMmxYieldVblank(CpuState *cpu) {
    * own post-JSR PLB/PLP/PLY/PLX — those caller-saved regs are separate
    * from the JSR return frame handled below.
    *
+   * The frame-budget checkpoint also takes the native yield when another
+   * batch would overrun this host tick (see MmxGraphicsShouldYield).
    * LLE: only the YIELD path unwinds to the real routine (which redoes
    * the BIT — idempotent — and takes the $8127 coroutine switch). The
    * no-yield path is the decompressor's hot inner check (every 32
@@ -201,6 +204,8 @@ RecompReturn HleMmxYieldVblank(CpuState *cpu) {
    * so model the real `BIT $0B9D ; RTS` here byte-exact: BIT's N/V/Z
    * at the live M width, then pop the JSR frame like the RTS. */
   if (interp_bridge_in_lle_scheduler()) {
+    if (MmxGraphicsShouldYield(cpu))
+      return mmx_lle_unwind_to(cpu, 0x8127);
     if (g_ram[0x0B9D] & 0x80)
       return mmx_lle_unwind_to(cpu, 0x8121);
     if (cpu->m_flag) {
@@ -225,7 +230,7 @@ RecompReturn HleMmxYieldVblank(CpuState *cpu) {
    * RTS path directly, the yield path via the resume RTS — so pop the
    * 2-byte frame here (see HleMmxYieldOneFrame for full rationale). */
   uint8_t v = g_ram[0x0B9D];
-  if (v & 0x80) {
+  if ((v & 0x80) || MmxGraphicsShouldYield(cpu)) {
     mmx_host_yield(1);
   }
   cpu->S = (uint16)(cpu->S + 2);

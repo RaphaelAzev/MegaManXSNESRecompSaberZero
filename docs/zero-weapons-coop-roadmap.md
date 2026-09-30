@@ -207,3 +207,13 @@ Scope is couch co-op first. Consume the engine's two-port simulation inputs and
 serialize all player/weapon/join/camera state so future snesrecomp netplay can
 reuse the same deterministic simulation. Network compatibility must be tested
 later; it is not guaranteed merely by using the existing transport.
+
+## Netplay follow-up (2026-09-30)
+
+The owner approved two-player netplay, using Gundam Endless Duel as the next
+reference. Implemented on `feat/netplay-coop`, tracked by `beads-8wg.1.54`;
+details and evidence are in [netplay.md](netplay.md). Co-op is required for a
+room; no spectators or single-player exchange. Host-set gameplay mods and
+fixed native/16:9/21:9/32:9 view are agreed before launch. Source ROMs stay
+local and offline preferences survive. Local UDP negotiation and an actual
+delayed-input rollback pass; remote internet/controller playtesting remains.

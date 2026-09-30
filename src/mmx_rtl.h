@@ -7,6 +7,8 @@
 void MmxDrawPpuFrame(void);
 void RunOneFrameOfGame(void);
 void MmxSchedulerTick(void);
+/* Native graphics-task checkpoint, shared by interpreted and compiled calls. */
+bool MmxGraphicsShouldYield(const CpuState *cpu);
 
 /* .sav v5 game chunk + post-load fiber rebuild (RtlGameInfo hooks). */
 struct SaveLoadInfo;

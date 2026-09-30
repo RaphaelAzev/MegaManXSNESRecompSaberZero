@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(MegaManXSNESRecomp VERSION 1.6.6 LANGUAGES C CXX)
+project(MegaManXSNESRecomp VERSION 1.7.0 LANGUAGES C CXX)
 set(CMAKE_C_STANDARD 11)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/mmx_weapon_sources.h"
@@ -8,10 +8,13 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/mmx_weapon_sources.h"
         "${CMAKE_CURRENT_BINARY_DIR}/mmx_weapon_sources.h"
     DEPENDS tools/generate_x_weapon_tables.py tools/data/x_weapon_assets.json VERBATIM)
 
-set(SNESRECOMP_BUILD_VERSION "${PROJECT_VERSION}" CACHE STRING "Release stamp for crash reports")
+set(SNESRECOMP_BUILD_VERSION "${PROJECT_VERSION}-rc.1" CACHE STRING "Release stamp for crash reports")
 set(SNESRECOMP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/snesrecomp" CACHE PATH "snesrecomp checkout")
 set(RECOMP_UI_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/recomp-ui" CACHE PATH "recomp-ui checkout")
 set(SNESRECOMP_ENABLE_MODS ON CACHE BOOL "Shared mod package runtime" FORCE)
+# Match Gundam Endless Duel's internet-capable lobby build. Per-target netplay
+# keeps the unmodified Japanese edition and small unit tests independent.
+set(SNESRECOMP_NET_ICE ON CACHE BOOL "Internet netplay transport" FORCE)
 include(${SNESRECOMP_ROOT}/runner/runner.cmake)
 include(${RECOMP_UI_ROOT}/recomp_ui.cmake)
 
@@ -36,7 +39,7 @@ function(add_mmx_variant TARGET GEN_DIR CFG_DIR)
         endif()
     endif()
     add_executable(${TARGET} ${SNESRECOMP_RUNNER_SOURCES}
-        src/main.c src/mmx_display.c src/mmx_renderer.c src/mmx_render_assets.c src/mmx_wide_policy.c
+        src/main.c src/mmx_netplay.c src/mmx_display.c src/mmx_renderer.c src/mmx_render_assets.c src/mmx_wide_policy.c
         src/mmx_00.c src/gen_stubs.c src/mmx_cpu_infra.c src/mmx_rtl.c
         src/mmx_spc_player.c src/mods/mmx_diagnostics_plugin.c
         src/mods/mmx_widescreen_plugin.c src/mods/mmx_msu1_plugin.c
@@ -101,6 +104,9 @@ function(add_mmx_variant TARGET GEN_DIR CFG_DIR)
     endif()
     recomp_target_launcher_ui(${TARGET} CONSOLE snes
         BOXART ${CMAKE_CURRENT_SOURCE_DIR}/recomp/launcher/boxart.tga)
+    if(NOT "${TARGET}" STREQUAL "RockmanXSNESRecomp")
+        snesrecomp_enable_recomp_net(${TARGET})
+    endif()
 endfunction()
 set_property(SOURCE src/main.c APPEND PROPERTY COMPILE_DEFINITIONS
     SNESRECOMP_BUILD_VERSION="${SNESRECOMP_BUILD_VERSION}")

@@ -1,0 +1,42 @@
+turbo on
+wait 1400
+press start 30
+wait 180
+press start 30
+wait 180
+press start 30
+until d1 == 02 3600
+until d2 == 04 3600
+until d3 == 04 3600
+until ba9 == 02 3600
+turbo off
+wait 180
+dump start
+press right+p2:right 480
+press right+p2:right+y+p2:y+b+p2:b 20
+press right+p2:right 30
+press right+p2:right+y+p2:y+b+p2:b 20
+press right+p2:right 30
+press right+p2:right+y+p2:y+b+p2:b 20
+press right+p2:right 30
+press right+p2:right+y+p2:y+b+p2:b 20
+press right+p2:right 30
+press right+p2:right+y+p2:y+b+p2:b 20
+press right+p2:right 30
+press right+p2:right+y+p2:y+b+p2:b 20
+press right+p2:right 30
+press right+p2:right+y+p2:y+b+p2:b 20
+press right+p2:right 30
+press right+p2:right+y+p2:y+b+p2:b 20
+press right+p2:right 30
+press right+p2:right+y+p2:y+b+p2:b 20
+press right+p2:right 30
+press right+p2:right+y+p2:y+b+p2:b 20
+press right+p2:right 30
+press right+p2:right+y+p2:y+b+p2:b 20
+press right+p2:right 30
+press right+p2:right+y+p2:y+b+p2:b 20
+press right+p2:right 30
+dump end
+wait 90
+quit

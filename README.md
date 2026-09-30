@@ -1,5 +1,13 @@
 # MegaManXSNESRecomp
 
+Version 1.7.0-rc.1 is a **prerelease** adding two-player **X / Zero netplay**, using recomp-net and
+snesrecomp's existing lobby and rollback support. Netplay requires co-op and
+offers the original view or fixed 16:9, 21:9, and 32:9 widescreen. Each player
+supplies their own X3 ROM, plus X2 if the room uses X2 weapons. See
+[netplay setup, implementation, and validation limits](docs/netplay.md).
+See the [prerelease notes](RELEASE_NOTES_v1.7.0-rc.1.md) for changes and known
+limitations. Version 1.6.6 remains the latest stable release.
+
 Version 1.6.6 fixes Ctrl+R (Reset) leaving a black screen and lets you
 reopen the launcher mid-game with Ctrl+L (or Select+L3 on a controller),
 change settings, and resume from the same moment.
@@ -68,9 +76,10 @@ automatically. See [setup and release notes](docs/zero-0.0.1.md) and the
 [technical handoff](docs/zero-port.md). The [X2/X3 weapon mods](docs/x-weapons-port.md) add all sixteen boss weapons
 and their charged attacks, using your original X2/X3 ROMs.
 
-This development branch also adds **X / Zero Couch Co-op**. Choose P1's
-character in Mods, assign the second controller in Controls, and press P2
-Select to join. Co-op replaces single-player exchange. See the
+**X / Zero Couch Co-op** lets you choose P1's character in Mods and assign
+the second controller in Controls. P2 joins automatically at a safe stage
+entrance; hold P2 Select for 1.5 seconds to withdraw and tap it to rejoin.
+Co-op replaces single-player exchange. See the
 [co-op notes and current validation limits](docs/coop-port.md).
 
 <p align="center">
