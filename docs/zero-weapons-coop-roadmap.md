@@ -167,6 +167,9 @@ but do not allow both gameplay modes to activate together.
   triggering player before the fight. Use the correct blue/red original
   character teleport assets. Apply the same ownership principle to forced
   cutscenes; keep native stage/script progression authoritative.
+  Later scope clarification: P1-only door/capsule/script triggers are acceptable
+  where this materially reduces complexity; either player is preferred when
+  the native trigger can be extended with a small, contained change.
 - When one player dies, that player remains absent for the rest of the stage.
   They return when the stage ends, or when the other player also dies and both
   restart. Cutscene return must never resurrect an already fallen player.

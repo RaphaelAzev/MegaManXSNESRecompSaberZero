@@ -218,6 +218,46 @@ on/off both pass the survivor checks; the simultaneous case also passes.
 The P2-survivor capture was visually reviewed. These do not yet cover script
 ownership at boss doors or a death during a scripted scene.
 
+## Doors and scene transport
+
+The ordinary door contact routines are `$81:E70D` (right-facing) and
+`$81:EC98` (left-facing). Try the current world actor first, then the other
+living player only after a miss at `$E724` / `$ECC6`. Match the guest stack
+and direct-page owner before retrying. A hit at `$E725` / `$ECC7` makes that
+seat the world actor, so the retail forced walk, door objects, scrolling,
+boss introduction and unlock sequence remain authoritative.
+
+The counterpart uses the original character departure and arrival art/timing.
+Only the short teleport animations freeze the world; the native script runs
+while the counterpart is hidden. Clear their projectiles and temporary combat
+effects, retain HP/inventory, and resume only after the script releases its
+body lock and a clear landing is available. Hidden partners cannot collect,
+attack, take contact damage or pull the shared camera. Fallen partners never
+return from a scene. Other scripts currently follow the world actor (normally
+P1); the owner permits this simpler trigger policy for capsules and complex
+cutscenes, rather than requiring a second contact implementation everywhere.
+
+`$1F10` is also the boss health HUD state: values 2/4 do not mean the pause
+menu is open. Treating all nonzero values as menus prevented the partner from
+returning after a boss introduction and stopped imported weapon frame ticks.
+The co-op gate now reserves the pause restriction for values >=6.
+
+With generated bounce enabled, the private P2-driven Chill Penguin encounter
+exposed an incorrect return from the enemy-projectile loop `$00:D48D`: the
+stage resumed at `$80:9B01` with DP=$15E8 and an unbalanced task stack. The
+same encounter passes in the interpreter. Co-op now routes this loop through
+the existing paired interpreter bridge, as it already does for the duplicated
+player/contact boundaries. This change is co-op-only; the shared engine and
+stock generated path are unchanged. No synthetic guest return frames are added.
+
+Private door checks drive each seat through both Chill Penguin doors, verify
+counterpart departure/return, run subsequent boss combat, compare a snapshot
+replay during arrival byte-for-byte, and reject revival of a fallen partner.
+They pass with generated bounce on and off. Hidden/returned partner captures
+were visually reviewed. Existing controller, weapons, pickup, menu, shared
+tank, camera and independent-death checks also still pass in both modes.
+This does not establish coverage of every boss door, capsule or story scene.
+
 ## State and remaining integration
 
 Validated controller checkpoint: private ROM-backed checks pass with scheduler

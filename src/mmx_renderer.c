@@ -966,7 +966,7 @@ static void teleport_actor_row(const uint8_t *ram,const MmxZeroState *zero,const
 static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView view,
                              uint16_t *objects,int *colors) {
   const MmxCoopPlayer *partner = &frame_coop.players[frame_coop.current^1];
-  if (!frame_coop.initialized || partner->status != MMX_COOP_ALIVE) return;
+  if (!frame_coop.initialized || partner->status != MMX_COOP_ALIVE || frame_coop.scene_phase==2) return;
   const uint8_t *ram = partner_ram;
   if (partner->zero.swap_phase) {
     teleport_actor_row(ram,&partner->zero,ppu,r,y,view,objects,colors);return;
@@ -1385,7 +1385,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
     }
     if (stage && !swapping) {
       weapon_effects_row(&frame_weapon_combat,&p,r,y,view,objects,object_colors);
-      if (frame_coop.initialized && frame_coop.players[frame_coop.current^1].status==MMX_COOP_ALIVE)
+      if (frame_coop.initialized && frame_coop.players[frame_coop.current^1].status==MMX_COOP_ALIVE && !frame_coop.scene_owner)
         weapon_effects_row(&frame_coop.players[frame_coop.current^1].combat,&p,r,y,view,objects,object_colors);
     }
     if (swapping) teleport_actor_row(frame.ram,&frame_zero,&p,r,y,view,objects,object_colors);

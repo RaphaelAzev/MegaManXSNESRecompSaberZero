@@ -41,6 +41,8 @@ typedef struct MmxCoopState {
   uint8_t pickup_pass, pickup_reserved[3];
   uint8_t anchor, solo_death[2], death_reserved;
   uint8_t death_flags[2][8]; /* Native freeze flags around a partner's death. */
+  uint8_t scene_owner, scene_phase, door_pass, scene_reserved;
+  uint16_t door_s, door_d, door_entry, door_reserved;
 } MmxCoopState;
 
 /* Development foundation; no launcher activation until join/combat/camera and

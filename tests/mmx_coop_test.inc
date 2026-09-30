@@ -17,7 +17,7 @@ static void coop_image(unsigned character,const char *action) {
   MmxRendererCoopFrame(&snapshot);
   unsigned changed = 0;
   for (unsigned i=0;i<256*224;++i) changed += pixels[i] != without_partner[i];
-  if (!snapshot.menu_owner && snapshot.players[snapshot.current^1].status==MMX_COOP_ALIVE)
+  if (!snapshot.menu_owner && snapshot.scene_phase!=2 && snapshot.players[snapshot.current^1].status==MMX_COOP_ALIVE)
     check(changed>100,"partner contributes visible original sprite pixels");
   char path[4096]; snprintf(path,sizeof(path),"%s.coop-%u-%s.bmp",base,character,action);
   FILE *f = fopen(path,"wb"); check(f!=NULL,"private co-op image opens");
@@ -376,6 +376,55 @@ static void coop_death_checks(unsigned character,const char *fixture,uint8_t *st
   check(returned,"simultaneous fatalities spend one life and restart both players");
 
 }
+/* Optional private fixture just before Chill Penguin's two right-facing doors.
+ * Also exercises the native enemy-projectile loop after the boss introduction. */
+static void coop_scene_checks(const char *fixture,uint8_t *start,uint8_t *expected,
+                              uint8_t *actual,size_t cap) {
+  for(unsigned driver=0;driver<2;++driver) {
+    MmxCoopDisable();check(RtlLoadSnapshot(fixture),"door approach fixture loads");
+    check(MmxCoopEnable(0),"door roster enables");coop_frames(8,0,0);
+    MmxCoopState s=MmxCoopGetState();
+    check(MmxCoopPlacePartner(g_ram,coop_x(&s.players[0])+(driver?40:-40),coop_y(&s.players[0])),
+        "door partner placed on approach floor");
+    unsigned departures=0,returns=0,last_phase=0;bool replayed=false;
+    for(unsigned f=0;f<1200;++f) {
+      coop_frames(1,driver?0:SNES_PAD_RIGHT,driver?SNES_PAD_RIGHT:0);s=MmxCoopGetState();
+      if(s.scene_phase==1 && !last_phase) {
+        ++departures;
+        check(s.scene_owner==driver+1 && s.anchor==driver,"touching player owns native door walk");
+      }
+      if(s.scene_phase==2 && last_phase==1 && departures==2) coop_image(driver,"door-hidden");
+      if(s.scene_phase==3 && last_phase==2) {
+        check(s.players[driver^1].status==MMX_COOP_ALIVE &&
+            (s.players[driver^1].body[0x27]&127),"living partner returns on clear floor");
+        if(!replayed) {
+          size_t n=RtlSaveSnapshotToMemory(start,cap);check(n!=0,"door arrival saves");
+          coop_frames(12,0,0);size_t en=RtlSaveSnapshotToMemory(expected,cap);
+          check(RtlLoadSnapshotFromMemory(start,n),"door arrival restores");
+          coop_frames(12,0,0);size_t an=RtlSaveSnapshotToMemory(actual,cap);
+          same(expected,en,actual,an,"door arrival replays both actors and world exactly");
+          s=MmxCoopGetState();replayed=true;
+        }
+      }
+      if(!s.scene_phase && last_phase==3) {
+        ++returns;
+        if(returns==2) coop_image(driver,"door-return");
+      }
+      last_phase=s.scene_phase;
+    }
+    check(departures==2 && returns==2 && replayed,"either seat crosses both doors and rejoins before combat");
+    check(!s.scene_owner && !s.door_pass && s.current==s.anchor && g_ram[0xd3]==4,
+        "boss combat resumes with balanced native task context");
+    coop_image(driver,"boss-combat");
+    /* A script ending cannot turn the partner's fallen state into a join. */
+    s.players[driver^1].status=MMX_COOP_FALLEN;
+    s.scene_owner=(uint8_t)(driver+1);s.scene_phase=2;MmxCoopSetState(&s);
+    coop_frames(1,0,0);s=MmxCoopGetState();
+    check(s.players[driver^1].status==MMX_COOP_FALLEN && !s.scene_owner,
+        "scene return never revives a fallen partner");
+  }
+  MmxCoopDisable();puts("MMX CO-OP DOOR CHECKS PASSED");
+}
 static void coop_checks(const char *assets, const char *fixture,
                         uint8_t *start, uint8_t *expected, uint8_t *actual, size_t cap) {
   check(assets && fixture, "co-op check requires private source assets and a grounded fixture");
@@ -383,6 +432,8 @@ static void coop_checks(const char *assets, const char *fixture,
   MmxZeroRegisterHooks(); MmxCoopRegisterHooks();
   const char *x2=getenv("MMX_COOP_X2_ASSETS"),*x3=getenv("MMX_COOP_X3_ASSETS");
   if (x2 && x3) check(MmxWeaponsLoadPage(x2,1) && MmxWeaponsLoadPage(x3,2),"private original weapon source packs load");
+  const char *scene_fixture=getenv("MMX_COOP_SCENE_FIXTURE");
+  if(scene_fixture) {coop_scene_checks(scene_fixture,start,expected,actual,cap);return;}
   for (unsigned character = 0; character < 2; ++character) {
     MmxCoopDisable();
     check(RtlLoadSnapshot(fixture), "private co-op fixture loads");
