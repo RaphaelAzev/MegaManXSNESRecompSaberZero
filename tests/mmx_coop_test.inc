@@ -434,6 +434,46 @@ static void coop_scene_checks(const char *fixture,uint8_t *start,uint8_t *expect
   }
   MmxCoopDisable();puts("MMX CO-OP DOOR CHECKS PASSED");
 }
+/* Owner's private Chill Penguin save, standing on the uncollected capsule.
+ * Unlike the dialogue fixture, this runs acquisition AND its input demo. */
+static void coop_capsule_full_checks(const char *fixture) {
+  check(MmxCoopEnable(0),"capsule full co-op enables");
+  check(RtlLoadSnapshot(fixture),"capsule full fixture loads");
+  MmxCoopState s=MmxCoopGetState();
+  check(s.initialized && !s.anchor && !(g_ram[0x1f99]&8),"capsule fixture precedes boots acquisition");
+  s.players[1].body[0x27]=135;s.players[1].energy[1]=9;
+  s.players[1].weapons.energy[0]=11;MmxCoopSetState(&s);
+  unsigned initial_x=coop_x(&s.players[0]),hidden_frames=0;
+  bool started=false,demonstrated=false,returned=false;
+  for(unsigned f=0;f<1000;++f) {
+    coop_frames(1,started?0:SNES_PAD_RIGHT,0);s=MmxCoopGetState();
+    if(s.scene_owner) started=true;
+    if(s.scene_phase==2) {
+      ++hidden_frames;
+      if(!g_ram[0x1f3b] && g_ram[0xbaa]==0x14 && !demonstrated) {
+        check(g_ram[0x1f48] && (g_ram[0x1f99]&8),"native boots demo runs after capsule body lock clears");
+        demonstrated=true;coop_image(0,"capsule-demo-hidden");
+      }
+    }
+    if(started && g_ram[0x1f48])
+      check(s.scene_owner==1 && s.scene_phase!=3,"partner stays withdrawn for the entire native demo");
+    if(started && !s.scene_owner) {returned=true;break;}
+  }
+  check(returned && demonstrated && hidden_frames>500 && !g_ram[0x1f48],
+      "full capsule acquisition and demo finish before partner returns");
+  check(coop_x(&s.players[0])>initial_x+140 &&
+      abs((int)coop_x(&s.players[0])-(int)coop_x(&s.players[1]))<=64,
+      "partner returns beside the demo endpoint instead of the old capsule position");
+  check(s.players[1].status==MMX_COOP_ALIVE && (s.players[1].body[0x27]&127)==7 &&
+      s.players[1].energy[1]==9 && s.players[1].weapons.energy[0]==11,
+      "capsule transport preserves partner health and weapon reserves");
+  coop_image(0,"capsule-demo-return");
+  unsigned x=coop_x(&s.players[0]),camera=g_ram[0x1e4d]+256*g_ram[0x1e4e];
+  coop_frames(20,SNES_PAD_RIGHT,SNES_PAD_RIGHT);s=MmxCoopGetState();
+  check(coop_x(&s.players[0])>x+20 && g_ram[0x1e4d]+256*g_ram[0x1e4e]>camera+20,
+      "both players and the shared camera advance after the capsule demo");
+  MmxCoopDisable();puts("MMX CO-OP FULL CAPSULE CHECKS PASSED");
+}
 static void coop_capsule_checks(const char *fixture) {
   MmxCoopDisable();check(RtlLoadSnapshot(fixture),"capsule approach fixture loads");
   check(MmxCoopEnable(0),"capsule roster enables");coop_frames(8,0,0);
@@ -678,6 +718,7 @@ static void coop_checks(const char *assets, const char *fixture,
   if(getenv("MMX_COOP_PLATFORM_CAPTURE")) {coop_platform_checks(fixture,getenv("MMX_COOP_PLATFORM_CAPTURE"));return;}
   if(getenv("MMX_COOP_NATURAL_DEATH")) {coop_natural_death_checks(fixture);return;}
   if(getenv("MMX_COOP_KEYBOARD_TEST")) {coop_keyboard_checks(fixture);return;}
+  if(getenv("MMX_COOP_CAPSULE_FULL_FIXTURE")) {coop_capsule_full_checks(getenv("MMX_COOP_CAPSULE_FULL_FIXTURE"));return;}
   if(getenv("MMX_COOP_CAPSULE_FIXTURE")) {coop_capsule_checks(getenv("MMX_COOP_CAPSULE_FIXTURE"));return;}
   const char *scene_fixture=getenv("MMX_COOP_SCENE_FIXTURE");
   if(scene_fixture) {coop_scene_checks(scene_fixture,start,expected,actual,cap);return;}

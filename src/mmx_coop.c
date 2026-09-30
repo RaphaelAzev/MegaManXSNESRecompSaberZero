@@ -325,9 +325,12 @@ static void begin_scene(uint8_t *r) {
   sound(r,0x0f);
 }
 static bool scene_tick(uint8_t *r) {
+  /* Capsule acquisition deliberately clears the body lock ($87:CD20).
+   * $1F48 stays set through the subsequent recorded-input demonstration,
+   * until $87:CE06. $1F3B clears earlier, before that demonstration starts. */
   if(!state.scene_owner && state.players[state.anchor^1].status==MMX_COOP_ALIVE &&
       (r[0xbcf]&127) && r[0xbaa]!=12 &&
-      (r[0x1f0c] || r[0x1f23] || (r[0xc16] && (r[0x1f31] || r[0x1f3b])))) begin_scene(r);
+      (r[0x1f0c] || r[0x1f23] || r[0x1f48] || (r[0xc16] && (r[0x1f31] || r[0x1f3b])))) begin_scene(r);
   if(!state.scene_owner) return false;
   MmxCoopPlayer *p=&state.players[state.anchor^1];
   if(p->status!=MMX_COOP_ALIVE) {state.scene_owner=state.scene_phase=0;return false;}
@@ -338,7 +341,7 @@ static bool scene_tick(uint8_t *r) {
     }
     r[0xb9d]=r[0xba0]=0;return true;
   }
-  if(!r[0x1f0c] && !r[0xc16] && !r[0x1f23] && !r[0x1f13] && r[0x1f10]<6 && r[0xd3]==4) {
+  if(!r[0x1f0c] && !r[0xc16] && !r[0x1f23] && !r[0x1f13] && !r[0x1f48] && r[0x1f10]<6 && r[0xd3]==4) {
     uint16_t x,y;
     if(!MmxCoopFindLanding(r,&x,&y)) return false;
     place_other(r,x,y,true);p=&state.players[state.anchor^1];

@@ -267,8 +267,9 @@ A private Storm Eagle capsule approach also checks P1 triggering Dr. Light's
 dialogue, the partner leaving, ordinary dialogue advancement, and the partner
 returning when control resumes. Capsule interaction follows the current world
 actor (normally P1); the second player's touch is not separately retried. This
-check does not cover the later upgrade-acquisition animation, every boss door,
-or every story scene.
+check covers dialogue only; the full acquisition/demo regression below covers
+Chill Penguin's boots capsule. Other capsules and story scenes still need
+campaign playtesting.
 
 ## State and remaining integration
 
@@ -453,3 +454,28 @@ already-saved slot without editing its file or granting HP during ordinary
 play. Save layout is unchanged. The accompanying Zero rescue pose adaptation
 is documented in `zero-port.md`; `MMX_COOP_DIALOGUE_FIXTURE` exercises 120
 idle dialogue frames and saves a private capture for visual review.
+
+### Capsule acquisition and recorded-input demonstration
+
+The owner's slot 8 (the local `save8.sav`, standing on Chill Penguin's capsule)
+reproduced a missed scene handoff. The acquisition routine `$87:CCC9..CD23`
+sets `$1F48` and deliberately clears the player body lock `$0C16`. The old
+co-op trigger required that body lock, so P2 remained beside the capsule.
+After the demonstration, shared-camera separation kept the leading actor
+tethered to that old position.
+
+Use the native `$1F48` lifetime to begin scene transport and defer the return.
+`$87:CDC5` clears `$1F3B` before the demonstration begins; it is too early to
+restore P2. `$87:CDED..CE3F` plays the stage-specific recorded input from
+`$87:D36B`, with the player's button mapping temporarily saved at `$7F:F008`.
+Only the terminator at `$87:CE02..CE1F` clears `$1F48` and restores that mapping.
+The existing scene path now hides P2 throughout, leaves native camera/script
+control intact, and finds a safe landing beside the actor's final position.
+No timeout, new save fields, or changes to the original capsule script are used.
+
+`MMX_COOP_CAPSULE_FULL_FIXTURE` accepts the private pre-acquisition save. The
+bounded check runs the original boots grant and dash demo, requires P2 to stay
+withdrawn after `$1F3B` clears, verifies HP and both native/imported weapon
+reserves survive transport, then moves both actors and checks camera progress.
+Hidden-demo and returned-partner captures were visually reviewed. The source
+ROM, owner save, and captures stay private and are not distributed.
