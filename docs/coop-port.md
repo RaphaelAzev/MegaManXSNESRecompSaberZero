@@ -141,6 +141,24 @@ P2 can change imported weapon pages/selection, exit returns both controllers,
 and saving/replaying the menu produces an identical full snapshot. Menu
 captures were visually reviewed. Subtank consumption/pickups remain pending.
 
+The co-op HUD uses fixed columns at native X coordinates 8/24/40/56:
+P1 health, P1 weapon, P2 health, P2 weapon. Buster selections leave their
+weapon column empty. Native `$00:D82C` / `$00:D94A` supply the overlapping
+16-pixel strip placement, partial values and cap position. X keeps X1's badge;
+Zero keeps the original X3 badge. Imported weapons use their previously
+validated gameplay footers, never pause icons. The native HUD visibility and
+optional widescreen edge anchoring remain applicable.
+
+Independent X1 weapon graphics use `$86:98C5`, indexed by `$3E + weapon*2`,
+with seven-byte bulk DMA records. Palette directory `$86:8133` is read twice:
+list `$40 + weapon*2` with destination offset `$30` for weapon art, and list
+`$100 + weapon*2` without an offset for X's body. These privately decoded
+resources prevent one player's selection from recoloring the other. In both
+rosters, all eight X1 health/weapon meter comparisons matched original
+renderer pixels at partial HP/energy. Four-column and buster-gap captures
+were visually reviewed, along with an imported weapon pair. Co-op runtime
+checks passed with scheduler bounce on/off, plus Zero/renderer regressions.
+
 The existing shared SNES launcher profile already allows two players.
 MMX's desktop-host descriptor omitted `num_players`, so it advertised one.
 USA now advertises two; JP remains unchanged. No recomp-ui fork is needed for

@@ -217,6 +217,29 @@ static void coop_menu_checks(unsigned character,uint8_t *start,uint8_t *expected
   check(MmxCoopGetState().menu_owner==1 && !MmxWeaponsGetState().menu_page,"P1 opens their separate inventory");
   coop_frames(1,SNES_PAD_START,0);coop_frames(75,0,0);
 }
+static void coop_hud_checks(unsigned character) {
+  coop_weapon_select(0,0,0);coop_weapon_select(1,0,0);
+  MmxCoopSelect(g_ram,1);g_ram[0xbcf]=12|128;MmxCoopSelect(g_ram,0);
+  g_ram[0xbcf]=3|128;g_ram[0x1f12]=0;
+  for(unsigned weapon=1;weapon<=8;++weapon) g_ram[0x1f86+weapon*2]=0xc0|9;
+  uint32_t pixels[256*224],native[256*224];
+  for(unsigned weapon=1;weapon<=8;++weapon) {
+    coop_frames(1,SNES_PAD_R,0);coop_frames(3,0,0);
+    check(g_ram[0xbdb]==weapon*2,"native weapon selection advances for source HUD comparison");
+    MmxCoopState s=MmxCoopGetState();
+    check(MmxRendererDraw(pixels,(MmxRenderView){256,0,4.0/3.0},false),"co-op HUD renders");
+    MmxRendererCoopFrame(NULL);
+    check(MmxRendererDraw(native,(MmxRenderView){256,0,4.0/3.0},false),"original native HUD renders");
+    MmxRendererCoopFrame(&s);
+    unsigned changed=0;
+    for(unsigned y=0;y<96;++y) for(unsigned x=8;x<40;++x) changed+=pixels[y*256+x]!=native[y*256+x];
+    if(changed) {fprintf(stderr,"co-op HUD source difference weapon=%u pixels=%u\n",weapon,changed);coop_image(character,"hud-difference");}
+    check(!changed,"P1 health and native weapon HUD match original pixels at partial values");
+  }
+  coop_frames(1,0,SNES_PAD_R);coop_frames(3,0,0);coop_image(character,"hud-native");
+  coop_frames(1,SNES_PAD_R,0);coop_frames(3,0,0);coop_image(character,"hud-gap");
+  check(!g_ram[0xbdb],"P1 buster leaves reserved weapon column empty");
+}
 static void coop_checks(const char *assets, const char *fixture,
                         uint8_t *start, uint8_t *expected, uint8_t *actual, size_t cap) {
   check(assets && fixture, "co-op check requires private source assets and a grounded fixture");
@@ -288,6 +311,7 @@ static void coop_checks(const char *assets, const char *fixture,
       MmxCoopDisable();check(RtlLoadSnapshot(fixture),"restore independent weapon fixture");
       check(MmxCoopEnable(character),"restore chosen roster for weapons");coop_frames(8,0,0);
       s=MmxCoopGetState();check(MmxCoopPlacePartner(g_ram,coop_x(&s.players[0])+40,coop_y(&s.players[0])),"place weapon test partner");
+      coop_hud_checks(character);
       coop_weapon_checks(character);
     }
   }

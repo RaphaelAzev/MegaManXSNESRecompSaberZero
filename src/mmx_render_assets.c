@@ -11,6 +11,8 @@ static MmxSpriteAsset captive_zero;
 static unsigned captive_zero_ready;
 static MmxSpriteAsset teleport_x[8];
 static bool teleport_x_ready;
+static MmxSpriteAsset player_weapons[9][2];
+static uint8_t player_weapon_ready[9];
 static uint8_t ready[256], sprite_resource[256];
 static unsigned cached_stage = ~0u, cached_section = ~0u;
 static unsigned bg_stage = ~0u;
@@ -29,6 +31,46 @@ void MmxRenderAssetsSetRom(const uint8_t *bytes, size_t size) {
   bg_stage = ~0u;
   captive_zero_ready = 0;
   teleport_x_ready = false;
+  memset(player_weapon_ready,0,sizeof(player_weapon_ready));
+}
+const MmxSpriteAsset *MmxRenderAssetsWeaponX(unsigned weapon, bool body) {
+  if (weapon>8 || !rom) return NULL;
+  if (player_weapon_ready[weapon])
+    return player_weapon_ready[weapon]==1 ? &player_weapons[weapon][body?1:0] : NULL;
+  player_weapon_ready[weapon]=2;
+  MmxSpriteAsset *art=&player_weapons[weapon][0],*actor=&player_weapons[weapon][1];
+  memset(art,0,sizeof(*art));memset(actor,0,sizeof(*actor));actor->live_tiles=true;
+  /* $81:9A3F selects $3E + native weapon ID; $80:8A87 reads the
+   * seven-byte bulk records through the $86:98C5 directory. */
+  size_t list=0x30000+(word(0x318c5 + 0x3e + weapon*2)&0x7fff);
+  bool complete=false;
+  for (unsigned n=0;n<64;++n,list+=7) {
+    if (!range(list,7)) return NULL;
+    unsigned count=word(list);if(count&1) {complete=true;break;}
+    int dest=((int)word(list+2)-0x6000)*2;
+    size_t source=lorom(word(list+4)|(rom[list+6]<<16));
+    if (!range(source,count)) return NULL;
+    if(dest>=0 && dest+(int)count<=sizeof(art->tiles)) memcpy(art->tiles+dest,rom+source,count);
+  }
+  if(!complete) return NULL;
+  /* $81:9A52 uses list $40+ID with a $30-entry destination offset;
+   * $81:9E8F uses body list $0100+ID without that offset. */
+  for(unsigned body_palette=0;body_palette<2;++body_palette) {
+    list=0x30000+(word(0x30133+(body_palette?0x100:0x40)+weapon*2)&0x7fff);complete=false;
+    for(unsigned n=0;n<32;++n,list+=4) {
+      if(!range(list,4)) return NULL;
+      unsigned count=rom[list];if(!count) {complete=true;break;}
+      size_t source=0x28000+(word(list+1)&0x7fff);
+      if(!range(source,count*2)) return NULL;
+      for(unsigned i=0;i<count;++i) {
+        int entry=rom[list+3]+(int)i+(body_palette?0:0x30);
+        if(entry>=144 && entry<160) actor->colors[entry-144]=(uint16_t)word(source+i*2);
+        if(entry>=176 && entry<192) art->colors[entry-176]=(uint16_t)word(source+i*2);
+      }
+    }
+    if(!complete) return NULL;
+  }
+  player_weapon_ready[weapon]=1;return body?actor:art;
 }
 const MmxSpriteAsset *MmxRenderAssetsTeleportX(unsigned pose) {
   unsigned index = pose == 0 ? 7 : pose >= 0x3c && pose <= 0x42 ? pose - 0x3c : 8;

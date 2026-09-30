@@ -980,6 +980,10 @@ static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView 
   }
   MmxSpriteAsset weapon_palette={0};
   const uint16_t *weapon_colors=MmxWeaponsPalette(partner->weapons.page,partner->weapons.weapon,true);
+  if(!partner->weapons.page) {
+    const MmxSpriteAsset *native=MmxRenderAssetsWeaponX(ram[0xbdb]/2,true);
+    if(native) weapon_colors=native->colors;
+  }
   if (weapon_colors) {memcpy(weapon_palette.colors,weapon_colors,32);weapon_palette.live_tiles=true;}
   if (zero && ram[0xbb6]) {
     const uint8_t *body = MmxZeroPose(ram,&partner->zero);
@@ -1044,6 +1048,60 @@ static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView 
     }
   }
 }
+static void coop_meter_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView view,
+                           uint16_t *objects,int *colors,int x,unsigned value,unsigned maximum,
+                           unsigned palette,const MmxSpriteAsset *art) {
+  /* The native $D82C/$D94A meter uses overlapping 16px strips. Retain its
+   * partial-strip placement and OAM order, including the cap above max HP. */
+  typedef struct {int y;unsigned tile;} Strip;
+  Strip strips[8];unsigned count=0;
+  if(maximum>32) maximum=32;
+  if(value>maximum) value=maximum;
+  int top=64,remaining=(int)value;
+  while(remaining>0) {
+    remaining-=8;int sy=top-(remaining<0?remaining*2:0);
+    strips[count++]=(Strip){sy,0x80};top=sy-16;
+  }
+  remaining=(int)maximum-(int)value;
+  do {
+    remaining-=8;int sy=top-(remaining<0?remaining*2:0);
+    strips[count++]=(Strip){sy,0x82};top=sy-16;
+  } while(remaining>=0);
+  strips[count++]=(Strip){top,0x84};
+  for(int i=(int)count-1;i>=0;--i)
+    sprite(ppu,r,x,strips[i].y,0x3000|(palette<<9)|strips[i].tile,16,y,view,
+        objects,false,art,strips[i].tile,colors,true,false,false);
+}
+static void coop_hud_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView view,bool anchored,
+                         uint16_t *objects,int *colors) {
+  for(unsigned seat=0;seat<2;++seat) {
+    const MmxCoopPlayer *player=&frame_coop.players[seat];
+    if(seat && player->status==MMX_COOP_ABSENT) continue;
+    int x=8+(int)seat*32-(anchored?view.extra:0);
+    unsigned hp=player->status==MMX_COOP_FALLEN?0:player->body[0x27]&127;
+    coop_meter_row(ppu,r,y,view,objects,colors,x,hp,frame.ram[0x1f9a],2,NULL);
+    sprite(ppu,r,x,80,0x3486,16,y,view,objects,false,NULL,0,colors,true,
+        player->character==MMX_COOP_ZERO,false);
+    unsigned page=player->weapons.page;
+    unsigned weapon=page?player->weapons.weapon:player->body[0x33]/2;
+    if(!weapon || weapon>8) continue; /* Keep this seat's reserved blank column. */
+    unsigned energy=page?player->weapons.energy[(page-1)*8+weapon-1]:player->energy[weapon*2-1];
+    const MmxSpriteAsset *native=page?NULL:MmxRenderAssetsWeaponX(weapon,false);
+    const uint16_t *palette=page?MmxWeaponsPalette(page,weapon,false):native?native->colors:NULL;
+    MmxSpriteAsset bar={0};bar.live_tiles=true;
+    if(palette) memcpy(bar.colors,palette,sizeof(bar.colors));
+    coop_meter_row(ppu,r,y,view,objects,colors,x+16,energy,28,3,palette?&bar:NULL);
+    if(!page) {
+      sprite(ppu,r,x+16,80,0x3620,16,y,view,objects,false,native,0x20,colors,true,false,false);
+    } else {
+      const MmxWeaponPose *icon=MmxWeaponsHudIcon(page,weapon);int row=y-80;
+      if(icon && palette && row>=0 && row<16) for(int col=0;col<16;++col) {
+        unsigned pixel=icon->pixels[row*16+col];int dx=x+16+col+view.extra;
+        if(pixel && dx>=0 && dx<view.width) {objects[dx]=(uint16_t)(0xe6b0|pixel);colors[dx]=palette[pixel];}
+      }
+    }
+  }
+}
 bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
   if (!out || !frame.valid || view.width < 256 || view.width > MMX_RENDER_MAX_WIDTH ||
       view.extra != (view.width - 256) / 2 || (view.width & 1)) return false;
@@ -1059,6 +1117,10 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
   unsigned weapon_page = menu ? frame_weapons.menu_page : frame_weapons.page;
   unsigned weapon_item = menu ? frame.ram[0x1ed2] : frame_weapons.weapon;
   const uint16_t *weapon_colors = MmxWeaponsPalette(weapon_page, weapon_item, true);
+  if(stage && frame_coop.initialized && !weapon_page) {
+    const MmxSpriteAsset *native=MmxRenderAssetsWeaponX(frame.ram[0xbdb]/2,true);
+    if(native) weapon_colors=native->colors;
+  }
   MmxSpriteAsset x_weapon_palette = {0};
   if (weapon_colors) { memcpy(x_weapon_palette.colors, weapon_colors, 32); x_weapon_palette.live_tiles = true; }
   prepare_stage_planes();
@@ -1275,7 +1337,9 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       else if (bar_first >= 0) break;
     }
     static const int sizes[8][2] = {{8,16},{8,32},{8,64},{16,32},{16,64},{32,64},{16,32},{16,32}};
+    bool coop_hud=stage && frame_coop.initialized && r->oam[0]==0x5008 && r->oam[1]==0x3486;
     for (int slot = 127; slot >= 0; --slot) {
+      if(coop_hud && slot<16) continue;
       if (replaced[slot]) continue;
       unsigned pos = r->oam[slot * 2], attr = r->oam[slot * 2 + 1];
       unsigned hi = r->high_oam[slot / 4] >> (slot % 4 * 2);
@@ -1325,6 +1389,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
         weapon_effects_row(&frame_coop.players[frame_coop.current^1].combat,&p,r,y,view,objects,object_colors);
     }
     if (swapping) teleport_actor_row(frame.ram,&frame_zero,&p,r,y,view,objects,object_colors);
+    if(coop_hud) coop_hud_row(&p,r,y,view,hud,objects,object_colors);
     for (int sx = 0; sx < view.width; ++sx) {
       int x = sx - view.extra;
       if (menu && (x < 0 || x >= 256)) { out[y * view.width + sx] = 0; continue; }
