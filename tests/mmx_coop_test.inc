@@ -30,6 +30,14 @@ static void coop_image(unsigned character,const char *action) {
   snprintf(path,sizeof(path),"%s.coop-%u-%s.cap",base,character,action);
   check(MmxRendererSaveCapture(path),"two-player capture writes");
 }
+/* Encounter fixtures place P2 explicitly; automatic arrival itself is
+ * exercised by coop_join_checks and the keyboard check below. */
+static bool coop_place_fixture_partner(unsigned x,unsigned y) {
+  MmxCoopState s=MmxCoopGetState();
+  s.players[1].status=MMX_COOP_ABSENT;s.players[1].zero.swap_phase=0;
+  s.stage_pending=0;MmxCoopSetState(&s);
+  return MmxCoopPlacePartner(g_ram,(uint16_t)x,(uint16_t)y);
+}
 static void coop_contact_checks(uint8_t *start,size_t cap) {
   unsigned enemy = 0;
   for (unsigned i=0;i<400 && !enemy;++i) {
@@ -133,14 +141,12 @@ static void coop_weapon_checks(unsigned character) {
 static void coop_join_checks(unsigned character,const char *fixture,uint8_t *start,
                              uint8_t *expected,uint8_t *actual,size_t cap) {
   MmxCoopDisable();check(RtlLoadSnapshot(fixture),"restore private join fixture");
-  check(MmxCoopEnable(character),"join uses selected roster");coop_frames(8,0,0);
-  coop_frames(1,0,SNES_PAD_START);coop_frames(1,0,0);
-  check(MmxCoopGetState().players[1].status==MMX_COOP_ABSENT,"P2 Start does not join");
+  check(MmxCoopEnable(character),"join uses selected roster");
+  for(unsigned i=0;i<30 && !MmxCoopTransitionActive();++i) coop_frames(1,0,0);
+  check(MmxCoopTransitionActive() && MmxCoopGetState().enrolled,
+      "P2 automatically arrives without controller input when co-op starts");
   g_ram[0xbcf]=7|128;
-  uint16_t x,y;
-  check(MmxCoopFindLanding(g_ram,&x,&y),"live highway terrain supplies a safe landing");
-  unsigned tick=g_ram[0xb9c];coop_frames(1,0,SNES_PAD_SELECT);
-  check(MmxCoopTransitionActive() && MmxCoopGetState().enrolled,"P2 Select starts original arrival and session enrollment");
+  unsigned tick=g_ram[0xb9c];
   coop_frames(10,0,0);coop_image(character,"arrival");
   for(unsigned i=0;i<80 && MmxCoopTransitionActive();++i) coop_frames(1,0,0);
   check(!MmxCoopTransitionActive() && g_ram[0xb9c]==tick,"arrival freezes the world until original morph completes");
@@ -148,15 +154,18 @@ static void coop_join_checks(unsigned character,const char *fixture,uint8_t *sta
   check((g_ram[0xbcf]&127)==7,"joining does not heal P1");
   MmxCoopSelect(g_ram,1);g_ram[0xbcf]=5|128;g_ram[0x1f88]=(g_ram[0x1f88]&192)|11;
   g_ram[0x1f83]=(g_ram[0x1f83]&240)|9;MmxCoopSelect(g_ram,0);
-  coop_frames(179,0,SNES_PAD_SELECT);
-  check(!MmxCoopTransitionActive(),"shorter than three seconds does not withdraw P2");
+  coop_frames(89,0,SNES_PAD_SELECT);
+  check(!MmxCoopTransitionActive(),"shorter than 1.5 seconds does not withdraw P2");
   coop_frames(1,0,SNES_PAD_SELECT);
-  check(MmxCoopTransitionActive(),"180 gameplay frames holding P2 Select begins withdrawal");
+  check(MmxCoopTransitionActive(),"90 gameplay frames holding P2 Select begins withdrawal");
   for(unsigned i=0;i<80 && MmxCoopTransitionActive();++i) coop_frames(1,0,0);
   MmxCoopState s=MmxCoopGetState();
   check(s.players[1].status==MMX_COOP_ABSENT && s.enrolled,"voluntary withdrawal retains session enrollment");
   check((s.players[1].body[0x27]&127)==5 && s.players[1].energy[1]==11 && (g_ram[0x1f83]&15)==9,
       "withdrawal retains personal HP/energy and shared subtanks");
+  coop_frames(1,0,SNES_PAD_START);coop_frames(5,0,0);
+  check(MmxCoopGetState().players[1].status==MMX_COOP_ABSENT && !MmxCoopTransitionActive(),
+      "withdrawn P2 stays absent and Start does not rejoin");
   coop_frames(1,0,SNES_PAD_SELECT);coop_frames(2,0,0);
   check(MmxCoopTransitionActive(),"voluntarily absent player can rejoin");
   size_t n=RtlSaveSnapshotToMemory(start,cap);coop_frames(20,0,0);
@@ -300,7 +309,7 @@ static void coop_death_checks(unsigned character,const char *fixture,uint8_t *st
     MmxCoopDisable();check(RtlLoadSnapshot(fixture),"restore survivor fixture");
     check(MmxCoopEnable(character),"survivor check uses chosen roster");coop_frames(8,0,0);
     MmxCoopState s=MmxCoopGetState();
-    check(MmxCoopPlacePartner(g_ram,coop_x(&s.players[0])+40,coop_y(&s.players[0])),"place death check partner");
+    check(coop_place_fixture_partner(coop_x(&s.players[0])+40,coop_y(&s.players[0])),"place death check partner");
     unsigned survivor=fallen^1,lives=g_ram[0x1f80];
     s=MmxCoopGetState();unsigned before=coop_x(&s.players[survivor]);
     MmxCoopSelect(g_ram,fallen);g_ram[0xbcf]=128;g_ram[0xbaa]=12;g_ram[0xbab]=0;
@@ -359,7 +368,7 @@ static void coop_death_checks(unsigned character,const char *fixture,uint8_t *st
   MmxCoopDisable();check(RtlLoadSnapshot(fixture),"restore simultaneous death fixture");
   check(MmxCoopEnable(character),"simultaneous death uses chosen roster");coop_frames(8,0,0);
   MmxCoopState s=MmxCoopGetState();
-  check(MmxCoopPlacePartner(g_ram,coop_x(&s.players[0])+40,coop_y(&s.players[0])),"place simultaneous death partner");
+  check(coop_place_fixture_partner(coop_x(&s.players[0])+40,coop_y(&s.players[0])),"place simultaneous death partner");
   unsigned lives=g_ram[0x1f80];
   for(unsigned seat=0;seat<2;++seat) {
     MmxCoopSelect(g_ram,seat);g_ram[0xbcf]=128;g_ram[0xbaa]=12;g_ram[0xbab]=0;
@@ -384,7 +393,7 @@ static void coop_scene_checks(const char *fixture,uint8_t *start,uint8_t *expect
     MmxCoopDisable();check(RtlLoadSnapshot(fixture),"door approach fixture loads");
     check(MmxCoopEnable(0),"door roster enables");coop_frames(8,0,0);
     MmxCoopState s=MmxCoopGetState();
-    check(MmxCoopPlacePartner(g_ram,coop_x(&s.players[0])+(driver?40:-40),coop_y(&s.players[0])),
+    check(coop_place_fixture_partner(coop_x(&s.players[0])+(driver?40:-40),coop_y(&s.players[0])),
         "door partner placed on approach floor");
     unsigned departures=0,returns=0,last_phase=0;bool replayed=false;
     for(unsigned f=0;f<1200;++f) {
@@ -429,7 +438,7 @@ static void coop_capsule_checks(const char *fixture) {
   MmxCoopDisable();check(RtlLoadSnapshot(fixture),"capsule approach fixture loads");
   check(MmxCoopEnable(0),"capsule roster enables");coop_frames(8,0,0);
   MmxCoopState s=MmxCoopGetState();
-  check(MmxCoopPlacePartner(g_ram,coop_x(&s.players[0])-32,coop_y(&s.players[0])),"capsule partner placed");
+  check(coop_place_fixture_partner(coop_x(&s.players[0])-32,coop_y(&s.players[0])),"capsule partner placed");
   bool hidden=false,returned=false;
   for(unsigned f=0;f<1100;++f) {
     unsigned input=g_ram[0x1f31] ? (f%60==0?SNES_PAD_B:0) : SNES_PAD_RIGHT;
@@ -463,22 +472,22 @@ static void coop_keyboard_checks(const char *fixture) {
   g_config.player_src[0]=2;g_config.player_src[1]=1;g_pad_buttons=0;memset(keys,0,sizeof(keys));
   MmxCoopDisable();check(RtlLoadSnapshot(fixture),"keyboard join fixture loads");
   check(MmxCoopEnable(0),"keyboard co-op enables");coop_frames(8,0,0);
-  keys[SDL_SCANCODE_RSHIFT]=1;PollKeyboardControls(keys);frame(g_input_state);
-  check(MmxCoopTransitionActive(),"P2 Right Shift joins through the real keyboard poll");
-  keys[SDL_SCANCODE_RSHIFT]=0;
+  check(MmxCoopTransitionActive(),"P2 joins automatically with no keyboard press");
   for(unsigned i=0;i<90;++i) {PollKeyboardControls(keys);frame(g_input_state);}
   MmxCoopState s=MmxCoopGetState();unsigned x=coop_x(&s.players[0]);
   check(s.players[1].status==MMX_COOP_ALIVE && !MmxCoopTransitionActive(),"keyboard join finishes");
   keys[SDL_SCANCODE_RSHIFT]=1;
-  for(unsigned i=0;i<179;++i) {PollKeyboardControls(keys);frame(g_input_state);}
-  check(!MmxCoopTransitionActive(),"keyboard hold shorter than three seconds does not withdraw");
+  for(unsigned i=0;i<89;++i) {PollKeyboardControls(keys);frame(g_input_state);}
+  check(!MmxCoopTransitionActive(),"keyboard hold shorter than 1.5 seconds does not withdraw");
   PollKeyboardControls(keys);frame(g_input_state);
-  check(MmxCoopTransitionActive(),"holding Right Shift for 180 frames starts P2 departure");
+  check(MmxCoopTransitionActive(),"holding Right Shift for 90 frames starts P2 departure");
   keys[SDL_SCANCODE_RSHIFT]=0;
   for(unsigned i=0;i<90;++i) {PollKeyboardControls(keys);frame(g_input_state);}
   s=MmxCoopGetState();
   check(s.players[1].status==MMX_COOP_ABSENT && coop_x(&s.players[0])==x,
       "keyboard withdrawal finishes without controlling P1");
+  keys[SDL_SCANCODE_RSHIFT]=1;PollKeyboardControls(keys);frame(g_input_state);
+  check(MmxCoopTransitionActive(),"P2 Right Shift rejoins through the real keyboard poll");
   MmxCoopDisable();puts("MMX CO-OP KEYBOARD ROUTING CHECKS PASSED");
 }
 static unsigned coop_death_sounds,coop_death_orbs;
@@ -496,7 +505,7 @@ static void coop_natural_death_checks(const char *fixture) {
     MmxCoopDisable();check(RtlLoadSnapshot(fixture),"natural death fixture loads");
     check(MmxCoopEnable(character),"natural death uses either roster");coop_frames(8,0,0);
     MmxCoopState s=MmxCoopGetState();
-    check(MmxCoopPlacePartner(g_ram,coop_x(&s.players[0])+40,coop_y(&s.players[0])),"natural death partner placed");
+    check(coop_place_fixture_partner(coop_x(&s.players[0])+40,coop_y(&s.players[0])),"natural death partner placed");
     unsigned enemy=0;
     if(!pit) {
       for(unsigned i=0;i<400 && !enemy;++i) {
@@ -593,7 +602,7 @@ static void coop_checks(const char *assets, const char *fixture,
           "P1 choice assigns the counterpart to P2");
     check(s.players[0].zero.active_x == (character == MMX_COOP_X), "native context uses chosen P1");
     unsigned x0 = coop_x(&s.players[0]), y0 = coop_y(&s.players[0]);
-    check(MmxCoopPlacePartner(g_ram, x0+32, y0), "test places the second actor on known clear ground");
+    check(coop_place_fixture_partner(x0+32, y0), "test places the second actor on known clear ground");
     unsigned world_tick = g_ram[0xb9c];
     coop_frames(20,0,SNES_PAD_RIGHT);
     s = MmxCoopGetState();
@@ -646,7 +655,7 @@ static void coop_checks(const char *assets, const char *fixture,
     if (x2 && x3) {
       MmxCoopDisable();check(RtlLoadSnapshot(fixture),"restore independent weapon fixture");
       check(MmxCoopEnable(character),"restore chosen roster for weapons");coop_frames(8,0,0);
-      s=MmxCoopGetState();check(MmxCoopPlacePartner(g_ram,coop_x(&s.players[0])+40,coop_y(&s.players[0])),"place weapon test partner");
+      s=MmxCoopGetState();check(coop_place_fixture_partner(coop_x(&s.players[0])+40,coop_y(&s.players[0])),"place weapon test partner");
       coop_pickup_checks(start,expected,actual,cap);
       coop_hud_checks(character);
       coop_weapon_checks(character);

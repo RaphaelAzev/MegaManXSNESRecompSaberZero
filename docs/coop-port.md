@@ -14,13 +14,13 @@ mutually exclusive. The original X3 ROM path is shared with the Zero/X3 weapon
 packages; extraction happens internally. No source ROM or extracted art belongs
 in Git or the eventual downloadable mod.
 
-Latest join controls: P2 **Select** joins; Start remains pause/menu. Once P2
-joins, keep them enrolled for the session and automatically spawn them at
-later stage entries/team restarts. Holding P2 Select for approximately 180
-gameplay frames voluntarily withdraws P2, retaining HP, energy and selections
-for a later rejoin; shared subtanks are unchanged. Withdrawal keeps session enrollment. Fallen
-players cannot use Select to rejoin until a new stage/team restart. These
-rules supersede Start-to-join.
+Latest join controls: enabling co-op automatically enrolls P2 and spawns the
+counterpart when gameplay has a safe landing. Both players also return at later
+stage entries/team restarts. Hold P2 **Select** for 90 gameplay frames (1.5
+seconds) to withdraw, retaining HP, weapon energy and selections. P2 stays out
+until Select is pressed to rejoin or a new stage/team restart begins. Start
+remains pause/menu. Shared subtanks are unchanged, and fallen players cannot
+use Select to rejoin until a new stage/team restart.
 
 This branch provides a **development playtest build**, not an end-to-end
 campaign certification. The launcher package is `megaman-x.coop` 0.0.1,
@@ -306,9 +306,10 @@ Private checks pass for both rosters with generated bounce on/off, and the
 Zero/custom-renderer regression checks pass. The coexistence captures were
 visually reviewed. This is not an exhaustive two-player audit of all weapons.
 
-Join checkpoint: P2 Start does not join; P2 Select performs the original
-arrival while the world counter stays frozen. A 179-frame hold leaves P2
-present; frame 180 starts the original departure. Withdrawal/rejoin retain HP,
+Join checkpoint (updated controls): P2 joins automatically; after withdrawal,
+P2 Start does not rejoin and Select performs the original arrival while the
+world counter stays frozen. An 89-frame hold leaves P2 present; frame 90
+starts the original departure. Withdrawal/rejoin retain HP,
 weapon energy and subtank reserves and never heal P1. Mid-arrival save/replay
 is byte-identical. Fallen status rejects Select re-entry. A real native P1
 death with P2 already fallen consumes one life, runs the checkpoint restart,
@@ -364,7 +365,8 @@ only the keyboard-assigned seats and replaces the entire keyboard word each
 poll, also releasing held keys after a source change. Controller presence now
 uses those same source assignments. The ROM-backed host harness covers source
 changes and P2 joining/withdrawing through the real keyboard polling function.
-Default Select is **Right Shift**; hold it for 180 gameplay frames to withdraw.
+Default Select is **Right Shift**; hold it for 90 gameplay frames (1.5 seconds) to withdraw.
+Older saves with a partially completed 180-frame hold still deserialize.
 
 The missing P2 death was reproduced as a **pit fall**, rather than ordinary
 enemy damage. Retail's camera bottom clamp at `$00:E11E..E152` checks only the

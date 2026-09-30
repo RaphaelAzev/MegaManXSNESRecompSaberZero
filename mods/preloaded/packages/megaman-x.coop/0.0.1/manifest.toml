@@ -15,7 +15,7 @@ rom_sha256 = "b8f70a6e7fb93819f79693578887e2c11e196bdf1ac6ddc7cb924b1ad0be2d32"
 [[feature]]
 id = "coop"
 name = "Couch co-op"
-description = "Player 2 presses Select to join, or holds Select for three seconds to leave. Start opens each player's weapon menu. Replaces single-player character switching."
+description = "Player 2 joins automatically. Hold P2 Select for 1.5 seconds to leave; press Select to rejoin. Start opens each player's weapon menu. Replaces single-player character switching."
 group = "Characters"
 default_enabled = false
 

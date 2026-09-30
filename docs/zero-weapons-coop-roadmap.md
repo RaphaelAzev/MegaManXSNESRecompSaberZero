@@ -135,16 +135,17 @@ but do not allow both gameplay modes to activate together.
 - Add a second controller/player input assignment in recomp-ui. The existing
   SNES profile already supports two ports; first verify whether MMX only needs
   to advertise `num_players=2` before changing shared UI code.
-- Player 1 starts alone. A connected/mapped player 2 presses **Select** to join;
-  the character not currently on screen joins (X or Zero). Joining enrolls P2
-  for the rest of the current game session: automatically spawn both at later
-  stage entries and full-team restarts. A fresh session starts with P1 alone.
-- Holding **P2 Select for about three seconds** during normal gameplay
+- Co-op enrolls player 2 automatically from the first stage. The counterpart
+  (X or Zero) arrives using the original teleport sequence once safe nearby
+  ground is available, and both automatically return at later stage entries
+  and full-team restarts. No initial Select press is required.
+- Holding **P2 Select for 1.5 seconds (90 gameplay frames)** during normal gameplay
   voluntarily despawns P2. Keep their current HP and weapon selection/energy;
   a later Select joins them at safe nearby ground with those same stats.
   Shared subtank contents remain unchanged by joining or withdrawal. Voluntary withdrawal does not clear session enrollment. It must
   never bypass the fallen-player lockout: only the next stage or a team restart
-  returns a player who died. This replaces the earlier Start-to-join rule.
+  returns a player who died. Automatic first arrival and the shorter hold
+  supersede the earlier manual first join and three-second hold.
 - Briefly freeze gameplay during joining and use the character's original
   stage-teleport assets. Find clear ground to the left or right of player 1
   within the current screen. If no safe space fits the incoming body, reject

@@ -45,7 +45,7 @@ bool MmxCoopValidState(const MmxCoopState *s) {
   if (!s || s->initialized > 1 || s->current > 1 || s->controller_pass > 2 ||
       s->reserved || s->object_reserved || s->object_pass > 2 ||
       s->contact_reserved || s->contact_pass > 2 || s->enrolled>1 ||
-      s->select_hold>180 || s->select_armed>1 || s->stage_pending>2 ||
+      s->select_hold>180 || s->select_armed>1 || s->stage_pending>2 || /* Accept older 3-second hold saves. */
       s->menu_owner>2 || s->menu_last>1 || s->menu_reserved[0] || s->menu_reserved[1] ||
       s->pickup_pass>2 || s->pickup_reserved[0] || s->pickup_reserved[1] || s->pickup_reserved[2] ||
       s->anchor>1 || s->solo_death[0]>1 || s->solo_death[1]>1 || s->death_reserved ||
@@ -123,6 +123,10 @@ void MmxCoopInitialize(uint8_t *r) {
   for (unsigned n = 1; n < 16; n += 2) partner->energy[n] = 28;
   partner->weapons.initialized = 1; memset(partner->weapons.energy, 28, 16);
   partner->zero.active_x = partner->character == MMX_COOP_X;
+  partner->body[0x27]=r[0x1f9a]|128;
+  /* Co-op starts with both players enrolled. The ordinary arrival path waits
+   * for gameplay and a safe landing, then uses the original teleport art. */
+  state.enrolled=1;state.stage_pending=2;
   MmxWeaponsPartnerCombat(&partner->combat);
 }
 bool MmxCoopFrameTick(uint8_t *r) {
@@ -378,7 +382,7 @@ static bool join_tick(uint8_t *r) {
   if (p->status==MMX_COOP_ALIVE) {
     if (!(p->body[0x27]&127) || p->body[2]==12) {state.select_hold=0;return false;}
     if(state.players[0].status==MMX_COOP_FALLEN) {state.select_hold=0;return false;}
-    if ((p->input&4) && state.select_armed && ++state.select_hold>=180) {
+    if ((p->input&4) && state.select_armed && ++state.select_hold>=90) {
       MmxCoopSelect(r,0);state.anchor=0;
       clear_partner_combat(r);z=&p->zero;z->swap_phase=1;z->swap_tick=z->swap_fraction=0;z->swap_y=0;
       state.select_hold=0;sound(r,0x0f);r[0xb9d]=r[0xba0]=0;return true;
