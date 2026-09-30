@@ -93,7 +93,8 @@ Wider output does not grant either peer a larger movement allowance.
   and the existing ROM-backed co-op regression suite pass.
 - The actual desktop executable cold-boots both peers to the same boot digest,
   runs 180 frames through the shared host with autosave configured on, and
-  leaves no autosave behind. Actual launcher dashboard/netplay screens were
+  leaves no autosave behind. Guest speed remains capped without VSync; the
+  host clock, not monitor refresh, limits netplay speed. Launcher screens were
   captured and visually inspected.
 
 The internet path is compiled and uses the existing shared backend. A real
@@ -112,3 +113,13 @@ The fixture and ROMs are owner-supplied test inputs, never committed. The
 harness copies the executable/catalog into private installations and requires
 matching final state plus evidence that rollback actually ran. Owner playtest
 launches never implicitly load this fixture or any save slot.
+
+The desktop startup/pacing check needs no fixture and uses a fresh output
+directory:
+
+```text
+python tools/test_netplay_desktop.py --exe build-netplay/MegaManXSNESRecomp.exe \
+  --rom /path/to/mmx.sfc --x3 /path/to/mmx3.sfc --output /tmp/mmx-netplay-boot
+```
+
+Remote playtesting is tracked separately in `beads-8wg.1.55`.
