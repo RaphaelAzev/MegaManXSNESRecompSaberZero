@@ -434,6 +434,52 @@ static void coop_scene_checks(const char *fixture,uint8_t *start,uint8_t *expect
   }
   MmxCoopDisable();puts("MMX CO-OP DOOR CHECKS PASSED");
 }
+/* Owner's private boss save with X fallen and Penguin's damage disabled. */
+static void coop_boss_survivor_checks(const char *fixture) {
+  check(MmxCoopEnable(0),"boss co-op enables");
+  check(RtlLoadSnapshot(fixture),"owner's survivor boss fixture loads");
+  MmxCoopState s=MmxCoopGetState();
+  const unsigned boss=0xe68;
+  check(s.anchor==1 && s.players[0].status==MMX_COOP_FALLEN && g_ram[boss+10]==2 &&
+      g_ram[boss+0x30]==1,"fixture reproduces Penguin's latched immunity after X dies");
+  unsigned initial_hp=g_ram[boss+0x27]&127,hits=0;
+  coop_frames(1,0,0);
+  check(!g_ram[boss+0x30],"loading the old survivor save repairs only the player-dead latch");
+  for(unsigned f=0;f<90;++f) {
+    unsigned hp=g_ram[boss+0x27]&127,immune=g_ram[boss+0x35];
+    coop_frames(1,0,(f%12==0?SNES_PAD_Y:0)|(f==0?SNES_PAD_LEFT:0));
+    if(immune>1) check((g_ram[boss+0x27]&127)==hp,"Penguin retains native post-hit invulnerability");
+    hits+=(g_ram[boss+0x27]&127)<hp;
+  }
+  s=MmxCoopGetState();
+  check(hits && (g_ram[boss+0x27]&127)<initial_hp && s.players[1].status==MMX_COOP_ALIVE,
+      "Zero's selected weapon damages Penguin after X's death");
+  coop_image(0,"boss-survivor-damage");
+  /* Reconstruct a live pair in this same room, then let Penguin's real body
+   * contact deliver the fatal blow. This tests the immediate handoff, before
+   * the dead player's 30-frame orb countdown ends. */
+  for(unsigned fallen=0;fallen<2;++fallen) {
+    check(RtlLoadSnapshot(fixture),"reload boss room for native fatal contact");
+    g_ram[0xbcf]=144;g_ram[0xbce]=0;g_ram[0xc30]=g_ram[0xc32]=0;
+    g_ram[0xbaa]=g_ram[0xbab]=0;MmxCoopCapture(g_ram);s=MmxCoopGetState();
+    memcpy(s.players[0].body,s.players[1].body,sizeof(s.players[0].body));
+    memset(&s.players[0].zero,0,sizeof(s.players[0].zero));s.players[0].zero.active_x=1;
+    s.players[0].status=MMX_COOP_ALIVE;s.anchor=(uint8_t)fallen;
+    MmxCoopSetState(&s);MmxCoopSelect(g_ram,fallen);
+    unsigned bx=g_ram[boss+5]+256*g_ram[boss+6];
+    g_ram[0xbad]=(uint8_t)bx;g_ram[0xbae]=(uint8_t)(bx>>8);g_ram[0xbcf]=129;
+    g_ram[boss+0x30]=0;MmxCoopCapture(g_ram);
+    for(unsigned f=0;f<4 && (g_ram[0xbcf]&127)==1;++f) coop_frames(1,0,0);
+    s=MmxCoopGetState();
+    check(!(s.players[fallen].body[0x27]&127) && s.anchor==(fallen^1) &&
+        s.players[fallen].status==MMX_COOP_ALIVE && !g_ram[boss+0x30],
+        "fatal boss contact immediately hands the world to the survivor before death orbs");
+    coop_frames(40,0,0);s=MmxCoopGetState();
+    check(s.players[fallen].status==MMX_COOP_FALLEN && !g_ram[boss+0x30],
+        "native death animation completes without latching Penguin's immunity");
+  }
+  MmxCoopDisable();puts("MMX CO-OP BOSS SURVIVOR CHECKS PASSED");
+}
 /* Owner's private Chill Penguin save, standing on the uncollected capsule.
  * Unlike the dialogue fixture, this runs acquisition AND its input demo. */
 static void coop_capsule_full_checks(const char *fixture) {
@@ -718,6 +764,7 @@ static void coop_checks(const char *assets, const char *fixture,
   if(getenv("MMX_COOP_PLATFORM_CAPTURE")) {coop_platform_checks(fixture,getenv("MMX_COOP_PLATFORM_CAPTURE"));return;}
   if(getenv("MMX_COOP_NATURAL_DEATH")) {coop_natural_death_checks(fixture);return;}
   if(getenv("MMX_COOP_KEYBOARD_TEST")) {coop_keyboard_checks(fixture);return;}
+  if(getenv("MMX_COOP_BOSS_SURVIVOR_FIXTURE")) {coop_boss_survivor_checks(getenv("MMX_COOP_BOSS_SURVIVOR_FIXTURE"));return;}
   if(getenv("MMX_COOP_CAPSULE_FULL_FIXTURE")) {coop_capsule_full_checks(getenv("MMX_COOP_CAPSULE_FULL_FIXTURE"));return;}
   if(getenv("MMX_COOP_CAPSULE_FIXTURE")) {coop_capsule_checks(getenv("MMX_COOP_CAPSULE_FIXTURE"));return;}
   const char *scene_fixture=getenv("MMX_COOP_SCENE_FIXTURE");

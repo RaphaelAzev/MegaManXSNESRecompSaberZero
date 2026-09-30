@@ -225,6 +225,37 @@ on/off both pass the survivor checks; the simultaneous case also passes.
 The P2-survivor capture was visually reviewed. These do not yet cover script
 ownership at boss doors or a death during a scripted scene.
 
+### Boss damage after a teammate dies
+
+The owner's slot 11 (`save11.sav`) has P1 X fallen and P2 Zero alive, with
+Chill Penguin stuck at 29 HP. Penguin's native combat tail at `$81:B6E4..B6ED`
+sets its `.30` flag to 1 when `$0BCF & $7F` is zero. This is a permanent
+player-dead latch: the shared projectile scan `$84:9B43..9B4F` skips damage
+while it is set. It is separate from Penguin's normal `.35` post-hit timer
+and damage-row changes at `$81:B63B..B649`.
+
+Previously the co-op world actor changed only after the original 30-frame
+death countdown emitted its orbs and marked that seat fallen. Native boss
+logic could therefore see zero player HP while the partner remained alive.
+World ownership now passes to the living partner at the frame/controller
+boundary, and immediately after both native contact passes if contact itself
+delivers the fatal hit. The dying actor continues its own controller pass,
+death sound and orbs. The last player's death retains the native team restart.
+
+For existing affected saves, a living survivor also clears Penguin's `.30=1`
+in its active combat state (kind `$02`, primary state `$04`, positive boss HP).
+That flag has no other writer in Penguin's active combat routine. This repair
+does not clear its ordinary immunity timer, alter damage rows, or revive a
+defeated boss. No save-layout changes or source-ROM modifications are needed.
+
+The private `MMX_COOP_BOSS_SURVIVOR_FIXTURE` regression verifies real damage
+from Zero's selected weapon in the reported save, preserves the native
+post-hit immunity window, and reconstructs fatal Penguin contact for each
+seat. Both cases hand ownership over before the death countdown ends and
+finish the native death animation without latching boss immunity. The
+existing full co-op suite also passes, including both death orders/rosters,
+survivor input and menus, snapshot replay, and one-life team restarts.
+
 ## Doors and scene transport
 
 The ordinary door contact routines are `$81:E70D` (right-facing) and

@@ -112,6 +112,15 @@ bool MmxCoopSelect(uint8_t *r, unsigned player) {
     MmxZeroSetCollisionRom(g_snes->cart->rom, g_snes->cart->romSize);
   return true;
 }
+static void select_world_survivor(uint8_t *r) {
+  unsigned other=state.anchor^1;
+  if(state.current==state.anchor && !(r[0xbcf]&127) &&
+      state.players[other].status==MMX_COOP_ALIVE && (state.players[other].body[0x27]&127)) {
+    /* World scripts must see the living actor during the other seat's death
+     * countdown, not only after its orbs have finished spawning. */
+    state.anchor=(uint8_t)other;MmxCoopSelect(r,other);
+  }
+}
 void MmxCoopInitialize(uint8_t *r) {
   if (!enabled || state.initialized || !r || r[0xd1] != 2 || r[0xd2] != 4 || r[0xba9] != 2) return;
   state.initialized = 1; state.stage = r[0x1f7a];
@@ -162,9 +171,18 @@ bool MmxCoopFrameTick(uint8_t *r) {
     memset(&p->zero,0,sizeof(p->zero));p->zero.active_x=p->character==MMX_COOP_X;
     state.stage_pending=state.enrolled?2:0;
   }
+  MmxCoopCapture(r);
+  select_world_survivor(r);
+  if((r[0xbcf]&127) && !(state.players[state.anchor^1].body[0x27]&127)) {
+    /* Repair old co-op saves made after Penguin saw a dead world actor.
+     * His combat state writes .30 only at $81:B6ED (player-dead latch).
+     * Ordinary hit immunity uses .35 and its damage row; preserve those. */
+    for(unsigned d=0xe68;d<0x1228;d+=64)
+      if(r[d] && r[d+10]==2 && r[d+1]==4 && (r[d+0x27]&127) && r[d+0x30]==1)
+        r[d+0x30]=0;
+  }
   /* Simultaneous fatalities must leave only one native death controller
    * responsible for the life decrement/checkpoint transition. */
-  MmxCoopCapture(r);
   if(state.players[0].status==MMX_COOP_ALIVE && state.players[1].status==MMX_COOP_ALIVE &&
       !(state.players[0].body[0x27]&127) && !(state.players[1].body[0x27]&127)) {
     state.players[state.anchor^1].status=MMX_COOP_FALLEN;
@@ -439,6 +457,10 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
       cpu->DB = state.contact_db; cpu->P = state.contact_p; cpu_p_to_mirrors(cpu);
     }
     state.contact_pass = 0;
+    /* A fatal contact can happen immediately before a boss tests player HP
+     * and permanently disables its own damage receiver. Finish both contact
+     * passes, then expose the living world actor to that native continuation. */
+    select_world_survivor(g_ram);
   }
 }
 static bool pickup_slot(unsigned d) {
@@ -641,7 +663,7 @@ static void controller_hook(CpuState *cpu, uint32_t pc) {
     state.return_a = cpu->A; state.return_x = cpu->X; state.return_y = cpu->Y;
     state.return_s = cpu->S; state.return_db = cpu->DB;
     cpu_mirrors_to_p(cpu); state.return_p = cpu->P;
-    if(state.players[state.current].status==MMX_COOP_FALLEN) state.anchor=(uint8_t)other;
+    if(!(g_ram[0xbcf]&127) && (state.players[other].body[0x27]&127)) state.anchor=(uint8_t)other;
     MmxCoopSelect(g_ram,other); MmxCoopApplyInput(g_ram);
     /* $00:D1F3..D206 prepares these outside the player routine. P2 needs
      * its own previous position and per-frame fire-command reset too. */
