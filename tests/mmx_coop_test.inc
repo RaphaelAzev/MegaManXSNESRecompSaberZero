@@ -17,7 +17,7 @@ static void coop_image(unsigned character,const char *action) {
   MmxRendererCoopFrame(&snapshot);
   unsigned changed = 0;
   for (unsigned i=0;i<256*224;++i) changed += pixels[i] != without_partner[i];
-  check(changed>100,"partner contributes visible original sprite pixels");
+  if (!snapshot.menu_owner) check(changed>100,"partner contributes visible original sprite pixels");
   char path[4096]; snprintf(path,sizeof(path),"%s.coop-%u-%s.bmp",base,character,action);
   FILE *f = fopen(path,"wb"); check(f!=NULL,"private co-op image opens");
   const uint8_t signature[2] = {'B','M'};
@@ -190,6 +190,33 @@ static void coop_camera_checks(unsigned character) {
   check(coop_x(&s.players[0])>x0+60 && (g_ram[0x1e4d]|g_ram[0x1e4e]<<8)>camera+60,
       "both players advancing releases the shared camera");
 }
+static void coop_menu_checks(unsigned character,uint8_t *start,uint8_t *expected,uint8_t *actual,size_t cap) {
+  coop_frames(1,0,SNES_PAD_START);coop_frames(75,0,0);
+  MmxCoopState s=MmxCoopGetState();
+  fprintf(stderr,"P2 pause owner=%u current=%u flags=%02x/%02x cursor=%u page=%u\n",
+      s.menu_owner,s.current,g_ram[0x1f24],g_ram[0x1f10],g_ram[0x1ed2],MmxWeaponsGetState().menu_page);
+  check(s.menu_owner==2 && s.current==1 && MmxWeaponsMenuVisible(g_ram),"P2 Start opens P2 equipment menu");
+  unsigned page=s.players[1].weapons.menu_page;
+  coop_frames(1,SNES_PAD_R,0);coop_frames(3,0,0);
+  check(MmxWeaponsGetState().menu_page==page,"P1 cannot change P2's pause inventory");
+  coop_frames(1,0,SNES_PAD_R);coop_frames(3,0,0);
+  check(MmxWeaponsGetState().menu_page==(page+1)%3,"P2 controls their own weapon pages");
+  coop_image(character,"menu");
+  size_t n=RtlSaveSnapshotToMemory(start,cap);
+  coop_frames(1,0,SNES_PAD_DOWN);coop_frames(3,0,0);coop_frames(1,0,SNES_PAD_START);coop_frames(75,0,0);
+  size_t en=RtlSaveSnapshotToMemory(expected,cap);
+  check(RtlLoadSnapshotFromMemory(start,n),"P2 pause snapshot restores its owner");
+  coop_frames(1,0,SNES_PAD_DOWN);coop_frames(3,0,0);coop_frames(1,0,SNES_PAD_START);coop_frames(75,0,0);
+  size_t an=RtlSaveSnapshotToMemory(actual,cap);
+  same(expected,en,actual,an,"P2 menu selection and exit replay exactly");
+  s=MmxCoopGetState();
+  check(!s.current && !s.menu_owner && !s.players[0].weapons.page &&
+      s.players[1].weapons.page==1 && s.players[1].weapons.weapon==1,
+      "P2 menu changes only P2's selection and returns control to both players");
+  coop_frames(1,SNES_PAD_START,0);coop_frames(75,0,0);
+  check(MmxCoopGetState().menu_owner==1 && !MmxWeaponsGetState().menu_page,"P1 opens their separate inventory");
+  coop_frames(1,SNES_PAD_START,0);coop_frames(75,0,0);
+}
 static void coop_checks(const char *assets, const char *fixture,
                         uint8_t *start, uint8_t *expected, uint8_t *actual, size_t cap) {
   check(assets && fixture, "co-op check requires private source assets and a grounded fixture");
@@ -256,6 +283,7 @@ static void coop_checks(const char *assets, const char *fixture,
     coop_contact_checks(start,cap);
     coop_join_checks(character,fixture,start,expected,actual,cap);
     coop_camera_checks(character);
+    if (x2 && x3) coop_menu_checks(character,start,expected,actual,cap);
     if (x2 && x3) {
       MmxCoopDisable();check(RtlLoadSnapshot(fixture),"restore independent weapon fixture");
       check(MmxCoopEnable(character),"restore chosen roster for weapons");coop_frames(8,0,0);

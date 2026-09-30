@@ -12,7 +12,7 @@ static MmxCoopState state;
 static bool enabled;
 static unsigned starting_character;
 _Static_assert(sizeof(MmxCoopPlayer) == 2272, "Co-op player save ABI");
-_Static_assert(sizeof(MmxCoopState) == 4596, "Co-op save ABI");
+_Static_assert(sizeof(MmxCoopState) == 4600, "Co-op save ABI");
 static bool join_tick(uint8_t *r);
 static unsigned word(const uint8_t *p) {return p[0]|p[1]<<8;}
 static void putword(uint8_t *p,unsigned v) {p[0]=(uint8_t)v;p[1]=(uint8_t)(v>>8);}
@@ -44,7 +44,8 @@ bool MmxCoopValidState(const MmxCoopState *s) {
   if (!s || s->initialized > 1 || s->current > 1 || s->controller_pass > 2 ||
       s->reserved || s->object_reserved || s->object_pass > 2 ||
       s->contact_reserved || s->contact_pass > 2 || s->enrolled>1 ||
-      s->select_hold>180 || s->select_armed>1 || s->stage_pending>2) return false;
+      s->select_hold>180 || s->select_armed>1 || s->stage_pending>2 ||
+      s->menu_owner>2 || s->menu_last>1 || s->menu_reserved[0] || s->menu_reserved[1]) return false;
   if (s->object_pass && s->object_entry != 0xd2bd && s->object_entry != 0xd3dd &&
       s->object_entry != 0xd3fa && s->object_entry != 0xd43a && s->object_entry != 0xd457 &&
       s->object_entry != 0x9d67) return false;
@@ -122,6 +123,10 @@ void MmxCoopInitialize(uint8_t *r) {
 }
 bool MmxCoopFrameTick(uint8_t *r) {
   if (!enabled || !state.initialized) return MmxWeaponsFrameTick(r);
+  if (state.menu_owner) {
+    if (state.current==1) MmxCoopApplyInput(r);
+    state.select_hold=0;return false;
+  }
   if (r[0xd1]!=2 || r[0xd2]!=4 || r[0xba9]!=2 || state.stage!=r[0x1f7a]) {
     state.stage_pending=1;state.select_hold=0;
     return false;
@@ -179,7 +184,9 @@ void MmxCoopApplyInput(uint8_t *r) {
     unsigned mask = r[0xffc0 + i];
     if (mask && (buttons & mask) == mask) actions |= action_bits[i];
   }
-  unsigned previous = r[0xbde] | r[0xbdf] << 8;
+  /* Native input mapping writes port 1 into the projected body. Seat 2 takes
+   * its previous actions from its own preceding frame snapshot. */
+  unsigned previous = word(state.players[state.current].body+0x36);
   r[0xbe0] = (uint8_t)previous; r[0xbe1] = (uint8_t)(previous >> 8);
   r[0xbde] = (uint8_t)actions; r[0xbdf] = (uint8_t)(actions >> 8);
   r[0xbe2] = (uint8_t)(actions & ~previous); r[0xbe3] = (uint8_t)((actions & ~previous) >> 8);
@@ -307,7 +314,7 @@ static bool join_tick(uint8_t *r) {
 }
 
 static void contact_hook(CpuState *cpu,uint32_t pc) {
-  if (!enabled || !state.initialized || state.players[1].status != MMX_COOP_ALIVE) return;
+  if (!enabled || !state.initialized || state.menu_owner || state.players[1].status != MMX_COOP_ALIVE) return;
   unsigned at = pc & 65535;
   if (at == 0x9b03 || at == 0x9b43) {
     if (!state.current && !state.contact_pass) {
@@ -339,7 +346,7 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
   }
 }
 static void object_hook(CpuState *cpu, uint32_t pc) {
-  if (!enabled || !state.initialized || state.players[1].status != MMX_COOP_ALIVE) return;
+  if (!enabled || !state.initialized || state.menu_owner || state.players[1].status != MMX_COOP_ALIVE) return;
   unsigned at = pc & 65535;
   bool entry = at == 0xd2bd || at == 0xd3dd || at == 0xd3fa || at == 0xd43a || at == 0xd457 || at == 0x9d67;
   if (entry) {
@@ -362,7 +369,7 @@ static void object_hook(CpuState *cpu, uint32_t pc) {
   }
 }
 static bool shared_screen(void) {
-  return enabled && state.initialized && state.players[0].status==MMX_COOP_ALIVE &&
+  return enabled && state.initialized && !state.menu_owner && state.players[0].status==MMX_COOP_ALIVE &&
       state.players[1].status==MMX_COOP_ALIVE && !MmxCoopTransitionActive() &&
       g_ram[0xd1]==2 && g_ram[0xd2]==4 && g_ram[0xd3]==4 &&
       !g_ram[0x1f0c] && !g_ram[0x1f23] && !g_ram[0x1f48];
@@ -381,6 +388,32 @@ static void camera_hook(CpuState *cpu,uint32_t pc) {
   cpu->A=(uint16_t)((a+b)/2);
   cpu->_flag_N=(cpu->A&0x8000)!=0;cpu->_flag_Z=cpu->A==0;
   cpu->P=(cpu->P&~0x82)|(cpu->_flag_N?0x80:0)|(cpu->_flag_Z?2:0);
+}
+static void menu_hook(CpuState *cpu,uint32_t pc) {
+  if (!enabled || !state.initialized || MmxCoopTransitionActive()) return;
+  switch (pc&65535) {
+    case 0xe57f:
+      if (state.menu_owner==2 && state.current==1) {
+        MmxCoopApplyInput(g_ram);cpu->A=(uint16_t)word(g_ram+0xbe2);
+        cpu->_flag_N=(cpu->A&0x8000)!=0;cpu->_flag_Z=cpu->A==0;
+        cpu->P=(cpu->P&~0x82)|(cpu->_flag_N?0x80:0)|(cpu->_flag_Z?2:0);
+      }
+      break;
+    case 0x9e68: {
+      if (state.menu_owner) return;
+      unsigned seat=(g_ram[0xbe3]&0x10) ? 0 : 1;
+      if (state.players[seat].status!=MMX_COOP_ALIVE ||
+          (seat && !(state.players[1].pressed&8))) return;
+      state.menu_owner=(uint8_t)(seat+1);state.menu_last=(uint8_t)seat;
+      MmxCoopSelect(g_ram,seat);
+      if (seat) {MmxCoopApplyInput(g_ram);g_ram[0xbe3]|=0x10;}
+      break;
+    }
+    case 0x9eac: /* Native pause guards rejected the request. */
+    case 0xc579: /* Equipment and subtank changes are now committed. */
+      if(state.menu_owner) {MmxCoopSelect(g_ram,0);state.menu_owner=0;}
+      break;
+  }
 }
 static void controller_hook(CpuState *cpu, uint32_t pc) {
   if (!enabled) return;
@@ -409,7 +442,7 @@ static void controller_hook(CpuState *cpu, uint32_t pc) {
   }
   if (!state.initialized || !state.controller_pass) return;
   constrain_player(g_ram);
-  if (state.controller_pass == 1 && state.players[1].status == MMX_COOP_ALIVE &&
+  if (state.controller_pass == 1 && !state.menu_owner && state.players[1].status == MMX_COOP_ALIVE &&
       g_ram[0xd1] == 2 && g_ram[0xd2] == 4 && !g_ram[0x1f0c]) {
     state.return_a = cpu->A; state.return_x = cpu->X; state.return_y = cpu->Y;
     state.return_s = cpu->S; state.return_db = cpu->DB;
@@ -453,4 +486,8 @@ void MmxCoopRegisterHooks(void) {
   const unsigned cameras[]={0xdea0,0xdeab,0xdebf,0xdeca};
   for(unsigned i=0;i<sizeof(cameras)/sizeof(cameras[0]);++i)
     interp_bridge_set_pre_opcode_hook(cameras[i],camera_hook);
+  interp_bridge_set_pre_opcode_hook(0x9e68,menu_hook);
+  interp_bridge_set_pre_opcode_hook(0x9eac,menu_hook);
+  interp_bridge_set_pre_opcode_hook(0xc579,menu_hook);
+  interp_bridge_set_pre_opcode_hook(0xe57f,menu_hook);
 }

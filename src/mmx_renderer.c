@@ -356,10 +356,18 @@ const uint32_t *MmxRendererStockFrame(void) { return frame.valid ? frame.stock :
 void MmxRendererCoopFrame(const MmxCoopState *s) {
   if (!s || !s->initialized) { memset(&frame_coop,0,sizeof(frame_coop)); return; }
   frame_coop = *s;
+  bool menu=((frame.ram[0x1f10]==6 || frame.ram[0x1f10]==8) && (frame.ram[0xc3]&128)) ||
+      (frame.ram[0x1989]==1 && word(frame.ram,0x198d)==128 && word(frame.ram,0x1990)==160 &&
+       (frame.ram[0x199e]==0 || frame.ram[0x199e]==0x18));
+  if (menu) {
+    const MmxCoopPlayer *owner=&s->players[s->menu_last];
+    frame_zero=owner->zero;frame_weapons=owner->weapons;frame_weapon_combat=owner->combat;
+    memcpy(frame.ram+0xba8,owner->body,sizeof(owner->body));
+  }
   memcpy(partner_ram,frame.ram,sizeof(partner_ram));
-  memcpy(partner_ram+0xba8,s->players[1].body,sizeof(s->players[1].body));
-  memcpy(partner_ram+0xc38,s->players[1].auxiliaries,sizeof(s->players[1].auxiliaries));
-  memcpy(partner_ram+0x1228,s->players[1].shots,sizeof(s->players[1].shots));
+  memcpy(partner_ram+0xba8,s->players[s->current^1].body,sizeof(s->players[s->current^1].body));
+  memcpy(partner_ram+0xc38,s->players[s->current^1].auxiliaries,sizeof(s->players[s->current^1].auxiliaries));
+  memcpy(partner_ram+0x1228,s->players[s->current^1].shots,sizeof(s->players[s->current^1].shots));
 }
 bool MmxRendererSaveCapture(const char *path) {
   if (!frame.valid || !path) return false;
@@ -957,7 +965,7 @@ static void teleport_actor_row(const uint8_t *ram,const MmxZeroState *zero,const
 }
 static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView view,
                              uint16_t *objects,int *colors) {
-  const MmxCoopPlayer *partner = &frame_coop.players[1];
+  const MmxCoopPlayer *partner = &frame_coop.players[frame_coop.current^1];
   if (!frame_coop.initialized || partner->status != MMX_COOP_ALIVE) return;
   const uint8_t *ram = partner_ram;
   if (partner->zero.swap_phase) {
@@ -1108,9 +1116,9 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
             frame.lines[0].palette + 128 + ((s->attr >> 9) & 7) * 16)))) piece_assets[i] = a;
   }
   int16_t crystal_ripple[224];MmxWeaponsTimeRipple(&frame_weapon_combat,crystal_ripple);
-  if (frame_coop.initialized && MmxWeaponsTimePhase(&frame_coop.players[1].combat)==1 &&
+  if (frame_coop.initialized && MmxWeaponsTimePhase(&frame_coop.players[frame_coop.current^1].combat)==1 &&
       MmxWeaponsTimePhase(&frame_weapon_combat)!=1)
-    MmxWeaponsTimeRipple(&frame_coop.players[1].combat,crystal_ripple);
+    MmxWeaponsTimeRipple(&frame_coop.players[frame_coop.current^1].combat,crystal_ripple);
   for (int y = 0; y < 224; ++y) {
     const Raster *r = &frame.lines[y]; Ppu p;
     memcpy(&p, r->registers, PPU_SAVESTATE_REGS_SIZE);
@@ -1145,8 +1153,8 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       Piece s = pieces[i]; const MmxSpriteAsset *asset = piece_assets[i];
       bool frozen_enemy=stage && (MmxWeaponsFrozenEnemy(&frame_weapon_combat,s.object) ||
           MmxWeaponsMovedEnemy(&frame_weapon_combat,s.object) || (frame_coop.initialized &&
-          (MmxWeaponsFrozenEnemy(&frame_coop.players[1].combat,s.object) ||
-           MmxWeaponsMovedEnemy(&frame_coop.players[1].combat,s.object))));
+          (MmxWeaponsFrozenEnemy(&frame_coop.players[frame_coop.current^1].combat,s.object) ||
+           MmxWeaponsMovedEnemy(&frame_coop.players[frame_coop.current^1].combat,s.object))));
       if (g_mmx_render_asset_repairs && fortress_sound_actor(s.object) &&
           (s.x >= 256 || s.x + s.size <= 0)) continue;
       /* Recorded pieces already obey the retail submission budget. Draw
@@ -1313,8 +1321,8 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
     }
     if (stage && !swapping) {
       weapon_effects_row(&frame_weapon_combat,&p,r,y,view,objects,object_colors);
-      if (frame_coop.initialized && frame_coop.players[1].status==MMX_COOP_ALIVE)
-        weapon_effects_row(&frame_coop.players[1].combat,&p,r,y,view,objects,object_colors);
+      if (frame_coop.initialized && frame_coop.players[frame_coop.current^1].status==MMX_COOP_ALIVE)
+        weapon_effects_row(&frame_coop.players[frame_coop.current^1].combat,&p,r,y,view,objects,object_colors);
     }
     if (swapping) teleport_actor_row(frame.ram,&frame_zero,&p,r,y,view,objects,object_colors);
     for (int sx = 0; sx < view.width; ++sx) {

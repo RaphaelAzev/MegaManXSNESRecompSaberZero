@@ -130,6 +130,17 @@ holds P1 still while P2 reaches the right edge, verifies both remain visible,
 then moves both and confirms scrolling resumes. Vertical extremes, forced
 scrolling and boss transitions still need further handling.
 
+Native pause entry `$00:9E68` runs against the requesting player's projected
+context, including their HP, subtanks and weapon inventory. `$00:9EAC` rejects
+an invalid request; `$00:C579` returns after the menu commits its selection.
+The owner remains projected during the menu and is serialized in snapshots.
+Input mapping `$00:E543..E57F` runs inside the game scheduler, so P2 input must
+replace the native P1 mapping at its return, not only before each frame.
+Private checks for both rosters verify that P1 cannot change P2's open menu,
+P2 can change imported weapon pages/selection, exit returns both controllers,
+and saving/replaying the menu produces an identical full snapshot. Menu
+captures were visually reviewed. Subtank consumption/pickups remain pending.
+
 The existing shared SNES launcher profile already allows two players.
 MMX's desktop-host descriptor omitted `num_players`, so it advertised one.
 USA now advertises two; JP remains unchanged. No recomp-ui fork is needed for

@@ -36,6 +36,7 @@ typedef struct MmxCoopState {
   uint16_t contact_a, contact_x, contact_y, contact_s, contact_d, contact_entry;
   uint8_t contact_p, contact_db, contact_pass, contact_reserved;
   uint8_t enrolled, select_hold, select_armed, stage_pending;
+  uint8_t menu_owner, menu_last, menu_reserved[2]; /* owner 0=none, 1/2=seat */
 } MmxCoopState;
 
 /* Development foundation; no launcher activation until join/combat/camera and
