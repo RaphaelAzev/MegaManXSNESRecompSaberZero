@@ -773,6 +773,17 @@ static void coop_checks(const char *assets, const char *fixture,
   MmxZeroRegisterHooks(); MmxCoopRegisterHooks();
   const char *x2=getenv("MMX_COOP_X2_ASSETS"),*x3=getenv("MMX_COOP_X3_ASSETS");
   if (x2 && x3) check(MmxWeaponsLoadPage(x2,1) && MmxWeaponsLoadPage(x3,2),"private original weapon source packs load");
+  if(getenv("MMX_COOP_PALETTE_FIXTURE")) {
+    check(MmxCoopEnable(0),"palette co-op enables");
+    check(RtlLoadSnapshot(getenv("MMX_COOP_PALETTE_FIXTURE")),"private palette fixture loads");
+    coop_weapon_select(0,1,8);
+    for(unsigned anchor=0;anchor<2;++anchor) {
+      MmxCoopSelect(g_ram,anchor);MmxCoopState s=MmxCoopGetState();s.anchor=(uint8_t)anchor;MmxCoopSetState(&s);
+      coop_frames(2,0,0);
+      zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),anchor?".palette-partner.cap":".palette-primary.cap");
+    }
+    puts("MMX CO-OP PALETTE CAPTURES SAVED");return;
+  }
   if(getenv("MMX_COOP_DIALOGUE_FIXTURE")) {coop_dialogue_checks(getenv("MMX_COOP_DIALOGUE_FIXTURE"));return;}
   if(getenv("MMX_COOP_STAGE_FIXTURE")) {coop_stage_entry_checks(getenv("MMX_COOP_STAGE_FIXTURE"));return;}
   if(getenv("MMX_COOP_PLATFORM_CAPTURE")) {coop_platform_checks(fixture,getenv("MMX_COOP_PLATFORM_CAPTURE"));return;}

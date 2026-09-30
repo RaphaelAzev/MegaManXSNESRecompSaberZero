@@ -12,6 +12,20 @@ and X3 recomp projects. ROM hashes are checked by
 extracted art or Ghidra databases. Reference sessions use private fixtures,
 never the owner's running game.
 
+## X1 face palette compatibility
+
+The original X2 weapon body palettes put dark red `$048E` at index 1 and
+white `$7BDE` at index 13. X1's face tiles use index 1 for the whites of X's
+eyes; copying X2's complete palette verbatim made idle X appear to close his
+eyes. Native X1 buster uses `$739C` in both slots; Fire Wave uses `$7BDE`.
+
+The renderer now maps X2 index 13 to X1 index 1 only when applying a weapon
+palette to X1 body tiles. The same helper covers the primary actor, co-op
+partner, and pause preview. Extracted palettes, original source special-attack
+poses, Zero, and X3 palettes remain unchanged. Tracked in `beads-8wg.1.52`.
+`MMX_COOP_PALETTE_FIXTURE` accepts a private standing co-op snapshot and emits
+Speed Burner captures with X rendered in both actor contexts for visual review.
+
 ## X1 integration map
 
 | Address / RAM | Established purpose and port use |

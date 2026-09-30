@@ -963,6 +963,14 @@ static void teleport_actor_row(const uint8_t *ram,const MmxZeroState *zero,const
     }
   }
 }
+static void x1_weapon_palette(MmxSpriteAsset *asset,const uint16_t *colors,unsigned page) {
+  if(!colors) return;
+  memcpy(asset->colors,colors,32);asset->live_tiles=true;
+  /* X1's face uses index 1 for eye whites. X2 puts an unused dark red
+   * there ($048E); its corresponding white is index 13. Adapt only the
+   * palette overlay on X1 tiles, not the original source special poses. */
+  if(page==1) asset->colors[1]=colors[13];
+}
 static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView view,
                              uint16_t *objects,int *colors) {
   const MmxCoopPlayer *partner = &frame_coop.players[frame_coop.current^1];
@@ -984,7 +992,7 @@ static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView 
     const MmxSpriteAsset *native=MmxRenderAssetsWeaponX(ram[0xbdb]/2,true);
     if(native) weapon_colors=native->colors;
   }
-  if (weapon_colors) {memcpy(weapon_palette.colors,weapon_colors,32);weapon_palette.live_tiles=true;}
+  x1_weapon_palette(&weapon_palette,weapon_colors,partner->weapons.page);
   if (zero && ram[0xbb6]) {
     const uint8_t *body = MmxZeroPose(ram,&partner->zero);
     const uint8_t *blade = MmxZeroBlade(&partner->zero);
@@ -1122,7 +1130,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
     if(native) weapon_colors=native->colors;
   }
   MmxSpriteAsset x_weapon_palette = {0};
-  if (weapon_colors) { memcpy(x_weapon_palette.colors, weapon_colors, 32); x_weapon_palette.live_tiles = true; }
+  x1_weapon_palette(&x_weapon_palette,weapon_colors,weapon_page);
   prepare_stage_planes();
   LightBeam beams[2];
   unsigned beam_count = stage ? spark_lights(beams, view.extra) : 0;
