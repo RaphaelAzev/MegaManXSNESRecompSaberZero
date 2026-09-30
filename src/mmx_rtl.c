@@ -4,6 +4,7 @@
 #include "mmx_zero.h"
 #include "mmx_weapons.h"
 #include "mmx_weapon_combat.h"
+#include "mmx_coop.h"
 #include "variables.h"
 #include "common_cpu_infra.h"
 #include "snes/snes.h"
@@ -330,7 +331,7 @@ void mmx_host_yield(uint8_t countdown) {
 #include "snes/saveload.h"
 
 #define MMX_SAV_CHUNK_MAGIC   0x4D4D5854u  /* "MMXT" */
-#define MMX_SAV_CHUNK_VERSION 13u /* Independent source-weapon visual particles. */
+#define MMX_SAV_CHUNK_VERSION 14u /* Two independent co-op player contexts. */
 
 typedef struct MmxSavChunk {
   uint32_t magic, version;
@@ -363,12 +364,13 @@ static uint8_t g_load_frame_flags[4];
 static MmxZeroState g_load_zero;
 static MmxWeaponsState g_load_weapons;
 static MmxWeaponCombatState g_load_weapon_combat;
+static MmxCoopState g_load_coop;
 
 void MmxStateSaveExtra(struct SaveLoadInfo *sli) {
   MmxSavChunk c;
   memset(&c, 0, sizeof(c));
   c.magic = MMX_SAV_CHUNK_MAGIC;
-  c.version = MmxWeaponsEnabled() ? MMX_SAV_CHUNK_VERSION : MmxZeroEnabled() ? 8 : 3;
+  c.version = MmxCoopEnabled() ? MMX_SAV_CHUNK_VERSION : MmxWeaponsEnabled() ? 13 : MmxZeroEnabled() ? 8 : 3;
   mmx_save_cpu(&c.main_cpu, &g_cpu);
   for (int i = 0; i < MMX_NSLOTS; i++) {
     c.occupied[i]    = (g_slot_fiber[i] != NULL);
@@ -399,6 +401,11 @@ void MmxStateSaveExtra(struct SaveLoadInfo *sli) {
     MmxWeaponCombatState combat = MmxWeaponsGetCombatState();
     sli->func(sli, &combat, sizeof(combat));
   }
+  if (c.version >= 14) {
+    MmxCoopCapture(g_ram);
+    MmxCoopState coop = MmxCoopGetState();
+    sli->func(sli, &coop, sizeof(coop));
+  }
 }
 
 void MmxStateLoadExtra(struct SaveLoadInfo *sli, uint32_t version) {
@@ -408,6 +415,7 @@ void MmxStateLoadExtra(struct SaveLoadInfo *sli, uint32_t version) {
   memset(&g_load_zero, 0, sizeof(g_load_zero));
   memset(&g_load_weapons, 0, sizeof(g_load_weapons));
   memset(&g_load_weapon_combat, 0, sizeof(g_load_weapon_combat));
+  memset(&g_load_coop, 0, sizeof(g_load_coop));
   memset(&g_load_chunk, 0, sizeof(g_load_chunk));
   sli->func(sli, &g_load_chunk, sizeof(g_load_chunk));
   if (g_load_chunk.magic == MMX_SAV_CHUNK_MAGIC &&
@@ -454,6 +462,12 @@ void MmxStateLoadExtra(struct SaveLoadInfo *sli, uint32_t version) {
       } else g_load_chunk_ok = 0;
     }
   }
+  if (g_load_complete && g_load_chunk.version >= 14) {
+    if (RtlStateBytesRemaining(sli) >= sizeof(g_load_coop)) {
+      sli->func(sli, &g_load_coop, sizeof(g_load_coop));
+      if (!MmxCoopValidState(&g_load_coop)) g_load_chunk_ok = 0;
+    } else g_load_chunk_ok = 0;
+  }
   if (!g_load_chunk_ok)
     fprintf(stderr, "[mmx_state] load: bad game chunk (magic=%08x ver=%u)\n",
             g_load_chunk.magic, g_load_chunk.version);
@@ -483,6 +497,8 @@ void MmxOnStateLoaded(uint32_t version) {
   MmxZeroSetState(g_load_zero);
   MmxWeaponsSetState(g_load_weapons);
   MmxWeaponsSetCombatState(g_load_weapon_combat);
+  if (complete && g_load_chunk.version >= 14) MmxCoopSetState(&g_load_coop);
+  else MmxCoopReset();
   if (version < 5 || !g_load_chunk_ok) {
     /* Legacy v4 save: no chunk, no rebuild — preserve the historical
      * behavior exactly (live fibers limp along; loads are only reliable
@@ -890,7 +906,8 @@ void RunOneFrameOfGame(void) {
     }
   }
   cpu_trace_px_breadcrumb(&g_cpu, 0x2002, "before_Internal");
-  if (MmxZeroSwapTick(g_ram)) return;
+  if (MmxCoopEnabled()) MmxCoopPoll(RtlGetPadState(0), RtlGetPadState(1));
+  else if (MmxZeroSwapTick(g_ram)) return;
   if (MmxWeaponsFrameTick(g_ram)) return;
   if (s_ws_recover_armor) {
     if (!g_mmx_custom_renderer || !MmxWidePolicy_PrematureRideArmor(g_ram) ||
@@ -940,6 +957,7 @@ void RunOneFrameOfGame(void) {
   }
   cpu_trace_px_breadcrumb(&g_cpu, 0x2003, "after_Internal");
   MmxZeroHealthSync(g_ram);
+  MmxCoopCapture(g_ram);
   g_first_frame_done = true;
 }
 
@@ -1703,6 +1721,7 @@ static void MmxWideStateApply(bool loaded) {
  * recovers (GitHub #45). Runs on the main fiber, never inside a slot fiber,
  * so every slot fiber can be deleted here. */
 void MmxOnHardwareReset(void) {
+  MmxCoopReset();
   for (int i = 0; i < MMX_NSLOTS; i++) {
     if (g_slot_fiber[i] != NULL) {
       DeleteFiber(g_slot_fiber[i]);

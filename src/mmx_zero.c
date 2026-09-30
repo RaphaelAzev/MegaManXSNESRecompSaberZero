@@ -25,9 +25,10 @@ static unsigned word(const uint8_t *p) { return p[0] | p[1] << 8; }
 static void putword(uint8_t *p, unsigned v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
 MmxZeroState MmxZeroGetState(void) { return state; }
 void MmxZeroResetState(void) { memset(&state, 0, sizeof(state)); }
-void MmxZeroSetState(MmxZeroState s) {
-  MmxZeroResetState();
-  if (poses && s.combo <= 2 && s.slash <= 44 && s.charge <= 201 &&
+bool MmxZeroValidState(const MmxZeroState *value) {
+  if (!value) return false;
+  MmxZeroState s = *value;
+  return s.combo <= 2 && s.slash <= 44 && s.charge <= 201 &&
       s.active_x <= 1 && s.swap_phase <= 6 && s.swap_tick <= 30 && s.swap_y <= 0 && s.swap_y >= -320 &&
       s.hp_valid <= 1 && s.hp_max <= 32 && s.hp[0] <= 32 && s.hp[1] <= 32 &&
       (!s.hp_valid || (s.hp_max >= 16 && s.hp[0] <= s.hp_max && s.hp[1] <= s.hp_max)) &&
@@ -37,7 +38,11 @@ void MmxZeroSetState(MmxZeroState s) {
                     s.burst_timer && animation[s.burst_offset + 2] < 117)) &&
       (!s.anim_valid || (s.anim_offset >= 272 && s.anim_offset + 3 <= sizeof(animation) &&
                         s.anim_timer && s.anim_pose < 117)) &&
-      (!s.projectile || (s.projectile >= 0x1228 && s.projectile < 0x1428 && (s.projectile & 63) == 0x28))) state = s;
+      (!s.projectile || (s.projectile >= 0x1228 && s.projectile < 0x1428 && (s.projectile & 63) == 0x28));
+}
+void MmxZeroSetState(MmxZeroState s) {
+  MmxZeroResetState();
+  if (poses && MmxZeroValidState(&s)) state = s;
 }
 unsigned MmxZeroChargeTier(const MmxZeroState *s) {
   return !s || s->charge < 21 ? 0 : s->charge < 81 ? 4 :

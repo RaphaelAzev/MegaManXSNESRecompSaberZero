@@ -191,6 +191,7 @@ int MMX_DESKTOP_ENTRY(int argc, char **argv) {
     .expected_sha256_hex = "76f80cdf704a0e1daf1af5bbf564e427b425a5ee42329417de6f29219fe63e5f",
 #else
     .display_name = "Mega Man X", .region = "USA",
+    .num_players = 2,
     .rom_file = "mmx.sfc", .game_id = "megaman-x-us",
     .expected_crc32_hex = "DED53C64",
     .expected_sha256_hex = "b8f70a6e7fb93819f79693578887e2c11e196bdf1ac6ddc7cb924b1ad0be2d32",

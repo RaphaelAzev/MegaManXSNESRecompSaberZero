@@ -59,6 +59,7 @@ unsigned MmxZeroWeaponTick(uint8_t ram[0x20000], unsigned object, unsigned activ
 unsigned MmxZeroDamage(uint8_t ram[0x20000], unsigned enemy, unsigned projectile, unsigned original);
 unsigned MmxZeroHitbox(const uint8_t ram[0x20000], unsigned enemy, unsigned projectile, unsigned original);
 MmxZeroState MmxZeroGetState(void);
+bool MmxZeroValidState(const MmxZeroState *state);
 void MmxZeroSetState(MmxZeroState state);
 void MmxZeroResetState(void);
 void MmxZeroCancel(uint8_t ram[0x20000]);
