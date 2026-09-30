@@ -1,5 +1,6 @@
 #include "mmx_renderer.h"
 #include "mmx_zero.h"
+#include "mmx_weapons.h"
 #include <stdio.h>
 
 static bool bmp(const char *path, const uint32_t *pixels, int width) {
@@ -13,10 +14,11 @@ static bool bmp(const char *path, const uint32_t *pixels, int width) {
   return fclose(f) == 0 && ok;
 }
 int main(int argc, char **argv) {
-  if (argc != 6 && argc != 7) {
-    fprintf(stderr, "usage: mmx_render_capture capture rom aspect hud(0|1) output.bmp [zero-assets.bin]\n"); return 2;
+  if (argc < 6 || argc > 8) {
+    fprintf(stderr, "usage: mmx_render_capture capture rom aspect hud(0|1) output.bmp [zero-assets.bin] [x-weapons.bin]\n"); return 2;
   }
-  if (argc == 7 && !MmxZeroLoad(argv[6])) return 2;
+  if (argc >= 7 && !MmxZeroLoad(argv[6])) return 2;
+  if (argc == 8 && !MmxWeaponsLoad(argv[7])) return 2;
   FILE *f = fopen(argv[2], "rb");
   if (!f || fseek(f, 0, SEEK_END)) return 2;
   long size = ftell(f); rewind(f);

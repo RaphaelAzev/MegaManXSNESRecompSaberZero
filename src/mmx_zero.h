@@ -3,13 +3,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
-enum { MMX_ZERO_WIDTH = 128, MMX_ZERO_HEIGHT = 128, MMX_ZERO_POSES = 152,
+enum { MMX_ZERO_WIDTH = 128, MMX_ZERO_HEIGHT = 128, MMX_ZERO_POSES = 152, MMX_ZERO_CHARGE_POSES = 66,
        MMX_ZERO_ANIMATION_BYTES = 0x474, MMX_ZERO_MUZZLE_BYTES = 196,
        MMX_ZERO_LEGACY_STATE_SIZE = 12, MMX_ZERO_ANIMATION_STATE_SIZE = 18,
        MMX_ZERO_COMBAT_STATE_SIZE = 30, MMX_ZERO_SWAP_STATE_SIZE = 36 };
 typedef struct MmxZeroState {
   uint16_t charge, slash, projectile;
-  uint8_t combo, cooldown, air, facing;
+  /* Reuses the formerly unused cooldown byte without changing save layout. */
+  uint8_t combo, charge_phase, air, facing;
   uint16_t hit_slots;
   uint16_t anim_offset;
   uint8_t anim_timer, anim_pose, anim_flags, anim_valid;
@@ -36,6 +37,10 @@ const uint8_t *MmxZeroTeleportPose(unsigned pose);
 const uint8_t *MmxZeroPose(const uint8_t ram[0x20000], const MmxZeroState *snapshot);
 const uint8_t *MmxZeroBlade(const MmxZeroState *snapshot);
 const uint16_t *MmxZeroColors(void);
+const uint16_t *MmxZeroBodyColors(const MmxZeroState *snapshot);
+const uint8_t *MmxZeroChargePose(const MmxZeroState *snapshot);
+bool MmxZeroHasChargeArt(void);
+bool MmxZeroNativeChargeObject(unsigned object, unsigned kind);
 const uint8_t *MmxZeroMenuPose(void);
 /* Original X3 BGR555 badge pixel; -2 is transparent, -1 retains native art. */
 int MmxZeroHudColor(unsigned x, unsigned y);

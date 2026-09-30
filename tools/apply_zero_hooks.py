@@ -9,7 +9,8 @@ PCS = {0x81971c, 0x819793, 0x8198fc}
 MUZZLE_PCS = {0x81a566, 0x81a578, 0x838b6a, 0x838d82, 0x838eb4,
               0x839518, 0x83983c, 0x839974, 0x83a3a9}
 ORIGIN_PCS = {0x8283ed: 1, 0x83958c: 0, 0x839dc5: 1}
-REQUIRED = PCS | MUZZLE_PCS | ORIGIN_PCS.keys() | {0x009da6, 0x81815c, 0x818165, 0x00d3e5, 0x849e73, 0x849c16, 0x848f07, 0x848eea}
+REQUIRED = PCS | MUZZLE_PCS | ORIGIN_PCS.keys() | {0x009da6, 0x81815c, 0x818165, 0x00d3e5, 0x849e73, 0x849c16, 0x848f07, 0x848eea, 0x8491db, 0x82823e, 0x8194af}
+OPTIONAL = {0x00d4f2, 0x00d50f}  # Current enemy loops run through the interpreter.
 
 
 def apply(text):
@@ -26,6 +27,20 @@ def apply(text):
                 output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern unsigned MmxZeroWeaponOrigin(const uint8_t *, unsigned, unsigned, unsigned); {store[2]} = (uint16)MmxZeroWeaponOrigin(g_ram, cpu->D, {axis}, {store[2]}); cpu_write_a_m(cpu, {store[2]}); }}\n')
                 found.add(pc)
         output.append(line)
+        if pc in (0x00d4f2,0x00d50f):
+            load = re.search(r'uint8 (_v\d+) = cpu_read8\(cpu, 0x00, \(uint16\)\(cpu->D \+ 0x0000\)\);', line)
+            if load:
+                output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern unsigned MmxWeaponsEnemyActive(const uint8_t *, unsigned, unsigned); {load[1]} = (uint8)MmxWeaponsEnemyActive(g_ram,cpu->D,{load[1]}); }}\n')
+                found.add(pc)
+        if pc == 0x8194af and 'cpu->coprocessor_master_cycles = cpu->master_cycles;' in line:
+            output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern void MmxWeaponsSelectShot(const uint8_t *, unsigned); MmxWeaponsSelectShot(g_ram,cpu->X); }}\n')
+            found.add(pc)
+        if pc == 0x82823e and 'cpu->coprocessor_master_cycles = cpu->master_cycles;' in line:
+            output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern void MmxWeaponsPlayerMotion(uint8_t *, unsigned); MmxWeaponsPlayerMotion(g_ram,cpu->D); }}\n')
+            found.add(pc)
+        if pc == 0x8491db and 'cpu->D = cpu_read16(cpu, 0x00, cpu->S);' in line:
+            output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern void MmxWeaponsTerrainEnd(uint8_t *, unsigned); MmxWeaponsTerrainEnd(g_ram,cpu->D); }}\n')
+            found.add(pc)
         if pc == 0x009da6 and 'cpu_write8' in line and '0x0bcf' in line:
             output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern void MmxZeroHealthRespawn(const uint8_t *); MmxZeroHealthRespawn(g_ram); }}\n')
             found.add(pc)
@@ -44,10 +59,10 @@ def apply(text):
         if pc == 0x849c16:
             load = re.search(r'uint16 (_v\d+) = cpu_read16\(cpu,', line) if '0x0020' in line and 'cpu->X' in line else None
             if load:
-                output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern unsigned MmxZeroHitbox(const uint8_t *, unsigned, unsigned, unsigned); {load[1]} = (uint16)MmxZeroHitbox(g_ram, cpu->D, cpu->X, {load[1]}); }}\n')
+                output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern unsigned MmxZeroHitbox(const uint8_t *, unsigned, unsigned, unsigned); extern unsigned MmxWeaponsHitbox(const uint8_t *, unsigned, unsigned, unsigned); {load[1]} = (uint16)MmxWeaponsHitbox(g_ram, cpu->D, cpu->X, MmxZeroHitbox(g_ram, cpu->D, cpu->X, {load[1]})); }}\n')
                 found.add(pc)
         if pc == 0x81815c and 'cpu->coprocessor_master_cycles = cpu->master_cycles;' in line:
-            output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern void MmxZeroPlayerTick(uint8_t *); MmxZeroPlayerTick(g_ram); }}\n')
+            output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern void MmxZeroPlayerTick(uint8_t *); extern void MmxWeaponsPlayerTick(uint8_t *); extern bool MmxWeaponsCombatActive(void); MmxWeaponsPlayerTick(g_ram); if (!MmxWeaponsCombatActive()) MmxZeroPlayerTick(g_ram); }}\n')
             found.add(pc)
         if pc == 0x818165 and 'cpu->coprocessor_master_cycles = cpu->master_cycles;' in line:
             output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern void MmxZeroPlayerEnd(uint8_t *); MmxZeroPlayerEnd(g_ram); }}\n')
@@ -55,13 +70,13 @@ def apply(text):
         if pc == 0x00d3e5:
             load = re.search(r'uint8 (_v\d+) = cpu_read8\(cpu, 0x00, \(uint16\)\(cpu->D \+ 0x0000\)\);', line)
             if load:
-                output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern unsigned MmxZeroWeaponTick(uint8_t *, unsigned, unsigned); {load[1]} = (uint8)MmxZeroWeaponTick(g_ram, cpu->D, {load[1]}); }}\n')
+                output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern unsigned MmxZeroWeaponTick(uint8_t *, unsigned, unsigned); extern unsigned MmxWeaponsProjectileTick(uint8_t *, unsigned, unsigned); {load[1]} = (uint8)MmxWeaponsProjectileTick(g_ram, cpu->D, MmxZeroWeaponTick(g_ram, cpu->D, {load[1]})); }}\n')
                 found.add(pc)
         # The ordinary damage table still decides immunity and reflection.
         # Override only the final subtraction in the positive-damage path.
         if pc == 0x849e6e and 'uint8 ' in line and 'cpu_read8' in line and '0xef37' in line:
             variable = re.search(r'uint8 (_v\d+)', line)[1]
-            output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern unsigned MmxZeroDamage(uint8_t *, unsigned, unsigned, unsigned); {variable} = (uint8)MmxZeroDamage(g_ram, cpu->D, cpu->X, {variable}); }}\n')
+            output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern unsigned MmxZeroDamage(uint8_t *, unsigned, unsigned, unsigned); extern unsigned MmxWeaponsDamage(uint8_t *, unsigned, unsigned, unsigned); {variable} = (uint8)MmxWeaponsDamage(g_ram, cpu->D, cpu->X, MmxZeroDamage(g_ram, cpu->D, cpu->X, {variable})); }}\n')
             found.add(0x849e73)
         if pc in PCS:
             load = re.search(r'uint8 (_v\d+) = cpu_read8\(cpu, cpu->DB, \(uint16\)\(0x1f99\)\);', line)
@@ -78,13 +93,13 @@ def main():
     found = set()
     for path in args.gen_dir.glob('*.c'):
         text = path.read_text(encoding='utf-8')
-        if not any(f'0x{pc:06X}' in text for pc in REQUIRED | {0x849e6e}):
+        if not any(f'0x{pc:06X}' in text for pc in REQUIRED | OPTIONAL | {0x849e6e}):
             continue
         updated, sites = apply(text)
         found |= sites
         if updated != text:
             path.write_text(updated, encoding='utf-8', newline='\n')
-    if found != REQUIRED:
+    if REQUIRED - found:
         raise SystemExit(f'Missing Zero hooks: {REQUIRED - found}')
     print(f'MMX Zero: {len(found)} capability/combat sites verified')
 

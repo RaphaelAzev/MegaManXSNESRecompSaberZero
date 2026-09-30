@@ -4,6 +4,8 @@
 #include <string.h>
 
 static uint8_t *poses;
+static uint8_t *charge_poses;
+static uint16_t charge_colors[3][16];
 static uint16_t colors[128];
 static uint8_t saber_bounds[40];
 static uint8_t hud_tiles[128];
@@ -66,6 +68,7 @@ void MmxZeroHealthRespawn(const uint8_t r[0x20000]) {
 void MmxZeroDisable(void) {
   MmxZeroResetState();
   free(poses); poses = NULL;
+  free(charge_poses); charge_poses = NULL;
 }
 bool MmxZeroLoad(const char *path) {
   FILE *f = path ? fopen(path, "rb") : NULL;
@@ -73,9 +76,10 @@ bool MmxZeroLoad(const char *path) {
   uint8_t header[20], palette[256], bounds[40], hud[160], anim[MMX_ZERO_ANIMATION_BYTES];
   uint8_t emission[MMX_ZERO_MUZZLE_BYTES];
   size_t size = (size_t)MMX_ZERO_POSES * MMX_ZERO_WIDTH * MMX_ZERO_HEIGHT;
-  uint8_t *data = NULL;
+  uint8_t *data = NULL, *particles = NULL, flash[96];
+  bool modern = false;
   bool ok = fread(header, 1, sizeof(header), f) == sizeof(header) &&
-      !memcmp(header, "MMXZERO6", 8) && word(header + 8) == MMX_ZERO_WIDTH &&
+      ((modern = !memcmp(header, "MMXZERO7", 8)) || !memcmp(header, "MMXZERO6", 8)) && word(header + 8) == MMX_ZERO_WIDTH &&
       word(header + 10) == MMX_ZERO_HEIGHT && word(header + 12) == 64 &&
       word(header + 14) == 64 && word(header + 16) == 117 && word(header + 18) == 35 &&
       fread(palette, 1, sizeof(palette), f) == sizeof(palette) &&
@@ -83,7 +87,15 @@ bool MmxZeroLoad(const char *path) {
       fread(hud, 1, sizeof(hud), f) == sizeof(hud) &&
       fread(anim, 1, sizeof(anim), f) == sizeof(anim) &&
       fread(emission, 1, sizeof(emission), f) == sizeof(emission);
-  if (ok) { data = malloc(size); ok = data && fread(data, 1, size, f) == size && fgetc(f) == EOF; }
+  if (ok) { data = malloc(size); ok = data && fread(data, 1, size, f) == size; }
+  size_t charge_size = (size_t)MMX_ZERO_CHARGE_POSES * MMX_ZERO_WIDTH * MMX_ZERO_HEIGHT;
+  if (ok && modern) {
+    particles = malloc(charge_size);
+    ok = particles && fread(flash, 1, sizeof(flash), f) == sizeof(flash) &&
+        fread(particles, 1, charge_size, f) == charge_size;
+    if (ok) for (size_t i=0;i<charge_size;++i) if (particles[i]>=16) { ok=false; break; }
+  }
+  if (ok) ok = fgetc(f) == EOF;
   fclose(f);
   if (ok) for (unsigned i = 0; i < sizeof(bounds); i += 4)
     if (!bounds[i + 2] || bounds[i + 2] > 64 || !bounds[i + 3] || bounds[i + 3] > 64) { ok = false; break; }
@@ -94,8 +106,9 @@ bool MmxZeroLoad(const char *path) {
   }
   if (ok) for (unsigned i = 0; i < 117; ++i)
     if ((emission[i] & 1) || emission[i] > 74) { ok = false; break; }
-  if (!ok) { free(data); return false; }
-  MmxZeroDisable(); poses = data;
+  if (!ok) { free(data); free(particles); return false; }
+  MmxZeroDisable(); poses = data; charge_poses = particles;
+  if (modern) for (unsigned i=0;i<48;++i) charge_colors[i/16][i%16]=(uint16_t)(word(flash+i*2)&0x7fff);
   memcpy(saber_bounds, bounds, sizeof(bounds));
   memcpy(animation, anim, sizeof(animation));
   memcpy(muzzle, emission, sizeof(muzzle));
@@ -105,6 +118,21 @@ bool MmxZeroLoad(const char *path) {
   return true;
 }
 const uint16_t *MmxZeroColors(void) { return colors; }
+bool MmxZeroHasChargeArt(void) { return charge_poses != NULL; }
+const uint16_t *MmxZeroBodyColors(const MmxZeroState *s) {
+  if (!charge_poses || !s || s->active_x || s->swap_phase || s->slash ||
+      (s->charge < 25 && !(s->combo && s->saber_ready)) || (s->charge_phase & 2)) return colors + 16;
+  return charge_colors[s->saber_ready || s->charge >= 201 ? 2 : s->charge >= 141 ? 1 : 0];
+}
+const uint8_t *MmxZeroChargePose(const MmxZeroState *s) {
+  if (!charge_poses || !s || s->active_x || s->swap_phase || s->slash || s->burst || s->combo || s->charge < 21) return NULL;
+  unsigned group = s->charge < 81 ? 0 : s->charge < 141 ? 1 : 2;
+  return charge_poses + (size_t)(group * 22 + s->charge_phase % 22) * MMX_ZERO_WIDTH * MMX_ZERO_HEIGHT;
+}
+bool MmxZeroNativeChargeObject(unsigned object, unsigned kind) {
+  /* $82:82ED allocates any of twelve small actors, not just $0C98. */
+  return object >= 0xc98 && object < 0xe18 && ((object - 0xc98) % 32) == 0 && kind == 1;
+}
 const uint8_t *MmxZeroMenuPose(void) { return poses; }
 static void animation_record(unsigned offset) {
   if (offset < 272 || offset + 3 > sizeof(animation) || !animation[offset] || animation[offset + 2] >= 117) {
@@ -280,6 +308,9 @@ static void clear_charge(uint8_t *r) {
    * Bypassing that release path without $17 leaves the SPC voice playing. */
   if (r[0xc2f] & 64) { sound(r,0x17); r[0xc2f] &= (uint8_t)~64; }
   memset(r + 0xbff, 0, 5);
+  r[0xc2a] = 0;
+  for (unsigned d=0xc98;d<0xe18;d+=32)
+    if (MmxZeroNativeChargeObject(d,r[d+10])) memset(r+d,0,32);
 }
 unsigned MmxZeroSwapPose(const MmxZeroState *s) {
   if (!s || !s->swap_phase || s->swap_phase == 3) return 255;
@@ -371,7 +402,6 @@ static void emit_burst(uint8_t *r) {
   ++r[0xbdd]; r[0x1f0d] = 4;
   sound(r,2); /* Native full-buster release sound ($81:A015), once per shot. */
   state.shot_mask |= (uint8_t)(1u << ((d - 0x1228) / 64));
-  state.cooldown = 0;
 }
 static void advance_burst(uint8_t *r) {
   unsigned flags = animation[state.burst_offset + 1];
@@ -412,7 +442,6 @@ static void track_burst_shots(const uint8_t *r) {
    * retained X1 beam executes its disappearance animation in the SAME slot
    * ($81:A3CE..A40D); C25 is decremented only afterwards. Wait for that real
    * lifetime, including impact/offscreen recovery, with no guessed delay. */
-  state.cooldown = 0;
   state.shot_mask = (uint8_t)alive;
 }
 static bool burst_holds_air(void) {
@@ -427,6 +456,9 @@ void MmxZeroPlayerTick(uint8_t r[0x20000]) {
       (action <= 8 || action == 0x10 || action == 0x12 || action == 0x14 || action == 0x20);
   if (!playable) { MmxZeroCancel(r); return; }
   bool held = (r[0xbdf] & 64) != 0, pressed = (r[0xbe3] & 64) != 0;
+  if (state.charge >= 21 || (state.combo && state.saber_ready))
+    state.charge_phase = (uint8_t)((state.charge_phase + 1) % 88);
+  else state.charge_phase = 0;
   track_burst_shots(r);
   if (state.burst_end) {
     state.burst = state.burst_end = 0;
@@ -445,7 +477,7 @@ void MmxZeroPlayerTick(uint8_t r[0x20000]) {
         state.combo = state.saber_ready ? 2 : 0;
         start_burst(r,2);
       }
-    } else if (state.saber_ready && !state.shot_mask && !state.cooldown && !r[0xc25]) {
+    } else if (state.saber_ready && !state.shot_mask && !r[0xc25]) {
       unsigned d = free_projectile(r);
       if (d) {
         clear_charge(r); state.combo = state.saber_ready = 0; state.slash = 1;

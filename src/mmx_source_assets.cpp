@@ -31,10 +31,10 @@ struct Rom {
     require(bool(f),"Cannot read the source ROM.");
     if (data.size()%32768==512) data.erase(data.begin(),data.begin()+512);
     uint8_t digest[32]; sha256_compute(data.data(),data.size(),digest);
-    const char *expected=
+    const char *expected=game==2 ? "f3246755f608a1e1dc9c848b61da3b824c7853b29b3be40df6fc7f2793a887ed" :
       "65b03268afac296330e8ff8d60dd0825879e13ed658b37713c034a3bd074f1d7";
     char actual[65]; for (unsigned i=0;i<32;++i) std::snprintf(actual+i*2,3,"%02x",digest[i]);
-    require(std::string(actual)==expected,
+    require(std::string(actual)==expected,game==2 ? "Select the original Mega Man X2 USA ROM." :
       "Select the original Mega Man X3 USA ROM.");
   }
   size_t offset(unsigned a) const {
@@ -63,6 +63,16 @@ void transfer(const Rom& r,unsigned table,unsigned pose,Tiles& t) {
     if (target&32768) return;
   }
   throw std::runtime_error("Unterminated source sprite transfer.");
+}
+void bulk(const Rom& r,unsigned a,Tiles& t) {
+  for (unsigned i=0;i<64;++i,a+=7) {
+    unsigned length=r.integer(a); if (length&1) return;
+    unsigned start=(r.integer(a+2)-0x6000)*2;
+    require(start<=8192 && length<=8192-start,"Invalid source selection transfer.");
+    Bytes b=r.at(r.integer(a+4,3),length);
+    std::copy(b.begin(),b.end(),t.bytes.begin()+start); std::fill_n(t.known.begin()+start,length,1);
+  }
+  throw std::runtime_error("Unterminated source selection transfer.");
 }
 struct Pose { int left=0,top=0,width=0,height=0; Bytes pixels; };
 Pose pose(const Rom& r,unsigned group,unsigned number,const Tiles& t,bool zero=false) {
@@ -95,15 +105,16 @@ Pose pose(const Rom& r,unsigned group,unsigned number,const Tiles& t,bool zero=f
       if (color) {
         int px=x+int(dx)-p.left,py=y+int(dy)-p.top;
         require(px>=0 && py>=0 && px<p.width && py<p.height,"Source sprite exceeds canvas.");
-        if (zero) color+=(((flags>>1)&7)|(group==0x50?3:1))*16;
+        if (zero) color+=(((flags>>1)&7)|(group>=0x6f?0:group==0x50?3:1))*16;
         p.pixels[py*p.width+px]=uint8_t(color);
       }
     }
   }
   return p;
 }
+Bytes menu(const Rom& r,unsigned game,unsigned resource);
 Bytes zero_assets(const Rom& r) {
-  Bytes out{'M','M','X','Z','E','R','O','6'};
+  Bytes out{'M','M','X','Z','E','R','O','7'};
   for (unsigned v : {128,128,64,64,117,35}) put(out,v);
   std::array<unsigned,256> colors{};
   for (unsigned key : {0xd0,0xd2}) {
@@ -117,12 +128,106 @@ Bytes zero_assets(const Rom& r) {
     }
   }
   for (unsigned i=0;i<16;++i) colors[176+i]=r.integer(0x8cb5a0+i*2);
+  for (unsigned i=0;i<16;++i) colors[128+i]=r.integer(0x8cb100+i*2);
+  for (unsigned i=0;i<16;++i) colors[160+i]=r.integer(0x8cb0e0+i*2);
   for (unsigned i=128;i<256;++i) put(out,colors[i]);
   Bytes bounds=r.at(0x86b837,40);for (unsigned i=1;i<40;i+=4) bounds[i]-=8;
   append(out,bounds);append(out,r.at(0x2c8d20,64));append(out,r.at(0x2c8de0,64));append(out,r.at(0x8cb0e0,32));
   append(out,r.at(0x3fcc74,0x474));append(out,r.at(0x399161,120));append(out,r.at(0x3991d9,76));
   const unsigned groups[][3]={{0x4a,117,0x85d6a8},{0x4b,21,0x85db47},{0x50,14,0x85e6e0}};
   for (auto& g : groups) { Tiles t;for (unsigned i=0;i<g[1];++i) { transfer(r,g[2],i,t);append(out,pose(r,g[0],i,t,true).pixels); } }
+  for (unsigned a : {0x8caf60,0x8caf80,0x8ca5e0}) append(out,r.at(a,32));
+  Tiles t; Bytes common=menu(r,3,0x0a);
+  require(common.size()==4096,"Unexpected Zero common graphics size.");
+  std::copy(common.begin(),common.end(),t.bytes.begin()+0x1000);
+  for (unsigned group : {0x6f,0x70,0x71}) for (unsigned i=0;i<22;++i)
+    append(out,pose(r,group,i,t,true).pixels);
+  return out;
+}
+struct GroupSource { unsigned id,frames,dma,restricted; uint64_t poses,inherited; int setup; unsigned palette,source;
+  unsigned animated_start,layout_start,layout_count,animated_dma; int animation_sequence; };
+struct WeaponSource { unsigned game,id,body,palette,extra,groups; int resource; unsigned offset; GroupSource group[3]; };
+#include "mmx_weapon_sources.h"
+Bytes animations(const Rom& r,unsigned game,unsigned group,int sequence) {
+  unsigned base=r.integer((game==2?0x2fa000:0x3f8000)+group*3,3),header=r.integer(base),extent=header;
+  require(header && !(header&1) && header<=1024,"Invalid source animation directory.");
+  std::vector<unsigned> pending;std::set<unsigned> visited;
+  require(sequence<0 || unsigned(sequence)*2<header,"Invalid selected source sequence.");
+  if (sequence>=0) pending.push_back(r.integer(base+unsigned(sequence)*2));
+  else for (unsigned i=0;i<header;i+=2) pending.push_back(r.integer(base+i));
+  while (!pending.empty()) {
+    unsigned a=pending.back();pending.pop_back();if (!visited.insert(a).second) continue;
+    require(a>=header && a<=8192,"Source animation exceeds group.");
+    Bytes rec=r.at(base+a,3); require(rec[0] && rec[2]<128,"Invalid source animation.");
+    unsigned end=a+3;
+    if (rec[1]&128) { pending.push_back(end+int16_t(r.integer(base+end)));extent=std::max(extent,end+2); }
+    else { pending.push_back(end);extent=std::max(extent,end); }
+  }
+  return r.at(base,extent);
+}
+Bytes menu(const Rom& r,unsigned game,unsigned resource=0x4c) {
+  unsigned rec=(game==2?0x86fa01:0x86f732)+resource*5,length=r.integer(rec+3);
+  size_t p=r.offset(r.integer(rec,3));Bytes b;
+  while (b.size()<length) {
+    unsigned control=r.raw(p++,1)[0];
+    for (unsigned bit=128;bit && b.size()<length;bit>>=1) {
+      if (control&bit) {
+        Bytes pair=r.raw(p,2);p+=2;unsigned count=pair[0]>>2,distance=((pair[0]&3)<<8)|pair[1];
+        require(count && distance && distance<=b.size() && b.size()+count<=length,"Invalid source menu backreference.");
+        while (count--) b.push_back(b[b.size()-distance]);
+      } else b.push_back(r.raw(p++,1)[0]);
+    }
+  }
+  return b;
+}
+Bytes weapon_assets(const Rom& r,unsigned game) {
+  Bytes out{'M','M','X','W','E','A','P','5'};put(out,8,4);Bytes graphics=menu(r,game);
+  for (const auto& w : weapon_sources) if (w.game==game) {
+    put(out,game,1);put(out,w.id,1);put(out,w.groups,1);put(out,0,1);
+    append(out,r.raw(w.body,32));append(out,r.raw(w.palette,32));append(out,r.raw(game==2?0x2cee0:0x62da0,32));
+    unsigned tile=w.id<8?0x30+w.id*2:0x50;
+    for (unsigned y=0;y<16;++y) for (unsigned x=0;x<16;++x) {
+      unsigned start=(game==2?-0x200:0)+(tile+x/8+y/8*16)*32+(y&7)*2,color=0;
+      require(start+17<graphics.size(),"Source menu tile exceeds bounds.");
+      for (unsigned plane=0;plane<4;++plane) color|=((graphics[start+plane/2*16+plane%2]>>(7-(x&7)))&1)<<plane;
+      out.push_back(uint8_t(color));
+    }
+    Tiles base;
+    if (w.resource>=0) {
+      Bytes common=menu(r,game,unsigned(w.resource));
+      require(w.offset+common.size()<=base.bytes.size(),"Static source graphics exceed tile bank.");
+      for (unsigned i=0;i<common.size();++i) {base.bytes[w.offset+i]=common[i];base.known[w.offset+i]=1;}
+    }
+    bulk(r,0x860000|r.integer((game==2?0x869664:0x8697ad) + 0x3e + w.id*2),base);
+    if (w.extra) bulk(r,w.extra,base);
+    // Original gameplay footer, including its frame. Palette is the weapon
+    // palette already stored above, matching source OAM palette 3.
+    unsigned hud_tile=game==2 ? 0x28 : 0xac;
+    for (unsigned y=0;y<16;++y) for (unsigned x=0;x<16;++x) {
+      unsigned start=(hud_tile+x/8+y/8*16)*32+(y&7)*2,color=0;
+      for (unsigned plane=0;plane<4;++plane) {
+        unsigned offset=start+plane/2*16+plane%2;
+        require(base.known[offset],"Unresolved source gameplay HUD graphics.");
+        color|=((base.bytes[offset]>>(7-(x&7)))&1)<<plane;
+      }
+      out.push_back(uint8_t(color));
+    }
+    for (unsigned j=0;j<w.groups;++j) {
+      const auto& g=w.group[j];Tiles t=base;if (g.setup>=0) transfer(r,g.dma,unsigned(g.setup),t);
+      Bytes a=animations(r,game,g.source,g.animation_sequence);put(out,g.id);put(out,g.frames);put(out,unsigned(a.size()));
+      append(out,r.raw(g.palette,32));append(out,a);
+      for (unsigned i=0;i<g.frames;++i) {
+        bool animated=g.animated_start && i>=g.animated_start;unsigned layout=i;
+        if (!animated && g.restricted && (i>=64 || !(g.poses&(uint64_t(1)<<i)))) { out.insert(out.end(),8,0);continue; }
+        if (animated) {
+          require(g.layout_count && (i-g.animated_start)/g.layout_count<4,"Invalid source animated CHR phase.");
+          t=base;bulk(r,0x860000|r.integer(g.animated_dma+(i-g.animated_start)/g.layout_count*2),t);
+          layout=g.layout_start+(i-g.animated_start)%g.layout_count;
+        } else if (i>=64 || !(g.inherited&(uint64_t(1)<<i))) transfer(r,g.dma,i,t);
+        Pose p=pose(r,g.source,layout,t);put(out,unsigned(p.left));put(out,unsigned(p.top));put(out,p.width);put(out,p.height);append(out,p.pixels);
+      }
+    }
+  }
   return out;
 }
 void publish(const char *output,const Bytes& bytes) {
@@ -142,8 +247,8 @@ void publish(const char *output,const Bytes& bytes) {
 }
 int MmxSourceAssetsBuild(const char *rom,unsigned game,int zero,const char *output,char *error,size_t size) {
   try {
-    require(game==3 && zero && output,"Invalid source asset request.");
-    Rom r(rom,game);publish(output,zero_assets(r));
+    require((game==2 || game==3) && (!zero || game==3) && output,"Invalid source asset request.");
+    Rom r(rom,game);publish(output,zero?zero_assets(r):weapon_assets(r,game));
     if (error && size) error[0]=0;return 1;
   } catch (const std::exception& e) { if (error && size) std::snprintf(error,size,"%s",e.what());return 0; }
 }
