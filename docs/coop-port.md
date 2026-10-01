@@ -517,3 +517,29 @@ withdrawn after `$1F3B` clears, verifies HP and both native/imported weapon
 reserves survive transport, then moves both actors and checks camera progress.
 Hidden-demo and returned-partner captures were visually reviewed. The source
 ROM, owner save, and captures stay private and are not distributed.
+
+### P2 X pose/CHR mismatch (2026-10-01)
+
+The owner's netplay test with host/P1 Zero and P2 X exposed garbled frames on
+Highway. This also reproduces offline. The partner compositor uses the current
+body's sprite arrangement, while native X CHR changes are queued until the
+following NMI. In the reproduction, a pose's first frame reads the preceding
+pose's tiles; subsequent frames are correct. Sparse still captures missed it.
+
+Native `$84:8FCA` appends eight-byte records to WRAM `$0500`, with byte length
+at `$A3`. NMI `$80:8332..8373` transfers those records and clears the length.
+Each record contains VMAIN, VRAM word destination, byte count, source address,
+and source bank. The renderer now previews pending contiguous OBJ transfers
+(`VMAIN=$80`, VRAM `$6000..7FFF`) in a private raster used only for partner X.
+ROM and captured `$7E/$7F` source data are supported. The anchor's latched OAM,
+world raster, actual guest VRAM/WRAM, and native DMA timing are unchanged.
+The preview is derived anew from each immutable frame, including when loading
+an existing renderer capture; it adds no save or rollback state.
+
+`MMX_COOP_X_GRAPHICS_TEST=1` alongside the ordinary co-op fixture variables
+runs a bounded 96-frame walk/jump/turn/fire regression. An independent reference
+decodes the current X pose's five-byte ROM CHR list rather than the pending
+queue. The rendered X region must match on every frame, including 28 deferred
+pose transitions. It also checks that drawing leaves native VRAM/WRAM intact
+and that a captured transition restores with identical pixels. Before/after
+walking and jumping captures were visually inspected. Tracking: `beads-8wg.1.59`.
