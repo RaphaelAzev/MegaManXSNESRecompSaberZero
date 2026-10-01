@@ -1,11 +1,12 @@
 # MegaManXSNESRecomp
 
-Version 1.7.0-rc.1 is a **prerelease** adding two-player **X / Zero netplay**, using recomp-net and
+Version 1.7.0-rc.2 is a **prerelease** adding two-player **X / Zero netplay**, using recomp-net and
 snesrecomp's existing lobby and rollback support. Netplay requires co-op and
 offers the original view or fixed 16:9, 21:9, and 32:9 widescreen. Each player
 supplies their own X3 ROM, plus X2 if the room uses X2 weapons. See
 [netplay setup, implementation, and validation limits](docs/netplay.md).
-See the [prerelease notes](RELEASE_NOTES_v1.7.0-rc.1.md) for changes and known
+This update fixes garbled P2 X sprites when P1 plays Zero, offline and in netplay.
+See the [prerelease notes](RELEASE_NOTES_v1.7.0-rc.2.md) for changes and known
 limitations. Version 1.6.6 remains the latest stable release.
 
 Version 1.6.6 fixes Ctrl+R (Reset) leaving a black screen and lets you
