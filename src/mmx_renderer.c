@@ -39,6 +39,7 @@ static MmxCoopState frame_coop;
 static bool frame_held;
 void MmxRendererHoldFrame(bool held) {frame_held=held;}
 static uint8_t partner_ram[0x20000];
+static Raster partner_raster;
 static Piece building[MAX_PIECES], latched[MAX_PIECES];
 static unsigned building_count, latched_count;
 static uint8_t building_stage, latched_stage;
@@ -971,6 +972,28 @@ static void x1_weapon_palette(MmxSpriteAsset *asset,const uint16_t *colors,unsig
    * palette overlay on X1 tiles, not the original source special poses. */
   if(page==1) asset->colors[1]=colors[13];
 }
+static void prepare_partner_graphics(void) {
+  /* The partner is drawn from this tick's body, unlike the anchor's latched
+   * OAM. Native $84:8FCA queues pose CHR at $0500 for the NEXT NMI ($80:8332).
+   * Preview those pending OBJ transfers only in the partner's private raster
+   * so a new X arrangement never reads the preceding pose's tiles. This uses
+   * captured state, including WRAM-backed armor/effects, and changes no guest
+   * memory, transfer timing, or save/rollback layout. */
+  partner_raster = frame.lines[0];
+  unsigned end = frame.ram[0xa3] & ~7u;
+  for (unsigned offset=0;offset<end;offset+=8) {
+    const uint8_t *dma=frame.ram+0x500+offset;
+    unsigned dest=word(dma,1),size=word(dma,3),source=word(dma,5),bank=dma[7];
+    /* Sprite records use contiguous word writes. Leave tilemap/remapped
+     * transfers to the native raster rather than predicting their effects. */
+    if(dma[0]!=0x80 || dest<0x6000 || dest>=0x8000 || !size || (size&1) ||
+        size>(0x8000-dest)*2 || size>0x10000-source) continue;
+    const uint8_t *bytes=bank==0x7e || bank==0x7f ?
+        frame.ram+(bank-0x7e)*0x10000+source : rom_at(bank<<16|source,size);
+    if(!bytes) continue;
+    for(unsigned i=0;i<size;i+=2) partner_raster.vram[dest+i/2]=(uint16_t)word(bytes,i);
+  }
+}
 static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView view,
                              uint16_t *objects,int *colors) {
   const MmxCoopPlayer *partner = &frame_coop.players[frame_coop.current^1];
@@ -1052,7 +1075,7 @@ static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView 
       Piece s = make_piece(a+j*4,x,sy,ram[d+17]&64,ram[d+17]&63,ram[d+24],group,d);
       const MmxSpriteAsset *asset=!zero && weapon_colors && zero_actor(d,group) &&
           (s.attr&0x0e00) ? &weapon_palette : NULL;
-      sprite(ppu,r,s.x,s.y,s.attr,s.size,y,view,objects,false,asset,s.tile,colors,true,false,false);
+      sprite(ppu,zero?r:&partner_raster,s.x,s.y,s.attr,s.size,y,view,objects,false,asset,s.tile,colors,true,false,false);
     }
   }
 }
@@ -1121,6 +1144,9 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
   bool menu = zero_menu || weapon_menu;
   bool zero_title = zero_title_menu();
   bool stage = MmxWidePolicy_IsStageScene(frame.ram) && !menu;
+  if(stage && frame_coop.initialized &&
+      frame_coop.players[frame_coop.current^1].character==MMX_COOP_X)
+    prepare_partner_graphics();
   bool swapping = stage && MmxZeroEnabled() && frame_zero.swap_phase;
   unsigned weapon_page = menu ? frame_weapons.menu_page : frame_weapons.page;
   unsigned weapon_item = menu ? frame.ram[0x1ed2] : frame_weapons.weapon;

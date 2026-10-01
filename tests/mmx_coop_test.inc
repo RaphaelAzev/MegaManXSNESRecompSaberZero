@@ -38,6 +38,73 @@ static bool coop_place_fixture_partner(unsigned x,unsigned y) {
   s.stage_pending=0;MmxCoopSetState(&s);
   return MmxCoopPlacePartner(g_ram,(uint16_t)x,(uint16_t)y);
 }
+static void coop_x_graphics_draw(uint32_t *pixels,const MmxCoopState *s) {
+  static const uint32_t blank[256*224]={0};
+  MmxRendererBeginFrame(g_ram);MmxRendererCoopFrame(s);
+  for(unsigned line=1;line<=224;++line) MmxRendererCaptureLine(g_ppu,line);
+  check(MmxRendererEndFrame(blank) &&
+      MmxRendererDraw(pixels,(MmxRenderView){256,0,4.0/3.0},false),"P2 X graphics frame renders");
+}
+static void coop_x_graphics_checks(const char *fixture) {
+  check(RtlLoadSnapshot(fixture),"X graphics fixture loads");
+  check(MmxCoopEnable(MMX_COOP_ZERO),"X graphics uses P1 Zero and P2 X");
+  coop_frames(8,0,0);
+  MmxCoopState s=MmxCoopGetState();
+  check(coop_place_fixture_partner(coop_x(&s.players[0])+32,coop_y(&s.players[0])),"X graphics partner placed");
+  coop_frames(35,0,0);
+  static uint32_t actual[256*224],expected[256*224];
+  static uint16_t original_vram[0x8000];
+  static uint8_t original_ram[0x20000];
+  unsigned changes=0;
+  for(unsigned tick=0;tick<96;++tick) {
+    unsigned pad=tick<35 ? SNES_PAD_RIGHT : tick<45 ? SNES_PAD_B :
+        tick<65 ? 0 : tick<85 ? SNES_PAD_LEFT|SNES_PAD_Y : 0;
+    coop_frames(1,0,pad);
+    s=MmxCoopGetState(); const uint8_t *body=s.players[1].body;
+    memcpy(original_vram,g_ppu->vram,sizeof(original_vram));
+    memcpy(original_ram,g_ram,sizeof(original_ram));
+    coop_x_graphics_draw(actual,&s);
+    check(!memcmp(original_vram,g_ppu->vram,sizeof(original_vram)) &&
+        !memcmp(original_ram,g_ram,sizeof(original_ram)),"partner graphics leave native VRAM and WRAM untouched");
+    /* Independent reference: read this pose's five-byte ROM CHR list, not the
+     * renderer's pending eight-byte DMA queue. Project only the expected body
+     * tiles into a test PPU and compare the visible X area on every tick. */
+    unsigned table=0x28000+((body[0x31]|body[0x32]<<8)&0x7fff);
+    const uint8_t *rom=g_snes->cart->rom;unsigned pose=body[23]&127;
+    unsigned dma=table+(rom[table+pose*2]|rom[table+pose*2+1]<<8),mismatch=0;
+    for(unsigned n=0;n<32 && rom[dma];++n,dma+=5) {
+      unsigned count=rom[dma]*16,source=rom[dma+1]|rom[dma+2]<<8|rom[dma+3]<<16;
+      source=((source>>16)&127)*0x8000+(source&0x7fff);
+      unsigned dest=(rom[dma+4]&127)*512;
+      check(source+count<=g_snes->cart->romSize && dest+count<=sizeof(original_vram),"original X pose transfer is bounded");
+      for(unsigned b=0;b<count;++b) mismatch+=((uint8_t*)original_vram)[dest+b]!=rom[source+b];
+      memcpy((uint8_t*)g_ppu->vram+dest,rom+source,count);
+      if(rom[dma+4]&128) break;
+    }
+    changes+=mismatch!=0;
+    coop_x_graphics_draw(expected,&s);
+    memcpy(g_ppu->vram,original_vram,sizeof(original_vram));
+    int x=(int)coop_x(&s.players[1])-(g_ram[0x1e4d]|g_ram[0x1e4e]<<8);
+    int y=(int)coop_y(&s.players[1])-(g_ram[0x1e50]|g_ram[0x1e51]<<8);
+    unsigned different=0;
+    for(int row=y-48;row<y+8;++row) for(int col=x-24;col<x+24;++col)
+      if(row>=0 && row<224 && col>=0 && col<256)
+        different+=actual[row*256+col]!=expected[row*256+col];
+    if(different) fprintf(stderr,"P2 X pose mismatch: tick=%u pose=%02x pixels=%u\n",tick,pose,different);
+    check(!different,"P2 X pose changes match original ROM graphics immediately");
+    coop_x_graphics_draw(actual,&s); /* Restore the real captured native VRAM. */
+    if(tick==7 || tick==35 || tick==42) {
+      char label[40];snprintf(label,sizeof(label),"xchr-%02u",tick);coop_image(1,label);
+    }
+    if(tick==7) {
+      check(MmxRendererSaveCapture("p2-x-pose.cap") && MmxRendererLoadCapture("p2-x-pose.cap"),"pending X pose capture round-trips");
+      check(MmxRendererDraw(expected,(MmxRenderView){256,0,4.0/3.0},false) &&
+          !memcmp(actual,expected,sizeof(actual)),"restored capture keeps the exact X pose pixels");
+    }
+  }
+  check(changes>=20,"regression covers at least twenty deferred pose transfers");
+  printf("MMX CO-OP X GRAPHICS CHECKS PASSED (%u pose transfers, 96 frames)\n",changes);
+}
 static void coop_contact_checks(uint8_t *start,size_t cap) {
   unsigned enemy = 0;
   for (unsigned i=0;i<400 && !enemy;++i) {
@@ -773,6 +840,7 @@ static void coop_checks(const char *assets, const char *fixture,
   MmxZeroRegisterHooks(); MmxCoopRegisterHooks();
   const char *x2=getenv("MMX_COOP_X2_ASSETS"),*x3=getenv("MMX_COOP_X3_ASSETS");
   if (x2 && x3) check(MmxWeaponsLoadPage(x2,1) && MmxWeaponsLoadPage(x3,2),"private original weapon source packs load");
+  if(getenv("MMX_COOP_X_GRAPHICS_TEST")) {coop_x_graphics_checks(fixture);return;}
   if(getenv("MMX_COOP_PALETTE_FIXTURE")) {
     check(MmxCoopEnable(0),"palette co-op enables");
     check(RtlLoadSnapshot(getenv("MMX_COOP_PALETTE_FIXTURE")),"private palette fixture loads");
