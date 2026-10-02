@@ -72,6 +72,22 @@ const MmxSpriteAsset *MmxRenderAssetsWeaponX(unsigned weapon, bool body) {
   }
   player_weapon_ready[weapon]=1;return body?actor:art;
 }
+bool MmxRenderAssetsStingPalette(unsigned phase,uint16_t colors[16]) {
+  if(!rom || !colors || phase>14 || (phase&1)) return false;
+  size_t list=0x30000+(word(0x30133+0x1a0+phase)&0x7fff);
+  bool found=false;
+  for(unsigned n=0;n<32;++n,list+=4) {
+    if(!range(list,4)) return false;
+    unsigned count=rom[list];if(!count) return found;
+    size_t source=0x28000+(word(list+1)&0x7fff);
+    if(!range(source,count*2)) return false;
+    for(unsigned i=0;i<count;++i) {
+      int entry=rom[list+3]+(int)i-144;
+      if(entry>=0 && entry<16) {colors[entry]=(uint16_t)word(source+i*2);found=true;}
+    }
+  }
+  return false;
+}
 const MmxSpriteAsset *MmxRenderAssetsTeleportX(unsigned pose) {
   unsigned index = pose == 0 ? 7 : pose >= 0x3c && pose <= 0x42 ? pose - 0x3c : 8;
   if (index >= 8 || !rom) return NULL;

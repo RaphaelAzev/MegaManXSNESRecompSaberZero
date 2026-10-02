@@ -972,6 +972,14 @@ static void x1_weapon_palette(MmxSpriteAsset *asset,const uint16_t *colors,unsig
    * palette overlay on X1 tiles, not the original source special poses. */
   if(page==1) asset->colors[1]=colors[13];
 }
+static void coop_sting_palette(const uint8_t *ram,MmxSpriteAsset *asset) {
+  if(!ram[0xc31]) return;
+  /* The active projectile owns the phase ($83:9C22), independently for each
+   * seat. The ordinary weapon palette must not erase this native effect. */
+  for(unsigned d=0x1228;d<0x1428;d+=64) if(ram[d] && ram[d+10]==0x11) {
+    MmxRenderAssetsStingPalette(ram[d+0x39],asset->colors);return;
+  }
+}
 static void prepare_partner_graphics(void) {
   /* The partner is drawn from this tick's body, unlike the anchor's latched
    * OAM. Native $84:8FCA queues pose CHR at $0500 for the NEXT NMI ($80:8332).
@@ -1016,6 +1024,7 @@ static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView 
     if(native) weapon_colors=native->colors;
   }
   x1_weapon_palette(&weapon_palette,weapon_colors,partner->weapons.page);
+  coop_sting_palette(ram,&weapon_palette);
   if (zero && ram[0xbb6]) {
     const uint8_t *body = MmxZeroPose(ram,&partner->zero);
     const uint8_t *blade = MmxZeroBlade(&partner->zero);
@@ -1063,6 +1072,7 @@ static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView 
   for (unsigned i=0;i<24;++i) {
     unsigned d = i==0 ? 0xba8 : i<16 ? 0xc38+(i-1)*32 : 0x1228+(i-16)*64;
     if (d==0xba8 ? !ram[d+1] || !ram[d+14] : !ram[d] || !(ram[d+14]&128)) continue;
+    if(d<0xc98 && !ram[0xbb6]) continue; /* Armor follows its owner's Sting blink. */
     if (zero && (d==0xba8 || d<0xc98 || MmxZeroNativeChargeObject(d,ram[d+10]))) continue;
     if (cast && d<0xc98) continue;
     if (d>=0x1228 && partner->combat.shots[(d-0x1228)/64].active) continue;
@@ -1075,6 +1085,10 @@ static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView 
       Piece s = make_piece(a+j*4,x,sy,ram[d+17]&64,ram[d+17]&63,ram[d+24],group,d);
       const MmxSpriteAsset *asset=!zero && weapon_colors && zero_actor(d,group) &&
           (s.attr&0x0e00) ? &weapon_palette : NULL;
+      /* Normal Spark and its two wall fragments share original group $47.
+       * Another seat can replace the shared $6200/$6300 weapon upload. */
+      if(d>=0x1228 && ram[d+10]==0x0c && group==0x47 && (s.attr&0x0e00)==0x0600)
+        asset=MmxRenderAssetsWeaponX(6,false);
       sprite(ppu,zero?r:&partner_raster,s.x,s.y,s.attr,s.size,y,view,objects,false,asset,s.tile,colors,true,false,false);
     }
   }
@@ -1157,6 +1171,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
   }
   MmxSpriteAsset x_weapon_palette = {0};
   x1_weapon_palette(&x_weapon_palette,weapon_colors,weapon_page);
+  if(stage && frame_coop.initialized) coop_sting_palette(frame.ram,&x_weapon_palette);
   prepare_stage_planes();
   LightBeam beams[2];
   unsigned beam_count = stage ? spark_lights(beams, view.extra) : 0;
@@ -1300,6 +1315,8 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       }
       if (zero_body && !oam_match && !(frame.expand && frame.ram[s.object + 14] &&
           (s.x + s.size <= 0 || s.x >= 256))) continue;
+      if(stage && frame_coop.initialized && frame_zero.active_x && frame.ram[0xc31] &&
+          s.object>=0xba8 && s.object<0xc98 && !oam_match && s.x<256 && s.x+s.size>0) continue;
       if (zero_body) {
         if (!zero_drawn[menu_body]) {
           zero_drawn[menu_body] = true;
@@ -1359,6 +1376,9 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
        * weapon while navigating the pause screen. Preserve hit flashes. */
       if (frame_zero.active_x && weapon_colors && zero_actor(s.object, s.animation) &&
           (menu || (attr & 0x0e00))) asset = &x_weapon_palette;
+      if(stage && frame_coop.initialized && s.object>=0x1228 && s.object<0x1428 &&
+          frame.ram[s.object+10]==0x0c && s.animation==0x47 && (s.attr&0x0e00)==0x0600)
+        asset=MmxRenderAssetsWeaponX(6,false);
       sprite(&p, r, s.x, s.y, attr, s.size, y, view, objects, !center, asset, s.tile, object_colors, true, false, red_ready || red_death);
     }
     if (stage) coop_partner_row(&p,r,y,view,objects,object_colors);

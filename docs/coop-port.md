@@ -585,7 +585,8 @@ The original two-door Penguin regression remains available. Fixtures, ROMs,
 extracted art and captures stay private.
 
 A separate Storm Eagle checkpoint-2 replay reached native boss `$52` combat
-with both players present. No Storm Eagle-specific patch was indicated.
+with both players present. That checkpoint starts beyond the ship lift; it did
+not cover the preceding door or lift/destruction sequence (see follow-up below).
 The original report of a camera lock after Slimer's defeat remains open:
 a private post-intro native defeat sequence restored the authored camera
 limits and allowed both actors to leave. The suspected early-kill path was
@@ -601,3 +602,79 @@ The owner confirmed both the puddle-targeting and Mammoth partner-return fixes
 in offline co-op using the prepared slots on 2026-10-02 and approved shipping
 them in `2.0.1`. The separate Slimer camera-lock report above remains
 unreproduced; that report is not claimed as fixed by this release.
+
+### Storm Eagle platforms, airship door and lift (2026-10-02 follow-up)
+
+Tracking: `beads-8wg.1.67`, branch `fix/coop-moving-platforms`, based on
+`main`/`v2.0.1` (`4f385f4`). The owner's UI slots 01/02/03 were copied privately
+as `save0.sav`, `save1.sav`, `save2.sav`; originals remain untouched.
+
+Moving platforms are item `$0E` (`$80:F38C -> $83:EFFE`) in the 48-byte item
+pool `$1628..1927`. Movement executes once per world tick. `$83:F120` calls
+`$84:AB81`, which carries a remembered rider by the platform delta, resolves
+solid contact and writes player external-contact flags `$0BD4`. `$83:F129`
+calls `$84:AB56` for side contact. These helpers previously saw only the world
+anchor: the private replay carried X while Zero fell and died within 50 frames.
+
+Co-op repeats only those two contact helpers for the other living seat. Item
+`.2C` retains two rider bits between calls, projected as the native boolean
+inside `$84:AB81`. Initialization still clears the latch. CPU continuation and
+the world actor are restored after contact; platform movement is never doubled.
+The pending pass uses the existing serialized contact fields, including the
+formerly reserved byte for rider bits. The 4,648-byte co-op snapshot ABI remains
+unchanged. Generated-dispatch boundaries additionally cover `$84:AB81`,
+`$84:AB56` and the lift's `$87:C07A` (27 boundaries total).
+
+The airship door is item `$16` at world X `$17E8`. Native leftward door exit
+leaves its driver at `$17D8`; the old endpoint-only search chose `$1808`, across
+the shut door. Return now checks the terrain corridor between driver and landing.
+Scripted returns can also use 16-pixel spacing or overlap the driver on a narrow
+ledge; ordinary voluntary joins retain their wider spacing. Existing floor,
+headroom, hazard and enemy checks still apply.
+
+The ship lift is enemy `$48`, `$87:C07A`. Its waiting state `$87:C0AE` clears
+`.2C`, queries rider contact at `$82:D7D7`, then enters the ascent when `.2C`
+is set. It uses player action/body lock `$46`, without the usual boss/capsule
+scene flags. Hooks at `$87:C0AE/$C0B4` try either seat's contact, adopt the
+actual rider as world anchor, and begin normal co-op scene transport. The native
+script retains control through ascent, destruction and Eagle's introduction;
+the existing return guards wait for its body lock and intro flags to clear.
+
+`MMX_COOP_EAGLE_FIXTURES=<private directory>` with `MMX_COOP_TEST=1` runs the
+three copied saves. Coverage includes both world anchors riding together,
+P2 jumping away independently, deterministic snapshot replay with two riders,
+and each seat driving the door and full lift sequence. Both HP pools must survive,
+both actors must return inside the door, and both must reach Eagle combat above
+the destroyed ship. It uses the usual private X3 asset/test-ROM configuration.
+
+### X1 co-op weapon presentation (2026-10-02 follow-up)
+
+Tracking: `beads-8wg.1.68`, same branch. Charged Chameleon Sting's native
+projectile `$11` owns its palette phase at `.39`. `$83:9C22` selects the eight
+palette lists `$01A0..01AE` through `$82:8011`, advancing every six ticks.
+Co-op's fixed weapon-color overlay had erased this sequence. The renderer now
+reads the original palette list using each actor's own effect phase. X's armor
+also follows its owner's visibility, rather than leaving reconstructed armor
+pieces visible during an invisible frame. These are presentation changes;
+duration, immunity and blink timing still come from the native controller.
+
+Normal Electric Spark and its two wall fragments are projectile `$0C`, animation
+group `$47` (`$83:965B`, split creation at `$83:9771`). Its selection loads two
+512-byte CHR blocks into VRAM `$6200/$6300`. The other seat can replace those
+shared weapon slots. Co-op draws this projectile's original ROM tiles/palette
+privately, including both fragments, rather than relying on whichever weapon
+last wrote VRAM. Charged Electric Spark and unrelated effects retain their own
+paths. No game memory or projectile mechanics are changed by this repair.
+
+`MMX_COOP_X1_EFFECTS=1` uses the private door fixture with X holding Sting. It
+compares 40 charged-Sting frames against the native PPU (including armor and
+invisible frames), then checks Spark's split against a reference PPU run while
+P2 changes weapons during the split. ROMs, fixtures and captures remain private.
+
+Validation on Windows: both optional ROM-backed suites passed, including a
+Spark replay that confirms the underlying PPU graphics really change when P2
+switches weapons while the repaired split remains pixel-identical to the retail
+reference. The five ordinary CTest checks also pass. This is an offline local
+validation with deterministic state replay; a two-machine netplay session has
+not yet been repeated for these follow-ups. No release or main-branch update is
+part of this change.

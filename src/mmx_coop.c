@@ -44,20 +44,21 @@ MmxCoopState MmxCoopGetState(void) { return state; }
 bool MmxCoopValidState(const MmxCoopState *s) {
   if (!s || s->initialized > 1 || s->current > 1 || s->controller_pass > 2 ||
       s->reserved || s->object_reserved || s->object_pass > 2 ||
-      s->contact_reserved || s->contact_pass > 2 || s->enrolled>1 ||
+      s->platform_riders > 3 || s->contact_pass > 2 || s->enrolled>1 ||
       s->select_hold>180 || s->select_armed>1 || s->stage_pending>2 || /* Accept older 3-second hold saves. */
       s->menu_owner>2 || s->menu_last>1 || s->menu_reserved[0] || s->menu_reserved[1] ||
       s->pickup_pass>2 || s->pickup_reserved[0] || s->pickup_reserved[1] || s->pickup_reserved[2] ||
       s->anchor>1 || s->solo_death[0]>1 || s->solo_death[1]>1 || s->death_reserved ||
       s->scene_owner>2 || s->scene_phase>3 || s->door_pass>2 || s->scene_reserved || s->slime_p2>255 ||
       (s->scene_phase && !s->scene_owner) ||
-      (s->door_pass && s->door_entry!=0xe70d && s->door_entry!=0xec98)) return false;
+      (s->door_pass && s->door_entry!=0xe70d && s->door_entry!=0xec98 && s->door_entry!=0xc0ae)) return false;
   for(unsigned i=0;i<16;++i) if(s->pickup_owner[i]>2) return false;
   if(s->pickup_pass && (s->pickup_d<0x1628 || s->pickup_d>=0x1928 || (s->pickup_d-0x1628)%48)) return false;
   if (s->object_pass && s->object_entry != 0xd2bd && s->object_entry != 0xd3dd &&
       s->object_entry != 0xd3fa && s->object_entry != 0xd43a && s->object_entry != 0xd457 &&
       s->object_entry != 0x9d67) return false;
-  if (s->contact_pass && s->contact_entry != 0x9b03 && s->contact_entry != 0x9b43) return false;
+  if (s->contact_pass && s->contact_entry != 0x9b03 && s->contact_entry != 0x9b43 &&
+      s->contact_entry != 0xab81 && s->contact_entry != 0xab56) return false;
   for (unsigned i = 0; i < 2; ++i) {
     const MmxCoopPlayer *p = &s->players[i];
     if (p->character > MMX_COOP_ZERO || p->status > MMX_COOP_FALLEN ||
@@ -281,8 +282,12 @@ bool MmxCoopFindLanding(const uint8_t *r,uint16_t *out_x,uint16_t *out_y) {
   if (!r || !out_x || !out_y) return false;
   int px=word(r+0xbad),py=word(r+0xbb0),camera_x=word(r+0x1e4d),camera_y=word(r+0x1e50);
   int height=state.players[state.current^1].character==MMX_COOP_ZERO ? 44 : 36;
-  const int gaps[]={32,-32,48,-48,64,-64};
-  for (unsigned i=0;i<sizeof(gaps)/sizeof(gaps[0]);++i) {
+  const int gaps[]={32,-32,48,-48,64,-64,16,-16,0};
+  /* A scene may finish on a narrow ledge just inside a door. The players
+   * can overlap, so returning beside/on the driver is preferable to being
+   * stranded across the door. Voluntary joins keep the wider clear space. */
+  unsigned gap_count=state.scene_owner ? 9 : 6;
+  for (unsigned i=0;i<gap_count;++i) {
     int x=px+gaps[i];if (x-12<camera_x || x+12>=camera_x+256) continue;
     for (int offset=-16;offset<=24;++offset) {
       int floor=py+16+offset,surface=0;
@@ -295,6 +300,10 @@ bool MmxCoopFindLanding(const uint8_t *r,uint16_t *out_x,uint16_t *out_y) {
           !MmxWeaponsTerrainSolid(r,x,floor,true,&surface) || surface!=floor ||
           floor-height<camera_y || floor>=camera_y+224) continue;
       bool clear=true;
+      /* A clear destination across a shut door is not a usable return.
+       * Check the corridor between the actors as well as the landing box. */
+      for(int cx=px;cx!=x && clear;cx+=x>px?1:-1)
+        if(MmxWeaponsTerrainSolid(r,cx,py-8,true,NULL)) clear=false;
       for (int y=floor-height;y<floor && clear;++y) for (int dx=-10;dx<=10;dx+=5) {
         unsigned t=MmxWeaponsTerrainClass(r,x+dx,y);
         if ((t>=0x33 && t!=0x39 && t!=0x3a) ||
@@ -390,6 +399,26 @@ static void door_hook(CpuState *cpu,uint32_t pc) {
   if(state.door_pass==1) {
     MmxCoopSelect(g_ram,state.anchor^1);state.door_pass=2;
     interp_bridge_pre_opcode_redirect((pc&0xff0000)|state.door_entry);
+  } else {MmxCoopSelect(g_ram,state.anchor);state.door_pass=0;}
+}
+static void eagle_lift_hook(CpuState *cpu,uint32_t pc) {
+  if(!enabled || !state.initialized || state.menu_owner || state.scene_owner) return;
+  unsigned d=cpu->D;
+  if(g_ram[d+10]!=0x48 || g_ram[d+1]!=2 || g_ram[d+2]) return;
+  if((pc&65535)==0xc0ae) {
+    if(!state.door_pass && state.players[state.anchor^1].status==MMX_COOP_ALIVE) {
+      state.door_pass=1;state.door_entry=0xc0ae;state.door_s=cpu->S;state.door_d=cpu->D;
+    }
+    return;
+  }
+  if(!state.door_pass || state.door_entry!=0xc0ae || state.door_s!=cpu->S || state.door_d!=d) return;
+  /* $82:D7D7 sets .2C only for a rider. Run just that contact query for the
+   * second seat, then let the original lift script own its chosen actor. */
+  if(g_ram[d+0x2c]) {
+    state.anchor=state.current;state.door_pass=0;begin_scene(g_ram);
+  } else if(state.door_pass==1) {
+    MmxCoopSelect(g_ram,state.anchor^1);state.door_pass=2;
+    interp_bridge_pre_opcode_redirect(0x87c0ae);
   } else {MmxCoopSelect(g_ram,state.anchor);state.door_pass=0;}
 }
 static bool join_tick(uint8_t *r) {
@@ -555,6 +584,44 @@ static void object_hook(CpuState *cpu, uint32_t pc) {
     cpu->D = state.object_d; cpu->DB = state.object_db; cpu->P = state.object_p;
     cpu_p_to_mirrors(cpu); state.object_pass = 0;
   }
+}
+static void platform_hook(CpuState *cpu,uint32_t pc) {
+  if(!enabled || !state.initialized || state.menu_owner || state.scene_owner) return;
+  unsigned at=pc&65535,d=cpu->D;
+  /* Item $0E uses only .2C's boolean rider latch. In co-op retain one bit
+   * per seat there, projecting a boolean while the native helper executes.
+   * Slot initialization still clears it, and snapshots retain both riders. */
+  if(d<0x1628 || d>=0x1928 || (d-0x1628)%48 || g_ram[d+10]!=0x0e) return;
+  if(at==0xab81 || at==0xab56) {
+    if(state.contact_pass) return;
+    state.contact_entry=(uint16_t)at;state.contact_pass=1;
+    state.contact_d=(uint16_t)d;state.contact_s=cpu->S;
+    state.platform_riders=g_ram[d+0x2c]&3;
+    if(at==0xab81) g_ram[d+0x2c]=(state.platform_riders>>state.current)&1;
+    return;
+  }
+  if(!state.contact_pass || state.contact_d!=d || state.contact_s!=cpu->S ||
+      (state.contact_entry!=0xab81 && state.contact_entry!=0xab56)) return;
+  if(state.contact_entry==0xab81) {
+    unsigned bit=1u<<state.current;
+    state.platform_riders=(state.platform_riders&~bit)|(g_ram[d+0x2c]?bit:0);
+  }
+  if(state.contact_pass==1 && state.players[state.anchor^1].status==MMX_COOP_ALIVE &&
+      (state.players[state.anchor^1].body[0x27]&127)) {
+    state.contact_a=cpu->A;state.contact_x=cpu->X;state.contact_y=cpu->Y;
+    state.contact_db=cpu->DB;cpu_mirrors_to_p(cpu);state.contact_p=cpu->P;
+    MmxCoopSelect(g_ram,state.anchor^1);state.contact_pass=2;
+    if(state.contact_entry==0xab81) g_ram[d+0x2c]=(state.platform_riders>>state.current)&1;
+    interp_bridge_pre_opcode_redirect(0x840000|state.contact_entry);
+    return;
+  }
+  g_ram[d+0x2c]=state.platform_riders;
+  if(state.contact_pass==2) {
+    MmxCoopSelect(g_ram,state.anchor);
+    cpu->A=state.contact_a;cpu->X=state.contact_x;cpu->Y=state.contact_y;
+    cpu->DB=state.contact_db;cpu->P=state.contact_p;cpu_p_to_mirrors(cpu);
+  }
+  state.contact_pass=state.platform_riders=0;
 }
 static bool shared_screen(void) {
   return enabled && state.initialized && !state.menu_owner && !state.scene_owner && state.players[0].status==MMX_COOP_ALIVE &&
@@ -725,6 +792,11 @@ static void controller_hook(CpuState *cpu, uint32_t pc) {
   state.controller_pass = 0;
 }
 void MmxCoopRegisterHooks(void) {
+  interp_bridge_set_pre_opcode_hook(0x87c0ae,eagle_lift_hook);
+  interp_bridge_set_pre_opcode_hook(0x87c0b4,eagle_lift_hook);
+  const unsigned platforms[]={0x84ab81,0x84ac34,0x84ab56,0x84ab80};
+  for(unsigned i=0;i<sizeof(platforms)/sizeof(platforms[0]);++i)
+    interp_bridge_set_pre_opcode_hook(platforms[i],platform_hook);
   interp_bridge_set_pre_opcode_hook(0x818136, controller_hook);
   interp_bridge_set_pre_opcode_hook(0x81819c, controller_hook);
   interp_bridge_set_pre_opcode_hook(0x848fcb, controller_hook);
