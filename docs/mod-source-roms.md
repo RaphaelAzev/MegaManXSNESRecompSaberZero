@@ -33,8 +33,8 @@ is part of setup.
 ## Launcher setup and automatic extraction
 
 The launcher exposes **X3 Zero**, **X2 Weapons**, **X3 Weapons** and
-**X / Zero Couch Co-op**. Co-op replaces the single-player Zero exchange mode;
-the two character modes cannot be enabled together. Users select
+**X / Zero Co-op**. Co-op and **Add Zero** claim the same character plugin, so
+selecting one turns the other off. Users select
 original USA `.sfc`/`.smc` ROMs, never extracted `.bin` files. X2/X3 weapon packs
 also work with X alone when Zero is disabled. Pause L/R skips disabled packs.
 

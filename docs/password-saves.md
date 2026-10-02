@@ -1,6 +1,6 @@
 # Password saves (USA Rev 1)
 
-Enable **Password Saves (SRAM)** on the launcher's **Mods** page. The mod
+**Password Saves (SRAM)** is on by default on the launcher's **Mods** page. The mod
 remembers the last password the game displays after a stage or game over.
 On a later launch, choose **Password** from the title screen: the saved digits
 are filled in automatically. Confirm them normally to continue. You can still

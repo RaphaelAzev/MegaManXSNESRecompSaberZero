@@ -47,6 +47,8 @@ static void player(void) {
   ram[0xbd3] = 4; ram[0xc11] = 64; ram[0xbb9] = 0x62;
   MmxZeroCancel(ram);
 }
+static int ceiling;
+static bool ceiling_query(const uint8_t *r, int x, int y) { (void)r; (void)x; return y < ceiling; }
 static void tick(unsigned held, unsigned pressed) {
   ram[0xbdf] = held; ram[0xbe3] = pressed; MmxZeroPlayerTick(ram);
 }
@@ -80,6 +82,30 @@ int main(void) {
   MmxZeroSetCollisionRom(rom,sizeof(rom));
   assert(rom[0x32555] == 18 && rom[0x3255a] == 21);
   assert(rom[0x33b3b] == 11 && rom[0x37fb2] == 12);
+  /* Dash terrain is X1's standing height; Zero's standing height is kept. */
+  assert(rom[0x33b3e] == 0xff && rom[0x33b3f] == 6 && rom[0x33b40] == 17);
+  /* Like the later games' slide, Zero keeps dashing until he can stand.
+   * Measured Spark Mandrill passage: ceiling 16px above Zero's origin. */
+  player(); MmxZeroSetTerrainQuery(ceiling_query);
+  ram[0xbad] = 0x40; ram[0xbb0] = 0x80; ram[0xbaa] = 0x14; ram[0xbab] = 2;
+  ram[0xbc8] = 0x38; ram[0xbc9] = 0xbb; ram[0xbc2] = 0x80; ram[0xbc3] = 0x03;
+  ceiling = 0x80 - 15;
+  assert(MmxZeroSlideHold(ram,0x818965)); /* No jump. */
+  ram[0xbfa] = 0xff; assert(MmxZeroSlideHold(ram,0x818999) && !ram[0xbfa]);
+  assert(MmxZeroSlideHold(ram,0x81898e) && ram[0xc11] == 64); /* Release. */
+  ram[0xbdf] = 2; assert(MmxZeroSlideHold(ram,0x81898e)); /* Reverse turns. */
+  assert(ram[0xc11] == 0 && ram[0xbc2] == 0x80 && ram[0xbc3] == 0xfc);
+  ram[0xbdf] = 0;
+  ram[0xbd3] = 0; assert(!MmxZeroSlideHold(ram,0x81898e)); ram[0xbd3] = 4;
+  ram[0xba9] = 4; assert(!MmxZeroSlideHold(ram,0x81898e)); ram[0xba9] = 2;
+  ram[0x1f0c] = 1; assert(!MmxZeroSlideHold(ram,0x81898e)); ram[0x1f0c] = 0;
+  ceiling = 0x80 - 27; assert(!MmxZeroSlideHold(ram,0x81898e)); /* Headroom. */
+  ceiling = 0x80 - 15;
+  /* Standing in a low passage (hurt recovery, landing) restarts the dash. */
+  ram[0xbaa] = 0; ram[0xbab] = 2; ram[0xbc8] = 0x52; ram[0xbc9] = 0xa5;
+  MmxZeroSlideTick(ram); assert(ram[0xbaa] == 0x14 && ram[0xbab] == 0);
+  ram[0xbaa] = 0; ceiling = 0x80 - 27; MmxZeroSlideTick(ram); assert(ram[0xbaa] == 0);
+  ram[0xbaa] = 0x16; ceiling = 0x80 - 15; MmxZeroSlideTick(ram); assert(ram[0xbaa] == 0x16);
   assert(!MmxZeroLoad("missing-zero-test.bin") && MmxZeroEnabled());
   FILE *f = fopen("zero-test-bad.bin","wb"); assert(f); fputs("MMXZERO3",f); fclose(f);
   assert(!MmxZeroLoad("zero-test-bad.bin") && MmxZeroEnabled());
@@ -155,6 +181,12 @@ int main(void) {
   assert(!ram[0xc98] && !ram[0xd58] && ram[0xd78]);
   ram[0xc2f]|=64; MmxZeroCancel(ram);
   assert(ram[0xba3]==2 && (ram[0xc2f]&64)); /* Native special charge is untouched. */
+  /* Starting as X: menus and stage start show X until the first exchange. */
+  MmxZeroSetStartCharacter(true); MmxZeroResetState();
+  assert(MmxZeroGetState().active_x == 1 && !MmxZeroActive() && MmxZeroEnabled());
+  MmxZeroState start = MmxZeroGetState(); start.active_x = 0; MmxZeroSetState(start);
+  assert(MmxZeroActive()); /* A saved character wins over the start choice. */
+  MmxZeroSetStartCharacter(false); MmxZeroResetState(); assert(MmxZeroActive());
   MmxZeroDisable(); MmxZeroSetCollisionRom(rom,sizeof(rom));
   assert(!memcmp(rom,clean,sizeof(rom)));
   remove("zero-test.bin"); remove("zero-test-bad.bin");

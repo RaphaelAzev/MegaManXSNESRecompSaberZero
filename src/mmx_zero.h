@@ -48,6 +48,12 @@ const uint8_t *MmxZeroMenuPose(void);
 /* Original X3 BGR555 badge pixel; -2 is transparent, -1 retains native art. */
 int MmxZeroHudColor(unsigned x, unsigned y);
 void MmxZeroSetCollisionRom(uint8_t *rom, size_t size);
+/* Terrain solidity for wall/ceiling probes (not one-way floors or slopes). */
+void MmxZeroSetTerrainQuery(bool (*solid)(const uint8_t *ram, int x, int y));
+/* True at a dash exit ($81:898E/8999/8965) when Zero must keep sliding. */
+bool MmxZeroSlideHold(uint8_t ram[0x20000], unsigned pc);
+/* Before the player state dispatch: re-enter the dash if Zero cannot stand. */
+void MmxZeroSlideTick(uint8_t ram[0x20000]);
 unsigned MmxZeroUpgradeBits(unsigned pc, unsigned original);
 void MmxZeroPlayerTick(uint8_t ram[0x20000]);
 void MmxZeroPlayerEnd(uint8_t ram[0x20000]);
@@ -65,5 +71,7 @@ MmxZeroState MmxZeroGetState(void);
 bool MmxZeroValidState(const MmxZeroState *state);
 void MmxZeroSetState(MmxZeroState state);
 void MmxZeroResetState(void);
+/* Start new sessions as X instead of Zero; both remain exchangeable. */
+void MmxZeroSetStartCharacter(bool x);
 void MmxZeroCancel(uint8_t ram[0x20000]);
 void MmxZeroRegisterHooks(void);

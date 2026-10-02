@@ -1,13 +1,11 @@
 # MegaManXSNESRecomp
 
-Version 1.7.0-rc.2 is a **prerelease** adding two-player **X / Zero netplay**, using recomp-net and
-snesrecomp's existing lobby and rollback support. Netplay requires co-op and
-offers the original view or fixed 16:9, 21:9, and 32:9 widescreen. Each player
-supplies their own X3 ROM, plus X2 if the room uses X2 weapons. See
-[netplay setup, implementation, and validation limits](docs/netplay.md).
-This update fixes garbled P2 X sprites when P1 plays Zero, offline and in netplay.
-See the [prerelease notes](RELEASE_NOTES_v1.7.0-rc.2.md) for changes and known
-limitations. Version 1.6.6 remains the latest stable release.
+Version 1.7.0 adds playable Zero (with a slide through X-sized gaps), X2/X3
+weapons, co-op, and two-player **X / Zero netplay** using recomp-net and
+snesrecomp's lobby and rollback support. Netplay requires co-op and offers the
+original view or fixed 16:9, 21:9, and 32:9 widescreen. See the
+[release notes](RELEASE_NOTES_v1.7.0.md) and
+[netplay setup and limits](docs/netplay.md).
 
 Version 1.6.6 fixes Ctrl+R (Reset) leaving a black screen and lets you
 reopen the launcher mid-game with Ctrl+L (or Select+L3 on a controller),
@@ -24,12 +22,12 @@ Version 1.6.2 makes adaptive and fixed widescreen respect **Display Aspect**.
 Choose **8:7 (Square pixels)** with **Fit to screen** to fill a wide window
 while keeping sprites at square-pixel proportions.
 
-Version 1.6.0 adds optional **Password Saves (SRAM)**: remember the last password
+Version 1.6.0 adds **Password Saves (SRAM)**: remember the last password
 shown by the game and prefill it when selecting Password on a later launch.
-Enable the mod and optionally choose a save file from the launcher's Mods page.
+It is on by default; optionally choose a save file from the launcher's Mods page.
 
 Version 1.5.0 replaces the original 16:9 renderer with adaptive widescreen,
-including fixed 16:9, 21:9 and 32:9 options and HUD anchoring. The renderer has
+including fixed 16:9, 21:9 and 32:9 options and an edge-anchored HUD. The renderer has
 passed a complete Windows playthrough; its [implementation and playtest notes](docs/custom-renderer-spike.md)
 record the fixes and validation.
 
@@ -69,18 +67,21 @@ image. It is disabled by default and enabled from the launcher's **Mods** page.
 See [Adaptive widescreen support](#adaptive-widescreen-support) for
 availability and controls.
 
-The disabled-by-default **X3 Zero 0.0.1 mod** adds playable Zero, his
-buster/saber combo, and grounded Select exchange with X. Both characters have
+The disabled-by-default **Add Zero** feature (X3 Zero 0.0.1 mod) adds playable
+Zero, his buster/saber combo, and grounded Select exchange with X. Its
+**Starting character** option chooses who starts and appears on the title and
+menus (X by default). Zero dashes through gaps sized for X and keeps sliding
+until he has room to stand. Both characters have
 separate current health; pickups heal only the active character. Enable it in
 **Mods** and select your **Mega Man X3 USA ROM**. Assets are prepared locally
 automatically. See [setup and release notes](docs/zero-0.0.1.md) and the
 [technical handoff](docs/zero-port.md). The [X2/X3 weapon mods](docs/x-weapons-port.md) add all sixteen boss weapons
 and their charged attacks, using your original X2/X3 ROMs.
 
-**X / Zero Couch Co-op** lets you choose P1's character in Mods and assign
+**X / Zero Co-op** lets you choose P1's character in Mods and assign
 the second controller in Controls. P2 joins automatically at a safe stage
 entrance; hold P2 Select for 1.5 seconds to withdraw and tap it to rejoin.
-Co-op replaces single-player exchange. See the
+Co-op and Add Zero are alternatives: selecting one turns the other off. See the
 [co-op notes and current validation limits](docs/coop-port.md).
 
 <p align="center">
@@ -117,7 +118,7 @@ launches skip the picker.
 
 ## Password saves
 
-Version 1.6.0 includes an optional **Password Saves (SRAM)** mod.
+Version 1.6.0 includes the **Password Saves (SRAM)** mod, on by default.
 It saves the last generated password to a PC file and prefills the title
 screen's Password option. See [Password saves](docs/password-saves.md) for
 the optional file picker and default save location.
@@ -278,7 +279,7 @@ land after the shared launcher-UI restructure settles.
 ### Adaptive widescreen support
 
 Version 1.4.4 replaces the old fixed 16:9 renderer with the adaptive renderer,
-playtested through the ending on Windows. Enable **Widescreen (Extended view)**
+playtested through the ending on Windows. Enable **Widescreen**
 on the launcher's **Mods** page. It is disabled by default; existing enabled
 widescreen installations automatically use the replacement.
 
@@ -289,10 +290,9 @@ proportions in every mode: **4:3 (CRT)**, **8:7 (Square pixels)**, or
 scenery with square pixels. Adaptive follows the window's shape while preserving
 the selected pixel proportions. The view is bounded by the native 256 pixels and
 the renderer's 1024-pixel capacity; outside those bounds it is boxed to preserve
-pixel shape. Health bars can anchor to the screen
-edges or retain their native positions. Menus and other native screens remain
-pillarboxed. Expanded sprite capacity is a separate experimental option and
-remains off by default.
+pixel shape. Health bars anchor to the screen edges, and expanded sprite
+capacity draws sprites beyond the original frame limit. Menus and other native
+screens remain pillarboxed. View aspect is the mod's only option.
 
 The original stage camera, collision and encounter timing are preserved, with
 scoped fixes for objects exposed by the wider view. The former legacy renderer

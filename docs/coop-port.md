@@ -24,7 +24,7 @@ use Select to rejoin until a new stage/team restart.
 
 This branch provides a **development playtest build**, not an end-to-end
 campaign certification. The launcher package is `megaman-x.coop` 0.0.1,
-disabled by default. Enable Couch co-op, choose P1's character, select your
+disabled by default. Enable Co-op, choose P1's character, select your
 original X3 USA ROM, and assign both controllers in Controls. P2 receives
 the other character. The real launcher provider rejects simultaneous co-op
 and exchange activation, propagates the shared X3 ROM path, extracts assets

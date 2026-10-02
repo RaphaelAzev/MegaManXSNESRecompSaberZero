@@ -96,8 +96,15 @@ Innate dash is granted at three capability reads by returning upgrade bit
 does not unlock charged special weapons for either character.
 
 The normal body damage half-size is `(6,18)`, center Y `-5`; dash is `(6,11)`,
-center Y `+2`. Both use terrain half-height 21 and center Y `-5`. Geometry
-comes from X3 with a `-8` Y translation to align feet. Expected-byte guards
+center Y `+2`. Standing terrain uses half-height 21 and center Y `-5`. Geometry
+comes from X3 with a `-8` Y translation to align feet. Dash terrain instead uses
+X1's standing height (half-height 17, center Y `-1`), so Zero can dash through
+passages X walks through. Like the later games' slide, Zero then stays in X1's
+dash state `$14` while grounded and his standing wall-top (`-18`) or ceiling
+(`-26`) probes are solid: the release/wall/reverse exit `$81:898E` continues the
+dash (reverse turns it around), timer expiry `$81:8999` waits, and jump
+`$81:8965` is skipped. Standing in such a passage (hurt recovery, landing)
+re-enters the dash before the state dispatch. Expected-byte guards
 patch only the live cartridge copy and restore X1 bounds for X/disabled mode;
 source ROM files are never written.
 

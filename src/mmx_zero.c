@@ -24,7 +24,11 @@ _Static_assert(offsetof(MmxZeroState, hp) == MMX_ZERO_SWAP_STATE_SIZE,
 static unsigned word(const uint8_t *p) { return p[0] | p[1] << 8; }
 static void putword(uint8_t *p, unsigned v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
 MmxZeroState MmxZeroGetState(void) { return state; }
-void MmxZeroResetState(void) { memset(&state, 0, sizeof(state)); }
+/* The selected starting character, also shown on title and menus until the
+ * first exchange. Co-op never selects it and keeps Zero. */
+static bool start_x;
+void MmxZeroSetStartCharacter(bool x) { start_x = x; }
+void MmxZeroResetState(void) { memset(&state, 0, sizeof(state)); state.active_x = start_x; }
 bool MmxZeroValidState(const MmxZeroState *value) {
   if (!value) return false;
   MmxZeroState s = *value;
@@ -276,9 +280,11 @@ void MmxZeroSetCollisionRom(uint8_t *rom, size_t size) {
   if (!rom || size < 0x37fd8) return;
   /* X3 $86:B40E / B422, translated -8px vertically into X1's player origin.
    * This preserves Zero's full body dimensions and aligns both games' feet.
-   * First four bytes are damage bounds; last six are terrain-probe geometry. */
+   * First four bytes are damage bounds; last six are terrain-probe geometry.
+   * Dash terrain uses X1's standing height (center -1, half-height 17) so
+   * Zero can dash through passages X walks through. */
   static const uint8_t normal[10] = {0, 0xfb, 6, 18, 0, 0, 0xfb, 6, 21, 8};
-  static const uint8_t dash[10] = {0, 2, 6, 11, 0, 0, 0xfb, 6, 21, 8};
+  static const uint8_t dash[10] = {0, 2, 6, 11, 0, 0, 0xff, 6, 17, 8};
   static const uint8_t old_normal[10] = {0,255,6,14,0,0,255,7,17,8};
   static const uint8_t old_dash[10] = {0,5,6,8,0,0,255,9,17,8};
   /* Original X3 ground/air arc bounds in verified X1 $FF padding. */
@@ -290,6 +296,49 @@ void MmxZeroSetCollisionRom(uint8_t *rom, size_t size) {
     memcpy(rom + 0x33b38, MmxZeroActive() ? dash : old_dash, 10);
     memcpy(rom + 0x37fb0, MmxZeroActive() ? saber_bounds : empty, 40);
   }
+}
+/* Zero's standing box is eight pixels taller than X's, so a passage X walks
+ * through only fits Zero's dash. As in the later games' slide, Zero stays in
+ * X1's native dash state, box and animation until he has room to stand. */
+static bool (*terrain_query)(const uint8_t *, int, int);
+void MmxZeroSetTerrainQuery(bool (*solid)(const uint8_t *ram, int x, int y)) {
+  terrain_query = solid;
+}
+static bool standing_blocked(const uint8_t *r) {
+  /* Rows only the standing box reaches: wall top (-18, $84:92E1) and
+   * ceiling (-26, $84:91F5), at the center and both six-pixel edges. */
+  int x = (int)word(r + 0xbad), y = (int)word(r + 0xbb0);
+  for (int dx = -6; dx <= 6; dx += 6)
+    if (terrain_query(r, x + dx, y - 18) || terrain_query(r, x + dx, y - 26)) return true;
+  return false;
+}
+static bool slide_blocked(const uint8_t *r) {
+  return MmxZeroActive() && r && terrain_query && r[0xba9] == 2 &&
+      (r[0xbd3] & 4) && !r[0x1f0c] && standing_blocked(r);
+}
+bool MmxZeroSlideHold(uint8_t r[0x20000], unsigned pc) {
+  if (!slide_blocked(r) || r[0xbaa] != 0x14) return false;
+  switch (pc & 0x7fffff) {
+    case 0x01898e: {
+      /* Releasing dash, a wall ahead or the reverse direction would stand
+       * Zero up. Reverse turns the slide around, so dead ends can be left. */
+      unsigned reverse = r[0xc11] & 64 ? 2 : 1;
+      if (r[0xbdf] & reverse) {
+        r[0xc11] ^= 64;
+        putword(r + 0xbc2, (0x10000 - word(r + 0xbc2)) & 0xffff);
+      }
+      return true;
+    }
+    case 0x018999: r[0xbfa] = 0; return true; /* Timer expiry rechecks next frame. */
+    case 0x018965: return true; /* No jump without headroom. */
+    default: return false;
+  }
+}
+void MmxZeroSlideTick(uint8_t r[0x20000]) {
+  /* Recovery or landing into a low passage stands Zero up; restart the dash
+   * through X1's own initializer ($81:8917) instead. */
+  if (!slide_blocked(r) || r[0xbaa] != 0 || word(r + 0xbc8) != 0xa552) return;
+  r[0xbaa] = 0x14; r[0xbab] = 0;
 }
 unsigned MmxZeroUpgradeBits(unsigned pc, unsigned original) {
   if (!MmxZeroActive()) return original;

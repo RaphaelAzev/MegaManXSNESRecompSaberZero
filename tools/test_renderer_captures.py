@@ -66,7 +66,6 @@ def main():
     p.add_argument('--script', type=Path)
     p.add_argument('--aspect', choices=['adaptive', '16:9', '21:9', '32:9', 'max'], default='32:9')
     p.add_argument('--renderer', choices=['custom', 'legacy', 'off'], default='custom')
-    p.add_argument('--expanded-sprites', action='store_true')
     args = p.parse_args()
     if args.script:
         for line in args.script.read_text().splitlines():
@@ -100,10 +99,7 @@ enabled = true
 [feature.values]
 renderer = "custom"
 aspect = "32:9"
-hud = "edges"
-expanded_sprites = "off"
 '''.replace('aspect = "32:9"', f'aspect = "{"adaptive" if args.aspect == "max" else args.aspect}"')
-   .replace('expanded_sprites = "off"', f'expanded_sprites = "{"on" if args.expanded_sprites else "off"}"')
    .replace('renderer = "custom"', f'renderer = "{args.renderer if args.renderer != "off" else "custom"}"')
    .replace('enabled = true', f'enabled = {"false" if args.renderer == "off" else "true"}'))
         (folder / 'config.ini').write_text('''[General]
@@ -152,8 +148,8 @@ EnableGamepad2 = false
                         and (ram[0xd3] in (0, 2, 4, 6, 8) or (ram[0xd3] == 10 and
                              (ram[0xd4] in (0, 2) or (ram[0xd4] == 4 and ram[0x1e48] and ram[0x1e49] == 2))))
                         and not (ram[0x1f10] in (6, 8) and ram[0xc3] & 0x80), **sprite_matches(data))
-        if metadata.get('expanded_sprites', False) != args.expanded_sprites:
-            raise RuntimeError('Expanded sprite mod option did not match requested value')
+        if metadata.get('expanded_sprites', False) != (args.renderer != 'off'):
+            raise RuntimeError('Expanded sprite capacity must follow the widescreen mod')
         for aspect in ['4:3', '16:9', '21:9', '32:9', 'max']:
             name = aspect.replace(':', 'x')
             result = subprocess.run([str(replay), str(folder / 'final.capture'), str(rom), aspect,

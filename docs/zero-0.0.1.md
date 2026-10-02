@@ -9,7 +9,9 @@ copying its manifest into an older host does not install the native plugin.
 
 ## Playing
 
-- Start as Zero, using X1's normal controls and earned special weapons.
+- Enable **Add Zero** and pick the **Starting character** (X by default); that
+  character starts the game and appears on the title and menus. Zero uses X1's
+  normal controls and earned special weapons.
 - Hold fire for progressively stronger charges: small green shot, full shot,
   two-shot sequence, then two shots plus saber at maximum charge. Press fire
   again for each stored follow-up. The saber waits for preceding beams to finish.

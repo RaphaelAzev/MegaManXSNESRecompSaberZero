@@ -94,7 +94,7 @@ static int validate_plan(void) {
 static int feature_enable(void *ctx, const char *pkg, const char *feature, int enabled) {
   s_error[0] = 0;
   if (s_active && ((!strcmp(pkg, kCoop) && !enabled) || (!strcmp(pkg, kZero) && enabled)))
-    return fail("Netplay requires X + Zero co-op; SELECT character switching is unavailable.");
+    return fail("Netplay requires X / Zero Co-op; Add Zero is unavailable.");
   return s_mods->feature_enable(ctx, pkg, feature, enabled);
 }
 static int set_enabled(void *ctx, const char *pkg, int enabled) {

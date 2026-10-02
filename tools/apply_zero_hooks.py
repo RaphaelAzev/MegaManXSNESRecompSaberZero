@@ -12,12 +12,18 @@ ORIGIN_PCS = {0x8283ed: 1, 0x83958c: 0, 0x839dc5: 1}
 REQUIRED = PCS | MUZZLE_PCS | ORIGIN_PCS.keys() | {0x009da6, 0x81815c, 0x818165, 0x00d3e5, 0x849e15, 0x849e3a, 0x849e73, 0x849c16, 0x848f07, 0x848eea, 0x8491db, 0x82823e, 0x8194af, 0x818ae8}
 OPTIONAL = {0x00d4f2, 0x00d50f}  # Current enemy loops run through the interpreter.
 REQUIRED |= {0x049e15, 0x049e3a}  # Compiled low-bank mirror of native contact.
+# Dash exits that would stand Zero up, and the dash blocks that continue it.
+SLIDE_PCS = {0x81898e: '8991', 0x818999: '899C', 0x818965: '8971'}
+REQUIRED |= SLIDE_PCS.keys()
 
 
 def apply(text):
     lines = [line for line in text.splitlines(keepends=True) if MARKER not in line]
-    output, found, pc = [], set(), 0
+    output, found, pc, mode = [], set(), 0, ''
     for line in lines:
+        label = re.match(r'\s*L_[0-9A-F]{4}_(M\dX\d):', line)
+        if label:
+            mode = label[1]
         block = re.search(r'cpu_trace_block\(cpu, 0x([0-9A-Fa-f]+)\);', line)
         if block:
             pc = int(block[1], 16)
@@ -76,7 +82,10 @@ def apply(text):
                 output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern unsigned MmxZeroHitbox(const uint8_t *, unsigned, unsigned, unsigned); extern unsigned MmxWeaponsHitbox(const uint8_t *, unsigned, unsigned, unsigned); {load[1]} = (uint16)MmxWeaponsHitbox(g_ram, cpu->D, cpu->X, MmxZeroHitbox(g_ram, cpu->D, cpu->X, {load[1]})); }}\n')
                 found.add(pc)
         if pc == 0x81815c and 'cpu->coprocessor_master_cycles = cpu->master_cycles;' in line:
-            output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern void MmxZeroPlayerTick(uint8_t *); extern void MmxWeaponsPlayerTick(uint8_t *); extern bool MmxWeaponsCombatActive(void); MmxWeaponsPlayerTick(g_ram); if (!MmxWeaponsCombatActive()) MmxZeroPlayerTick(g_ram); }}\n')
+            output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern void MmxZeroSlideTick(uint8_t *); extern void MmxZeroPlayerTick(uint8_t *); extern void MmxWeaponsPlayerTick(uint8_t *); extern bool MmxWeaponsCombatActive(void); MmxZeroSlideTick(g_ram); MmxWeaponsPlayerTick(g_ram); if (!MmxWeaponsCombatActive()) MmxZeroPlayerTick(g_ram); }}\n')
+            found.add(pc)
+        if pc in SLIDE_PCS and 'cpu->coprocessor_master_cycles = cpu->master_cycles;' in line:
+            output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern bool MmxZeroSlideHold(uint8_t *, unsigned); if (MmxZeroSlideHold(g_ram, 0x{pc:06x})) goto L_{SLIDE_PCS[pc]}_{mode}; }}\n')
             found.add(pc)
         if pc == 0x818165 and 'cpu->coprocessor_master_cycles = cpu->master_cycles;' in line:
             output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern void MmxZeroPlayerEnd(uint8_t *); MmxZeroPlayerEnd(g_ram); }}\n')

@@ -1,7 +1,7 @@
 format_version = 1
 id = "megaman-x.coop"
 version = "0.0.1"
-name = "X / Zero Couch Co-op"
+name = "X / Zero Co-op"
 author = "mstan"
 description = "Play together as X and Zero with separate health and weapons."
 license = "PolyForm-Noncommercial-1.0.0"
@@ -14,8 +14,8 @@ rom_sha256 = "b8f70a6e7fb93819f79693578887e2c11e196bdf1ac6ddc7cb924b1ad0be2d32"
 
 [[feature]]
 id = "coop"
-name = "Couch co-op"
-description = "Player 2 joins automatically. Hold P2 Select for 1.5 seconds to leave; press Select to rejoin. Start opens each player's weapon menu. Replaces single-player character switching."
+name = "Co-op"
+description = "Player 2 joins automatically. Hold P2 Select for 1.5 seconds to leave; press Select to rejoin. Start opens each player's weapon menu. Selecting co-op turns off Add Zero."
 group = "Characters"
 default_enabled = false
 
@@ -49,8 +49,8 @@ required = true
 feature = "coop"
 id = "megaman-x.coop"
 
-# Claim the original character plugin too, so even existing Zero 0.0.1
-# manifests conflict with simultaneous co-op in the launcher resolver.
+# Claim the original character plugin too: features sharing a plugin are
+# alternatives, so selecting co-op deselects Add Zero and vice versa.
 [[plugin]]
 feature = "coop"
 id = "megaman-x.zero"

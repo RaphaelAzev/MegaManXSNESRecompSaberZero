@@ -3,7 +3,7 @@ id = "megaman-x.character.zero"
 version = "0.0.1"
 name = "X3 Zero"
 author = "mstan"
-description = "Play as X3 Zero or switch to X, with original teleport effects and separate health."
+description = "Add X3 Zero alongside X, with original teleport effects and separate health."
 license = "PolyForm-Noncommercial-1.0.0"
 resolver = "declarative"
 save_compatibility = "requires-same-mods"
@@ -14,10 +14,24 @@ rom_sha256 = "b8f70a6e7fb93819f79693578887e2c11e196bdf1ac6ddc7cb924b1ad0be2d32"
 
 [[feature]]
 id = "zero"
-name = "X / Zero character switch"
-description = "Start as Zero and press Select while standing on the ground to exchange with X. Requires your Mega Man X3 USA ROM."
+name = "Add Zero"
+description = "Press Select while standing on the ground to switch between X and Zero. Requires your Mega Man X3 USA ROM."
 group = "Characters"
 default_enabled = false
+
+[[option]]
+feature = "zero"
+id = "start"
+label = "Starting character"
+description = "Who starts the game and appears on the title and menus. Select still switches characters."
+type = "choice"
+default = "x"
+[[option.choice]]
+value = "x"
+label = "X"
+[[option.choice]]
+value = "zero"
+label = "Zero"
 
 [[resource]]
 feature = "zero"

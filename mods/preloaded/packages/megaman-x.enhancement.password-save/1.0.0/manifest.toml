@@ -17,7 +17,7 @@ id = "password_save"
 name = "Password Saves (SRAM)"
 description = "Save passwords after stages and prefill the Password screen. With no file selected, creates mmx-password.srm beside the game."
 group = "Saves"
-default_enabled = false
+default_enabled = true
 
 [[resource]]
 feature = "password_save"
