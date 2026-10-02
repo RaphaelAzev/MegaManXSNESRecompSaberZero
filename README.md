@@ -1,5 +1,13 @@
 # MegaManXSNESRecomp
 
+Version 2.0.0-alpha is the 1.7.0 build renumbered as the first 2.0 build:
+playable Zero (with a slide through X-sized gaps), X2/X3 weapons, co-op,
+widescreen, and two-player **X / Zero netplay** using recomp-net and
+snesrecomp's lobby and rollback support. Netplay requires co-op and offers the
+original view or fixed 16:9, 21:9, and 32:9 widescreen. See the
+[release notes](RELEASE_NOTES_v2.0.0-alpha.md) and
+[netplay setup and limits](docs/netplay.md).
+
 Version 1.7.0 adds playable Zero (with a slide through X-sized gaps), X2/X3
 weapons, co-op, and two-player **X / Zero netplay** using recomp-net and
 snesrecomp's lobby and rollback support. Netplay requires co-op and offers the

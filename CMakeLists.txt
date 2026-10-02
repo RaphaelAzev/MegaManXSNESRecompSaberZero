@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(MegaManXSNESRecomp VERSION 1.7.0 LANGUAGES C CXX)
+project(MegaManXSNESRecomp VERSION 2.0.0 LANGUAGES C CXX)
 set(CMAKE_C_STANDARD 11)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/mmx_weapon_sources.h"
@@ -8,7 +8,7 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/mmx_weapon_sources.h"
         "${CMAKE_CURRENT_BINARY_DIR}/mmx_weapon_sources.h"
     DEPENDS tools/generate_x_weapon_tables.py tools/data/x_weapon_assets.json VERBATIM)
 
-set(SNESRECOMP_BUILD_VERSION "${PROJECT_VERSION}" CACHE STRING "Release stamp for crash reports")
+set(SNESRECOMP_BUILD_VERSION "${PROJECT_VERSION}-alpha" CACHE STRING "Release stamp for crash reports")
 set(SNESRECOMP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/snesrecomp" CACHE PATH "snesrecomp checkout")
 set(RECOMP_UI_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/recomp-ui" CACHE PATH "recomp-ui checkout")
 set(SNESRECOMP_ENABLE_MODS ON CACHE BOOL "Shared mod package runtime" FORCE)
