@@ -595,3 +595,9 @@ Camera limits are saved at `$84:AECA..AEE2` to `$7F:D384..D38A` and restored
 to the camera targets at `$84:B3DD..B3F6`. No speculative camera bounds or
 forced unlock patch is included. A capture of the reported stuck state would
 allow that remaining condition to be traced directly.
+
+
+The owner confirmed both the puddle-targeting and Mammoth partner-return fixes
+in offline co-op using the prepared slots on 2026-10-02 and approved shipping
+them in `2.0.1`. The separate Slimer camera-lock report above remains
+unreproduced; that report is not claimed as fixed by this release.
