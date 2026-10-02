@@ -676,5 +676,6 @@ Spark replay that confirms the underlying PPU graphics really change when P2
 switches weapons while the repaired split remains pixel-identical to the retail
 reference. The five ordinary CTest checks also pass. This is an offline local
 validation with deterministic state replay; a two-machine netplay session has
-not yet been repeated for these follow-ups. No release or main-branch update is
-part of this change.
+not yet been repeated for these follow-ups. The owner subsequently requested
+integration into `main` and publication as latest `2.0.2-alpha` (not marked prerelease), tracked in
+`beads-8wg.1.69`. Implementation commit: `8931edd`.

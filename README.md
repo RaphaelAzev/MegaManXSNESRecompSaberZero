@@ -1,5 +1,10 @@
 # MegaManXSNESRecomp
 
+Version 2.0.2-alpha fixes co-op moving platforms, the airship door and
+Storm Eagle's lift introduction, plus charged Chameleon Sting and Electric
+Spark graphics.
+See the [2.0.2-alpha release notes](RELEASE_NOTES_v2.0.2-alpha.md).
+
 Version 2.0.1 fixes two co-op encounter bugs: Thunder Slimer's puddles
 now trap the player they touch, and either partner returns after Flame
 Mammoth's final door and scrolling boss introduction. These fixes apply to
