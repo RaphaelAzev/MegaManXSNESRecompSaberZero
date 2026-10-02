@@ -42,7 +42,8 @@ typedef struct MmxCoopState {
   uint8_t anchor, solo_death[2], death_reserved;
   uint8_t death_flags[2][8]; /* Native freeze flags around a partner's death. */
   uint8_t scene_owner, scene_phase, door_pass, scene_reserved;
-  uint16_t door_s, door_d, door_entry, door_reserved;
+  uint16_t door_s, door_d, door_entry;
+  uint16_t slime_p2; /* Capture owner bits for $1428 + slot*$40; formerly reserved. */
 } MmxCoopState;
 
 /* The trusted co-op plugin prepares the owner-supplied X3 ROM, then enables

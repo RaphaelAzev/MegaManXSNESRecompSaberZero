@@ -49,7 +49,7 @@ bool MmxCoopValidState(const MmxCoopState *s) {
       s->menu_owner>2 || s->menu_last>1 || s->menu_reserved[0] || s->menu_reserved[1] ||
       s->pickup_pass>2 || s->pickup_reserved[0] || s->pickup_reserved[1] || s->pickup_reserved[2] ||
       s->anchor>1 || s->solo_death[0]>1 || s->solo_death[1]>1 || s->death_reserved ||
-      s->scene_owner>2 || s->scene_phase>3 || s->door_pass>2 || s->scene_reserved || s->door_reserved ||
+      s->scene_owner>2 || s->scene_phase>3 || s->door_pass>2 || s->scene_reserved || s->slime_p2>255 ||
       (s->scene_phase && !s->scene_owner) ||
       (s->door_pass && s->door_entry!=0xe70d && s->door_entry!=0xec98)) return false;
   for(unsigned i=0;i<16;++i) if(s->pickup_owner[i]>2) return false;
@@ -287,12 +287,11 @@ bool MmxCoopFindLanding(const uint8_t *r,uint16_t *out_x,uint16_t *out_y) {
     for (int offset=-16;offset<=24;++offset) {
       int floor=py+16+offset,surface=0;
       unsigned type=MmxWeaponsTerrainClass(r,x,floor);
-      /* Require ordinary full ground/slopes. Conservative join rejection
-       * for spikes, conveyors, disappearing floors and one-way surfaces. */
-      /* $84:961C dispatches $34..36/$3B..3D to ordinary $96B5.
-       * $33/$3E/$3F are hurt/spike handlers; $37/$38 are conveyors. */
+      /* $84:961C: ordinary ground, slopes and solid conveyors ($37/$38)
+       * support a landing. Mammoth's arena can offer only conveyor tiles.
+       * Spikes and transient/one-way surfaces remain ineligible. */
       if (!(type==0x13 || (type>=1 && type<=12) ||
-            (type>=0x34 && type<=0x36) || (type>=0x3b && type<=0x3d)) ||
+            (type>=0x34 && type<=0x38) || (type>=0x3b && type<=0x3d)) ||
           !MmxWeaponsTerrainSolid(r,x,floor,true,&surface) || surface!=floor ||
           floor-height<camera_y || floor>=camera_y+224) continue;
       bool clear=true;
@@ -433,9 +432,34 @@ static bool join_tick(uint8_t *r) {
   sound(r,0x0e);r[0xb9d]=r[0xba0]=0;return true;
 }
 
+static unsigned slime_bit(unsigned d) {
+  return d>=0x1428 && d<0x1628 && (d-0x1428)%64==0 && g_ram[d+10]==0x19 ?
+      1u<<((d-0x1428)/64) : 0;
+}
+static void slime_owner(unsigned bit,unsigned player) {
+  if(player) state.slime_p2|=bit;else state.slime_p2&=~bit;
+}
+static void slime_hook(CpuState *cpu,uint32_t pc) {
+  if(!enabled || !state.initialized) return;
+  unsigned d=cpu->D,bit=slime_bit(d);
+  if(!bit) return;
+  if((pc&65535)==0xa939) {MmxCoopSelect(g_ram,state.anchor);return;}
+  if(g_ram[d+2]==12 || g_ram[d+2]==14) {
+    unsigned owner=(state.slime_p2&bit)!=0;
+    if(state.players[owner].status==MMX_COOP_ALIVE && (state.players[owner].body[0x27]&127))
+      MmxCoopSelect(g_ram,owner);
+    else {g_ram[d+2]=16;g_ram[d+3]=0;} /* Native release/pop animation. */
+  }
+}
 static void contact_hook(CpuState *cpu,uint32_t pc) {
-  if (!enabled || !state.initialized || state.menu_owner || state.scene_owner || state.players[state.anchor^1].status != MMX_COOP_ALIVE) return;
+  if (!enabled || !state.initialized) return;
   unsigned at = pc & 65535;
+  /* A lone survivor still uses the native contact path without a second pass. */
+  if(at==0x9b03 && !state.contact_pass) {
+    unsigned bit=slime_bit(cpu->D);
+    if(bit && g_ram[cpu->D+2]!=12 && g_ram[cpu->D+2]!=14) slime_owner(bit,state.current);
+  }
+  if(state.menu_owner || state.scene_owner || state.players[state.anchor^1].status!=MMX_COOP_ALIVE) return;
   if (at == 0x9b03 || at == 0x9b43) {
     if (state.current==state.anchor && !state.contact_pass) {
       state.contact_pass = 1; state.contact_entry = (uint16_t)at;
@@ -446,7 +470,13 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
   /* A helper may return through a shared RTL; only the owning guest call's
    * balanced return boundary can complete or restart this pass. */
   if (!state.contact_pass || cpu->S != state.contact_s || cpu->D != state.contact_d) return;
+  unsigned slime=state.contact_entry==0x9b03 ? slime_bit(cpu->D) : 0;
   if (state.contact_pass == 1) {
+    /* Slimer's puddle can capture one actor. Keep the actual contact seat
+     * for its later pin/escape states, instead of reusing the world anchor. */
+    if(slime && (cpu->A&255)) {
+      slime_owner(slime,state.current);state.contact_pass=0;return;
+    }
     /* Retail stops the projectile scan after its first contact, including
      * immune/reflecting hits. Extend the scan to P2 only after a real miss. */
     if (state.contact_entry == 0x9b43 && at != 0x9b7d) { state.contact_pass = 0; return; }
@@ -455,6 +485,7 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
     MmxCoopSelect(g_ram,state.anchor^1); state.contact_pass = 2;
     interp_bridge_pre_opcode_redirect(0x840000 | state.contact_entry);
   } else {
+    if(slime && (cpu->A&255)) slime_owner(slime,state.current);
     bool first_hit = (state.contact_a & 255) != 0;
     bool no_second_hit = !(cpu->A & 255);
     MmxCoopSelect(g_ram,state.anchor);
@@ -702,6 +733,8 @@ void MmxCoopRegisterHooks(void) {
       0xd43a,0xd456,0xd457,0xd47f,0x819d67,0x819d79};
   for (unsigned i=0;i<sizeof(objects)/sizeof(objects[0]);++i)
     interp_bridge_set_pre_opcode_hook(objects[i],object_hook);
+  interp_bridge_set_pre_opcode_hook(0x83a934,slime_hook);
+  interp_bridge_set_pre_opcode_hook(0x83a939,slime_hook);
   const unsigned contacts[] = {0x849b03,0x849b43,0x849b42,0x849b7d,0x849d82,
       0x849dc9,0x849dcc,0x849ee9};
   for (unsigned i=0;i<sizeof(contacts)/sizeof(contacts[0]);++i)

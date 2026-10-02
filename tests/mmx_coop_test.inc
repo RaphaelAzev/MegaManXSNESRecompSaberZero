@@ -457,8 +457,8 @@ static void coop_death_checks(unsigned character,const char *fixture,uint8_t *st
   check(returned,"simultaneous fatalities spend one life and restart both players");
 
 }
-/* Optional private fixture just before Chill Penguin's two right-facing doors.
- * Also exercises the native enemy-projectile loop after the boss introduction. */
+/* Private approach fixture: Penguin's two doors, or Mammoth's final door.
+ * Mammoth's scrolling introduction ends on conveyor terrain ($37/$38). */
 static void coop_scene_checks(const char *fixture,uint8_t *start,uint8_t *expected,
                               uint8_t *actual,size_t cap) {
   for(unsigned driver=0;driver<2;++driver) {
@@ -467,6 +467,8 @@ static void coop_scene_checks(const char *fixture,uint8_t *start,uint8_t *expect
     MmxCoopState s=MmxCoopGetState();
     check(coop_place_fixture_partner(coop_x(&s.players[0])+(driver?40:-40),coop_y(&s.players[0])),
         "door partner placed on approach floor");
+    bool mammoth=g_ram[0x1f7a]==4;
+    unsigned expected_doors=mammoth?1:2;
     unsigned departures=0,returns=0,last_phase=0;bool replayed=false;
     for(unsigned f=0;f<1200;++f) {
       coop_frames(1,driver?0:SNES_PAD_RIGHT,driver?SNES_PAD_RIGHT:0);s=MmxCoopGetState();
@@ -474,7 +476,7 @@ static void coop_scene_checks(const char *fixture,uint8_t *start,uint8_t *expect
         ++departures;
         check(s.scene_owner==driver+1 && s.anchor==driver,"touching player owns native door walk");
       }
-      if(s.scene_phase==2 && last_phase==1 && departures==2) coop_image(driver,"door-hidden");
+      if(s.scene_phase==2 && last_phase==1 && departures==expected_doors) coop_image(driver,"door-hidden");
       if(s.scene_phase==3 && last_phase==2) {
         check(s.players[driver^1].status==MMX_COOP_ALIVE &&
             (s.players[driver^1].body[0x27]&127),"living partner returns on clear floor");
@@ -489,11 +491,15 @@ static void coop_scene_checks(const char *fixture,uint8_t *start,uint8_t *expect
       }
       if(!s.scene_phase && last_phase==3) {
         ++returns;
-        if(returns==2) coop_image(driver,"door-return");
+        if(returns==expected_doors) coop_image(driver,"door-return");
       }
       last_phase=s.scene_phase;
+      if(mammoth && returns==expected_doors) break;
     }
-    check(departures==2 && returns==2 && replayed,"either seat crosses both doors and rejoins before combat");
+    check(departures==expected_doors && returns==expected_doors && replayed,
+        "either seat crosses the door sequence and rejoins for combat");
+    if(mammoth) check(g_ram[0xe72]==0x0c && g_ram[0xe69]==4 && !g_ram[0xc16],
+        "Mammoth returns the partner after native scrolling intro on conveyor floor");
     check(!s.scene_owner && !s.door_pass && s.current==s.anchor && g_ram[0xd3]==4,
         "boss combat resumes with balanced native task context");
     coop_image(driver,"boss-combat");
@@ -833,6 +839,38 @@ static void coop_launcher_checks(const char *root,const char *rom,const char *x3
   check(!MmxCoopEnabled() && !MmxZeroEnabled(),"plugin reset restores stock mode");
   puts("MMX CO-OP LAUNCHER CHECKS PASSED");
 }
+static void coop_slime_checks(const char *fixture,uint8_t *start,uint8_t *expected,uint8_t *actual,size_t cap) {
+  for(unsigned solo=0;solo<2;++solo) for(unsigned owner=0;owner<2;++owner) {
+    MmxCoopDisable();check(RtlLoadSnapshot(fixture),"slime test loads private ground");
+    check(MmxCoopEnable(0),"slime co-op enables");coop_frames(8,0,0);
+    MmxCoopState s=MmxCoopGetState();unsigned x=coop_x(&s.players[0]),y=coop_y(&s.players[0]);
+    check(coop_place_fixture_partner(x+64,y),"slime test places separated partner");coop_frames(35,0,0);
+    for(unsigned seat=0;seat<2;++seat) {MmxCoopSelect(g_ram,seat);g_ram[0xbcf]=16;g_ram[0xc30]=g_ram[0xc32]=0;}
+    MmxCoopSelect(g_ram,solo?owner:0);s=MmxCoopGetState();
+    if(solo) {
+      s.anchor=owner;s.players[owner^1].status=MMX_COOP_FALLEN;s.players[owner^1].body[0x27]=0;
+      MmxCoopSetState(&s);
+    }
+    unsigned d=0x1428;memset(g_ram+d,0,64);g_ram[d]=1;g_ram[d+10]=0x19;
+    unsigned px=coop_x(&s.players[owner]),py=coop_y(&s.players[owner])+8;
+    g_ram[d+5]=px;g_ram[d+6]=px>>8;g_ram[d+8]=py;g_ram[d+9]=py>>8;
+    g_ram[d+12]=0x68;g_ram[d+13]=0x0e;
+    coop_frames(1,0,0);
+    g_ram[d+2]=6;g_ram[d+3]=0;g_ram[d+0x1a]=g_ram[d+0x1b]=g_ram[d+0x1c]=g_ram[d+0x1d]=0;
+    g_ram[d+5]=px;g_ram[d+6]=px>>8;g_ram[d+8]=py;g_ram[d+9]=py>>8;
+    coop_frames(3,0,0);s=MmxCoopGetState();
+    check(g_ram[d+2]==12 || g_ram[d+2]==14,"original puddle enters its capture state");
+    check((s.players[owner].body[0x2c]&8) && !(s.players[owner^1].body[0x2c]&8),"puddle pins only the player it touched");
+    size_t n=RtlSaveSnapshotToMemory(start,cap);coop_frames(6,0,0);
+    s=MmxCoopGetState();
+    check((s.players[owner].body[0x2c]&8) && !(s.players[owner^1].body[0x2c]&8),
+        "puddle retains its victim across subsequent world ticks");
+    size_t en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"captured player state restores");coop_frames(6,0,0);
+    same(expected,en,actual,RtlSaveSnapshotToMemory(actual,cap),"slime capture owner survives deterministic replay");
+  }
+  puts("MMX CO-OP SLIME CHECKS PASSED");
+}
 static void coop_checks(const char *assets, const char *fixture,
                         uint8_t *start, uint8_t *expected, uint8_t *actual, size_t cap) {
   check(assets && fixture, "co-op check requires private source assets and a grounded fixture");
@@ -840,6 +878,7 @@ static void coop_checks(const char *assets, const char *fixture,
   MmxZeroRegisterHooks(); MmxCoopRegisterHooks();
   const char *x2=getenv("MMX_COOP_X2_ASSETS"),*x3=getenv("MMX_COOP_X3_ASSETS");
   if (x2 && x3) check(MmxWeaponsLoadPage(x2,1) && MmxWeaponsLoadPage(x3,2),"private original weapon source packs load");
+  if(getenv("MMX_COOP_SLIME_TEST")) {coop_slime_checks(fixture,start,expected,actual,cap);return;}
   if(getenv("MMX_COOP_X_GRAPHICS_TEST")) {coop_x_graphics_checks(fixture);return;}
   if(getenv("MMX_COOP_PALETTE_FIXTURE")) {
     check(MmxCoopEnable(0),"palette co-op enables");

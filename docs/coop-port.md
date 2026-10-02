@@ -543,3 +543,55 @@ queue. The rendered X region must match on every frame, including 28 deferred
 pose transitions. It also checks that drawing leaves native VRAM/WRAM intact
 and that a captured transition restores with identical pixels. Before/after
 walking and jumping captures were visually inspected. Tracking: `beads-8wg.1.59`.
+
+
+### Thunder Slimer puddles and Mammoth conveyor returns (2026-10-02)
+
+Tracking: `beads-8wg.1.65`; branch `fix/coop-mandrill-miniboss-camera`, based
+on main `0f287a2` after the Zero dash-clearance fix. Hunter HQ remains parked.
+These changes apply to the shared offline/netplay simulation.
+
+Thunder Slimer's puddle is enemy projectile `$19`, native routine `$83:A8BD`,
+in one of eight `$40`-byte slots at `$1428..1627`. `$83:A93D` calls the native
+contact test; the co-op retry correctly found P2 but restored the world actor
+before subsequent frames. Capture states `$0C/$0E` at `$83:AA6A/AAB5` then
+pinned that world actor instead. `$83:AB38` also writes the victim's position.
+The reproduction had Zero touched and X pinned (`body+$2C` bit 3).
+
+Each puddle now retains its actual capture seat. Only the capture-state call
+at `$83:A934..A939` projects that seat; the world actor is restored before the
+ordinary collision/projectile scan. Native escape input, timeout, movement,
+and pop animation still run. A successful first contact cannot also capture
+the other actor. A lone survivor also records ownership. The formerly reserved
+last word of `MmxCoopState` stores eight P2 bits, preserving its 4,648-byte
+layout and including ownership in save/rollback state. Older saves load with
+the old P1 default; they cannot reconstruct an already-misassigned victim.
+The generated-dispatch wrapper additionally covers `$83:A8BD` (24 boundaries).
+
+Mammoth's final door and scrolling intro completed normally, but partner return
+rejected solid conveyor classes `$37/$38`. In the private stage-4 replay,
+boss `$0C` reached combat state 4 and cleared `$0C16`, while co-op remained in
+hidden scene phase 2 for the rest of the run. `MmxCoopFindLanding` now accepts
+these solid conveyors through its existing floor-height, headroom, screen and
+enemy-clearance checks. It still rejects spikes and transient/one-way floors.
+This permits either X or Zero to return without a timeout or script rewrite.
+
+`MMX_COOP_SLIME_TEST=1` with the ordinary private co-op fixture variables checks
+both capture seats and lone survivors, continued pin ownership, and identical
+snapshot replay. `MMX_COOP_SCENE_FIXTURE` also accepts the private Mammoth
+final-door approach: both possible door drivers must finish the native intro,
+return a visibly rendered partner on the conveyor and replay arrival exactly.
+The original two-door Penguin regression remains available. Fixtures, ROMs,
+extracted art and captures stay private.
+
+A separate Storm Eagle checkpoint-2 replay reached native boss `$52` combat
+with both players present. No Storm Eagle-specific patch was indicated.
+The original report of a camera lock after Slimer's defeat remains open:
+a private post-intro native defeat sequence restored the authored camera
+limits and allowed both actors to leave. The suspected early-kill path was
+ruled out for the native buster: Slimer's `$30` immunity stays set until
+`$84:B255`, immediately before the intro unlocks the player at `$84:B25D`.
+Camera limits are saved at `$84:AECA..AEE2` to `$7F:D384..D38A` and restored
+to the camera targets at `$84:B3DD..B3F6`. No speculative camera bounds or
+forced unlock patch is included. A capture of the reported stuck state would
+allow that remaining condition to be traced directly.
