@@ -585,7 +585,8 @@ void MmxZeroMovementTick(uint8_t r[0x20000]) {
       (r[0xbdf] & (state.modern.dash_facing ? 2 : 1)) || (r[0xc06] & 3)))
     end_air_dash(r);
   if (air && !state.modern.dash_ticks && !state.modern.dash_used &&
-      (r[0xbe2] & 128) && !state.slash) {
+      (r[0xbe2] & 128)) {
+    MmxZeroCancel(r);
     state.modern.dash_used = 1; state.modern.dash_ticks = 18;
     state.modern.dash_facing = (r[0xbdf] & 3) == 1 ? 64 :
         (r[0xbdf] & 3) == 2 ? 0 : r[0xc11] & 64;
@@ -629,6 +630,15 @@ void MmxZeroPlayerTick(uint8_t r[0x20000]) {
   if (!playable) { MmxZeroCancel(r); return; }
   bool held = (r[0xbdf] & 64) != 0, pressed = (r[0xbe3] & 64) != 0;
   if (modern_behavior) {
+    /* Movement takes priority over an ongoing direct swing. Preserve the
+     * native jump and ladder inputs instead of masking them into a forced
+     * pose. Air-dash/double-jump cancellation happens in MovementTick. */
+    if(state.slash && ((r[0xbdf]&12) || ((r[0xbd3]&4) &&
+        ((r[0xbe3]&128) || (r[0xbe2]&128))))) {
+      MmxZeroCancel(r);
+      r[0xbdf]&=(uint8_t)~64;r[0xbe3]&=(uint8_t)~64;
+      return;
+    }
     /* Direct saber uses the same ground/air art and collision arc. Retain
      * every pose, shortening only the long follow-through hold. */
     state.charge = state.charge_phase = state.combo = state.saber_ready = 0;
