@@ -681,6 +681,12 @@ static uint16_t background(const Ppu *p, const Raster *r, unsigned layer, int x,
       /* Chill's BG2 sky palette also changes with elevation. Its cave-exit
        * X transition owns foreground art only; keep the live sky colors. */
       if (layer == 1 && frame.ram[0x1f7a] == 8) asset_x = -1;
+      /* Highway's incoming airship uses BG2 as a moving actor surface.
+       * Its source columns are not terrain coordinates: projecting them
+       * selects earlier road palettes/CHR across the native view seams.
+       * The complete ship resources are resident; retain its live binding. */
+      if (layer == 1 && frame.ram[0x1f7a] == 0 && frame.ram[0x1e89] == 0x0c)
+        asset_x = -1;
     }
   }
   int cx = px & (size - 1), cy = py & (size - 1);

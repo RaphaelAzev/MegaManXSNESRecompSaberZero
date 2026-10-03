@@ -1326,3 +1326,19 @@ replay at five widths with zero raw/repaired native differences and matching
 live/replay output. All ten original saves were backed up in
 `save-backups/twentieth-build-20260919-150415`; hashes are unchanged. This validates
 the reported room and exit sequence, not complete fortress progression.
+
+## Highway airship palette at widescreen seams (2026-10-03)
+
+The end-of-Highway airship uses BG2 mode `$0C` as a moving actor
+surface. Spatial terrain-resource projection previously interpreted its
+source columns as earlier road coordinates, replacing its resident purple
+palette with orange terrain colors only outside native X=0..255.
+The compositor now retains the live BG2 CHR and palette in this specific
+stage/mode; ordinary terrain projection and native pixels are unchanged.
+
+Reproduced independently from the archived Highway approach fixture at
+500 frames, holding Right. Before/after captures are under
+`_research/airship-500/` in the netplay-test worktree. The repaired 32:9
+replay has zero raw and repaired native pixel differences. The renderer
+regression covers both seams, resident CHR/palette, and unchanged terrain
+projection outside the actor mode. The running owner session was untouched.
