@@ -134,6 +134,24 @@ static int choice_get(void *ctx, const char *pkg, const char *fid, const char *o
 }
 static int set_option(void *ctx, const char *pkg, const char *fid, const char *option, const char *value) {
   s_error[0] = 0;
+  if (!strcmp(option, "behavior") &&
+      ((!strcmp(pkg, kZero) && !strcmp(fid, "zero")) ||
+       (!strcmp(pkg, kCoop) && !strcmp(fid, "coop")))) {
+    /* One user preference exposed in both mutually exclusive character
+     * features. Keep both catalog values identical so whichever feature is
+     * active also carries this rule in saves and the netplay agreement.
+     * Netplay's temporary plan provides its existing restore-on-exit scope. */
+    const char *other = !strcmp(pkg, kZero) ? kCoop : kZero;
+    const char *other_fid = !strcmp(pkg, kZero) ? "coop" : "zero";
+    char previous[32] = {0};
+    snes_mod_runtime_feature_option_value_c(pkg, fid, option, previous, sizeof(previous));
+    if (!s_mods->feature_set_option(ctx, pkg, fid, option, value)) return 0;
+    if (!s_mods->feature_set_option(ctx, other, other_fid, option, value)) {
+      s_mods->feature_set_option(ctx, pkg, fid, option, previous);
+      return fail("Cannot update the shared Zero behavior. Restore both bundled character mods.");
+    }
+    return 1;
+  }
   if (s_active && !strcmp(pkg, kWide) && !strcmp(option, "aspect") &&
       strcmp(value, "16:9") && strcmp(value, "21:9") && strcmp(value, "32:9"))
     return fail("Adaptive view is available offline. Choose a fixed ratio for netplay.");

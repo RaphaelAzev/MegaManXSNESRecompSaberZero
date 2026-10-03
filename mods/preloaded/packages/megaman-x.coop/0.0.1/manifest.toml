@@ -33,6 +33,20 @@ label = "X"
 value = "zero"
 label = "Zero"
 
+[[option]]
+feature = "coop"
+id = "behavior"
+label = "Zero behavior"
+description = "Shared with Add Zero. Modern replaces Zero's buster with a direct saber and adds a double jump and air dash. Special weapons remain available."
+type = "choice"
+default = "x3"
+[[option.choice]]
+value = "x3"
+label = "X3 Behavior"
+[[option.choice]]
+value = "modern"
+label = "Modern"
+
 [[resource]]
 feature = "coop"
 id = "x3-rom"

@@ -4,6 +4,8 @@ Release handoff for Zero **0.0.1**, 2026-09-29. Stable character work is
 integrated separately from `feat/x2-x3-weapons`. [zero-spike.md](zero-spike.md)
 is historical; this document records the current behavior and source findings.
 See [release setup](zero-0.0.1.md) and the [roadmap](zero-weapons-coop-roadmap.md).
+The optional [Modern behavior](zero-modern.md) adds direct saber attacks and
+aerial mobility while preserving the default X3 behavior.
 
 Central Beads: `.36` release/split, `.31` remaining Zero fidelity, `.30` Select
 exchange, `.33` separate HP, `.32` weapon expansion, `.34` later co-op, all under

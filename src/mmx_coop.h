@@ -2,6 +2,7 @@
 #include "mmx_zero.h"
 #include "mmx_weapons.h"
 #include "mmx_weapon_combat.h"
+#include <string.h>
 
 enum { MMX_COOP_X, MMX_COOP_ZERO };
 enum { MMX_COOP_ABSENT, MMX_COOP_ALIVE, MMX_COOP_FALLEN };
@@ -45,6 +46,23 @@ typedef struct MmxCoopState {
   uint16_t door_s, door_d, door_entry;
   uint16_t slime_p2; /* Capture owner bits for $1428 + slot*$40; formerly reserved. */
 } MmxCoopState;
+
+enum { MMX_COOP_LEGACY_STATE_SIZE = 4648 };
+/* v14 saves / v13 captures predate Modern's per-player extension. Keep
+ * every original body, weapon and scheduler byte at its corresponding field. */
+static inline void MmxCoopImportLegacy(MmxCoopState *out, const uint8_t *bytes) {
+  const size_t extra = sizeof(MmxZeroModernState);
+  const size_t old_player = sizeof(MmxCoopPlayer) - extra;
+  const size_t prefix = offsetof(MmxCoopPlayer, zero) + MMX_ZERO_HEALTH_STATE_SIZE;
+  memset(out, 0, sizeof(*out));
+  for (unsigned i = 0; i < 2; ++i) {
+    uint8_t *p = (uint8_t *)&out->players[i];
+    memcpy(p, bytes + i * old_player, prefix);
+    memcpy(p + prefix + extra, bytes + i * old_player + prefix, old_player - prefix);
+  }
+  memcpy(&out->initialized, bytes + old_player * 2,
+      MMX_COOP_LEGACY_STATE_SIZE - old_player * 2);
+}
 
 /* The trusted co-op plugin prepares the owner-supplied X3 ROM, then enables
  * the chosen roster. This mode excludes single-player character exchange. */

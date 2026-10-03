@@ -56,7 +56,7 @@ def apply(text):
             output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern void MmxWeaponsSelectShot(const uint8_t *, unsigned); MmxWeaponsSelectShot(g_ram,cpu->X); }}\n')
             found.add(pc)
         if pc == 0x82823e and 'cpu->coprocessor_master_cycles = cpu->master_cycles;' in line:
-            output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern void MmxWeaponsPlayerMotion(uint8_t *, unsigned); MmxWeaponsPlayerMotion(g_ram,cpu->D); }}\n')
+            output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern void MmxZeroPlayerMotion(uint8_t *, unsigned); extern void MmxWeaponsPlayerMotion(uint8_t *, unsigned); MmxZeroPlayerMotion(g_ram,cpu->D); MmxWeaponsPlayerMotion(g_ram,cpu->D); }}\n')
             found.add(pc)
         if pc == 0x8491db and 'cpu->D = cpu_read16(cpu, 0x00, cpu->S);' in line:
             output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern void MmxWeaponsTerrainEnd(uint8_t *, unsigned); MmxWeaponsTerrainEnd(g_ram,cpu->D); }}\n')
@@ -82,7 +82,7 @@ def apply(text):
                 output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern unsigned MmxZeroHitbox(const uint8_t *, unsigned, unsigned, unsigned); extern unsigned MmxWeaponsHitbox(const uint8_t *, unsigned, unsigned, unsigned); {load[1]} = (uint16)MmxWeaponsHitbox(g_ram, cpu->D, cpu->X, MmxZeroHitbox(g_ram, cpu->D, cpu->X, {load[1]})); }}\n')
                 found.add(pc)
         if pc == 0x81815c and 'cpu->coprocessor_master_cycles = cpu->master_cycles;' in line:
-            output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern void MmxZeroSlideTick(uint8_t *); extern void MmxZeroPlayerTick(uint8_t *); extern void MmxWeaponsPlayerTick(uint8_t *); extern bool MmxWeaponsCombatActive(void); MmxZeroSlideTick(g_ram); MmxWeaponsPlayerTick(g_ram); if (!MmxWeaponsCombatActive()) MmxZeroPlayerTick(g_ram); }}\n')
+            output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern void MmxZeroSlideTick(uint8_t *); extern void MmxZeroMovementTick(uint8_t *); extern void MmxZeroPlayerTick(uint8_t *); extern void MmxWeaponsPlayerTick(uint8_t *); extern bool MmxWeaponsCombatActive(void); MmxZeroSlideTick(g_ram); MmxZeroMovementTick(g_ram); MmxWeaponsPlayerTick(g_ram); if (!MmxWeaponsCombatActive()) MmxZeroPlayerTick(g_ram); }}\n')
             found.add(pc)
         if pc in SLIDE_PCS and 'cpu->coprocessor_master_cycles = cpu->master_cycles;' in line:
             output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern bool MmxZeroSlideHold(uint8_t *, unsigned); if (MmxZeroSlideHold(g_ram, 0x{pc:06x})) goto L_{SLIDE_PCS[pc]}_{mode}; }}\n')

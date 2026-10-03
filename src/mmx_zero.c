@@ -21,18 +21,29 @@ _Static_assert(offsetof(MmxZeroState, active_x) == MMX_ZERO_COMBAT_STATE_SIZE,
                "Keep the v6 combat-state prefix readable");
 _Static_assert(offsetof(MmxZeroState, hp) == MMX_ZERO_SWAP_STATE_SIZE,
                "Keep the v7 character/swap-state prefix readable");
+_Static_assert(offsetof(MmxZeroState, modern) == MMX_ZERO_HEALTH_STATE_SIZE,
+               "Keep the v8-v14 Zero state prefix readable");
 static unsigned word(const uint8_t *p) { return p[0] | p[1] << 8; }
 static void putword(uint8_t *p, unsigned v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
 MmxZeroState MmxZeroGetState(void) { return state; }
 /* The selected starting character, also shown on title and menus until the
  * first exchange. Co-op never selects it and keeps Zero. */
 static bool start_x;
+static bool modern_behavior;
+void MmxZeroSetModern(bool enabled) { modern_behavior = enabled; }
+bool MmxZeroModern(void) { return MmxZeroActive() && modern_behavior; }
 void MmxZeroSetStartCharacter(bool x) { start_x = x; }
-void MmxZeroResetState(void) { memset(&state, 0, sizeof(state)); state.active_x = start_x; }
+void MmxZeroResetState(void) {
+  memset(&state, 0, sizeof(state)); state.active_x = start_x;
+  state.modern.enabled = modern_behavior;
+}
 bool MmxZeroValidState(const MmxZeroState *value) {
   if (!value) return false;
   MmxZeroState s = *value;
   return s.combo <= 2 && s.slash <= 44 && s.charge <= 201 &&
+      s.modern.enabled <= 1 && s.modern.jump_used <= 1 && s.modern.dash_used <= 1 &&
+      s.modern.dash_ticks <= 18 && (s.modern.dash_facing == 0 || s.modern.dash_facing == 64) &&
+      s.modern.slash_buffer <= 6 && s.modern.hit_phase <= 1 && !s.modern.reserved &&
       s.active_x <= 1 && s.swap_phase <= 6 && s.swap_tick <= 30 && s.swap_y <= 0 && s.swap_y >= -320 &&
       s.hp_valid <= 1 && s.hp_max <= 32 && s.hp[0] <= 32 && s.hp[1] <= 32 &&
       (!s.hp_valid || (s.hp_max >= 16 && s.hp[0] <= s.hp_max && s.hp[1] <= s.hp_max)) &&
@@ -47,6 +58,13 @@ bool MmxZeroValidState(const MmxZeroState *value) {
 void MmxZeroSetState(MmxZeroState s) {
   MmxZeroResetState();
   if (poses && MmxZeroValidState(&s)) state = s;
+  if (state.modern.enabled != modern_behavior) {
+    /* Old saves start with fresh aerial actions. A changed ruleset cannot
+     * inherit the other ruleset's charge combo or attack recovery. */
+    MmxZeroCancel(NULL);
+    memset(&state.modern, 0, sizeof(state.modern));
+    state.modern.enabled = modern_behavior;
+  }
 }
 unsigned MmxZeroChargeTier(const MmxZeroState *s) {
   return !s || s->charge < 21 ? 0 : s->charge < 81 ? 4 :
@@ -369,6 +387,7 @@ void MmxZeroCancel(uint8_t ram[0x20000]) {
   memset(&state, 0, MMX_ZERO_LEGACY_STATE_SIZE);
   memset((uint8_t *)&state + MMX_ZERO_ANIMATION_STATE_SIZE, 0,
          MMX_ZERO_COMBAT_STATE_SIZE - MMX_ZERO_ANIMATION_STATE_SIZE);
+  state.modern.slash_buffer = state.modern.hit_phase = 0;
 }
 static unsigned free_projectile(const uint8_t *r) {
   for (unsigned d = 0x1228; d < 0x1428; d += 64)
@@ -526,6 +545,81 @@ static bool burst_holds_air(void) {
   return state.burst && state.air && (state.burst_end ||
       (state.burst == 2 && state.burst_offset == word(animation + 0x49 * 2) && state.burst_timer == 2));
 }
+static bool movement_playable(const uint8_t *r) {
+  unsigned a = r[0xbaa];
+  return r[0xd1] == 2 && r[0xd2] == 4 && r[0xba9] == 2 &&
+      (r[0xbcf] & 127) && !r[0x1f0c] && !r[0x1f23] && !r[0x1f48] &&
+      (a <= 0x0a || a == 0x10 || a == 0x12 || a == 0x14 || a == 0x20);
+}
+static void end_air_dash(uint8_t *r) {
+  if (!state.modern.dash_ticks) return;
+  state.modern.dash_ticks = 0;
+  r[0xbfd] = 0; r[0xc06] &= (uint8_t)~4;
+  if (r[0xbaa] == 0x14) { r[0xbaa] = 8; r[0xbab] = 0; }
+}
+void MmxZeroMovementTick(uint8_t r[0x20000]) {
+  if (!MmxZeroModern() || !r) return;
+  if (!movement_playable(r)) { end_air_dash(r); return; }
+  bool grounded = (r[0xbd3] & 4) != 0;
+  unsigned action = r[0xbaa];
+  /* Wall contact restores aerial options, like landing. A menu, weapon
+   * change or attack cancellation never grants another midair action. */
+  if (grounded || action == 0x10) {
+    end_air_dash(r);
+    state.modern.jump_used = state.modern.dash_used = 0;
+  }
+  bool air = !grounded && (action == 6 || action == 8 || state.modern.dash_ticks);
+  if (air && (r[0xbe3] & 128) && !state.modern.jump_used &&
+      (!terrain_query || !standing_blocked(r))) {
+    end_air_dash(r); MmxZeroCancel(r);
+    state.modern.jump_used = 1;
+    r[0xbaa] = 6; r[0xbab] = 0; r[0xbfd] = 0;
+    /* Same initial jump speed/gravity as X1/X3's native action-6 row at
+     * $86:B9C3. The native initializer retains water and ceiling handling. */
+    putword(r + 0xbc4, 0x0553); r[0xbc6] = 0x40;
+    putword(r + 0xc04, 0x0178);
+    r[0xbe3] &= (uint8_t)~128;
+    return;
+  }
+  if (state.modern.dash_ticks && (!(r[0xbde] & 128) ||
+      (r[0xbdf] & (state.modern.dash_facing ? 2 : 1)) || (r[0xc06] & 3)))
+    end_air_dash(r);
+  if (air && !state.modern.dash_ticks && !state.modern.dash_used &&
+      (r[0xbe2] & 128) && !state.slash) {
+    state.modern.dash_used = 1; state.modern.dash_ticks = 18;
+    state.modern.dash_facing = (r[0xbdf] & 3) == 1 ? 64 :
+        (r[0xbdf] & 3) == 2 ? 0 : r[0xc11] & 64;
+    r[0xbaa] = 0x14; r[0xbab] = 0;
+  }
+  if (state.modern.dash_ticks) {
+    /* Run the native dash controller and real terrain probes. Its vertical
+     * position is stationary; only its ground precondition is synthesized. */
+    r[0xc06] |= 4; r[0xc26] |= 64; r[0xbde] |= 128;
+    r[0xbe3] &= (uint8_t)~128;
+    r[0xc11] = state.modern.dash_facing;
+    putword(r + 0xbc4, 0);
+  }
+}
+void MmxZeroPlayerMotion(uint8_t r[0x20000], unsigned object) {
+  if (!MmxZeroModern() || !r || object != 0xba8 || !state.modern.dash_ticks) return;
+  putword(r + 0xc04, 0x0375);
+  putword(r + 0xbc2, state.modern.dash_facing ? 0x0375 : -0x0375);
+  r[0xbfa] = 0x20;
+}
+static bool start_slash(uint8_t *r) {
+  if (modern_behavior && (r[0xbd3] & 4) && terrain_query && standing_blocked(r)) return false;
+  unsigned d = free_projectile(r);
+  if (!d) return false;
+  end_air_dash(r);
+  clear_charge(r); state.combo = state.saber_ready = 0; state.slash = 1;
+  state.air = !(r[0xbd3] & 4); state.facing = r[0xc11] & 64;
+  state.hit_slots = 0; state.projectile = (uint16_t)d;
+  state.modern.slash_buffer = state.modern.hit_phase = 0;
+  memset(r + d, 0, 64); r[d] = 1; r[d + 1] = 2;
+  r[d + 10] = 3; r[d + 0x11] = r[0xbb9];
+  putword(r + d + 0x3e, 0x5a53); ++r[0xbdd];
+  return true;
+}
 void MmxZeroPlayerTick(uint8_t r[0x20000]) {
   if (!MmxZeroActive() || !r) return;
   unsigned action = r[0xbaa];
@@ -534,6 +628,26 @@ void MmxZeroPlayerTick(uint8_t r[0x20000]) {
       (action <= 8 || action == 0x10 || action == 0x12 || action == 0x14 || action == 0x20);
   if (!playable) { MmxZeroCancel(r); return; }
   bool held = (r[0xbdf] & 64) != 0, pressed = (r[0xbe3] & 64) != 0;
+  if (modern_behavior) {
+    /* Direct saber uses the same ground/air art and collision arc. Retain
+     * every pose, shortening only the long follow-through hold. */
+    state.charge = state.charge_phase = state.combo = state.saber_ready = 0;
+    state.burst = state.burst_end = 0;
+    if (state.slash && pressed && state.slash >= 32) state.modern.slash_buffer = 6;
+    if (state.slash) {
+      if (++state.slash == 23) state.slash = 26;
+      else if (state.slash == 32) state.slash = 37;
+      if (state.slash > 44) {
+        bool queued = state.modern.slash_buffer || pressed;
+        MmxZeroCancel(r);
+        if (r[0xbd3] & 4) r[0xbab] = 0;
+        if (queued) start_slash(r);
+      } else if (state.modern.slash_buffer) --state.modern.slash_buffer;
+    } else if (pressed) start_slash(r);
+    clear_charge(r);
+    r[0xbdf] &= (uint8_t)~64; r[0xbe3] &= (uint8_t)~64;
+    goto slash_update;
+  }
   if (state.charge >= 21 || (state.combo && state.saber_ready))
     state.charge_phase = (uint8_t)((state.charge_phase + 1) % 88);
   else state.charge_phase = 0;
@@ -556,15 +670,7 @@ void MmxZeroPlayerTick(uint8_t r[0x20000]) {
         start_burst(r,2);
       }
     } else if (state.saber_ready && !state.shot_mask && !r[0xc25]) {
-      unsigned d = free_projectile(r);
-      if (d) {
-        clear_charge(r); state.combo = state.saber_ready = 0; state.slash = 1;
-        state.air = !(r[0xbd3] & 4); state.facing = r[0xc11] & 64;
-        state.hit_slots = 0; state.projectile = (uint16_t)d;
-        memset(r + d, 0, 64); r[d] = 1; r[d + 1] = 2;
-        r[d + 10] = 3; r[d + 0x11] = r[0xbb9];
-        putword(r + d + 0x3e, 0x5a53); ++r[0xbdd];
-      }
+      start_slash(r);
     }
   } else if (!state.burst && !state.combo) {
     if (held) {
@@ -621,7 +727,16 @@ void MmxZeroPlayerTick(uint8_t r[0x20000]) {
   if (state.combo || state.burst) {
     r[0xbdf] &= (uint8_t)~64; r[0xbe3] &= (uint8_t)~64;
   }
+slash_update:
   if (state.slash) {
+    if (modern_behavior) {
+      state.air = !(r[0xbd3] & 4);
+      /* Two contact windows, nine ticks apart. Native enemy/boss immunity
+       * and reactions still decide whether the second contact can land. */
+      if (state.slash >= 16 && !state.modern.hit_phase) {
+        state.modern.hit_phase = 1; state.hit_slots = 0;
+      }
+    }
     r[0xbde] = 0; r[0xbdf] &= 128; r[0xbe2] = r[0xbe3] = 0;
     r[0xc11] = state.facing; clear_charge(r);
     r[0xbc2] = r[0xbc3] = 0;
@@ -638,6 +753,12 @@ void MmxZeroPlayerTick(uint8_t r[0x20000]) {
   }
 }
 void MmxZeroPlayerEnd(uint8_t r[0x20000]) {
+  if (MmxZeroModern() && r && state.modern.dash_ticks) {
+    r[0xc06] &= (uint8_t)~4;
+    if (r[0xbaa] != 0x14 || (r[0xbd3] & 4) || state.modern.dash_ticks == 1)
+      end_air_dash(r);
+    else --state.modern.dash_ticks;
+  }
   if (poses && r && state.burst) {
     if (!state.air || burst_holds_air()) putword(r + 0xbc4,state.held_vy);
     if (burst_holds_air()) r[0xbc6] = state.held_gravity;
@@ -656,7 +777,7 @@ unsigned MmxZeroDamage(uint8_t r[0x20000], unsigned enemy, unsigned projectile, 
   unsigned bit = 1u << ((enemy - 0xe68) / 64);
   if (state.hit_slots & bit) return 0;
   state.hit_slots |= (uint16_t)bit;
-  return 16;
+  return modern_behavior ? 3 : 16;
 }
 unsigned MmxZeroHitbox(const uint8_t r[0x20000], unsigned enemy, unsigned projectile, unsigned original) {
   if (poses && own_projectile(r, projectile) && projectile == state.projectile &&

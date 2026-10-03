@@ -1,4 +1,6 @@
 #include "mmx_coop.h"
+_Static_assert(sizeof(MmxCoopState) == MMX_COOP_LEGACY_STATE_SIZE + 2 * sizeof(MmxZeroModernState),
+               "Update the legacy co-op importer when its layout changes");
 #include "cpu_state.h"
 #include "snes/interp_bridge.h"
 #include "snes/snes.h"
@@ -8,11 +10,11 @@
 extern uint8_t g_ram[0x20000];
 extern Snes *g_snes;
 
-static MmxCoopState state;
+static MmxCoopState state = {.players = {{.character = MMX_COOP_X}, {.character = MMX_COOP_ZERO}}};
 static bool enabled;
 static unsigned starting_character;
-_Static_assert(sizeof(MmxCoopPlayer) == 2268, "Co-op player save ABI");
-_Static_assert(sizeof(MmxCoopState) == 4648, "Co-op save ABI");
+_Static_assert(sizeof(MmxCoopPlayer) == 2276, "Co-op player save ABI");
+_Static_assert(sizeof(MmxCoopState) == 4664, "Co-op save ABI");
 static bool join_tick(uint8_t *r);
 static bool scene_tick(uint8_t *r);
 static unsigned word(const uint8_t *p) {return p[0]|p[1]<<8;}

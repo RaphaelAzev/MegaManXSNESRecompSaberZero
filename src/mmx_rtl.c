@@ -361,7 +361,7 @@ void mmx_host_yield(uint8_t countdown) {
 #include "snes/saveload.h"
 
 #define MMX_SAV_CHUNK_MAGIC   0x4D4D5854u  /* "MMXT" */
-#define MMX_SAV_CHUNK_VERSION 14u /* Two independent co-op player contexts. */
+#define MMX_SAV_CHUNK_VERSION 15u /* Per-player Modern Zero movement/combat. */
 
 typedef struct MmxSavChunk {
   uint32_t magic, version;
@@ -400,7 +400,7 @@ void MmxStateSaveExtra(struct SaveLoadInfo *sli) {
   MmxSavChunk c;
   memset(&c, 0, sizeof(c));
   c.magic = MMX_SAV_CHUNK_MAGIC;
-  c.version = MmxCoopEnabled() ? MMX_SAV_CHUNK_VERSION : MmxWeaponsEnabled() ? 13 : MmxZeroEnabled() ? 8 : 3;
+  c.version = MmxZeroEnabled() ? MMX_SAV_CHUNK_VERSION : MmxWeaponsEnabled() ? 13 : 3;
   mmx_save_cpu(&c.main_cpu, &g_cpu);
   for (int i = 0; i < MMX_NSLOTS; i++) {
     c.occupied[i]    = (g_slot_fiber[i] != NULL);
@@ -421,7 +421,7 @@ void MmxStateSaveExtra(struct SaveLoadInfo *sli) {
   RtlSaveExecutionState(sli);
   if (c.version >= 4) {
     MmxZeroState zero = MmxZeroGetState();
-    sli->func(sli, &zero, sizeof(zero));
+    sli->func(sli, &zero, c.version >= 15 ? sizeof(zero) : MMX_ZERO_HEALTH_STATE_SIZE);
   }
   if (c.version >= 9) {
     MmxWeaponsState weapons = MmxWeaponsGetState();
@@ -467,7 +467,8 @@ void MmxStateLoadExtra(struct SaveLoadInfo *sli, uint32_t version) {
       size_t zero_size = g_load_chunk.version == 4 ? MMX_ZERO_LEGACY_STATE_SIZE :
           g_load_chunk.version == 5 ? MMX_ZERO_ANIMATION_STATE_SIZE :
           g_load_chunk.version == 6 ? MMX_ZERO_COMBAT_STATE_SIZE :
-          g_load_chunk.version == 7 ? MMX_ZERO_SWAP_STATE_SIZE : sizeof(g_load_zero);
+          g_load_chunk.version == 7 ? MMX_ZERO_SWAP_STATE_SIZE :
+          g_load_chunk.version < 15 ? MMX_ZERO_HEALTH_STATE_SIZE : sizeof(g_load_zero);
       if (RtlStateBytesRemaining(sli) >= zero_size)
         sli->func(sli, &g_load_zero, zero_size);
       else g_load_chunk_ok = 0;
@@ -493,8 +494,13 @@ void MmxStateLoadExtra(struct SaveLoadInfo *sli, uint32_t version) {
     }
   }
   if (g_load_complete && g_load_chunk.version >= 14) {
-    if (RtlStateBytesRemaining(sli) >= sizeof(g_load_coop)) {
-      sli->func(sli, &g_load_coop, sizeof(g_load_coop));
+    size_t coop_size = g_load_chunk.version == 14 ? MMX_COOP_LEGACY_STATE_SIZE : sizeof(g_load_coop);
+    if (RtlStateBytesRemaining(sli) >= coop_size) {
+      if (g_load_chunk.version == 14) {
+        uint8_t legacy[MMX_COOP_LEGACY_STATE_SIZE];
+        sli->func(sli, legacy, sizeof(legacy));
+        MmxCoopImportLegacy(&g_load_coop, legacy);
+      } else sli->func(sli, &g_load_coop, sizeof(g_load_coop));
       if (!MmxCoopValidState(&g_load_coop)) g_load_chunk_ok = 0;
     } else g_load_chunk_ok = 0;
   }

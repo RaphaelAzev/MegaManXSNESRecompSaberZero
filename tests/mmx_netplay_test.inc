@@ -18,6 +18,18 @@ static void netplay_policy_checks(const char *root, const char *rom, const char 
   static const RecompLauncherCNetplayCallbacks net = {0};
   RecompLauncherCGameInfo gi = {.mods = base, .netplay = &net, .netplay_supported = 1};
   MmxNetplayConfigureLauncher(&gi);
+  const RecompLauncherCModProvider *linked = gi.mods;
+  char behavior[32] = {0};
+  snes_mod_runtime_feature_option_value_c(zero,"zero","behavior",behavior,sizeof(behavior));
+  check(!strcmp(behavior,"x3"),"X3 Behavior is the default");
+  check(linked->feature_set_option(linked->ctx,zero,"zero","behavior","modern"),"select Modern from Add Zero");
+  snes_mod_runtime_feature_option_value_c(coop,"coop","behavior",behavior,sizeof(behavior));
+  check(!strcmp(behavior,"modern"),"co-op shares the Modern selection");
+  check(linked->commit(linked->ctx,rom),"shared behavior persists");
+  check(snes_mod_runtime_initialize_c(root,"megaman-x-us",digest),"reload shared preference");
+  snes_mod_runtime_feature_option_value_c(coop,"coop","behavior",behavior,sizeof(behavior));
+  check(!strcmp(behavior,"modern"),"shared preference survives relaunch");
+  snes_mod_runtime_effective_set_c(offline,sizeof(offline));
   LauncherModel m = {0};
   m.netplay_supported = true; m.netplay_mode_changed = gi.netplay_mode_changed;
   launcher_model_set_view(&m, LNG_VIEW_NETPLAY_MODE);
@@ -33,6 +45,10 @@ static void netplay_policy_checks(const char *root, const char *rom, const char 
   check(!p->feature_set_option(p->ctx, wide, "widescreen", "aspect", "adaptive"), "Adaptive is unavailable online");
   check(!gi.netplay->allow_spectators_get && !gi.netplay->allow_spectators_set &&
       !gi.netplay->host_can_spectate(NULL), "spectator controls are unavailable");
+  check(p->feature_set_option(p->ctx,coop,"coop","behavior","x3"),"select X3 from co-op");
+  snes_mod_runtime_feature_option_value_c(zero,"zero","behavior",behavior,sizeof(behavior));
+  check(!strcmp(behavior,"x3"),"Add Zero shares the co-op selection");
+  check(p->feature_set_option(p->ctx,coop,"coop","behavior","modern"),"host chooses Modern for match");
   check(p->feature_set_option(p->ctx, coop, "coop", "player1", "zero"), "host chooses the P1 character");
   const char *ratios[] = {"16:9", "21:9", "32:9"};
   for (int ratio = 0; ratio < 3; ++ratio) {
@@ -42,6 +58,7 @@ static void netplay_policy_checks(const char *root, const char *rom, const char 
     memset(g_ram + 0x1e60, 0, 12);
     MmxPasswordPrefill(g_ram);
     check(!g_ram[0x1e60], "online password screen keeps synchronized defaults");
+    check(MmxZeroModern(),"Modern option reaches the activated Zero controller");
     check(MmxCoopEnabled() && MmxCoopGetState().players[0].character == MMX_COOP_ZERO, "netplay activates the selected roster");
     int expected_width = 0;
     for (int pixels = 0; pixels < 3; ++pixels) {

@@ -46,6 +46,7 @@ static void zero_capture(const char *base, const char *suffix) {
 }
 #include "mmx_coop_test.inc"
 #include "mmx_netplay_test.inc"
+#include "mmx_zero_modern_test.inc"
 #include "mmx_graphics_pacing_test.inc"
 static void zero_motion_checks(const char *fixture) {
   const char *path = getenv("MMX_ZERO_MOTION_REFERENCE");
@@ -1729,18 +1730,20 @@ static void zero_state_checks(const char *assets, const char *fixture, uint8 *st
     if(magic==0x4d4d5854u) { chunk=i; break; }
   }
   check(chunk!=0,"Zero game chunk located");
+  size_t zero_offset=burst_n-sizeof(MmxZeroState)-sizeof(MmxWeaponsState)-
+      sizeof(MmxWeaponCombatState)-sizeof(MmxCoopState);
   for(uint32_t v=4;v<=5;++v) {
     memcpy(start+chunk+4,&v,4);
     size_t prefix=v==4?MMX_ZERO_LEGACY_STATE_SIZE:MMX_ZERO_ANIMATION_STATE_SIZE;
-    check(RtlLoadSnapshotFromMemory(start,burst_n-sizeof(MmxZeroState)+prefix),"legacy Zero state prefix loads");
+    check(RtlLoadSnapshotFromMemory(start,zero_offset+prefix),"legacy Zero state prefix loads");
     check(MmxZeroGetState().combo==1 && MmxZeroGetState().saber_ready && !MmxZeroGetState().burst,"legacy stored combo migrates");
   }
   uint32_t v6=6; memcpy(start+chunk+4,&v6,4);
-  check(RtlLoadSnapshotFromMemory(start,burst_n-sizeof(MmxZeroState)+MMX_ZERO_COMBAT_STATE_SIZE),
+  check(RtlLoadSnapshotFromMemory(start,zero_offset+MMX_ZERO_COMBAT_STATE_SIZE),
         "pre-swap v6 save retains combat prefix");
   check(MmxZeroActive() && !MmxZeroSwapping(),"pre-swap save defaults to Zero without an exchange");
   uint32_t v7=7; memcpy(start+chunk+4,&v7,4);
-  check(RtlLoadSnapshotFromMemory(start,burst_n-sizeof(MmxZeroState)+MMX_ZERO_SWAP_STATE_SIZE),
+  check(RtlLoadSnapshotFromMemory(start,zero_offset+MMX_ZERO_SWAP_STATE_SIZE),
         "pre-HP v7 save retains character/swap prefix");
   check(!MmxZeroGetState().hp_valid,"pre-HP save seeds separate pools from native HP on first update");
   check(RtlLoadSnapshot(fixture), "restore for combo probe");
@@ -1955,6 +1958,10 @@ int main(int argc, char **argv) {
     return 0;
   }
 #endif
+  if (getenv("MMX_ZERO_MODERN_TEST")) {
+    modern_checks(zero_assets,getenv("MMX_ZERO_TEST_FIXTURE"),start,expected,actual,cap);
+    return 0;
+  }
   if (getenv("MMX_COOP_TEST")) {
     coop_checks(zero_assets,getenv("MMX_ZERO_TEST_FIXTURE"),start,expected,actual,cap);
     return 0;

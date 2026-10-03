@@ -65,6 +65,7 @@ static void hook(CpuState *cpu, uint32_t pc) {
     case 0x01971f: case 0x019796: case 0x0198ff: if (MmxZeroActive()) cpu->A |= 8; break;
     case 0x01815c:
       MmxZeroSlideTick(g_ram);
+      MmxZeroMovementTick(g_ram);
       MmxWeaponsPlayerTick(g_ram);
       if (!MmxWeaponsCombatActive()) MmxZeroPlayerTick(g_ram);
       break;
@@ -80,7 +81,9 @@ static void hook(CpuState *cpu, uint32_t pc) {
           interp_bridge_pre_opcode_redirect((pc & 0xff0000) | slide[i].to);
       break;
     }
-    case 0x02823e: MmxWeaponsPlayerMotion(g_ram,cpu->D); break;
+    case 0x02823e:
+      MmxZeroPlayerMotion(g_ram,cpu->D);
+      MmxWeaponsPlayerMotion(g_ram,cpu->D); break;
     case 0x018b04: MmxZeroDeathOrbSpawn(g_ram, cpu->D, cpu->X); break;
     case 0x048f07: MmxZeroAnimationStart(cpu->D, cpu->A & 255); break;
     case 0x048eea: MmxZeroAnimationAdvance(cpu->D); break;
@@ -203,10 +206,12 @@ static void activate(void) {
   /* Co-op claims this existing plugin as its character-mode exclusion key.
    * Its dedicated activation below owns preparation in that mode. */
   if(snes_mod_runtime_feature_enabled_c("megaman-x.coop","coop")) return;
-  char path[4096],start[16]={0};
+  char path[4096],start[16]={0},behavior[16]={0};
   if (!prepare("megaman-x.character.zero","zero",3,1,path)) return;
   snes_mod_runtime_feature_option_value_c("megaman-x.character.zero","zero","start",start,sizeof(start));
   MmxZeroSetStartCharacter(strcmp(start,"zero") != 0);
+  snes_mod_runtime_feature_option_value_c("megaman-x.character.zero","zero","behavior",behavior,sizeof(behavior));
+  MmxZeroSetModern(!strcmp(behavior,"modern"));
   MmxZeroResetState();
   if (!MmxZeroLoad(path)) {
     fprintf(stderr, "[mmx-zero] Cannot load extracted Zero assets: %s\n", path); return;
@@ -215,9 +220,11 @@ static void activate(void) {
   fprintf(stderr, "[mmx-zero] Zero 0.0.1 enabled; starting as %s\n", strcmp(start,"zero") ? "X" : "Zero");
 }
 static void activate_coop(void) {
-  char path[4096],character[32]={0};
+  char path[4096],character[32]={0},behavior[16]={0};
   if(!prepare("megaman-x.coop","coop",3,1,path) || !MmxZeroLoad(path)) return;
   snes_mod_runtime_feature_option_value_c("megaman-x.coop","coop","player1",character,sizeof(character));
+  snes_mod_runtime_feature_option_value_c("megaman-x.coop","coop","behavior",behavior,sizeof(behavior));
+  MmxZeroSetModern(!strcmp(behavior,"modern"));
   unsigned p1=!strcmp(character,"zero") ? MMX_COOP_ZERO : MMX_COOP_X;
   MmxZeroRegisterHooks();MmxCoopRegisterHooks();
   if(!MmxCoopEnable(p1)) {
@@ -243,6 +250,7 @@ static void reset(void) {
   MmxCoopDisable();
   if (MmxWeaponsEnabled()) g_ram[0x1f12] = 0;
   MmxZeroSetStartCharacter(false);
+  MmxZeroSetModern(false);
   MmxWeaponsCancelShots(g_ram); MmxZeroCancel(g_ram); MmxZeroDisable(); MmxWeaponsDisable();
 }
 SNES_MOD_CONSTRUCTOR(mmx_register_zero_plugin) {

@@ -52,6 +52,48 @@ static bool ceiling_query(const uint8_t *r, int x, int y) { (void)r; (void)x; re
 static void tick(unsigned held, unsigned pressed) {
   ram[0xbdf] = held; ram[0xbe3] = pressed; MmxZeroPlayerTick(ram);
 }
+static void modern_checks(void) {
+  MmxZeroSetTerrainQuery(NULL);
+  MmxZeroSetModern(true); MmxZeroResetState(); player();
+  tick(64,64);
+  MmxZeroState s = MmxZeroGetState();
+  assert(s.slash == 1 && !s.charge && !s.burst && s.modern.enabled);
+  assert(!(ram[0xbdf] & 64) && !(ram[0xbe3] & 64));
+  for (unsigned i=0;i<6;++i) tick(64,0);
+  assert(MmxZeroDamage(ram,0xe68,s.projectile,3)==3);
+  assert(MmxZeroHitbox(ram,0xe68,s.projectile,0xffb0)==0);
+  for (unsigned i=0;i<9;++i) tick(64,0);
+  assert(MmxZeroGetState().modern.hit_phase==1);
+  assert(MmxZeroHitbox(ram,0xe68,s.projectile,0xffb0)==0xffb0);
+  assert(MmxZeroDamage(ram,0xe68,s.projectile,3)==3);
+  assert(MmxZeroDamage(ram,0xe68,s.projectile,3)==0);
+  for (unsigned i=0;i<40;++i) tick(64,0);
+  assert(!MmxZeroGetState().slash && !ram[s.projectile] && !MmxZeroGetState().charge);
+  /* Fresh jump edges, a shared air-dash allowance, and exact restore. */
+  player(); MmxZeroResetState(); ram[0xbd3]=0; ram[0xbaa]=8; ram[0xbab]=2;
+  ram[0xbe3]=128; MmxZeroMovementTick(ram);
+  assert(MmxZeroGetState().modern.jump_used && ram[0xbaa]==6);
+  assert(ram[0xbc4]==0x53 && ram[0xbc5]==5 && ram[0xbc6]==0x40);
+  ram[0xbc4]=ram[0xbc5]=0; ram[0xbe3]=128; MmxZeroMovementTick(ram);
+  assert(!ram[0xbc4] && !ram[0xbc5]); /* No third jump. */
+  ram[0xbe3]=0; ram[0xbe2]=ram[0xbde]=128; MmxZeroMovementTick(ram);
+  s=MmxZeroGetState(); assert(s.modern.dash_used && s.modern.dash_ticks==18);
+  MmxZeroPlayerMotion(ram,0xba8); assert(ram[0xbc2]==0x75 && ram[0xbc3]==3);
+  MmxZeroCancel(ram); assert(MmxZeroGetState().modern.jump_used);
+  MmxZeroResetState(); MmxZeroSetState(s);
+  MmxZeroState restored=MmxZeroGetState();
+  assert(!memcmp(&restored.modern,&s.modern,sizeof(s.modern)));
+  ram[0xbde]=ram[0xbe2]=0; MmxZeroMovementTick(ram);
+  assert(!MmxZeroGetState().modern.dash_ticks && ram[0xbaa]==8);
+  ram[0xbe2]=ram[0xbde]=128; MmxZeroMovementTick(ram);
+  assert(!MmxZeroGetState().modern.dash_ticks); /* No second dash. */
+  ram[0xbd3]=4; MmxZeroMovementTick(ram);
+  assert(!MmxZeroGetState().modern.jump_used && !MmxZeroGetState().modern.dash_used);
+  s=MmxZeroGetState(); s.active_x=1; MmxZeroSetState(s);
+  memcpy(before,ram,sizeof(ram)); MmxZeroMovementTick(ram); tick(ram[0xbdf],ram[0xbe3]);
+  assert(!memcmp(before,ram,sizeof(ram))); /* X remains native. */
+  MmxZeroSetModern(false); MmxZeroResetState(); player();
+}
 int main(void) {
   player(); memcpy(before, ram, sizeof(ram));
   tick(0,0); assert(!memcmp(before, ram, sizeof(ram)));
@@ -187,6 +229,7 @@ int main(void) {
   MmxZeroState start = MmxZeroGetState(); start.active_x = 0; MmxZeroSetState(start);
   assert(MmxZeroActive()); /* A saved character wins over the start choice. */
   MmxZeroSetStartCharacter(false); MmxZeroResetState(); assert(MmxZeroActive());
+  modern_checks();
   MmxZeroDisable(); MmxZeroSetCollisionRom(rom,sizeof(rom));
   assert(!memcmp(rom,clean,sizeof(rom)));
   remove("zero-test.bin"); remove("zero-test-bad.bin");

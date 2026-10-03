@@ -6,7 +6,12 @@
 enum { MMX_ZERO_WIDTH = 128, MMX_ZERO_HEIGHT = 128, MMX_ZERO_POSES = 152, MMX_ZERO_CHARGE_POSES = 66,
        MMX_ZERO_ANIMATION_BYTES = 0x474, MMX_ZERO_MUZZLE_BYTES = 196,
        MMX_ZERO_LEGACY_STATE_SIZE = 12, MMX_ZERO_ANIMATION_STATE_SIZE = 18,
-       MMX_ZERO_COMBAT_STATE_SIZE = 30, MMX_ZERO_SWAP_STATE_SIZE = 36 };
+       MMX_ZERO_COMBAT_STATE_SIZE = 30, MMX_ZERO_SWAP_STATE_SIZE = 36,
+       MMX_ZERO_HEALTH_STATE_SIZE = 40 };
+typedef struct MmxZeroModernState {
+  uint8_t enabled, jump_used, dash_used, dash_ticks;
+  uint8_t dash_facing, slash_buffer, hit_phase, reserved;
+} MmxZeroModernState;
 typedef struct MmxZeroState {
   uint16_t charge, slash, projectile;
   /* Reuses the formerly unused cooldown byte without changing save layout. */
@@ -22,6 +27,7 @@ typedef struct MmxZeroState {
   uint8_t active_x, swap_phase, swap_tick, swap_fraction;
   int16_t swap_y;
   uint8_t hp[2], hp_valid, hp_max; /* Index 0 = Zero, 1 = X; shared maximum. */
+  MmxZeroModernState modern;
 } MmxZeroState;
 bool MmxZeroLoad(const char *path);
 void MmxZeroDisable(void);
@@ -73,5 +79,10 @@ void MmxZeroSetState(MmxZeroState state);
 void MmxZeroResetState(void);
 /* Start new sessions as X instead of Zero; both remain exchangeable. */
 void MmxZeroSetStartCharacter(bool x);
+/* Shared launcher preference; X3 behavior remains the default. */
+void MmxZeroSetModern(bool enabled);
+bool MmxZeroModern(void);
+void MmxZeroMovementTick(uint8_t ram[0x20000]);
+void MmxZeroPlayerMotion(uint8_t ram[0x20000], unsigned object);
 void MmxZeroCancel(uint8_t ram[0x20000]);
 void MmxZeroRegisterHooks(void);
