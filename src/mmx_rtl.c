@@ -1426,7 +1426,7 @@ uint16 MmxWsStageLineAdjust(uint16 v, uint16 dpage, uint16 xoff) {
 
 /* ------------------------------------------------------------------ */
 /* WS-CHRBIND -- fix attempt #2 for the widescreen margin-enemy garbled
- * CHR (ISSUES.md "Widescreen margin-enemy garbled CHR"). Fix attempt #1
+ * CHR. Fix attempt #1
  * gated the wide spawn admission on the VRAM-CHR slot's raw *value*
  * being nonzero, and was rejected: zero is also the legitimate tile-base
  * for any enemy whose real page happens to be page 0, so that predicate
@@ -1471,8 +1471,8 @@ uint16 MmxWsStageLineAdjust(uint16 v, uint16 dpage, uint16 xoff) {
  * pattern-match time, that nothing between the anchor and the tile-base
  * store reassigns cpu->X or cpu->D). No re-derivation of gfx-index ->
  * slot is needed or performed here (the earlier record+3 / $A5E5
- * host-side transcription was measured WRONG for composite mechs -- see
- * ISSUES.md's 2026-08-06 note -- so this fix deliberately never repeats
+ * host-side transcription was measured WRONG for composite mechs on
+ * 2026-08-06, so this fix deliberately never repeats
  * that derivation).
  *
  * The host latches {object base, slot, the slot's WRAM entry at bind

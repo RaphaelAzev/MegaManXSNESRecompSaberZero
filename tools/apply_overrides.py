@@ -98,8 +98,7 @@ WS-SHOT-CULL - widen X's projectile lifetime window (X axis only).
   exit retains its native boundary so the cutscene can finish before a wall.
 
 WS-CHRBIND - observe (never re-derive) the OAM tile-base bind for the
-  margin-enemy garbled-CHR fix (see ISSUES.md "Widescreen margin-enemy
-  garbled CHR", fix attempt #2). The OAM tile-base/palette bind sequence
+  margin-enemy garbled-CHR fix (fix attempt #2). The OAM tile-base/palette bind sequence
   -- read WRAM $7F:8200+X (tile-base) -> store [D+0x18]; read $7F:8300+X
   (palette) -> store [D+0x11] -- is INLINED per enemy type across the
   generated code, not a single shared function: bank_82_827D_M1X1

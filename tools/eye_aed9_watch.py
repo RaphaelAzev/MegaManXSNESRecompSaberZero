@@ -10,7 +10,7 @@ launch window:
   X pos word [D+0x04] (+ hi byte [D+0x06]),  X vel [D+0x1a],  fly-timer [D+0x34],
   Y pos word [D+0x07].
 This shows the +0x400 position discontinuity WITH attribution, and the exact
-fly-timer AED9 computed -- the decisive measurement from ISSUES.md.
+fly-timer AED9 computed.
 
 Usage: python tools/eye_aed9_watch.py
 """

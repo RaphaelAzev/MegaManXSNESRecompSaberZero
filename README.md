@@ -57,11 +57,7 @@ Rev 1 build.
 | &#9745; | **X3 weapons** | All eight boss weapons and their charged attacks, adapted for X and Zero. |
 | &#9745; | **Netplay** | Two-player online co-op with lobbies and rollback, plus optional fixed widescreen. |
 
-The game has been played through on Windows and Linux/Steam Deck. The Steam
-Deck playthrough by **littlerobotfairy** is available as a
-[Twitch VOD](https://www.twitch.tv/videos/2820912518).
-See [known issues](ISSUES.md) and the [co-op validation notes](docs/coop-port.md)
-for current limits.
+See the [co-op validation notes](docs/coop-port.md) for current limits.
 
 ## Quick start (pre-built release)
 
