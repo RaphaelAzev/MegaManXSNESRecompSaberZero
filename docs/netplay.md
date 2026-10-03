@@ -46,6 +46,17 @@ window exits. This first shared-desktop-host integration does **not** retain
 the waiting room for a rematch: create/join a new room for the next match.
 No save state is loaded on return or on a normal relaunch.
 
+## Diagnostics
+
+Enabling the **Tier 2 diagnostics** mod (Developer group) also turns on
+snesrecomp's netplay diagnostics (`SNES_NET_DIAG`, see snesrecomp
+`docs/RECOMP_NET.md`). Each match writes `saves/netplay/net_diag.jsonl`: a
+summary line with the transport, lobby, ICE state and NAT path (`host`, `stun`,
+`turn` or `lan`) and the selected candidates, then twice-a-second samples of the
+path, admit stalls and packet counters. The setting is read when the first
+match starts and stays on for the rest of that run, even if the room's mod plan
+drops the developer mod. An explicit `SNES_NET_DIAG` environment value wins.
+
 ## Implementation and reference
 
 Gundam Wing: Endless Duel's `CMakeLists.txt` and `src/main.c` are the reference

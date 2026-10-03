@@ -19,6 +19,9 @@
 #include "mmx_default_config.h"
 #include "mmx_netplay.h"
 #include "mmx_startup.h"
+#include "mmx_coop_trace.h"
+#include "host_paths.h"
+#include <ctype.h>
 
 #ifndef MMX_VARIANT_JP
 #define MMX_VARIANT_JP 0
@@ -160,6 +163,8 @@ static void MmxAfterConfig(void) {
   }
 }
 static void MmxAfterFrame(const SnesDesktopHostFrameStats *stats) {
+  /* Netplay resimulates frames and must never pause for disk writes. */
+  MmxCoopTraceAfterFrame(!MmxNetplayActive());
   if (s_benchmark_frames && stats->frame == (unsigned)s_benchmark_frames) {
     double seconds = stats->run_seconds;
     printf("SNESRECOMP_BENCHMARK {\"game\":\"Mega Man X\",\"frames\":%u,"
@@ -169,8 +174,45 @@ static void MmxAfterFrame(const SnesDesktopHostFrameStats *stats) {
   }
 }
 
+/* Co-op diagnostics: --coop-trace[=all], else MMX_COOP_TRACE, else
+ * logging.ini [Logging] CoopTrace. 0/off disables; "all" adds every frame. */
+static unsigned MmxCoopTraceValue(const char *value) {
+  if (!value) return MMX_COOP_TRACE_OFF;
+  while (isspace((unsigned char)*value)) ++value;
+  if (!*value || *value == '0' || !strncmp(value, "off", 3)) return MMX_COOP_TRACE_OFF;
+  if (*value == '2' || !strncmp(value, "all", 3)) return MMX_COOP_TRACE_ALL;
+  return MMX_COOP_TRACE_ANOMALIES;
+}
+static void MmxConfigureCoopTrace(int *argc, char **argv) {
+  const char *chosen = NULL;
+  char ini[1024], line[256];
+  for (int arg = 1; arg < *argc; ++arg) {
+    if (strcmp(argv[arg], "--coop-trace") && strncmp(argv[arg], "--coop-trace=", 13)) continue;
+    chosen = argv[arg][12] == '=' ? argv[arg] + 13 : "1";
+    for (int i = arg; i + 1 <= *argc; ++i) argv[i] = argv[i + 1];
+    --*argc;
+    break;
+  }
+  if (!chosen) chosen = getenv("MMX_COOP_TRACE");
+  FILE *config = !chosen && snesrecomp_exe_dir_path("logging.ini", ini, sizeof(ini)) ? fopen(ini, "r") : NULL;
+  static char from_ini[64];
+  while (config && fgets(line, sizeof(line), config)) {
+    char *p = line;
+    while (isspace((unsigned char)*p)) ++p;
+    if (strncmp(p, "CoopTrace", 9)) continue;
+    p += 9;
+    while (isspace((unsigned char)*p)) ++p;
+    if (*p != '=') continue;
+    snprintf(from_ini, sizeof(from_ini), "%s", p + 1);
+    chosen = from_ini;
+  }
+  if (config) fclose(config);
+  MmxCoopTraceConfigure(MmxCoopTraceValue(chosen));
+}
+
 int MMX_DESKTOP_ENTRY(int argc, char **argv) {
   MmxStartupLogging();
+  MmxConfigureCoopTrace(&argc, argv);
   ConfigUseStateMenuDefaults();
   for (int arg = 1; arg + 1 < argc; ++arg) {
     if (strcmp(argv[arg], "--benchmark") && strcmp(argv[arg], "--benchmark-audio")) continue;

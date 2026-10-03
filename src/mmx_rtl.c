@@ -5,6 +5,7 @@
 #include "mmx_weapons.h"
 #include "mmx_weapon_combat.h"
 #include "mmx_coop.h"
+#include "mmx_coop_trace.h"
 #include "variables.h"
 #include "common_cpu_infra.h"
 #include "snes/snes.h"
@@ -535,6 +536,7 @@ void MmxOnStateLoaded(uint32_t version) {
   MmxWeaponsSetCombatState(g_load_weapon_combat);
   if (complete && g_load_chunk.version >= 14) MmxCoopSetState(&g_load_coop);
   else MmxCoopReset();
+  MmxCoopTraceStateLoaded();
   if (version < 5 || !g_load_chunk_ok) {
     /* Legacy v4 save: no chunk, no rebuild — preserve the historical
      * behavior exactly (live fibers limp along; loads are only reliable
@@ -999,6 +1001,7 @@ void RunOneFrameOfGame(void) {
   cpu_trace_px_breadcrumb(&g_cpu, 0x2003, "after_Internal");
   MmxZeroHealthSync(g_ram);
   MmxCoopCapture(g_ram);
+  MmxCoopTraceFrame(g_ram);
   g_first_frame_done = true;
   MmxCoopDiagnosticFrame(g_ram);
 }

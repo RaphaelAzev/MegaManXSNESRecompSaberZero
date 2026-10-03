@@ -1,4 +1,5 @@
 #include "mmx_coop.h"
+#include "mmx_coop_trace.h"
 _Static_assert(sizeof(MmxCoopState) == MMX_COOP_LEGACY_STATE_SIZE + 2 * sizeof(MmxZeroModernState),
                "Update the legacy co-op importer when its layout changes");
 #include "cpu_state.h"
@@ -19,6 +20,7 @@ _Static_assert(sizeof(MmxCoopState) == MMX_COOP_LEGACY_STATE_SIZE + 2 * sizeof(M
 
 extern uint8_t g_ram[0x20000];
 extern Snes *g_snes;
+extern int snes_frame_counter;
 
 static MmxCoopState state = {.players = {{.character = MMX_COOP_X}, {.character = MMX_COOP_ZERO}}};
 static bool enabled;
@@ -26,6 +28,15 @@ static unsigned starting_character;
 _Static_assert(sizeof(MmxCoopPlayer) == 2276, "Co-op player save ABI");
 _Static_assert(sizeof(MmxCoopState) == 4664, "Co-op save ABI");
 static bool join_tick(uint8_t *r);
+/* --coop-trace: observation only; see mmx_coop_trace.h. */
+static void trace_event(unsigned kind,uint32_t pc,unsigned a,unsigned b,const CpuState *cpu) {
+  MmxCoopTraceEvent e={(uint32_t)snes_frame_counter,pc,cpu?cpu->S:0,cpu?cpu->D:0,
+      (uint8_t)kind,(uint8_t)a,(uint8_t)b,state.current,state.anchor,state.controller_pass,
+      state.object_pass,state.contact_pass,state.pickup_pass,state.door_pass};
+  MmxCoopTraceRecord(&e);
+}
+#define TRACE(kind,pc,a,b,cpu) do { if (g_mmx_coop_trace) trace_event(MMX_COOP_EV_##kind,pc,a,b,cpu); } while (0)
+#define TRACE_MARK(seat,flags) do { if (g_mmx_coop_trace) MmxCoopTraceMark(seat,MMX_COOP_RAN_##flags); } while (0)
 static bool scene_tick(uint8_t *r);
 static unsigned word(const uint8_t *p) {return p[0]|p[1]<<8;}
 static void putword(uint8_t *p,unsigned v) {p[0]=(uint8_t)v;p[1]=(uint8_t)(v>>8);}
@@ -201,6 +212,7 @@ void MmxCoopCapture(uint8_t *r) {
 bool MmxCoopSelect(uint8_t *r, unsigned player) {
   if (!enabled || !state.initialized || !r || player > 1) return false;
   if (player == state.current) return true;
+  TRACE(SELECT,0,state.current,player,NULL);
   diagnostic_event(r,NULL,0,"select-before");
   MmxCoopCapture(r);
   state.current = (uint8_t)player;
@@ -255,6 +267,7 @@ void MmxCoopInitialize(uint8_t *r) {
 }
 bool MmxCoopFrameTick(uint8_t *r) {
   if (!enabled || !state.initialized) return MmxWeaponsFrameTick(r);
+  if (g_mmx_coop_trace) {MmxCoopTraceFrameBegin(&state);TRACE(FRAME,0,0,0,NULL);}
   /* The stage-clear weapon demonstration reuses the native player/shot
    * pools. It owns that single scripted actor; projecting either stored
    * co-op body here overwrites its weapon and recorded fire input. */
@@ -481,6 +494,7 @@ static void begin_scene(uint8_t *r) {
   MmxZeroState *z=&state.players[other].zero;
   z->swap_phase=1;z->swap_tick=z->swap_fraction=0;z->swap_y=0;
   state.scene_owner=(uint8_t)(state.anchor+1);state.scene_phase=1;
+  TRACE(SCENE,0,1,state.scene_owner,NULL);
   sound(r,0x0f);
 }
 static bool scene_tick(uint8_t *r) {
@@ -517,10 +531,12 @@ static void door_hook(CpuState *cpu,uint32_t pc) {
     if(!state.door_pass && !state.scene_owner && !(at==0xec98 && g_ram[0x1f41]) &&
         state.players[state.anchor^1].status==MMX_COOP_ALIVE) {
       state.door_pass=1;state.door_s=cpu->S;state.door_d=cpu->D;state.door_entry=(uint16_t)at;
+      TRACE(DOOR,pc,1,0,cpu);
     }
     return;
   }
   if(!state.door_pass || cpu->S!=state.door_s || cpu->D!=state.door_d) return;
+  TRACE(DOOR,pc,state.door_pass,0,cpu);
   if(at==0xe725 || at==0xecc7) {
     state.anchor=state.current;state.door_pass=0;begin_scene(g_ram);return;
   }
@@ -620,11 +636,15 @@ static void slime_hook(CpuState *cpu,uint32_t pc) {
   if(!enabled || !state.initialized) return;
   unsigned d=cpu->D,bit=slime_bit(d);
   if(!bit) return;
-  if((pc&65535)==0xa939) {MmxCoopSelect(g_ram,state.anchor);return;}
+  if((pc&65535)==0xa939) {
+    if(state.current!=state.anchor) TRACE(SLIME,pc,2,0,cpu);
+    MmxCoopSelect(g_ram,state.anchor);return;
+  }
   if(g_ram[d+2]==12 || g_ram[d+2]==14) {
     unsigned owner=(state.slime_p2&bit)!=0;
-    if(state.players[owner].status==MMX_COOP_ALIVE && (state.players[owner].body[0x27]&127))
-      MmxCoopSelect(g_ram,owner);
+    if(state.players[owner].status==MMX_COOP_ALIVE && (state.players[owner].body[0x27]&127)) {
+      TRACE(SLIME,pc,1,owner,cpu);MmxCoopSelect(g_ram,owner);
+    }
     else {g_ram[d+2]=16;g_ram[d+3]=0;} /* Native release/pop animation. */
   }
 }
@@ -641,6 +661,7 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
     if (state.current==state.anchor && !state.contact_pass) {
       state.contact_pass = 1; state.contact_entry = (uint16_t)at;
       state.contact_s = cpu->S; state.contact_d = cpu->D;
+      TRACE(CONTACT,pc,0,0,cpu);
     }
     return;
   }
@@ -652,17 +673,19 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
     /* Slimer's puddle can capture one actor. Keep the actual contact seat
      * for its later pin/escape states, instead of reusing the world anchor. */
     if(slime && (cpu->A&255)) {
-      slime_owner(slime,state.current);state.contact_pass=0;return;
+      slime_owner(slime,state.current);state.contact_pass=0;TRACE(CONTACT,pc,3,cpu->A,cpu);return;
     }
     /* Retail stops the projectile scan after its first contact, including
      * immune/reflecting hits. Extend the scan to P2 only after a real miss. */
-    if (state.contact_entry == 0x9b43 && at != 0x9b7d) { state.contact_pass = 0; return; }
+    if (state.contact_entry == 0x9b43 && at != 0x9b7d) { state.contact_pass = 0; TRACE(CONTACT,pc,3,cpu->A,cpu); return; }
     state.contact_a = cpu->A; state.contact_x = cpu->X; state.contact_y = cpu->Y;
     state.contact_db = cpu->DB; cpu_mirrors_to_p(cpu); state.contact_p = cpu->P;
+    TRACE(CONTACT,pc,1,cpu->A,cpu);
     MmxCoopSelect(g_ram,state.anchor^1); state.contact_pass = 2;
     interp_bridge_pre_opcode_redirect(0x840000 | state.contact_entry);
   } else {
     if(slime && (cpu->A&255)) slime_owner(slime,state.current);
+    TRACE(CONTACT,pc,2,cpu->A,cpu);
     bool first_hit = (state.contact_a & 255) != 0;
     bool no_second_hit = !(cpu->A & 255);
     MmxCoopSelect(g_ram,state.anchor);
@@ -687,30 +710,39 @@ static void pickup_hook(CpuState *cpu,uint32_t pc) {
   unsigned at=pc&65535,d=cpu->D;
   if ((pickup_slot(d) && g_ram[d]) || (state.pickup_pass && d==state.pickup_d))
     diagnostic_event(g_ram,cpu,pc,"pickup");
-  if(at==0xd2ed || at==0xd31b) {MmxCoopSelect(g_ram,state.anchor);return;}
+  if(at==0xd2ed || at==0xd31b) {
+    if(state.current!=state.anchor) TRACE(PICKUP,pc,6,0,cpu);
+    MmxCoopSelect(g_ram,state.anchor);return;
+  }
   if(at==0xd2e6 || at==0xd308) {
     if(d<0x1628 || d>=0x1928 || (d-0x1628)%48) return;
     unsigned slot=(d-0x1628)/48;
     if(!g_ram[d] || !g_ram[d+1] || !pickup_slot(d)) state.pickup_owner[slot]=0;
-    if(state.pickup_owner[slot]) MmxCoopSelect(g_ram,state.pickup_owner[slot]-1);
+    if(state.pickup_owner[slot]) {
+      if(state.pickup_owner[slot]-1u!=state.current) TRACE(PICKUP,pc,5,slot,cpu);
+      MmxCoopSelect(g_ram,state.pickup_owner[slot]-1);
+    }
     return;
   }
   if(at==0x9c0e) {
     if(!state.pickup_pass && !state.scene_owner && pickup_slot(d) && cpu->X==0xba8 &&
         !state.pickup_owner[(d-0x1628)/48] && state.players[state.anchor^1].status==MMX_COOP_ALIVE) {
       state.pickup_s=cpu->S;state.pickup_d=(uint16_t)d;state.pickup_pass=1;
+      TRACE(PICKUP,pc,0,(d-0x1628)/48,cpu);
     }
     return;
   }
   if(!state.pickup_pass || cpu->S!=state.pickup_s || d!=state.pickup_d) return;
   if(cpu->_flag_C) {
+    TRACE(PICKUP,pc,3,state.current,cpu);
     state.pickup_owner[(d-0x1628)/48]=(uint8_t)(state.current+1);state.pickup_pass=0;
   } else if(state.pickup_pass==1 && state.current==state.anchor) {
     /* Retry only native contact, never item movement or its refill task.
      * Keep a successful collector projected through the rest of this item. */
+    TRACE(PICKUP,pc,1,0,cpu);
     MmxCoopSelect(g_ram,state.anchor^1);state.pickup_pass=2;
     interp_bridge_pre_opcode_redirect(0x849c0e);
-  } else {MmxCoopSelect(g_ram,state.anchor);state.pickup_pass=0;}
+  } else {TRACE(PICKUP,pc,2,0,cpu);MmxCoopSelect(g_ram,state.anchor);state.pickup_pass=0;}
 }
 static void object_hook(CpuState *cpu, uint32_t pc) {
   if (!enabled || !state.initialized || state.menu_owner || state.scene_owner ||
@@ -721,6 +753,12 @@ static void object_hook(CpuState *cpu, uint32_t pc) {
   if (entry) {
     if (!state.object_pass && state.current==state.anchor) {
       state.object_pass = 1; state.object_entry = (uint16_t)at;
+      TRACE(OBJECT,pc,0,at,cpu);
+      if (at==0x9d67) TRACE_MARK(state.current,TERRAIN);
+    } else if (!state.object_pass) {
+      /* The partner is projected, so this pass runs once for the wrong actor. */
+      TRACE(OBJECT,pc,4,at,cpu);
+      if (at==0x9d67) {TRACE_MARK(state.current,TERRAIN);TRACE_MARK(state.current,NON_ANCHOR);}
     }
     return;
   }
@@ -728,9 +766,12 @@ static void object_hook(CpuState *cpu, uint32_t pc) {
     state.object_a = cpu->A; state.object_x = cpu->X; state.object_y = cpu->Y;
     state.object_s = cpu->S; state.object_d = cpu->D; state.object_db = cpu->DB;
     cpu_mirrors_to_p(cpu); state.object_p = cpu->P;
+    TRACE(OBJECT,pc,1,state.object_entry,cpu);
+    if (state.object_entry==0x9d67) TRACE_MARK(state.anchor^1,TERRAIN);
     MmxCoopSelect(g_ram,state.anchor^1); state.object_pass = 2;
     interp_bridge_pre_opcode_redirect((pc & 0xff0000) | state.object_entry);
   } else if (state.object_pass == 2) {
+    TRACE(OBJECT,pc,2,state.object_entry,cpu);
     MmxCoopSelect(g_ram,state.anchor);
     cpu->A = state.object_a; cpu->X = state.object_x; cpu->Y = state.object_y;
     cpu->D = state.object_d; cpu->DB = state.object_db; cpu->P = state.object_p;
@@ -746,7 +787,16 @@ static void platform_hook(CpuState *cpu,uint32_t pc) {
   if(d<0x1628 || d>=0x1928 || (d-0x1628)%48 ||
       g_ram[d+10]<0x0e || g_ram[d+10]>0x10) return;
   if(at==0xab81 || at==0xab56) {
-    if(state.contact_pass) return;
+    if(state.contact_pass) {
+      /* Re-entry for the partner's own retry is expected; anything else
+       * means a platform helper ran without its second-seat pass. */
+      if(state.contact_pass!=2 || state.contact_d!=d) {
+        TRACE(PLATFORM,pc,4,g_ram[d+0x2c],cpu);TRACE_MARK(state.current,PLATFORM_SKIPPED);
+      }
+      return;
+    }
+    TRACE(PLATFORM,pc,0,g_ram[d+0x2c],cpu);
+    if(at==0xab81) TRACE_MARK(state.current,PLATFORM);
     state.contact_entry=(uint16_t)at;state.contact_pass=1;
     state.contact_d=(uint16_t)d;state.contact_s=cpu->S;
     state.platform_riders=g_ram[d+0x2c]&3;
@@ -763,12 +813,15 @@ static void platform_hook(CpuState *cpu,uint32_t pc) {
       (state.players[state.anchor^1].body[0x27]&127)) {
     state.contact_a=cpu->A;state.contact_x=cpu->X;state.contact_y=cpu->Y;
     state.contact_db=cpu->DB;cpu_mirrors_to_p(cpu);state.contact_p=cpu->P;
+    TRACE(PLATFORM,pc,1,state.platform_riders,cpu);
+    if(state.contact_entry==0xab81) TRACE_MARK(state.anchor^1,PLATFORM);
     MmxCoopSelect(g_ram,state.anchor^1);state.contact_pass=2;
     if(state.contact_entry==0xab81) g_ram[d+0x2c]=(state.platform_riders>>state.current)&1;
     interp_bridge_pre_opcode_redirect(0x840000|state.contact_entry);
     return;
   }
   g_ram[d+0x2c]=state.platform_riders;
+  TRACE(PLATFORM,pc,2,state.platform_riders,cpu);
   if(state.contact_pass==2) {
     MmxCoopSelect(g_ram,state.anchor);
     cpu->A=state.contact_a;cpu->X=state.contact_x;cpu->Y=state.contact_y;
@@ -799,6 +852,7 @@ static void camera_hook(CpuState *cpu,uint32_t pc) {
     MmxCoopPlayer *p=&state.players[state.anchor^1];
     if (p->status==MMX_COOP_ALIVE && (p->body[0x27]&127) &&
         (int16_t)(word(p->body+8)-32-word(g_ram))>=0) {
+      TRACE(PIT,pc,state.anchor^1,0,cpu);
       ++p->body[0x30];p->body[0x2f]=8;p->body[0x26]=127;
       p->body[2]=p->body[0x6a]=12;p->body[3]=0;p->body[0x27]=128;
     }
@@ -826,13 +880,14 @@ static void menu_hook(CpuState *cpu,uint32_t pc) {
       unsigned seat=(state.players[state.anchor].pressed&8) ? state.anchor : state.anchor^1;
       if (state.players[seat].status!=MMX_COOP_ALIVE || !(state.players[seat].pressed&8)) return;
       state.menu_owner=(uint8_t)(seat+1);state.menu_last=(uint8_t)seat;
+      TRACE(MENU,pc,1,seat,cpu);
       MmxCoopSelect(g_ram,seat);
       MmxCoopApplyInput(g_ram);g_ram[0xbe3]|=0x10;
       break;
     }
     case 0x9eac: /* Native pause guards rejected the request. */
     case 0xc579: /* Equipment and subtank changes are now committed. */
-      if(state.menu_owner) {MmxCoopSelect(g_ram,state.anchor);state.menu_owner=0;}
+      if(state.menu_owner) {TRACE(MENU,pc,0,0,cpu);MmxCoopSelect(g_ram,state.anchor);state.menu_owner=0;}
       break;
   }
 }
@@ -840,6 +895,7 @@ static void death_hook(CpuState *cpu,uint32_t pc) {
   if(!enabled || !state.initialized || state.menu_owner) return;
   unsigned seat=state.current,other=seat^1;
   if((pc&65535)==0x9d9e) {
+    TRACE(DEATH,pc,pc,seat,cpu);
     /* Native reset has already cleared the actor pools. Adopt that new body
      * for P1 instead of projecting a stored corpse back over the cleared RAM. */
     state.current=state.anchor=0;state.stage_pending=1;
@@ -854,11 +910,14 @@ static void death_hook(CpuState *cpu,uint32_t pc) {
   if((pc&65535)==0x9ac7) {
     /* Main stage mode 6 assumes the whole team is dead and stops input/pause
      * polling. Keep mode 4 when another player still has HP. */
-    if(state.players[other].status==MMX_COOP_ALIVE && (state.players[other].body[0x27]&127))
+    if(state.players[other].status==MMX_COOP_ALIVE && (state.players[other].body[0x27]&127)) {
+      TRACE(DEATH,pc,pc,seat,cpu);
       interp_bridge_pre_opcode_redirect((pc&0xff0000)|0x9ad9);
+    }
     return;
   }
   if(cpu->D!=0xba8) return;
+  TRACE(DEATH,pc,pc,seat,cpu);
   switch(pc&65535) {
     case 0x8a5c:
       state.solo_death[seat]=state.players[other].status==MMX_COOP_ALIVE &&
@@ -911,6 +970,9 @@ static void controller_hook(CpuState *cpu, uint32_t pc) {
     if (state.initialized && !state.controller_pass) {
       if(state.current==1) MmxCoopApplyInput(g_ram);
       state.controller_pass=1;
+      TRACE(CONTROLLER,pc,0,0,cpu);
+      TRACE_MARK(state.current,CONTROLLER);
+      if(state.current!=state.anchor) TRACE_MARK(state.current,NON_ANCHOR);
     }
     if(state.initialized && refill_paused(g_ram))
       interp_bridge_pre_opcode_redirect(0x81819c);
@@ -934,6 +996,8 @@ static void controller_hook(CpuState *cpu, uint32_t pc) {
     }
     g_ram[0x1f0d] = 0;
     state.controller_pass = 2;
+    TRACE(CONTROLLER,pc,1,0,cpu);
+    TRACE_MARK(state.current,CONTROLLER);
     cpu->P |= 0x30; cpu_p_to_mirrors(cpu); cpu->X &= 255; cpu->Y &= 255;
     /* Re-enter AFTER PHP/PHD/PLD. Both passes share exactly one prologue and
      * epilogue, so no synthetic JSL or extra stack frame is needed. */
@@ -946,8 +1010,12 @@ static void controller_hook(CpuState *cpu, uint32_t pc) {
     cpu->A = state.return_a; cpu->X = state.return_x; cpu->Y = state.return_y;
     cpu->DB = state.return_db; cpu->P = state.return_p; cpu_p_to_mirrors(cpu);
   }
+  TRACE(CONTROLLER,pc,state.controller_pass==2 ? 2 : 3,0,cpu);
   MmxCoopCapture(g_ram);
   state.controller_pass = 0;
+}
+void MmxCoopTraceFrame(const uint8_t *r) {
+  if (g_mmx_coop_trace && enabled && state.initialized) MmxCoopTraceFrameEnd(&state,r);
 }
 void MmxCoopRegisterHooks(void) {
   interp_bridge_set_pre_opcode_hook(0x87c0ae,eagle_lift_hook);
