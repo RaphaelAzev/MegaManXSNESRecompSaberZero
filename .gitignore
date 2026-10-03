@@ -68,6 +68,7 @@ hw_trace.log
 # and gets an explicit unignore there.
 *.bmp
 *.png
+!docs/screenshots/*.png
 
 # Curated triage evidence referenced by ISSUES.md — tracked despite *.png above.
 !issue-screenshots/

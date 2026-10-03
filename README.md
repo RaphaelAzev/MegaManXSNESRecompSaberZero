@@ -6,6 +6,32 @@ under **Zero behavior** in either character mod. X3 Behavior stays the default.
 Windows now logs diagnostics to a file without opening a console window.
 See the [2.0.3-alpha release notes](https://github.com/mstan/MegaManXSNESRecomp/releases/tag/v2.0.3-alpha).
 
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="docs/screenshots/coop-thunder-slimer.png" width="440" alt="X and Zero fighting Thunder Slimer together, with separate health bars">
+      <br><strong>X / Zero co-op</strong><br>Fight through X1 together, locally or over netplay.
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/screenshots/modern-zero-air-saber.png" width="440" alt="Modern Zero swinging his saber in midair beside X on the Highway">
+      <br><strong>Modern Zero</strong><br>Direct saber attacks with movement during airborne swings.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src="docs/screenshots/menu-x3-weapons.png" width="440" alt="The X3 boss weapons selectable in X1's pause menu">
+      <br><strong>X2 / X3 weapon pages</strong><br>Sixteen imported boss weapons and their charged attacks.
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/screenshots/weapon-triad-thunder.png" width="440" alt="X using Triad Thunder against an enemy on the Highway in widescreen">
+      <br><strong>Imported weapons in action</strong><br>X3's Triad Thunder on X1's Highway.
+    </td>
+  </tr>
+</table>
+
+Gameplay screenshots from the [project preview](https://1379.tech/megaman-x-recompiled-coop-zero-weapons-wip/),
+plus a Modern Zero capture from the 2.0.3-alpha playtest.
+
 Version 2.0.2-alpha fixes co-op moving platforms, the airship door and
 Storm Eagle's lift introduction, plus charged Chameleon Sting and Electric
 Spark graphics.

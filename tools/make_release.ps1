@@ -73,6 +73,10 @@ Copy-Item -LiteralPath $exe -Destination $stage
 Copy-Item -LiteralPath (Join-Path $root 'config.ini') -Destination $stage
 Copy-Item -LiteralPath (Join-Path $root 'logging.ini') -Destination $stage
 Copy-Item -LiteralPath (Join-Path $root 'README.md') -Destination $stage
+# Keep the README's local screenshot links usable in the extracted download.
+$stageDocs = Join-Path $stage 'docs'
+New-Item -ItemType Directory -Path $stageDocs -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $root 'docs/screenshots') -Destination $stageDocs -Recurse
 Copy-Item -LiteralPath $assets -Destination $stage -Recurse
 if (Test-Path -LiteralPath $mods) {
   Copy-Item -LiteralPath $mods -Destination $stage -Recurse
