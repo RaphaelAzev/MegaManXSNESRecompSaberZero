@@ -623,9 +623,11 @@ static bool start_slash(uint8_t *r) {
 void MmxZeroPlayerTick(uint8_t r[0x20000]) {
   if (!MmxZeroActive() || !r) return;
   unsigned action = r[0xbaa];
+  /* $0A is X1's four-frame landing state ($81:8600). It is entered when Zero
+   * lands with no direction held; X keeps charging through it natively. */
   bool playable = r[0xd1] == 2 && r[0xd2] == 4 && r[0xba9] == 2 &&
       (r[0xbcf] & 127) && !r[0x1f0c] && !r[0xbdb] &&
-      (action <= 8 || action == 0x10 || action == 0x12 || action == 0x14 || action == 0x20);
+      (action <= 0x0a || action == 0x10 || action == 0x12 || action == 0x14 || action == 0x20);
   if (!playable) { MmxZeroCancel(r); return; }
   bool held = (r[0xbdf] & 64) != 0, pressed = (r[0xbe3] & 64) != 0;
   if (modern_behavior) {

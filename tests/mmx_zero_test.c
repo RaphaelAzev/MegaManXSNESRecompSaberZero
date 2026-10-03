@@ -163,6 +163,18 @@ int main(void) {
     if(tiers[c] && tiers[c]<8) assert(ram[0xc01]==(tiers[c]==4?2:8));
   }
   assert(MmxZeroGetState().burst == 1 && !ram[0x1228]);
+  /* Landing straight down ($0A) keeps a held charge and a pending combo. */
+  player();
+  for(unsigned i=0;i<150;++i) tick(64,i==0?64:0);
+  ram[0xbaa]=0x0a;
+  for(unsigned i=0;i<4;++i) tick(64,0);
+  assert(MmxZeroGetState().charge==154 && ram[0xbff]==0x40);
+  ram[0xbaa]=0; player();
+  for(unsigned i=0;i<201;++i) tick(64,i==0?64:0);
+  tick(0,0); ram[0xbaa]=0x0a;
+  for(unsigned i=0;i<4;++i) tick(0,0);
+  assert(MmxZeroGetState().combo==1 && MmxZeroGetState().saber_ready);
+  ram[0xbaa]=0;
   /* The native engine started a looping charge voice before host release. */
   player();
   for(unsigned i=0;i<201;++i) tick(64,i==0?64:0);
