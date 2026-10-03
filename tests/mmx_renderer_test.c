@@ -258,6 +258,47 @@ static void highway_arena_sky(void) {
   assert(MmxRendererDraw(output, v, false));
   for (int x = 0; x < v.width; ++x) assert(output[80 * v.width + x] == 0xff0000);
 }
+static void highway_airship_binding(void) {
+  memset(&ppu, 0, sizeof(ppu)); memset(ram, 0, sizeof(ram)); memset(rom_bytes, 0, sizeof(rom_bytes));
+  MmxRendererReset(); MmxRendererSetRom(NULL, 0);
+  /* Terrain owns a blue palette while the moving BG2 airship has loaded red.
+   * Its map is resident in both the retained stage map and native VRAM. */
+  rom_word(0x32260, 0x20); rom_word(0x32262, 0x22);
+  rom_word(0x32280, 0x30); rom_word(0x32290, 0xa000);
+  rom_bytes[0x32292] = 0x70; rom_word(0x32293, 0xffff);
+  rom_word(0x2a002, 31 << 10);
+  ram[0xd1] = 2; ram[0xd2] = ram[0xd3] = 4;
+  put_word(0x1e8d, 0xa78); put_word(0x1e90, 0x100);
+  put_word(0xb98, 0x8000); ram[0xb9a] = 0x80;
+  memset(ram + 0xec00, 1, 1024);
+  for (int i = 0; i < 256; ++i) put_word(0xa800 + i * 2, 1);
+  for (int q = 0; q < 4; ++q) rom_word(8 + q * 2, 0x1c01);
+  ppu.inidisp = 15; ppu.bgmode = 1; ppu.screenEnabled[0] = 2;
+  ppu.bgXsc[1] = 8; ppu.hScroll[1] = 0x278; ppu.vScroll[1] = 0x100;
+  ppu.cgram[0x71] = 31;
+  for (int i = 0; i < 1024; ++i) ppu.vram[0x800 + i] = 0x1c01;
+  for (int y = 0; y < 8; ++y) ppu.vram[16 + y] = 255;
+  MmxRendererSetRom(rom_bytes, sizeof(rom_bytes));
+  MmxRenderView v = MmxRendererViewport(MMX_ASPECT_32_9, 16, 9, kSnesDisplayAspect_Crt4x3);
+  const int samples[] = {-16, 0, 255, 272};
+  for (int actor = 0; actor < 2; ++actor) {
+    ram[0x1e89] = actor ? 0x0c : 2;
+    capture(); assert(MmxRendererDraw(output, v, false));
+    for (unsigned i = 0; i < sizeof(samples) / sizeof(samples[0]); ++i) {
+      int x = samples[i];
+      assert(output[80 * v.width + v.extra + x] ==
+          (actor || (x >= 0 && x < 256) ? 0xff0000u : 0x0000ffu));
+    }
+  }
+  /* Earlier terrain CHR must not replace the resident ship tiles either. */
+  rom_word(0x321d5, 0x20); rom_word(0x321d7, 0x22);
+  rom_word(0x321f5, 0x30); rom_word(0x32205, 32);
+  rom_word(0x32207, 16); rom_long(0x32209, 0x808100);
+  MmxRendererSetRom(NULL, 0); MmxRendererSetRom(rom_bytes, sizeof(rom_bytes));
+  capture(); assert(MmxRendererDraw(output, v, false));
+  for (unsigned i = 0; i < sizeof(samples) / sizeof(samples[0]); ++i)
+    assert(output[80 * v.width + v.extra + samples[i]] == 0xff0000);
+}
 static void distant_doors(void) {
   memset(&ppu, 0, sizeof(ppu)); memset(ram, 0, sizeof(ram)); memset(rom_bytes, 0, sizeof(rom_bytes));
   MmxRendererReset(); MmxRendererSetRom(NULL, 0); MmxRendererSetRom(rom_bytes, sizeof(rom_bytes));
@@ -1183,4 +1224,4 @@ static void weapons_menu_margins(void) {
   memset(stock, 0, sizeof(stock));
 }
 
-int main(void) { geometry(); raster_and_hud(); sprite_coordinates(); expanded_capacity(); background_resources(); dialogue_and_password(); highway_arena_sky(); distant_doors(); storm_background_prefill(); resource_decode(); spark_effects(); airport_panorama_edge(); wide_water_plane(); buried_submarine(); background_continuations(); launch_background_palettes(); sting_background_palettes(); mammoth_background_palettes(); dialogue_backdrop(); fortress_actor_presentation(); sprite_priority_and_cutscene_binding(); weapons_menu_margins(); zero_blink_submission(); return 0; }
+int main(void) { geometry(); raster_and_hud(); sprite_coordinates(); expanded_capacity(); background_resources(); dialogue_and_password(); highway_arena_sky(); highway_airship_binding(); distant_doors(); storm_background_prefill(); resource_decode(); spark_effects(); airport_panorama_edge(); wide_water_plane(); buried_submarine(); background_continuations(); launch_background_palettes(); sting_background_palettes(); mammoth_background_palettes(); dialogue_backdrop(); fortress_actor_presentation(); sprite_priority_and_cutscene_binding(); weapons_menu_margins(); zero_blink_submission(); return 0; }

@@ -264,6 +264,65 @@ static void coop_join_checks(unsigned character,const char *fixture,uint8_t *sta
   check(!s.players[1].body[0x33] && !s.players[1].weapons.page && !s.players[1].weapons.weapon &&
       !s.players[1].weapons.menu_page,"checkpoint restart resets P2 to X1 buster");
 }
+static void coop_symmetric_join_checks(const char *fixture,uint8_t *start,uint8_t *expected,uint8_t *actual,size_t cap) {
+  for(unsigned character=0;character<2;++character) for(unsigned seat=0;seat<2;++seat) {
+    MmxCoopDisable();check(RtlLoadSnapshot(fixture),"symmetric teleport fixture loads");
+    check(MmxCoopEnable(character),"symmetric teleport uses either roster");coop_frames(8,0,0);
+    MmxCoopState s=MmxCoopGetState();
+    check(coop_place_fixture_partner(coop_x(&s.players[0])+48,coop_y(&s.players[0])),"symmetric teleport partner placed");
+    coop_frames(40,0,0);
+    MmxCoopSelect(g_ram,seat);g_ram[0xbcf]=7|128;g_ram[0x1f88]=(g_ram[0x1f88]&192)|11;
+    MmxCoopSelect(g_ram,0);MmxCoopCapture(g_ram);
+    size_t before=RtlSaveSnapshotToMemory(start,cap);
+    /* A dead or completely offscreen teammate cannot be left alone. Call
+     * frame policy without native movement so culling/clamping cannot bring
+     * an offscreen test actor back into view during this guard check. */
+    for(unsigned guard=0;guard<3;++guard) {
+      check(RtlLoadSnapshotFromMemory(start,before),"restore teleport guard fixture");
+      MmxCoopSelect(g_ram,seat^1);s=MmxCoopGetState();
+      if(guard==0) {s.players[seat^1].status=MMX_COOP_FALLEN;g_ram[0xbcf]=128;}
+      else if(guard==1) {g_ram[0xbcf]=128;g_ram[0xbaa]=12;}
+      else {unsigned x=(g_ram[0x1e4d]|g_ram[0x1e4e]<<8)+600;
+        g_ram[0xbad]=(uint8_t)x;g_ram[0xbae]=(uint8_t)(x>>8);}
+      MmxCoopCapture(g_ram);s=MmxCoopGetState();
+      if(guard==0) s.players[seat^1].status=MMX_COOP_FALLEN;
+      MmxCoopSetState(&s);MmxCoopSelect(g_ram,seat);
+      MmxCoopPoll(0,0);MmxCoopFrameTick(g_ram);
+      for(unsigned tick=0;tick<95;++tick) {
+        MmxCoopPoll(seat?0:SNES_PAD_SELECT,seat?SNES_PAD_SELECT:0);MmxCoopFrameTick(g_ram);
+      }
+      check(!MmxCoopTransitionActive() && MmxCoopGetState().players[seat].status==MMX_COOP_ALIVE,
+          "either seat cannot withdraw with a dead, dying or offscreen teammate");
+    }
+    check(RtlLoadSnapshotFromMemory(start,before),"restore ordinary teleport fixture");
+    coop_frames(89,seat?0:SNES_PAD_SELECT,seat?SNES_PAD_SELECT:0);
+    check(!MmxCoopTransitionActive(),"either seat requires a full 1.5-second hold");
+    coop_frames(1,seat?0:SNES_PAD_SELECT,seat?SNES_PAD_SELECT:0);
+    check(MmxCoopTransitionActive(),"either seat can begin original teleport-out");
+    unsigned world=g_ram[0xb9c];
+    for(unsigned i=0;i<80 && MmxCoopTransitionActive();++i) coop_frames(1,0,0);
+    s=MmxCoopGetState();
+    check(s.players[seat].status==MMX_COOP_ABSENT && s.anchor==(seat^1) && g_ram[0xb9c]==world,
+        "withdrawal hides only its seat and hands world control to the survivor");
+    unsigned x=coop_x(&s.players[seat^1]);
+    coop_frames(8,seat?SNES_PAD_RIGHT:0,seat?0:SNES_PAD_RIGHT);s=MmxCoopGetState();
+    check(coop_x(&s.players[seat^1])>x && s.players[seat].status==MMX_COOP_ABSENT,
+        "remaining seat moves independently after either player withdraws");
+    coop_frames(1,seat?0:SNES_PAD_SELECT,seat?SNES_PAD_SELECT:0);
+    check(MmxCoopTransitionActive(),"either absent seat can voluntarily return beside survivor");
+    size_t n=RtlSaveSnapshotToMemory(start,cap);coop_frames(20,0,0);
+    size_t en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"symmetric arrival snapshot restores");coop_frames(20,0,0);
+    size_t an=RtlSaveSnapshotToMemory(actual,cap);
+    same(expected,en,actual,an,"symmetric teleport and anchor replay deterministically");
+    for(unsigned i=0;i<80 && MmxCoopTransitionActive();++i) coop_frames(1,0,0);
+    s=MmxCoopGetState();
+    check(s.players[seat].status==MMX_COOP_ALIVE && s.anchor==0 &&
+        (s.players[seat].body[0x27]&127)==7 && s.players[seat].energy[1]==11,
+        "either returning seat retains HP and energy and restores P1 world anchor");
+  }
+  MmxCoopDisable();puts("MMX CO-OP SYMMETRIC TELEPORT CHECKS PASSED");
+}
 static void coop_camera_checks(unsigned character) {
   MmxCoopState s=MmxCoopGetState();unsigned x0=coop_x(&s.players[0]);
   coop_frames(230,0,SNES_PAD_RIGHT);s=MmxCoopGetState();
@@ -334,6 +393,70 @@ static void coop_spawn_pickup(unsigned seat,unsigned kind) {
   unsigned x=coop_x(&s.players[seat]),y=coop_y(&s.players[seat])-16;
   g_ram[0x162d]=(uint8_t)x;g_ram[0x162e]=(uint8_t)(x>>8);
   g_ram[0x1630]=(uint8_t)y;g_ram[0x1631]=(uint8_t)(y>>8);
+}
+static void coop_air_pickup_checks(const char *fixture) {
+  for(unsigned character=0;character<2;++character) for(unsigned collector=0;collector<2;++collector) {
+    MmxCoopDisable();check(RtlLoadSnapshot(fixture),"airborne pickup fixture loads");
+    check(MmxCoopEnable(character),"airborne pickup uses either roster");coop_frames(8,0,0);
+    MmxCoopState s=MmxCoopGetState();
+    check(coop_place_fixture_partner(coop_x(&s.players[0])+48,coop_y(&s.players[0])),"airborne pickup partner placed");
+    coop_frames(8,0,0);
+    for(unsigned seat=0;seat<2;++seat) {
+      MmxCoopSelect(g_ram,seat);g_ram[0xbcf]=5|128;g_ram[0xbce]=127;
+    }
+    MmxCoopSelect(g_ram,0);MmxCoopCapture(g_ram);s=MmxCoopGetState();
+    unsigned airborne=collector^1,ground_y=coop_y(&s.players[airborne]);
+    /* Start the native falling controller above this known flat floor,
+     * independent of action remapping in the copied owner fixture. */
+    MmxCoopSelect(g_ram,airborne);
+    g_ram[0xbb0]=(uint8_t)(ground_y-48);g_ram[0xbb1]=(uint8_t)((ground_y-48)>>8);
+    g_ram[0xbaa]=8;g_ram[0xbab]=0;g_ram[0xbd3]=0;
+    g_ram[0xbc4]=g_ram[0xbc5]=g_ram[0xbc6]=0;
+    MmxCoopCapture(g_ram);MmxCoopSelect(g_ram,0);
+    s=MmxCoopGetState();check(coop_y(&s.players[airborne])<ground_y,"partner is airborne when health is collected");
+    coop_spawn_pickup(collector,2);
+    unsigned healed=0;
+    for(unsigned tick=0;tick<100;++tick) {
+      coop_frames(1,0,0);s=MmxCoopGetState();
+      healed|=(s.players[collector].body[0x27]&127)>5;
+      check(coop_y(&s.players[airborne])<=ground_y+1,"airborne partner never penetrates the flat fixture floor");
+      check(s.players[airborne].body[0x27]&127,"airborne partner survives refill");
+    }
+    check(healed && coop_y(&s.players[airborne])==ground_y,"health refills and airborne partner lands normally");
+  }
+  MmxCoopDisable();puts("MMX CO-OP AIRBORNE PICKUP CHECKS PASSED");
+}
+static void coop_refill_freeze_checks(const char *fixture) {
+  for(unsigned character=0;character<2;++character) for(unsigned collector=0;collector<2;++collector) {
+    MmxCoopDisable();check(RtlLoadSnapshot(fixture),"refill freeze fixture loads");
+    check(MmxCoopEnable(character),"refill freeze uses either roster");coop_frames(8,0,0);
+    MmxCoopState s=MmxCoopGetState();
+    check(coop_place_fixture_partner(coop_x(&s.players[0])+48,coop_y(&s.players[0])),"refill freeze partner placed");
+    coop_frames(8,0,0);
+    unsigned airborne=collector^1;
+    MmxCoopSelect(g_ram,airborne);
+    unsigned floor_y=g_ram[0xbb0]|g_ram[0xbb1]<<8,x=g_ram[0xbad]|g_ram[0xbae]<<8,y=floor_y-24;
+    g_ram[0xbb0]=g_ram[0xbcc]=(uint8_t)y;g_ram[0xbb1]=g_ram[0xbcd]=(uint8_t)(y>>8);
+    g_ram[0xbaa]=8;g_ram[0xbab]=2;g_ram[0xbd3]=0;
+    g_ram[0xbc2]=120;g_ram[0xbc3]=1;g_ram[0xbc4]=0;g_ram[0xbc5]=253;
+    MmxCoopSelect(g_ram,collector);g_ram[0xbaa]=0x18;g_ram[0xbab]=2;
+    MmxCoopSelect(g_ram,0);
+    /* Retail refills run in their item/task context, put the collector in
+     * .02=$18, and freeze $1F13..19 including the terrain resolver. The
+     * other controller must not integrate motion against that frozen world. */
+    memset(g_ram+0x1f13,1,7);
+    coop_frames(20,SNES_PAD_RIGHT,SNES_PAD_RIGHT);s=MmxCoopGetState();
+    fprintf(stderr,"refill freeze roster=%u collector=%u airborne=%u position=%u/%u expected=%u/%u\n",
+        character,collector,airborne,coop_x(&s.players[airborne]),coop_y(&s.players[airborne]),x,y);
+    check(coop_x(&s.players[airborne])==x && coop_y(&s.players[airborne])==y,
+        "airborne movement stops while native refill freezes terrain collision");
+    memset(g_ram+0x1f13,0,7);MmxCoopSelect(g_ram,collector);
+    g_ram[0xbaa]=g_ram[0xbab]=0;MmxCoopSelect(g_ram,0);
+    coop_frames(40,0,0);s=MmxCoopGetState();
+    check(coop_y(&s.players[airborne])==floor_y && (s.players[airborne].body[0x27]&127),
+        "airborne player resumes and lands after refill clears freeze");
+  }
+  MmxCoopDisable();puts("MMX CO-OP REFILL FREEZE CHECKS PASSED");
 }
 static void coop_pickup_checks(uint8_t *start,uint8_t *expected,uint8_t *actual,size_t cap) {
   MmxCoopSelect(g_ram,1);g_ram[0xbcf]=7|128;MmxCoopSelect(g_ram,0);
@@ -810,9 +933,33 @@ static void coop_launcher_checks(const char *root,const char *rom,const char *x3
       "private co-op catalog parses");
   const RecompLauncherCModProvider *p=snes_mod_runtime_launcher_provider_c();
   check(p && p->feature_enable && p->feature_resource_get,"real launcher feature provider exists");
+  const char *diagnostics="megaman-x.developer.coop-diagnostics";
+  check(!snes_mod_runtime_feature_enabled_c(diagnostics,"coop-diagnostics"),
+      "co-op diagnostic checkbox defaults off");
   check(p->feature_enable(p->ctx,"megaman-x.coop","coop",1),"launcher enables co-op");
   check(p->feature_resource_set_path(p->ctx,"megaman-x.coop","coop","x3-rom",x3),
       "launcher accepts original X3 ROM");
+  if(getenv("MMX_COOP_DIAGNOSTICS_MOD_TEST")) {
+    check(p->commit(p->ctx,rom),"ordinary co-op plan commits");
+    snes_mod_runtime_activate_plugins_c();
+    check(!MmxCoopDiagnosticsEnabled(),"ordinary co-op leaves diagnostics off");
+    check(p->feature_enable(p->ctx,diagnostics,"coop-diagnostics",1) && p->commit(p->ctx,rom),
+        "launcher ticks and commits diagnostic checkbox");
+    snes_mod_runtime_activate_plugins_c();
+    check(MmxCoopDiagnosticsEnabled(),"checkbox activates trusted co-op logger");
+    const char *fixture=getenv("MMX_ZERO_TEST_FIXTURE");
+    check(fixture && RtlLoadSnapshot(fixture),"diagnostic check loads copied private fixture");
+    coop_frames(8,0,0);
+    check(p->feature_enable(p->ctx,diagnostics,"coop-diagnostics",0) && p->commit(p->ctx,rom),
+        "launcher unticks and commits diagnostic checkbox");
+    snes_mod_runtime_activate_plugins_c();
+    check(!MmxCoopDiagnosticsEnabled(),"unticking flushes and disables co-op logger");
+    check(snes_mod_runtime_initialize_c(root,"megaman-x-us",
+        "b8f70a6e7fb93819f79693578887e2c11e196bdf1ac6ddc7cb924b1ad0be2d32") &&
+        !snes_mod_runtime_feature_enabled_c(diagnostics,"coop-diagnostics"),
+        "diagnostic checkbox selection persists after catalog reload");
+    puts("MMX CO-OP DIAGNOSTIC MOD CHECKS PASSED");return;
+  }
   const char *packages[]={"megaman-x.coop","megaman-x.character.zero","megaman-x.weapons.x3"};
   const char *features[]={"coop","zero","weapons"};
   for(unsigned i=0;i<3;++i) {
@@ -833,6 +980,20 @@ static void coop_launcher_checks(const char *root,const char *rom,const char *x3
     check(MmxCoopEnabled() && MmxZeroEnabled() && s.players[0].character==character &&
         s.players[1].character==(character^1),"real plugin extracts source ROM and activates chosen roster");
   }
+  check(!MmxCoopDiagnosticsEnabled(),"ordinary co-op leaves diagnostics off");
+  check(p->feature_enable(p->ctx,diagnostics,"coop-diagnostics",1) && p->commit(p->ctx,rom),
+      "launcher ticks and commits diagnostic checkbox");
+  snes_mod_runtime_activate_plugins_c();
+  check(MmxCoopDiagnosticsEnabled(),"checkbox activates trusted co-op logger");
+  const char *fixture=getenv("MMX_ZERO_TEST_FIXTURE");
+  if(fixture) {
+    check(RtlLoadSnapshot(fixture),"diagnostic check loads copied private fixture");
+    coop_frames(8,0,0);
+  }
+  check(p->feature_enable(p->ctx,diagnostics,"coop-diagnostics",0) && p->commit(p->ctx,rom),
+      "launcher unticks and commits diagnostic checkbox");
+  snes_mod_runtime_activate_plugins_c();
+  check(!MmxCoopDiagnosticsEnabled(),"unticking flushes and disables co-op logger");
   check(p->feature_enable(p->ctx,"megaman-x.coop","coop",0) && p->commit(p->ctx,rom),
       "launcher disables co-op");
   snes_mod_runtime_activate_plugins_c();
@@ -873,6 +1034,7 @@ static void coop_slime_checks(const char *fixture,uint8_t *start,uint8_t *expect
 }
 
 #include "mmx_coop_eagle_test.inc"
+#include "mmx_coop_followup_test.inc"
 static void coop_checks(const char *assets, const char *fixture,
                         uint8_t *start, uint8_t *expected, uint8_t *actual, size_t cap) {
   check(assets && fixture, "co-op check requires private source assets and a grounded fixture");
@@ -880,6 +1042,7 @@ static void coop_checks(const char *assets, const char *fixture,
   MmxZeroRegisterHooks(); MmxCoopRegisterHooks();
   const char *x2=getenv("MMX_COOP_X2_ASSETS"),*x3=getenv("MMX_COOP_X3_ASSETS");
   if (x2 && x3) check(MmxWeaponsLoadPage(x2,1) && MmxWeaponsLoadPage(x3,2),"private original weapon source packs load");
+  if(getenv("MMX_COOP_FOLLOWUP_TEST")) {coop_followup_checks(fixture);return;}
   if(getenv("MMX_COOP_EAGLE_FIXTURES")) {coop_eagle_checks(getenv("MMX_COOP_EAGLE_FIXTURES"),start,expected,actual,cap);return;}
   if(getenv("MMX_COOP_X1_EFFECTS")) {coop_x1_effect_checks(fixture);return;}
   if(getenv("MMX_COOP_SLIME_TEST")) {coop_slime_checks(fixture,start,expected,actual,cap);return;}
@@ -895,6 +1058,9 @@ static void coop_checks(const char *assets, const char *fixture,
     }
     puts("MMX CO-OP PALETTE CAPTURES SAVED");return;
   }
+  if(getenv("MMX_COOP_AIR_PICKUP_TEST")) {coop_air_pickup_checks(fixture);return;}
+  if(getenv("MMX_COOP_REFILL_FREEZE_TEST")) {coop_refill_freeze_checks(fixture);return;}
+  if(getenv("MMX_COOP_SYMMETRIC_JOIN_TEST")) {coop_symmetric_join_checks(fixture,start,expected,actual,cap);return;}
   if(getenv("MMX_COOP_DIALOGUE_FIXTURE")) {coop_dialogue_checks(getenv("MMX_COOP_DIALOGUE_FIXTURE"));return;}
   if(getenv("MMX_COOP_STAGE_FIXTURE")) {coop_stage_entry_checks(getenv("MMX_COOP_STAGE_FIXTURE"));return;}
   if(getenv("MMX_COOP_PLATFORM_CAPTURE")) {coop_platform_checks(fixture,getenv("MMX_COOP_PLATFORM_CAPTURE"));return;}

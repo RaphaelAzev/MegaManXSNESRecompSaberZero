@@ -25,6 +25,38 @@ static void modern_checks(const char *assets,const char *fixture,uint8 *start,
   check(assets && fixture && MmxZeroLoad(assets),"Modern assets load");
   MmxZeroRegisterHooks(); MmxCoopRegisterHooks();
   g_config.widescreen=false; int w,h; MmxPrepareFrame(1280,720,&w,&h);
+  if(getenv("MMX_ZERO_MOVEMENT_CANCEL_TEST")) {
+    modern_fixture(fixture);unsigned ground=modern_y();
+    frame(SNES_PAD_Y);zero_replay(4);
+    check(MmxZeroGetState().slash,"ground saber is active before jump cancel");
+    frame(SNES_PAD_B);frame(SNES_PAD_B);
+    check(!MmxZeroGetState().slash && modern_y()<ground,
+        "ground jump cancels saber and preserves the native jump input");
+    modern_fixture(fixture);unsigned x=modern_x();
+    frame(SNES_PAD_Y);zero_replay(4);frame(SNES_PAD_A|SNES_PAD_RIGHT);frame(SNES_PAD_A|SNES_PAD_RIGHT);
+    check(!MmxZeroGetState().slash && modern_x()>x,
+        "ground dash cancels saber and starts native movement");
+    modern_fixture(fixture);
+    for(unsigned i=0;i<10;++i) frame(SNES_PAD_B);
+    frame(SNES_PAD_Y);zero_replay(3);
+    check(MmxZeroGetState().slash,"air saber is active before ladder input");
+    frame(SNES_PAD_UP);
+    check(!MmxZeroGetState().slash && (g_ram[0xbdf]&8),
+        "ladder input cancels swing without losing native Up input");
+    modern_fixture(fixture);
+    for(unsigned i=0;i<10;++i) frame(SNES_PAD_B);
+    frame(SNES_PAD_Y);zero_replay(3);frame(SNES_PAD_A|SNES_PAD_RIGHT);
+    check(!MmxZeroGetState().slash && MmxZeroGetState().modern.dash_ticks &&
+        MmxZeroGetState().modern.dash_used,
+        "air dash cancels saber without refreshing the aerial allowance");
+    modern_fixture(fixture);ground=modern_y();
+    g_ram[0xbb0]=(uint8_t)(ground-4);g_ram[0xbb1]=(uint8_t)((ground-4)>>8);
+    g_ram[0xbaa]=8;g_ram[0xbab]=0;g_ram[0xbd3]=0;
+    frame(SNES_PAD_Y);zero_replay(8);
+    check((g_ram[0xbd3]&4) && MmxZeroGetState().slash && modern_y()==ground,
+        "landing alone retains the active saber swing");
+    puts("MMX MODERN SABER MOVEMENT CHECKS PASSED");return;
+  }
   /* Compare against the same airborne trajectory without attacking. These
    * exercise the native input-to-velocity controller, not just adapter RAM. */
   for(unsigned dash=0;dash<2;++dash) {

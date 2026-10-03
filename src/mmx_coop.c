@@ -7,6 +7,16 @@ _Static_assert(sizeof(MmxCoopState) == MMX_COOP_LEGACY_STATE_SIZE + 2 * sizeof(M
 #include "snes/snes.h"
 #include "snes/cart.h"
 #include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#ifdef _WIN32
+#include <direct.h>
+#include <process.h>
+#else
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 extern uint8_t g_ram[0x20000];
 extern Snes *g_snes;
@@ -33,6 +43,99 @@ static void putword(uint8_t *p,unsigned v) {p[0]=(uint8_t)v;p[1]=(uint8_t)(v>>8)
 static void sound(uint8_t *r,unsigned command) {
   unsigned i=r[0xba3]&30;r[0xb72+i]=(uint8_t)command;r[0xb73+i]=0;r[0xba3]=(uint8_t)((i+2)&30);
 }
+/* Host-only opt-in trace. Never changes WRAM, scheduling or serialized state.
+ * Keep two bounded CSV segments so a long play session cannot fill the disk.
+ * Rollback/replayed frames retain their original guest counters and a distinct
+ * host sequence number rather than being mistaken for consecutive simulation. */
+static FILE *diagnostic_file;
+static char diagnostic_path[2048], diagnostic_previous[2064];
+static bool diagnostic_checked;
+static bool diagnostic_enabled;
+static unsigned diagnostic_session;
+static unsigned diagnostic_sequence, diagnostic_rows;
+static long diagnostic_bytes;
+extern int snes_frame_counter;
+bool MmxCoopDiagnosticsEnabled(void) {return diagnostic_enabled;}
+void MmxCoopSetDiagnosticsEnabled(bool active) {
+  if(diagnostic_file) fclose(diagnostic_file);
+  diagnostic_file=NULL;diagnostic_checked=false;
+  diagnostic_sequence=diagnostic_rows=0;diagnostic_bytes=0;
+  diagnostic_enabled=active;
+}
+static void diagnostic_open(void) {
+  if (diagnostic_checked) return;
+  diagnostic_checked=true;
+  time_t now=time(NULL);struct tm *local=localtime(&now);
+  char stamp[32]="unknown-time";
+  if(local) strftime(stamp,sizeof(stamp),"%Y%m%d-%H%M%S",local);
+#ifdef _WIN32
+  _mkdir("logs");unsigned long pid=(unsigned long)_getpid();
+#else
+  mkdir("logs",0755);unsigned long pid=(unsigned long)getpid();
+#endif
+  snprintf(diagnostic_path,sizeof(diagnostic_path),"logs/coop-physics-%s-%lu-%u.csv",
+      stamp,pid,++diagnostic_session);
+  snprintf(diagnostic_previous,sizeof(diagnostic_previous),"%s.previous.csv",diagnostic_path);
+  diagnostic_file=fopen(diagnostic_path,"wb");
+  if (!diagnostic_file) {fprintf(stderr,"[coop-physics] cannot open %s\n",diagnostic_path);return;}
+  fprintf(stderr,"[coop-physics] recording %s (32 MiB per segment, plus previous segment)\n",diagnostic_path);
+}
+static void diagnostic_header(void) {
+  diagnostic_bytes=fprintf(diagnostic_file,
+      "sequence,host_frame,world_tick,event,pc,cpu_d,cpu_s,stage,mode,submode,phase,"
+      "current,anchor,controller_pass,object_pass,contact_pass,pickup_pass,pickup_d,"
+      "menu_owner,scene_owner,camera_x,camera_y,freeze_flags,pickup_owners,seat,"
+      "character,status,input,x,y,previous_x,previous_y,vx,vy,hp,ground,"
+      "terrain_above_feet,solid_above_feet,terrain_feet,solid_feet,body,scratch\n");
+}
+static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,const char *event) {
+  if (!diagnostic_enabled || !enabled || !state.initialized) return;
+  diagnostic_open();if (!diagnostic_file) return;
+  if (!diagnostic_bytes) diagnostic_header();
+  if (diagnostic_bytes>=32L*1024*1024) {
+    fclose(diagnostic_file);diagnostic_file=NULL;
+    /* Both filenames belong exclusively to this explicitly requested trace. */
+    remove(diagnostic_previous);
+    if (rename(diagnostic_path,diagnostic_previous)) {
+      fprintf(stderr,"[coop-physics] rotation failed; recording stopped\n");return;
+    }
+    diagnostic_file=fopen(diagnostic_path,"wb");
+    if (!diagnostic_file) return;
+    diagnostic_header();
+  }
+  char flags[15],owners[33],scratch[129];
+  for(unsigned i=0;i<7;++i) snprintf(flags+i*2,3,"%02x",r[0x1f13+i]);
+  for(unsigned i=0;i<16;++i) snprintf(owners+i*2,3,"%02x",state.pickup_owner[i]);
+  for(unsigned i=0;i<64;++i) snprintf(scratch+i*2,3,"%02x",r[i]);
+  unsigned sequence=++diagnostic_sequence;
+  for(unsigned seat=0;seat<2;++seat) {
+    /* Other-seat history is sampled once at frame end; repeated copies at
+     * every interpreter boundary add volume without new observations. */
+    bool frame_end=!strcmp(event,"frame-end");
+    if(seat!=state.current && !frame_end) continue;
+    const MmxCoopPlayer *p=&state.players[seat];
+    const uint8_t *b=seat==state.current ? r+0xba8 : p->body;
+    char body[0x90*2+1]={0};
+    if(frame_end || !strcmp(event,"pickup"))
+      for(unsigned i=0;i<0x90;++i) snprintf(body+i*2,3,"%02x",b[i]);
+    int x=word(b+5),y=word(b+8);
+    int count=fprintf(diagnostic_file,
+        "%u,%d,%u,%s,%06x,%04x,%04x,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%04x,"
+        "%u,%u,%u,%u,%s,%s,%u,%u,%u,%04x,%d,%d,%u,%u,%d,%d,%u,%u,%u,%u,%u,%u,%s,%s\n",
+        sequence,snes_frame_counter,r[0xb9c],event,(unsigned)pc,
+        cpu?(unsigned)cpu->D:0,cpu?(unsigned)cpu->S:0,r[0x1f7a],r[0xd1],r[0xd2],r[0xd3],
+        state.current,state.anchor,state.controller_pass,state.object_pass,state.contact_pass,
+        state.pickup_pass,state.pickup_d,state.menu_owner,state.scene_owner,word(r+0x1e4d),word(r+0x1e50),
+        flags,owners,seat+1,p->character,p->status,p->input,x,y,word(b+0x22),word(b+0x24),
+        (int16_t)word(b+0x1a),(int16_t)word(b+0x1c),b[0x27]&127,b[0x2b],
+        MmxWeaponsTerrainClass(r,x,y+8),MmxWeaponsTerrainSolid(r,x,y+8,true,NULL),
+        MmxWeaponsTerrainClass(r,x,y+16),MmxWeaponsTerrainSolid(r,x,y+16,true,NULL),body,scratch);
+    if(count<0) {fclose(diagnostic_file);diagnostic_file=NULL;return;}
+    diagnostic_bytes+=count;
+  }
+  if (++diagnostic_rows%60==0) fflush(diagnostic_file);
+}
+void MmxCoopDiagnosticFrame(const uint8_t *r) {diagnostic_event(r,NULL,0,"frame-end");}
 bool MmxCoopTransitionActive(void) {
   return enabled && state.initialized && (state.players[0].zero.swap_phase || state.players[1].zero.swap_phase);
 }
@@ -59,7 +162,7 @@ bool MmxCoopValidState(const MmxCoopState *s) {
       s->reserved || s->object_reserved || s->object_pass > 2 ||
       s->platform_riders > 3 || s->contact_pass > 2 || s->enrolled>1 ||
       s->select_hold>180 || s->select_armed>1 || s->stage_pending>2 || /* Accept older 3-second hold saves. */
-      s->menu_owner>2 || s->menu_last>1 || s->menu_reserved[0] || s->menu_reserved[1] ||
+      s->menu_owner>2 || s->menu_last>1 || s->p1_select_hold>90 || s->p1_select_armed>1 ||
       s->pickup_pass>2 || s->pickup_reserved[0] || s->pickup_reserved[1] || s->pickup_reserved[2] ||
       s->anchor>1 || s->solo_death[0]>1 || s->solo_death[1]>1 || s->death_reserved ||
       s->scene_owner>2 || s->scene_phase>3 || s->door_pass>2 || s->scene_reserved || s->slime_p2>255 ||
@@ -110,6 +213,7 @@ bool MmxCoopSelect(uint8_t *r, unsigned player) {
   if (!enabled || !state.initialized || !r || player > 1) return false;
   if (player == state.current) return true;
   TRACE(SELECT,0,state.current,player,NULL);
+  diagnostic_event(r,NULL,0,"select-before");
   MmxCoopCapture(r);
   state.current = (uint8_t)player;
   const MmxCoopPlayer *p = &state.players[player];
@@ -136,6 +240,14 @@ static void select_world_survivor(uint8_t *r) {
     state.anchor=(uint8_t)other;MmxCoopSelect(r,other);
   }
 }
+static bool refill_paused(const uint8_t *r) {
+  if(!r[0x1f19] || state.menu_owner || state.scene_owner) return false;
+  for(unsigned seat=0;seat<2;++seat) {
+    const uint8_t *body=seat==state.current ? r+0xba8 : state.players[seat].body;
+    if(state.players[seat].status==MMX_COOP_ALIVE && body[2]==0x18) return true;
+  }
+  return false;
+}
 void MmxCoopInitialize(uint8_t *r) {
   if (!enabled || state.initialized || !r || r[0xd1] != 2 || r[0xd2] != 4 || r[0xba9] != 2) return;
   state.initialized = 1; state.stage = r[0x1f7a];
@@ -156,15 +268,21 @@ void MmxCoopInitialize(uint8_t *r) {
 bool MmxCoopFrameTick(uint8_t *r) {
   if (!enabled || !state.initialized) return MmxWeaponsFrameTick(r);
   if (g_mmx_coop_trace) {MmxCoopTraceFrameBegin(&state);TRACE(FRAME,0,0,0,NULL);}
+  /* The stage-clear weapon demonstration reuses the native player/shot
+   * pools. It owns that single scripted actor; projecting either stored
+   * co-op body here overwrites its weapon and recorded fire input. */
+  if(r[0xd1]==2 && r[0xd2]==4 && r[0xd3]>=10) {
+    state.stage_pending=1;state.select_hold=state.p1_select_hold=0;return false;
+  }
   if (state.menu_owner) {
     if (state.current==1) MmxCoopApplyInput(r);
-    state.select_hold=0;return false;
+    state.select_hold=state.p1_select_hold=0;return false;
   }
   /* A changed stage requests initialization; it must not keep returning
    * before the block below can adopt the new stage and revive the roster. */
   if (state.stage!=r[0x1f7a]) state.stage_pending=1;
   if (r[0xd1]!=2 || r[0xd2]!=4 || r[0xba9]!=2) {
-    state.stage_pending=1;state.select_hold=0;
+    state.stage_pending=1;state.select_hold=state.p1_select_hold=0;
     /* A new stage/checkpoint is initialized for the configured P1, even
      * when P2 was the last survivor driving the preceding world tasks. */
     if(state.anchor && (r[0xd1]!=2 || r[0xd2]!=4)) {MmxCoopSelect(r,0);state.anchor=0;}
@@ -211,6 +329,11 @@ bool MmxCoopFrameTick(uint8_t *r) {
     state.solo_death[state.anchor]=0;
   }
   if (scene_tick(r)) return true;
+  /* Retail refills park their collector in action $18 while the item task
+   * advances HP/energy. $00:D263 skips terrain collision when $1F19 is set.
+   * The other actor must park too; running its motion through that pause
+   * lets it fall through the floor. Keep running the native refill task. */
+  if(refill_paused(r)) return false;
   if (!state.scene_owner && join_tick(r)) return true;
   if (r[0x1f10]>=6) return false;
   unsigned phases[2]={0,0};
@@ -289,7 +412,9 @@ static void place_other(uint8_t *r,uint16_t x,uint16_t y,bool preserve) {
   p->status = MMX_COOP_ALIVE;
 }
 bool MmxCoopPlacePartner(uint8_t *r,uint16_t x,uint16_t y) {
-  if (!enabled || !state.initialized || !r || state.current || state.players[1].status!=MMX_COOP_ABSENT) return false;
+  if (!enabled || !state.initialized || !r ||
+      state.players[state.current].status!=MMX_COOP_ALIVE ||
+      state.players[state.current^1].status!=MMX_COOP_ABSENT) return false;
   place_other(r,x,y,state.enrolled!=0);state.enrolled=1;return true;
 }
 
@@ -335,11 +460,11 @@ bool MmxCoopFindLanding(const uint8_t *r,uint16_t *out_x,uint16_t *out_y) {
   }
   return false;
 }
-static void clear_partner_combat(uint8_t *r) {
-  MmxCoopSelect(r,1);MmxWeaponsCancelShots(r);MmxZeroCancel(r);
+static void clear_player_combat(uint8_t *r,unsigned seat) {
+  MmxCoopSelect(r,seat);MmxWeaponsCancelShots(r);MmxZeroCancel(r);
   if(r[0xc2f]&64) sound(r,0x17);
   memset(r+0xbff,0,5);memset(r+0xc98,0,0x180);r[0xc2f]&=(uint8_t)~64;
-  MmxCoopSelect(r,0);
+  MmxCoopSelect(r,state.anchor);
 }
 /* Both scene transport and voluntary join use the source teleport timing. */
 static bool teleport_tick(uint8_t *r,MmxCoopPlayer *p) {
@@ -385,7 +510,8 @@ static bool scene_tick(uint8_t *r) {
   if(state.scene_phase==1 || state.scene_phase==3) {
     if(teleport_tick(r,p)) {
       if(state.scene_phase==1) state.scene_phase=2;
-      else {state.scene_phase=state.scene_owner=0;state.select_armed=state.select_hold=0;}
+      else {state.scene_phase=state.scene_owner=0;
+        state.select_armed=state.select_hold=state.p1_select_armed=state.p1_select_hold=0;}
     }
     r[0xb9d]=r[0xba0]=0;return true;
   }
@@ -439,44 +565,64 @@ static void eagle_lift_hook(CpuState *cpu,uint32_t pc) {
     interp_bridge_pre_opcode_redirect(0x87c0ae);
   } else {MmxCoopSelect(g_ram,state.anchor);state.door_pass=0;}
 }
+static bool living_on_screen(const uint8_t *r,unsigned seat) {
+  const MmxCoopPlayer *p=&state.players[seat];
+  const uint8_t *b=seat==state.current ? r+0xba8 : p->body;
+  int x=(int)word(b+5)-word(r+0x1e4d),y=(int)word(b+8)-word(r+0x1e50);
+  int height=p->character==MMX_COOP_ZERO ? 44 : 36;
+  return p->status==MMX_COOP_ALIVE && (b[0x27]&127) && b[2]!=12 &&
+      !p->zero.swap_phase && x+12>0 && x-12<256 && y+16>0 && y+16-height<224;
+}
 static bool join_tick(uint8_t *r) {
-  MmxCoopPlayer *p=&state.players[1];MmxZeroState *z=&p->zero;
-  if (z->swap_phase) {
-    unsigned phase=z->swap_phase;
+  for(unsigned seat=0;seat<2;++seat) {
+    MmxCoopPlayer *p=&state.players[seat];
+    if (!p->zero.swap_phase) continue;
+    unsigned phase=p->zero.swap_phase;
     if (teleport_tick(r,p)) {
       if(phase==2) p->status=MMX_COOP_ABSENT;
-      state.select_armed=state.select_hold=0;
+      else if(!seat) {state.anchor=0;MmxCoopSelect(r,0);}
+      state.select_armed=state.select_hold=state.p1_select_armed=state.p1_select_hold=0;
     }
     r[0xb9d]=r[0xba0]=0;return true;
   }
   bool gameplay=r[0xd1]==2 && r[0xd2]==4 && r[0xd3]==4 && r[0xba9]==2 &&
       (r[0xbcf]&127) && r[0xbaa]!=12 &&
-      !r[0x1f0c] && r[0x1f10]<6 && !r[0x1f23] && !r[0x1f48];
-  if (!gameplay) {state.select_hold=0;return false;}
-  if (!(p->input&4)) {state.select_armed=1;state.select_hold=0;}
-  if (p->status==MMX_COOP_FALLEN) {state.select_hold=0;return false;}
-  if (p->status==MMX_COOP_ALIVE) {
-    if (!(p->body[0x27]&127) || p->body[2]==12) {state.select_hold=0;return false;}
-    if(state.players[0].status==MMX_COOP_FALLEN) {state.select_hold=0;return false;}
-    if ((p->input&4) && state.select_armed && ++state.select_hold>=90) {
-      MmxCoopSelect(r,0);state.anchor=0;
-      clear_partner_combat(r);z=&p->zero;z->swap_phase=1;z->swap_tick=z->swap_fraction=0;z->swap_y=0;
-      state.select_hold=0;sound(r,0x0f);r[0xb9d]=r[0xba0]=0;return true;
+      !r[0x1f0c] && r[0x1f10]<6 && !r[0x1f23] && !r[0x1f48] && !r[0x1f19];
+  if (!gameplay) {state.select_hold=state.p1_select_hold=0;return false;}
+  for(unsigned seat=0;seat<2;++seat) {
+    MmxCoopPlayer *p=&state.players[seat];
+    uint8_t *hold=seat ? &state.select_hold : &state.p1_select_hold;
+    uint8_t *armed=seat ? &state.select_armed : &state.p1_select_armed;
+    if (!(p->input&4)) {*armed=1;*hold=0;}
+    if (p->status==MMX_COOP_FALLEN || !living_on_screen(r,seat^1)) {*hold=0;continue;}
+    if (p->status==MMX_COOP_ALIVE) {
+      if (!(p->body[0x27]&127) || p->body[2]==12) {*hold=0;continue;}
+      if ((p->input&4) && *armed && ++*hold>=90) {
+        /* The other seat now drives world scripts and native input. The
+         * withdrawn body/inventory remains stored for a voluntary return. */
+        state.anchor=(uint8_t)(seat^1);MmxCoopSelect(r,state.anchor);
+        clear_player_combat(r,seat);
+        MmxZeroState *z=&p->zero;z->swap_phase=1;z->swap_tick=z->swap_fraction=0;z->swap_y=0;
+        *hold=0;sound(r,0x0f);r[0xb9d]=r[0xba0]=0;return true;
+      }
+      continue;
     }
-    return false;
+    bool automatic=seat==1 && state.stage_pending==2;
+    if (!(p->pressed&4) && !automatic) continue;
+    MmxCoopSelect(r,seat^1);
+    uint16_t x,y;
+    if (!MmxCoopFindLanding(r,&x,&y)) {
+      if(!automatic) sound(r,0x74); /* $00:F1E4 password rejection. */
+      continue;
+    }
+    if (!MmxCoopPlacePartner(r,x,y)) continue;
+    state.stage_pending=0;
+    MmxZeroState *z=&p->zero;z->swap_phase=4;z->swap_y=(int16_t)(word(r+0x1e50)-(int)y-40);
+    z->swap_tick=z->swap_fraction=0;
+    state.select_armed=state.select_hold=state.p1_select_armed=state.p1_select_hold=0;
+    sound(r,0x0e);r[0xb9d]=r[0xba0]=0;return true;
   }
-  bool automatic=state.stage_pending==2;
-  if (!(p->pressed&4) && !automatic) return false;
-  uint16_t x,y;
-  if (!MmxCoopFindLanding(r,&x,&y)) {
-    if(!automatic) sound(r,0x74); /* $00:F1E4 password rejection. */
-    return false;
-  }
-  if (!MmxCoopPlacePartner(r,x,y)) return false;
-  state.stage_pending=0;
-  z=&p->zero;z->swap_phase=4;z->swap_y=(int16_t)(word(r+0x1e50)-(int)y-40);
-  z->swap_tick=z->swap_fraction=0;state.select_armed=state.select_hold=0;
-  sound(r,0x0e);r[0xb9d]=r[0xba0]=0;return true;
+  return false;
 }
 
 static unsigned slime_bit(unsigned d) {
@@ -562,6 +708,8 @@ static bool pickup_slot(unsigned d) {
 static void pickup_hook(CpuState *cpu,uint32_t pc) {
   if(!enabled || !state.initialized || state.menu_owner) return;
   unsigned at=pc&65535,d=cpu->D;
+  if ((pickup_slot(d) && g_ram[d]) || (state.pickup_pass && d==state.pickup_d))
+    diagnostic_event(g_ram,cpu,pc,"pickup");
   if(at==0xd2ed || at==0xd31b) {
     if(state.current!=state.anchor) TRACE(PICKUP,pc,6,0,cpu);
     MmxCoopSelect(g_ram,state.anchor);return;
@@ -597,7 +745,9 @@ static void pickup_hook(CpuState *cpu,uint32_t pc) {
   } else {TRACE(PICKUP,pc,2,0,cpu);MmxCoopSelect(g_ram,state.anchor);state.pickup_pass=0;}
 }
 static void object_hook(CpuState *cpu, uint32_t pc) {
-  if (!enabled || !state.initialized || state.menu_owner || state.scene_owner || state.players[state.anchor^1].status != MMX_COOP_ALIVE) return;
+  if (!enabled || !state.initialized || state.menu_owner || state.scene_owner ||
+      g_ram[0xd1]!=2 || g_ram[0xd2]!=4 || g_ram[0xd3]>=10 ||
+      state.players[state.anchor^1].status != MMX_COOP_ALIVE) return;
   unsigned at = pc & 65535;
   bool entry = at == 0xd2bd || at == 0xd3dd || at == 0xd3fa || at == 0xd43a || at == 0xd457 || at == 0x9d67;
   if (entry) {
@@ -631,10 +781,11 @@ static void object_hook(CpuState *cpu, uint32_t pc) {
 static void platform_hook(CpuState *cpu,uint32_t pc) {
   if(!enabled || !state.initialized || state.menu_owner || state.scene_owner) return;
   unsigned at=pc&65535,d=cpu->D;
-  /* Item $0E uses only .2C's boolean rider latch. In co-op retain one bit
+  /* Items $0E/$0F/$10 share .2C's boolean rider latch. In co-op retain one bit
    * per seat there, projecting a boolean while the native helper executes.
    * Slot initialization still clears it, and snapshots retain both riders. */
-  if(d<0x1628 || d>=0x1928 || (d-0x1628)%48 || g_ram[d+10]!=0x0e) return;
+  if(d<0x1628 || d>=0x1928 || (d-0x1628)%48 ||
+      g_ram[d+10]<0x0e || g_ram[d+10]>0x10) return;
   if(at==0xab81 || at==0xab56) {
     if(state.contact_pass) {
       /* Re-entry for the partner's own retry is expected; anything else
@@ -794,6 +945,7 @@ static void death_hook(CpuState *cpu,uint32_t pc) {
 }
 static void controller_hook(CpuState *cpu, uint32_t pc) {
   if (!enabled) return;
+  if(g_ram[0xd1]!=2 || g_ram[0xd2]!=4 || g_ram[0xd3]>=10) return;
   if ((pc & 0x7fffff) == 0x048fcb) {
     /* There is exactly one X. Preserve his native CHR allocation; Zero's
      * complete body comes from the original X3 asset compositor. PHP has
@@ -814,6 +966,7 @@ static void controller_hook(CpuState *cpu, uint32_t pc) {
   }
   if ((pc & 0xffff) == 0x8136) {
     MmxCoopInitialize(g_ram);
+    diagnostic_event(g_ram,cpu,pc,"controller-enter");
     if (state.initialized && !state.controller_pass) {
       if(state.current==1) MmxCoopApplyInput(g_ram);
       state.controller_pass=1;
@@ -821,9 +974,12 @@ static void controller_hook(CpuState *cpu, uint32_t pc) {
       TRACE_MARK(state.current,CONTROLLER);
       if(state.current!=state.anchor) TRACE_MARK(state.current,NON_ANCHOR);
     }
+    if(state.initialized && refill_paused(g_ram))
+      interp_bridge_pre_opcode_redirect(0x81819c);
     return;
   }
   if (!state.initialized || !state.controller_pass) return;
+  diagnostic_event(g_ram,cpu,pc,"controller-return");
   constrain_player(g_ram);
   unsigned other=state.current^1;
   if (state.controller_pass == 1 && !state.menu_owner && !state.scene_owner && state.players[other].status == MMX_COOP_ALIVE &&

@@ -117,6 +117,10 @@ For netplay connection problems, enable the **Tier 2 diagnostics** mod
 through STUN or through TURN, and any stalls); attach it with the log. The
 file is replaced by the next match.
 
+For intermittent co-op collision problems, tick **Co-op physics diagnostics**
+under **Mods > Developer**, then play normally. Attach `logs/coop-physics-*.csv`
+and its `.previous.csv` companion if present. This extra tracing is off by default.
+
 <details>
 <summary>Building from source and technical details</summary>
 

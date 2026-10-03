@@ -16,11 +16,23 @@ in Git or the eventual downloadable mod.
 
 Latest join controls: enabling co-op automatically enrolls P2 and spawns the
 counterpart when gameplay has a safe landing. Both players also return at later
-stage entries/team restarts. Hold P2 **Select** for 90 gameplay frames (1.5
-seconds) to withdraw, retaining HP, weapon energy and selections. P2 stays out
+stage entries/team restarts. Either player can hold **Select** for 90 gameplay frames (1.5
+seconds) to withdraw, retaining HP, weapon energy and selections, provided
+their teammate is alive and visible on screen. A withdrawn player stays out
 until Select is pressed to rejoin or a new stage/team restart begins. Start
 remains pause/menu. Shared subtanks are unchanged, and fallen players cannot
 use Select to rejoin until a new stage/team restart.
+
+Symmetric withdrawal (2026-10-03, `beads-8wg.1.79`) transfers the native
+world anchor to the remaining seat, then returns it to P1 when P1 rejoins.
+Both seats use the existing teleport art and timing, safe landing query,
+and inventory preservation. Separate hold/arming counters prevent simultaneous
+requests from withdrawing both players. P1's two counters occupy former
+reserved menu bytes; struct sizes and existing field offsets are unchanged,
+and older saves initialize those counters to zero. They participate in the
+normal snapshot/rollback state. ROM checks cover both rosters, both seats,
+the full hold interval, dead/dying/offscreen guards, survivor control,
+retained HP/energy, and deterministic mid-arrival replay.
 
 This branch provides a **development playtest build**, not an end-to-end
 campaign certification. The launcher package is `megaman-x.coop` 0.0.1,
@@ -721,3 +733,89 @@ plus `-before1/2`, copied from rolling saves taken every two seconds. They need 
 same build and mod set. To load one, copy it over a slot file such as
 `saves/save1.sav` and load that slot. Slopes are excluded from the terrain checks. Ladder descents through
 one-way tops may be reported; check the action value in the dump.
+
+### Opt-in terrain/pickup diagnostics (2026-10-03)
+
+The owner's completed online Chill Penguin trace caught two penetrations:
+P2 at guest frame 8306 near X/Y 3786/826, and P1 at frame 12325 near
+7009/585, eventually stuck at 7080/703. Both began during the native refill
+pause: `$1F13..19=1`, the collector in action `$18`, and the other player
+still integrating its airborne velocity against unchanged previous X/Y.
+The owner did not notice a health pickup; the trace records HP increments
+during these pauses. This is simulation behavior, not a network correction.
+
+Source ROM inspection: `$00:D1F3..D201` does not update previous position
+when `$1F19` is set; `$00:D263..D26C` then skips `$81:9D67`, the terrain
+resolver. The one-player refill parks the collector at `$81:8B4D` (RTS),
+but the second player had no corresponding parked action. Co-op now skips
+both movement controllers during this specific refill pause, through their
+existing balanced `$81:819C` epilogue. Native item tasks continue running,
+so refill completes normally. Imported attack ages are paused too. Death
+and scripted scene handling retain their existing paths.
+
+A ROM-backed regression failed before the fix (the airborne player moved
+101 pixels down during a 20-frame collision pause), then passed for both
+rosters and both collector seats: no movement during refill and ordinary
+landing after it ends. Private owner CSVs/ROMs/fixtures remain untracked.
+
+The retained trace confirms the native refill collision pause as the trigger
+for these two penetrations. Earlier incidents reported near the stage start
+were outside the retained log window. A fresh full-stage playthrough is still
+needed to check those incidents; the fix does not relocate actors or change
+the underlying terrain resolver.
+
+Tick **Co-op physics diagnostics** under **Mods > Developer** and play
+normally, locally or online. The bundled declarative feature defaults off,
+like Tier 2 diagnostics, and activates the trusted logging plugin. It creates
+unique CSV filenames automatically. Unticking closes and flushes the trace.
+No separate launcher or environment variable is needed.
+
+The mod writes unique `logs/coop-physics-*.csv` files. Send the CSV,
+its `.previous.csv` companion if present, and the corresponding
+`logs/mmx-*.log`, plus approximate stage/location and which player fell.
+Each trace keeps at most two 32 MiB segments, with buffered writes.
+
+Rows record the projected actor at controller entry/return, context switches
+and active pickup hooks, plus both actors at frame end, including frozen frames. Fields include
+host frame and sequence, world tick, stage/camera, HP, input, fixed-point
+velocities, previous positions, ground flags, terrain at/above feet, native
+freeze bytes, pickup owners/passes, scheduler registers and raw body/scratch
+bytes. Netplay rollback can repeat or rewind frame counters; the host sequence
+keeps those events distinguishable. Terrain columns are observations, not
+automatic assertions that a slope or platform contact is invalid.
+
+Trace buffers/files are host-only, outside WRAM and save/rollback state.
+Tracing does not modify physics or force save-state loads. Running sessions
+and existing saves/configuration are not changed when producing the build.
+
+A focused ROM-backed flat-floor check covered four cases: either player
+collecting a health pickup while the counterpart falls, with both X/Zero
+rosters. Both actors survived, only the collector healed, and the airborne
+actor landed without penetrating the floor. These isolated checks validate
+the refill fix; they do not replace a full Chill Penguin co-op playthrough
+or a two-machine netplay session.
+
+### Landing, Storm Eagle supports and weapon-get demonstration (2026-10-03)
+
+Tracking: `beads-8wg.1.82`. X3 Behavior Zero's held buster charge was canceled
+by native action `$0A`, the four-frame landing recovery at `$81:8609..865A`.
+That action retains native firing/charging and now also retains Zero's charge.
+Hurt, death and other combat cancellation paths are unchanged.
+
+Storm Eagle's rising columns (item `$0F`, `$83:F137`) and flying platforms
+(item `$10`, `$87:EE82`) also call `$84:AB81`. They were excluded from the
+two-seat rider handling added for item `$0E`. They now share its per-seat
+`.2C` rider bits and native movement/contact helpers. Flying-platform boarding
+still launches through the original `$87:EEE3` state transition.
+
+The original weapon-get demonstration runs from `$00:AB9A`, using the native
+player and projectile pools during stage-clear phase `$0A`. Co-op projection
+and the previous imported selection could interfere with its scripted actor
+and replace its X1 shots. During this presentation, the native task now owns
+the pools and firing input. Co-op initializes the roster again on stage entry.
+
+`MMX_COOP_FOLLOWUP_TEST=1` checks a full held-charge jump/landing, both types of
+Storm support with Zero alone and both riders, and the real Shotgun Ice demo
+after an imported weapon selection. The demo regression observed no native ice
+projectiles before the presentation guards, and 78 projectile frames afterwards.
+Source ROMs, fixtures, captures and the owner's new PID 54208 logs stay private.

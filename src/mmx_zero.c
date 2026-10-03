@@ -585,7 +585,8 @@ void MmxZeroMovementTick(uint8_t r[0x20000]) {
       (r[0xbdf] & (state.modern.dash_facing ? 2 : 1)) || (r[0xc06] & 3)))
     end_air_dash(r);
   if (air && !state.modern.dash_ticks && !state.modern.dash_used &&
-      (r[0xbe2] & 128) && !state.slash) {
+      (r[0xbe2] & 128)) {
+    MmxZeroCancel(r);
     state.modern.dash_used = 1; state.modern.dash_ticks = 18;
     state.modern.dash_facing = (r[0xbdf] & 3) == 1 ? 64 :
         (r[0xbdf] & 3) == 2 ? 0 : r[0xc11] & 64;
@@ -623,14 +624,23 @@ static bool start_slash(uint8_t *r) {
 void MmxZeroPlayerTick(uint8_t r[0x20000]) {
   if (!MmxZeroActive() || !r) return;
   unsigned action = r[0xbaa];
-  /* $0A is X1's four-frame landing state ($81:8600). It is entered when Zero
-   * lands with no direction held; X keeps charging through it natively. */
   bool playable = r[0xd1] == 2 && r[0xd2] == 4 && r[0xba9] == 2 &&
-      (r[0xbcf] & 127) && !r[0x1f0c] && !r[0xbdb] &&
+      r[0xd3]<10 && (r[0xbcf] & 127) && !r[0x1f0c] && !r[0xbdb] &&
+      /* Action $0A is the ordinary four-frame landing recovery, with native
+       * fire/charge input still active ($81:8609..865A). */
       (action <= 0x0a || action == 0x10 || action == 0x12 || action == 0x14 || action == 0x20);
   if (!playable) { MmxZeroCancel(r); return; }
   bool held = (r[0xbdf] & 64) != 0, pressed = (r[0xbe3] & 64) != 0;
   if (modern_behavior) {
+    /* Movement takes priority over an ongoing direct swing. Preserve the
+     * native jump and ladder inputs instead of masking them into a forced
+     * pose. Air-dash/double-jump cancellation happens in MovementTick. */
+    if(state.slash && ((r[0xbdf]&12) || ((r[0xbd3]&4) &&
+        ((r[0xbe3]&128) || (r[0xbe2]&128))))) {
+      MmxZeroCancel(r);
+      r[0xbdf]&=(uint8_t)~64;r[0xbe3]&=(uint8_t)~64;
+      return;
+    }
     /* Direct saber uses the same ground/air art and collision arc. Retain
      * every pose, shortening only the long follow-through hold. */
     state.charge = state.charge_phase = state.combo = state.saber_ready = 0;

@@ -36,7 +36,7 @@ typedef struct MmxCoopState {
   uint16_t contact_a, contact_x, contact_y, contact_s, contact_d, contact_entry;
   uint8_t contact_p, contact_db, contact_pass, platform_riders; /* Pending .2C bits; formerly reserved. */
   uint8_t enrolled, select_hold, select_armed, stage_pending;
-  uint8_t menu_owner, menu_last, menu_reserved[2]; /* owner 0=none, 1/2=seat */
+  uint8_t menu_owner, menu_last, p1_select_hold, p1_select_armed; /* Last two bytes were reserved. */
   uint8_t pickup_owner[16]; /* Native item slots $1628 + index*$30. */
   uint16_t pickup_s, pickup_d;
   uint8_t pickup_pass, pickup_reserved[3];
@@ -75,6 +75,10 @@ bool MmxCoopValidState(const MmxCoopState *state);
 void MmxCoopSetState(const MmxCoopState *state);
 void MmxCoopInitialize(uint8_t ram[0x20000]);
 void MmxCoopCapture(uint8_t ram[0x20000]);
+/* Developer mod opt-in; host-only logging, outside save/netplay state. */
+bool MmxCoopDiagnosticsEnabled(void);
+void MmxCoopSetDiagnosticsEnabled(bool active);
+void MmxCoopDiagnosticFrame(const uint8_t ram[0x20000]);
 bool MmxCoopSelect(uint8_t ram[0x20000], unsigned player);
 void MmxCoopPoll(uint16_t p1, uint16_t p2);
 void MmxCoopApplyInput(uint8_t ram[0x20000]);

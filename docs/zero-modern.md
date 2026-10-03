@@ -23,6 +23,10 @@ charge/upgrade requirements. X retains his original controller and buster.
 - Airborne swings retain native horizontal movement and left/right steering,
   including the jump's normal vertical arc. Ground swings still plant Zero's
   feet. Landing switches the saber back to the ground behavior.
+- Jump or Dash can interrupt an ongoing swing. Up/Down also interrupt it,
+  preserving native ladder-grab input. Landing alone keeps the swing active.
+  Cancelling never refreshes the midair jump/dash allowance or changes the
+  equipped special weapon. X3 Behavior retains its original attack rules.
 - A swing has two contact opportunities, nine simulation ticks apart, worth
   three damage each when the native enemy accepts the hit. Boss invulnerability
   and reflection remain in force, so two contacts do not guarantee two hits.
