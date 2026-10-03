@@ -842,9 +842,33 @@ static void coop_launcher_checks(const char *root,const char *rom,const char *x3
       "private co-op catalog parses");
   const RecompLauncherCModProvider *p=snes_mod_runtime_launcher_provider_c();
   check(p && p->feature_enable && p->feature_resource_get,"real launcher feature provider exists");
+  const char *diagnostics="megaman-x.developer.coop-diagnostics";
+  check(!snes_mod_runtime_feature_enabled_c(diagnostics,"coop-diagnostics"),
+      "co-op diagnostic checkbox defaults off");
   check(p->feature_enable(p->ctx,"megaman-x.coop","coop",1),"launcher enables co-op");
   check(p->feature_resource_set_path(p->ctx,"megaman-x.coop","coop","x3-rom",x3),
       "launcher accepts original X3 ROM");
+  if(getenv("MMX_COOP_DIAGNOSTICS_MOD_TEST")) {
+    check(p->commit(p->ctx,rom),"ordinary co-op plan commits");
+    snes_mod_runtime_activate_plugins_c();
+    check(!MmxCoopDiagnosticsEnabled(),"ordinary co-op leaves diagnostics off");
+    check(p->feature_enable(p->ctx,diagnostics,"coop-diagnostics",1) && p->commit(p->ctx,rom),
+        "launcher ticks and commits diagnostic checkbox");
+    snes_mod_runtime_activate_plugins_c();
+    check(MmxCoopDiagnosticsEnabled(),"checkbox activates trusted co-op logger");
+    const char *fixture=getenv("MMX_ZERO_TEST_FIXTURE");
+    check(fixture && RtlLoadSnapshot(fixture),"diagnostic check loads copied private fixture");
+    coop_frames(8,0,0);
+    check(p->feature_enable(p->ctx,diagnostics,"coop-diagnostics",0) && p->commit(p->ctx,rom),
+        "launcher unticks and commits diagnostic checkbox");
+    snes_mod_runtime_activate_plugins_c();
+    check(!MmxCoopDiagnosticsEnabled(),"unticking flushes and disables co-op logger");
+    check(snes_mod_runtime_initialize_c(root,"megaman-x-us",
+        "b8f70a6e7fb93819f79693578887e2c11e196bdf1ac6ddc7cb924b1ad0be2d32") &&
+        !snes_mod_runtime_feature_enabled_c(diagnostics,"coop-diagnostics"),
+        "diagnostic checkbox selection persists after catalog reload");
+    puts("MMX CO-OP DIAGNOSTIC MOD CHECKS PASSED");return;
+  }
   const char *packages[]={"megaman-x.coop","megaman-x.character.zero","megaman-x.weapons.x3"};
   const char *features[]={"coop","zero","weapons"};
   for(unsigned i=0;i<3;++i) {
@@ -865,6 +889,20 @@ static void coop_launcher_checks(const char *root,const char *rom,const char *x3
     check(MmxCoopEnabled() && MmxZeroEnabled() && s.players[0].character==character &&
         s.players[1].character==(character^1),"real plugin extracts source ROM and activates chosen roster");
   }
+  check(!MmxCoopDiagnosticsEnabled(),"ordinary co-op leaves diagnostics off");
+  check(p->feature_enable(p->ctx,diagnostics,"coop-diagnostics",1) && p->commit(p->ctx,rom),
+      "launcher ticks and commits diagnostic checkbox");
+  snes_mod_runtime_activate_plugins_c();
+  check(MmxCoopDiagnosticsEnabled(),"checkbox activates trusted co-op logger");
+  const char *fixture=getenv("MMX_ZERO_TEST_FIXTURE");
+  if(fixture) {
+    check(RtlLoadSnapshot(fixture),"diagnostic check loads copied private fixture");
+    coop_frames(8,0,0);
+  }
+  check(p->feature_enable(p->ctx,diagnostics,"coop-diagnostics",0) && p->commit(p->ctx,rom),
+      "launcher unticks and commits diagnostic checkbox");
+  snes_mod_runtime_activate_plugins_c();
+  check(!MmxCoopDiagnosticsEnabled(),"unticking flushes and disables co-op logger");
   check(p->feature_enable(p->ctx,"megaman-x.coop","coop",0) && p->commit(p->ctx,rom),
       "launcher disables co-op");
   snes_mod_runtime_activate_plugins_c();

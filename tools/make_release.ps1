@@ -73,8 +73,6 @@ Copy-Item -LiteralPath $exe -Destination $stage
 Copy-Item -LiteralPath (Join-Path $root 'config.ini') -Destination $stage
 Copy-Item -LiteralPath (Join-Path $root 'logging.ini') -Destination $stage
 Copy-Item -LiteralPath (Join-Path $root 'README.md') -Destination $stage
-Copy-Item -LiteralPath (Join-Path $root 'tools/Launch-Coop-Diagnostics.ps1') -Destination $stage
-Copy-Item -LiteralPath (Join-Path $root 'tools/Launch-Coop-Diagnostics.cmd') -Destination $stage
 # Keep the README's local screenshot links usable in the extracted download.
 $stageDocs = Join-Path $stage 'docs'
 New-Item -ItemType Directory -Path $stageDocs -Force | Out-Null

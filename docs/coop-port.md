@@ -687,12 +687,13 @@ health pickup while the other player is airborne. The local-versus-netplay
 distinction and exact trigger remain unconfirmed. Do not treat this as a
 confirmed pickup bug or relocate actors as a speculative repair.
 
-Windows packages include `Launch-Coop-Diagnostics.cmd` and its PowerShell
-helper beside the executable. Double-click the CMD launcher for the next
-play session; it opens recomp-ui without loading any state. Enable co-op
-and play normally, locally or online. Normal EXE launches keep tracing off.
+Tick **Co-op physics diagnostics** under **Mods > Developer** and play
+normally, locally or online. The bundled declarative feature defaults off,
+like Tier 2 diagnostics, and activates the trusted logging plugin. It creates
+unique CSV filenames automatically. Unticking closes and flushes the trace.
+No separate launcher or environment variable is needed.
 
-The launcher writes unique `logs/coop-physics-*.csv` files. Send the CSV,
+The mod writes unique `logs/coop-physics-*.csv` files. Send the CSV,
 its `.previous.csv` companion if present, and the corresponding
 `logs/mmx-*.log`, plus approximate stage/location and which player fell.
 Each trace keeps at most two 32 MiB segments, with buffered writes.

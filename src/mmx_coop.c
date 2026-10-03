@@ -8,6 +8,14 @@ _Static_assert(sizeof(MmxCoopState) == MMX_COOP_LEGACY_STATE_SIZE + 2 * sizeof(M
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
+#ifdef _WIN32
+#include <direct.h>
+#include <process.h>
+#else
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 extern uint8_t g_ram[0x20000];
 extern Snes *g_snes;
@@ -31,22 +39,35 @@ static void sound(uint8_t *r,unsigned command) {
 static FILE *diagnostic_file;
 static char diagnostic_path[2048], diagnostic_previous[2064];
 static bool diagnostic_checked;
+static bool diagnostic_enabled;
+static unsigned diagnostic_session;
 static unsigned diagnostic_sequence, diagnostic_rows;
 static long diagnostic_bytes;
 extern int snes_frame_counter;
+bool MmxCoopDiagnosticsEnabled(void) {return diagnostic_enabled;}
+void MmxCoopSetDiagnosticsEnabled(bool active) {
+  if(diagnostic_file) fclose(diagnostic_file);
+  diagnostic_file=NULL;diagnostic_checked=false;
+  diagnostic_sequence=diagnostic_rows=0;diagnostic_bytes=0;
+  diagnostic_enabled=active;
+}
 static void diagnostic_open(void) {
   if (diagnostic_checked) return;
   diagnostic_checked=true;
-  const char *path=getenv("MMX_COOP_DIAGNOSTICS");
-  if (!path || !*path || !strcmp(path,"0")) return;
-  if (strlen(path)>=sizeof(diagnostic_path)) {
-    fprintf(stderr,"[coop-physics] diagnostic path is too long\n");return;
-  }
-  snprintf(diagnostic_path,sizeof(diagnostic_path),"%s",path);
-  snprintf(diagnostic_previous,sizeof(diagnostic_previous),"%s.previous.csv",path);
-  diagnostic_file=fopen(path,"wb");
-  if (!diagnostic_file) {fprintf(stderr,"[coop-physics] cannot open %s\n",path);return;}
-  fprintf(stderr,"[coop-physics] recording %s (32 MiB per segment, plus previous segment)\n",path);
+  time_t now=time(NULL);struct tm *local=localtime(&now);
+  char stamp[32]="unknown-time";
+  if(local) strftime(stamp,sizeof(stamp),"%Y%m%d-%H%M%S",local);
+#ifdef _WIN32
+  _mkdir("logs");unsigned long pid=(unsigned long)_getpid();
+#else
+  mkdir("logs",0755);unsigned long pid=(unsigned long)getpid();
+#endif
+  snprintf(diagnostic_path,sizeof(diagnostic_path),"logs/coop-physics-%s-%lu-%u.csv",
+      stamp,pid,++diagnostic_session);
+  snprintf(diagnostic_previous,sizeof(diagnostic_previous),"%s.previous.csv",diagnostic_path);
+  diagnostic_file=fopen(diagnostic_path,"wb");
+  if (!diagnostic_file) {fprintf(stderr,"[coop-physics] cannot open %s\n",diagnostic_path);return;}
+  fprintf(stderr,"[coop-physics] recording %s (32 MiB per segment, plus previous segment)\n",diagnostic_path);
 }
 static void diagnostic_header(void) {
   diagnostic_bytes=fprintf(diagnostic_file,
@@ -57,7 +78,7 @@ static void diagnostic_header(void) {
       "terrain_above_feet,solid_above_feet,terrain_feet,solid_feet,body,scratch\n");
 }
 static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,const char *event) {
-  if (!enabled || !state.initialized) return;
+  if (!diagnostic_enabled || !enabled || !state.initialized) return;
   diagnostic_open();if (!diagnostic_file) return;
   if (!diagnostic_bytes) diagnostic_header();
   if (diagnostic_bytes>=32L*1024*1024) {

@@ -111,10 +111,9 @@ Windows diagnostics are saved beside the executable in
 If a crash produced `crash_report_*.json` or `crash_minidump_*.dmp`, include
 those too. Grab the reports before running the game again.
 
-For intermittent co-op collision problems, Windows packages also include
-`Launch-Coop-Diagnostics.cmd`. Use it instead of the EXE for a diagnostic
-play session, then attach `logs/coop-physics-*.csv` and its `.previous.csv`
-companion if present. Normal launches leave this extra tracing off.
+For intermittent co-op collision problems, tick **Co-op physics diagnostics**
+under **Mods > Developer**, then play normally. Attach `logs/coop-physics-*.csv`
+and its `.previous.csv` companion if present. This extra tracing is off by default.
 
 <details>
 <summary>Building from source and technical details</summary>

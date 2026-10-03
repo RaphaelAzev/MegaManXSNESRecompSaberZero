@@ -1,0 +1,24 @@
+format_version = 1
+id = "megaman-x.developer.coop-diagnostics"
+version = "1.0.0"
+name = "Mega Man X Co-op Physics Diagnostics"
+author = "mstan"
+description = "Writes local co-op movement, collision, pickup and freeze traces for bug reports."
+license = "MIT"
+resolver = "declarative"
+save_compatibility = "shared"
+
+[[target]]
+game_id = "megaman-x-us"
+rom_sha256 = "b8f70a6e7fb93819f79693578887e2c11e196bdf1ac6ddc7cb924b1ad0be2d32"
+
+[[feature]]
+id = "coop-diagnostics"
+name = "Co-op physics diagnostics"
+description = "Write logs/coop-physics-*.csv during co-op play to diagnose movement and pickup problems."
+group = "Developer"
+default_enabled = false
+
+[[plugin]]
+feature = "coop-diagnostics"
+id = "megaman-x.coop-diagnostics"
