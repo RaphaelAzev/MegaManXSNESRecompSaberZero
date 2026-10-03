@@ -75,6 +75,8 @@ bool MmxCoopValidState(const MmxCoopState *state);
 void MmxCoopSetState(const MmxCoopState *state);
 void MmxCoopInitialize(uint8_t ram[0x20000]);
 void MmxCoopCapture(uint8_t ram[0x20000]);
+/* Opt-in local CSV via MMX_COOP_DIAGNOSTICS; not part of save/netplay state. */
+void MmxCoopDiagnosticFrame(const uint8_t ram[0x20000]);
 bool MmxCoopSelect(uint8_t ram[0x20000], unsigned player);
 void MmxCoopPoll(uint16_t p1, uint16_t p2);
 void MmxCoopApplyInput(uint8_t ram[0x20000]);

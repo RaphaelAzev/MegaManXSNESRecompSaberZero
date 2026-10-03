@@ -947,7 +947,9 @@ void RunOneFrameOfGame(void) {
   cpu_trace_px_breadcrumb(&g_cpu, 0x2002, "before_Internal");
   if (MmxCoopEnabled()) MmxCoopPoll(RtlGetPadState(0), RtlGetPadState(1));
   else if (MmxZeroSwapTick(g_ram)) return;
-  if (MmxCoopEnabled() ? MmxCoopFrameTick(g_ram) : MmxWeaponsFrameTick(g_ram)) return;
+  if (MmxCoopEnabled() ? MmxCoopFrameTick(g_ram) : MmxWeaponsFrameTick(g_ram)) {
+    MmxCoopDiagnosticFrame(g_ram);return;
+  }
   if (s_ws_recover_armor) {
     if (!g_mmx_custom_renderer || !MmxWidePolicy_PrematureRideArmor(g_ram) ||
         MmxWidePolicy_RecoverRideArmor(g_ram, MmxWsMargin())) s_ws_recover_armor = false;
@@ -998,6 +1000,7 @@ void RunOneFrameOfGame(void) {
   MmxZeroHealthSync(g_ram);
   MmxCoopCapture(g_ram);
   g_first_frame_done = true;
+  MmxCoopDiagnosticFrame(g_ram);
 }
 
 /* ------------------------------------------------------------------ */

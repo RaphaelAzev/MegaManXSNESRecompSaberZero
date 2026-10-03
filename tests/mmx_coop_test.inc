@@ -335,6 +335,38 @@ static void coop_spawn_pickup(unsigned seat,unsigned kind) {
   g_ram[0x162d]=(uint8_t)x;g_ram[0x162e]=(uint8_t)(x>>8);
   g_ram[0x1630]=(uint8_t)y;g_ram[0x1631]=(uint8_t)(y>>8);
 }
+static void coop_air_pickup_checks(const char *fixture) {
+  for(unsigned character=0;character<2;++character) for(unsigned collector=0;collector<2;++collector) {
+    MmxCoopDisable();check(RtlLoadSnapshot(fixture),"airborne pickup fixture loads");
+    check(MmxCoopEnable(character),"airborne pickup uses either roster");coop_frames(8,0,0);
+    MmxCoopState s=MmxCoopGetState();
+    check(coop_place_fixture_partner(coop_x(&s.players[0])+48,coop_y(&s.players[0])),"airborne pickup partner placed");
+    coop_frames(8,0,0);
+    for(unsigned seat=0;seat<2;++seat) {
+      MmxCoopSelect(g_ram,seat);g_ram[0xbcf]=5|128;g_ram[0xbce]=127;
+    }
+    MmxCoopSelect(g_ram,0);MmxCoopCapture(g_ram);s=MmxCoopGetState();
+    unsigned airborne=collector^1,ground_y=coop_y(&s.players[airborne]);
+    /* Start the native falling controller above this known flat floor,
+     * independent of action remapping in the copied owner fixture. */
+    MmxCoopSelect(g_ram,airborne);
+    g_ram[0xbb0]=(uint8_t)(ground_y-48);g_ram[0xbb1]=(uint8_t)((ground_y-48)>>8);
+    g_ram[0xbaa]=8;g_ram[0xbab]=0;g_ram[0xbd3]=0;
+    g_ram[0xbc4]=g_ram[0xbc5]=g_ram[0xbc6]=0;
+    MmxCoopCapture(g_ram);MmxCoopSelect(g_ram,0);
+    s=MmxCoopGetState();check(coop_y(&s.players[airborne])<ground_y,"partner is airborne when health is collected");
+    coop_spawn_pickup(collector,2);
+    unsigned healed=0;
+    for(unsigned tick=0;tick<100;++tick) {
+      coop_frames(1,0,0);s=MmxCoopGetState();
+      healed|=(s.players[collector].body[0x27]&127)>5;
+      check(coop_y(&s.players[airborne])<=ground_y+1,"airborne partner never penetrates the flat fixture floor");
+      check(s.players[airborne].body[0x27]&127,"airborne partner survives refill");
+    }
+    check(healed && coop_y(&s.players[airborne])==ground_y,"health refills and airborne partner lands normally");
+  }
+  MmxCoopDisable();puts("MMX CO-OP AIRBORNE PICKUP CHECKS PASSED");
+}
 static void coop_pickup_checks(uint8_t *start,uint8_t *expected,uint8_t *actual,size_t cap) {
   MmxCoopSelect(g_ram,1);g_ram[0xbcf]=7|128;MmxCoopSelect(g_ram,0);
   g_ram[0xbcf]=5|128;MmxCoopCapture(g_ram);
@@ -895,6 +927,7 @@ static void coop_checks(const char *assets, const char *fixture,
     }
     puts("MMX CO-OP PALETTE CAPTURES SAVED");return;
   }
+  if(getenv("MMX_COOP_AIR_PICKUP_TEST")) {coop_air_pickup_checks(fixture);return;}
   if(getenv("MMX_COOP_DIALOGUE_FIXTURE")) {coop_dialogue_checks(getenv("MMX_COOP_DIALOGUE_FIXTURE"));return;}
   if(getenv("MMX_COOP_STAGE_FIXTURE")) {coop_stage_entry_checks(getenv("MMX_COOP_STAGE_FIXTURE"));return;}
   if(getenv("MMX_COOP_PLATFORM_CAPTURE")) {coop_platform_checks(fixture,getenv("MMX_COOP_PLATFORM_CAPTURE"));return;}

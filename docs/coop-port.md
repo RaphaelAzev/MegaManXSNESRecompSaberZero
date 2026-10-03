@@ -679,3 +679,39 @@ validation with deterministic state replay; a two-machine netplay session has
 not yet been repeated for these follow-ups. The owner subsequently requested
 integration into `main` and publication as latest `2.0.2-alpha` (not marked prerelease), tracked in
 `beads-8wg.1.69`. Implementation commit: `8931edd`.
+
+### Opt-in terrain/pickup diagnostics (2026-10-03)
+
+Intermittent ground penetration was reported in co-op, possibly during a
+health pickup while the other player is airborne. The local-versus-netplay
+distinction and exact trigger remain unconfirmed. Do not treat this as a
+confirmed pickup bug or relocate actors as a speculative repair.
+
+Windows packages include `Launch-Coop-Diagnostics.cmd` and its PowerShell
+helper beside the executable. Double-click the CMD launcher for the next
+play session; it opens recomp-ui without loading any state. Enable co-op
+and play normally, locally or online. Normal EXE launches keep tracing off.
+
+The launcher writes unique `logs/coop-physics-*.csv` files. Send the CSV,
+its `.previous.csv` companion if present, and the corresponding
+`logs/mmx-*.log`, plus approximate stage/location and which player fell.
+Each trace keeps at most two 32 MiB segments, with buffered writes.
+
+Rows record the projected actor at controller entry/return, context switches
+and active pickup hooks, plus both actors at frame end, including frozen frames. Fields include
+host frame and sequence, world tick, stage/camera, HP, input, fixed-point
+velocities, previous positions, ground flags, terrain at/above feet, native
+freeze bytes, pickup owners/passes, scheduler registers and raw body/scratch
+bytes. Netplay rollback can repeat or rewind frame counters; the host sequence
+keeps those events distinguishable. Terrain columns are observations, not
+automatic assertions that a slope or platform contact is invalid.
+
+Trace buffers/files are host-only, outside WRAM and save/rollback state.
+Tracing does not modify physics or force save-state loads. Running sessions
+and existing saves/configuration are not changed when producing the build.
+
+A focused ROM-backed flat-floor check covered four cases: either player
+collecting a health pickup while the counterpart falls, with both X/Zero
+rosters. Both actors survived, only the collector healed, and the airborne
+actor landed without penetrating the floor. This does not reproduce or
+rule out the owner's intermittent stage-specific or netplay condition.
