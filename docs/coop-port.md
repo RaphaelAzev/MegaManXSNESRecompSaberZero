@@ -819,3 +819,38 @@ Storm support with Zero alone and both riders, and the real Shotgun Ice demo
 after an imported weapon selection. The demo regression observed no native ice
 projectiles before the presentation guards, and 78 projectile frames afterwards.
 Source ROMs, fixtures, captures and the owner's new PID 54208 logs stay private.
+
+### Storm Eagle platform and capsule reports; trace additions (2026-10-03)
+
+Owner report on 2.0.5-alpha netplay: Zero cannot land on Storm Eagle's
+flying platforms or its rising column, and the helmet capsule did not appear
+with X alive and Zero fallen. In the retained physics trace (host frames
+34718..45398) X boards moving platforms about 40 times; Zero lands twice, both
+on a flying platform X already rides. At host frame 34800 X waits on the column
+at X 1371 while Zero, 13 px away, falls through its top (feet 897 -> 907
+against a top rising 898 -> 893) and lands on the floor below. The co-op
+second-seat platform pass runs on those frames (`contact_pass` 1 then 2), so
+the remaining question is why the native contact at `$84:AB81` rejects Zero.
+This is not yet reproduced against a ROM; no behavior change is included.
+
+The Co-op physics diagnostics mod now records what that needs:
+
+- `upgrades`: `$1F99` armor bits on every row (capsules hide once collected).
+- `items` on frame-end and platform rows: every live item slot as
+  `slot:class:x:y:state0..2:2C`, separated by `;`. Platforms are classes
+  `$0E..$10`; `.2C` is the rider latch.
+- `platform-enter` / `platform-return` rows at `$84:AB81`/`$84:AB56` and their
+  returns for any item slot, before co-op switches seats, with the current
+  seat's body. `caller` on entry rows is the JSL return address, naming the
+  item routine that asked for contact.
+
+During netplay the mod also writes `logs/coop-netplay-*.csv`, sharing the
+physics file's name stem and its two-segment 32 MiB limit. One row per
+simulated frame records the host sequence (matching the physics rows),
+world/simulation ticks, run-ahead and rollback state, slot/host role,
+transport, remote lead, input delay, published inputs, input-desync report,
+both seats' inputs, scene state, and FNV-1a hashes of WRAM and the co-op
+state. Rollback re-simulates ticks, so the last row per tick is the kept one;
+the first tick whose hashes differ between the two players' files is where
+the simulations forked. The file is observation only and is not written
+outside netplay.

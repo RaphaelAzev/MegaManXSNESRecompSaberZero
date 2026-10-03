@@ -6,6 +6,10 @@ _Static_assert(sizeof(MmxCoopState) == MMX_COOP_LEGACY_STATE_SIZE + 2 * sizeof(M
 #include "snes/interp_bridge.h"
 #include "snes/snes.h"
 #include "snes/cart.h"
+#include "common_rtl.h"
+#if SNESRECOMP_NET
+#include "snes_netplay.h"
+#endif
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,81 +51,121 @@ static void sound(uint8_t *r,unsigned command) {
  * Keep two bounded CSV segments so a long play session cannot fill the disk.
  * Rollback/replayed frames retain their original guest counters and a distinct
  * host sequence number rather than being mistaken for consecutive simulation. */
-static FILE *diagnostic_file;
-static char diagnostic_path[2048], diagnostic_previous[2064];
-static bool diagnostic_checked;
+typedef struct DiagnosticFile {
+  FILE *file;
+  char path[2048], previous[2064];
+  long bytes;
+  bool checked;
+} DiagnosticFile;
+static DiagnosticFile physics_file, netplay_file;
+static char diagnostic_stamp[32];
+static unsigned long diagnostic_pid;
 static bool diagnostic_enabled;
 static unsigned diagnostic_session;
 static unsigned diagnostic_sequence, diagnostic_rows;
-static long diagnostic_bytes;
 extern int snes_frame_counter;
 bool MmxCoopDiagnosticsEnabled(void) {return diagnostic_enabled;}
+static void diagnostic_close(DiagnosticFile *t) {
+  if(t->file) fclose(t->file);
+  t->file=NULL;t->checked=false;t->bytes=0;
+}
 void MmxCoopSetDiagnosticsEnabled(bool active) {
-  if(diagnostic_file) fclose(diagnostic_file);
-  diagnostic_file=NULL;diagnostic_checked=false;
-  diagnostic_sequence=diagnostic_rows=0;diagnostic_bytes=0;
+  diagnostic_close(&physics_file);diagnostic_close(&netplay_file);
+  diagnostic_stamp[0]=0;
+  diagnostic_sequence=diagnostic_rows=0;
   diagnostic_enabled=active;
 }
-static void diagnostic_open(void) {
-  if (diagnostic_checked) return;
-  diagnostic_checked=true;
-  time_t now=time(NULL);struct tm *local=localtime(&now);
-  char stamp[32]="unknown-time";
-  if(local) strftime(stamp,sizeof(stamp),"%Y%m%d-%H%M%S",local);
+/* Both traces of one session share a stem, so they sort and pair together:
+ * logs/coop-physics-<time>-<pid>-<n>.csv and logs/coop-netplay-<same>.csv. */
+static FILE *diagnostic_open(DiagnosticFile *t,const char *kind) {
+  if (t->checked) return t->file;
+  t->checked=true;
+  if(!diagnostic_stamp[0]) {
+    time_t now=time(NULL);struct tm *local=localtime(&now);
+    snprintf(diagnostic_stamp,sizeof(diagnostic_stamp),"unknown-time");
+    if(local) strftime(diagnostic_stamp,sizeof(diagnostic_stamp),"%Y%m%d-%H%M%S",local);
 #ifdef _WIN32
-  _mkdir("logs");unsigned long pid=(unsigned long)_getpid();
+    _mkdir("logs");diagnostic_pid=(unsigned long)_getpid();
 #else
-  mkdir("logs",0755);unsigned long pid=(unsigned long)getpid();
+    mkdir("logs",0755);diagnostic_pid=(unsigned long)getpid();
 #endif
-  snprintf(diagnostic_path,sizeof(diagnostic_path),"logs/coop-physics-%s-%lu-%u.csv",
-      stamp,pid,++diagnostic_session);
-  snprintf(diagnostic_previous,sizeof(diagnostic_previous),"%s.previous.csv",diagnostic_path);
-  diagnostic_file=fopen(diagnostic_path,"wb");
-  if (!diagnostic_file) {fprintf(stderr,"[coop-physics] cannot open %s\n",diagnostic_path);return;}
-  fprintf(stderr,"[coop-physics] recording %s (32 MiB per segment, plus previous segment)\n",diagnostic_path);
+    ++diagnostic_session;
+  }
+  snprintf(t->path,sizeof(t->path),"logs/coop-%s-%s-%lu-%u.csv",
+      kind,diagnostic_stamp,diagnostic_pid,diagnostic_session);
+  snprintf(t->previous,sizeof(t->previous),"%s.previous.csv",t->path);
+  t->file=fopen(t->path,"wb");
+  if (!t->file) {fprintf(stderr,"[coop-%s] cannot open %s\n",kind,t->path);return NULL;}
+  fprintf(stderr,"[coop-%s] recording %s (32 MiB per segment, plus previous segment)\n",kind,t->path);
+  return t->file;
 }
-static void diagnostic_header(void) {
-  diagnostic_bytes=fprintf(diagnostic_file,
-      "sequence,host_frame,world_tick,event,pc,cpu_d,cpu_s,stage,mode,submode,phase,"
-      "current,anchor,controller_pass,object_pass,contact_pass,pickup_pass,pickup_d,"
-      "menu_owner,scene_owner,camera_x,camera_y,freeze_flags,pickup_owners,seat,"
-      "character,status,input,x,y,previous_x,previous_y,vx,vy,hp,ground,"
-      "terrain_above_feet,solid_above_feet,terrain_feet,solid_feet,body,scratch\n");
+/* Keep two bounded segments so a long play session cannot fill the disk. */
+static FILE *diagnostic_ready(DiagnosticFile *t,const char *kind,const char *header) {
+  if (!diagnostic_open(t,kind)) return NULL;
+  if (t->bytes>=32L*1024*1024) {
+    fclose(t->file);t->file=NULL;
+    /* Both filenames belong exclusively to this explicitly requested trace. */
+    remove(t->previous);
+    if (rename(t->path,t->previous)) {
+      fprintf(stderr,"[coop-%s] rotation failed; recording stopped\n",kind);return NULL;
+    }
+    t->file=fopen(t->path,"wb");
+    if (!t->file) return NULL;
+    t->bytes=0;
+  }
+  if (!t->bytes) t->bytes=fprintf(t->file,"%s",header);
+  return t->file;
 }
+/* Every live item slot ($1628 + slot*$30): slot, class (+0A), X (+05), Y (+08),
+ * state bytes +00..02 and the rider latch +2C. Platforms are items $0E..$10. */
+static void diagnostic_items(const uint8_t *r,char *out,size_t cap) {
+  size_t n=0;out[0]=0;
+  for(unsigned i=0;i<16 && n<cap;++i) {
+    const uint8_t *d=r+0x1628+i*48;
+    if(!d[0]) continue;
+    int w=snprintf(out+n,cap-n,"%s%u:%02x:%04x:%04x:%02x%02x%02x:%02x",n?";":"",
+        i,d[10],word(d+5),word(d+8),d[0],d[1],d[2],d[0x2c]);
+    if(w<0) break;
+    n+=(size_t)w;
+  }
+}
+static const char kPhysicsHeader[]=
+    "sequence,host_frame,world_tick,event,pc,cpu_d,cpu_s,stage,mode,submode,phase,"
+    "current,anchor,controller_pass,object_pass,contact_pass,pickup_pass,pickup_d,"
+    "menu_owner,scene_owner,camera_x,camera_y,freeze_flags,pickup_owners,seat,"
+    "character,status,input,x,y,previous_x,previous_y,vx,vy,hp,ground,"
+    "terrain_above_feet,solid_above_feet,terrain_feet,solid_feet,body,scratch,"
+    "upgrades,caller,items\n";
 static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,const char *event) {
   if (!diagnostic_enabled || !enabled || !state.initialized) return;
-  diagnostic_open();if (!diagnostic_file) return;
-  if (!diagnostic_bytes) diagnostic_header();
-  if (diagnostic_bytes>=32L*1024*1024) {
-    fclose(diagnostic_file);diagnostic_file=NULL;
-    /* Both filenames belong exclusively to this explicitly requested trace. */
-    remove(diagnostic_previous);
-    if (rename(diagnostic_path,diagnostic_previous)) {
-      fprintf(stderr,"[coop-physics] rotation failed; recording stopped\n");return;
-    }
-    diagnostic_file=fopen(diagnostic_path,"wb");
-    if (!diagnostic_file) return;
-    diagnostic_header();
-  }
-  char flags[15],owners[33],scratch[129];
+  FILE *out=diagnostic_ready(&physics_file,"physics",kPhysicsHeader);
+  if (!out) return;
+  bool frame_end=!strcmp(event,"frame-end");
+  bool platform=!strncmp(event,"platform",8);
+  char flags[15],owners[33],scratch[129],items[16*32+1]={0},caller[7]={0};
   for(unsigned i=0;i<7;++i) snprintf(flags+i*2,3,"%02x",r[0x1f13+i]);
   for(unsigned i=0;i<16;++i) snprintf(owners+i*2,3,"%02x",state.pickup_owner[i]);
   for(unsigned i=0;i<64;++i) snprintf(scratch+i*2,3,"%02x",r[i]);
+  if(frame_end || platform) diagnostic_items(r,items,sizeof(items));
+  /* Entry to a long subroutine: the JSL return address names the item code. */
+  if(platform && cpu && !strcmp(event,"platform-enter") && cpu->S<0x1ffd)
+    snprintf(caller,sizeof(caller),"%06x",
+        (unsigned)((r[cpu->S+1]|r[cpu->S+2]<<8|r[cpu->S+3]<<16)+1)&0xffffff);
   unsigned sequence=++diagnostic_sequence;
   for(unsigned seat=0;seat<2;++seat) {
     /* Other-seat history is sampled once at frame end; repeated copies at
      * every interpreter boundary add volume without new observations. */
-    bool frame_end=!strcmp(event,"frame-end");
     if(seat!=state.current && !frame_end) continue;
     const MmxCoopPlayer *p=&state.players[seat];
     const uint8_t *b=seat==state.current ? r+0xba8 : p->body;
     char body[0x90*2+1]={0};
-    if(frame_end || !strcmp(event,"pickup"))
+    if(frame_end || platform || !strcmp(event,"pickup"))
       for(unsigned i=0;i<0x90;++i) snprintf(body+i*2,3,"%02x",b[i]);
     int x=word(b+5),y=word(b+8);
-    int count=fprintf(diagnostic_file,
+    int count=fprintf(out,
         "%u,%d,%u,%s,%06x,%04x,%04x,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%04x,"
-        "%u,%u,%u,%u,%s,%s,%u,%u,%u,%04x,%d,%d,%u,%u,%d,%d,%u,%u,%u,%u,%u,%u,%s,%s\n",
+        "%u,%u,%u,%u,%s,%s,%u,%u,%u,%04x,%d,%d,%u,%u,%d,%d,%u,%u,%u,%u,%u,%u,%s,%s,"
+        "%02x,%s,%s\n",
         sequence,snes_frame_counter,r[0xb9c],event,(unsigned)pc,
         cpu?(unsigned)cpu->D:0,cpu?(unsigned)cpu->S:0,r[0x1f7a],r[0xd1],r[0xd2],r[0xd3],
         state.current,state.anchor,state.controller_pass,state.object_pass,state.contact_pass,
@@ -129,13 +173,62 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
         flags,owners,seat+1,p->character,p->status,p->input,x,y,word(b+0x22),word(b+0x24),
         (int16_t)word(b+0x1a),(int16_t)word(b+0x1c),b[0x27]&127,b[0x2b],
         MmxWeaponsTerrainClass(r,x,y+8),MmxWeaponsTerrainSolid(r,x,y+8,true,NULL),
-        MmxWeaponsTerrainClass(r,x,y+16),MmxWeaponsTerrainSolid(r,x,y+16,true,NULL),body,scratch);
-    if(count<0) {fclose(diagnostic_file);diagnostic_file=NULL;return;}
-    diagnostic_bytes+=count;
+        MmxWeaponsTerrainClass(r,x,y+16),MmxWeaponsTerrainSolid(r,x,y+16,true,NULL),body,scratch,
+        r[0x1f99],caller,items);
+    if(count<0) {diagnostic_close(&physics_file);physics_file.checked=true;return;}
+    physics_file.bytes+=count;
   }
-  if (++diagnostic_rows%60==0) fflush(diagnostic_file);
+  if (++diagnostic_rows%60==0) fflush(out);
 }
-void MmxCoopDiagnosticFrame(const uint8_t *r) {diagnostic_event(r,NULL,0,"frame-end");}
+static uint32_t diagnostic_hash(const void *data,size_t size) {
+  const uint8_t *p=data;uint32_t h=2166136261u;
+  for(size_t i=0;i<size;++i) h=(h^p[i])*16777619u;
+  return h;
+}
+/* Netplay companion: one row per simulated frame while a match runs. Rollback
+ * re-simulation repeats a world tick; the last row for a tick is what was
+ * kept. Compare wram_hash/coop_hash between both players' files for the first
+ * tick they disagree. Observation only, like the physics trace. */
+static const char kNetplayHeader[]=
+    "sequence,host_frame,world_tick,sim_tick,frames_finished,speculative,rollback,"
+    "slot,host,input_player,transport,ice_failed,remote_lead,input_delay,"
+    "published_inputs,active_mask,quiesced,draining,state_barrier,desync_tick,"
+    "desync_local,desync_remote,p1_input,p2_input,current,anchor,stage,mode,"
+    "submode,phase,wram_hash,coop_hash\n";
+static void diagnostic_netplay(const uint8_t *r) {
+#if SNESRECOMP_NET
+  if (!diagnostic_enabled || !snes_netplay_active()) return;
+  FILE *out=diagnostic_ready(&netplay_file,"netplay",kNetplayHeader);
+  if (!out) return;
+  uint32_t tick=0,local=0,remote=0;
+  char desync[12]="";
+  if(snes_netplay_input_desync(&tick,&local,&remote)) snprintf(desync,sizeof(desync),"%u",(unsigned)tick);
+  else local=remote=0;
+  const char *transport=snes_netplay_transport_name();
+  int count=fprintf(out,
+      "%u,%d,%u,%u,%u,%u,%d,%d,%d,%d,%s,%d,%d,%d,%u,%x,%d,%d,%d,%s,%08x,%08x,"
+      "%04x,%04x,%u,%u,%u,%u,%u,%u,%08x,%08x\n",
+      diagnostic_sequence,snes_frame_counter,r[0xb9c],(unsigned)snes_netplay_sim_tick(),
+      (unsigned)snes_netplay_frames_finished(),RtlSpeculativeFrame(),snes_netplay_rollback_active(),
+      snes_netplay_local_slot(),snes_netplay_is_host(),snes_netplay_input_player(),
+      transport?transport:"",snes_netplay_ice_failed(),snes_netplay_remote_lead(),
+      snes_netplay_input_delay(),(unsigned)snes_netplay_published_inputs(),
+      (unsigned)snes_netplay_active_mask(),snes_netplay_quiesced(),snes_netplay_draining(),
+      snes_netplay_state_barrier(),desync,local,remote,
+      state.players[0].input,state.players[1].input,state.current,state.anchor,
+      r[0x1f7a],r[0xd1],r[0xd2],r[0xd3],
+      diagnostic_hash(r,0x20000),diagnostic_hash(&state,sizeof(state)));
+  if(count<0) {diagnostic_close(&netplay_file);netplay_file.checked=true;return;}
+  netplay_file.bytes+=count;
+  if (diagnostic_rows%60==0) fflush(out);
+#else
+  (void)r;
+#endif
+}
+void MmxCoopDiagnosticFrame(const uint8_t *r) {
+  diagnostic_event(r,NULL,0,"frame-end");
+  diagnostic_netplay(r);
+}
 bool MmxCoopTransitionActive(void) {
   return enabled && state.initialized && (state.players[0].zero.swap_phase || state.players[1].zero.swap_phase);
 }
@@ -781,6 +874,8 @@ static void object_hook(CpuState *cpu, uint32_t pc) {
 static void platform_hook(CpuState *cpu,uint32_t pc) {
   if(!enabled || !state.initialized || state.menu_owner || state.scene_owner) return;
   unsigned at=pc&65535,d=cpu->D;
+  if(d>=0x1628 && d<0x1928 && !((d-0x1628)%48))
+    diagnostic_event(g_ram,cpu,pc,at==0xab81 || at==0xab56 ? "platform-enter" : "platform-return");
   /* Items $0E/$0F/$10 share .2C's boolean rider latch. In co-op retain one bit
    * per seat there, projecting a boolean while the native helper executes.
    * Slot initialization still clears it, and snapshots retain both riders. */
