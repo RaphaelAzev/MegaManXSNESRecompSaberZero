@@ -1,5 +1,11 @@
 # MegaManXSNESRecomp
 
+Version 2.0.3-alpha adds optional **Modern Zero**: direct saber attacks, a
+second jump, an air dash, and steering during airborne swings. Select **Modern**
+under **Zero behavior** in either character mod. X3 Behavior stays the default.
+Windows now logs diagnostics to a file without opening a console window.
+See the [2.0.3-alpha release notes](RELEASE_NOTES_v2.0.3-alpha.md).
+
 Version 2.0.2-alpha fixes co-op moving platforms, the airship door and
 Storm Eagle's lift introduction, plus charged Chameleon Sting and Electric
 Spark graphics.

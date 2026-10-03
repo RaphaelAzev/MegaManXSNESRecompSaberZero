@@ -1,7 +1,7 @@
 # X / Zero netplay
 
 Tracking: `beads-8wg.1.54`. Initial implementation: `feat/netplay-coop`,
-first stable release 1.7.0; current latest release 2.0.2-alpha.
+first stable release 1.7.0; current latest release 2.0.3-alpha.
 USA Rev 1 only; the Japanese edition remains unchanged.
 
 ## Playing
