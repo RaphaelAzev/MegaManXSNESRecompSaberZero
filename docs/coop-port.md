@@ -679,3 +679,45 @@ validation with deterministic state replay; a two-machine netplay session has
 not yet been repeated for these follow-ups. The owner subsequently requested
 integration into `main` and publication as latest `2.0.2-alpha` (not marked prerelease), tracked in
 `beads-8wg.1.69`. Implementation commit: `8931edd`.
+
+### Diagnosing intermittent floor clipping (2026-10-03)
+
+Owner report: with X and Zero both on screen, either player occasionally
+sinks into the floor by a fixed amount, drops through thin one-way platforms,
+misses moving platforms, or becomes stuck inside thick ground. Single-player
+does not show it. The cause is not yet reproduced; this section describes
+diagnostics only.
+
+Reading the source suggests where to look. Both players share one native body at
+`$0BA8`; co-op projects the partner into it for the controller (`$81:8136`)
+and replays only selected passes, including the post-enemy terrain pass
+`$81:9D67` and platform rider contact `$84:AB81/AB56`. If the body is still
+projected when a world pass starts, or a pass stays open beyond its matching
+return (`contact_pass`, `pickup_pass`, ...), one seat skips terrain
+resolution for that frame. That seat then keeps the controller's fall
+distance, which fits a fixed sink depth. The open
+pass also disables second-seat platform contact (`platform_hook` returns while
+`contact_pass` is set). Nothing currently resets an open pass at frame start.
+
+`--coop-trace` (or `MMX_COOP_TRACE=1`, or `CoopTrace = 1` in `logging.ini`)
+writes `logs/mmx-coop-trace-<time>.log` next to the executable, or under the
+working directory when that location is read-only. `--coop-trace=all` also
+prints one line per frame. The trace only observes: it never writes guest RAM
+or co-op state, and it ignores run-ahead speculative frames. An anomaly line
+is recorded when:
+
+- a co-op pass is still open at frame start;
+- the frame ends with the partner projected, or a world pass begins with it;
+- the controller, terrain or platform pass ran for only one living seat;
+- a platform rider pass was skipped because another pass was open;
+- a seat's feet crossed a flat floor or one-way top, sit at least 6 px inside
+  flat solid ground, or dropped more than 12 px in one frame.
+
+Each first anomaly in a two-second window dumps the last 150 frames of both
+seats' physics (position, native previous position, velocity, action,
+`$0BD3`/`$0BD4`, passes run) and the last 90 frames of hook events. Outside
+netplay, up to eight anomalies also save snapshots beside the log: `-after`
+plus `-before1/2`, copied from rolling saves taken every two seconds. They need the
+same build and mod set. To load one, copy it over a slot file such as
+`saves/save1.sav` and load that slot. Slopes are excluded from the terrain checks. Ladder descents through
+one-way tops may be reported; check the action value in the dump.
