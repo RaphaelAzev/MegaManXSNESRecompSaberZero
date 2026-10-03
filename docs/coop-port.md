@@ -716,10 +716,11 @@ A ROM-backed regression failed before the fix (the airborne player moved
 rosters and both collector seats: no movement during refill and ordinary
 landing after it ends. Private owner CSVs/ROMs/fixtures remain untracked.
 
-Intermittent ground penetration was reported in co-op, possibly during a
-health pickup while the other player is airborne. The local-versus-netplay
-distinction and exact trigger remain unconfirmed. Do not treat this as a
-confirmed pickup bug or relocate actors as a speculative repair.
+The retained trace confirms the native refill collision pause as the trigger
+for these two penetrations. Earlier incidents reported near the stage start
+were outside the retained log window. A fresh full-stage playthrough is still
+needed to check those incidents; the fix does not relocate actors or change
+the underlying terrain resolver.
 
 Tick **Co-op physics diagnostics** under **Mods > Developer** and play
 normally, locally or online. The bundled declarative feature defaults off,
@@ -748,5 +749,6 @@ and existing saves/configuration are not changed when producing the build.
 A focused ROM-backed flat-floor check covered four cases: either player
 collecting a health pickup while the counterpart falls, with both X/Zero
 rosters. Both actors survived, only the collector healed, and the airborne
-actor landed without penetrating the floor. This does not reproduce or
-rule out the owner's intermittent stage-specific or netplay condition.
+actor landed without penetrating the floor. These isolated checks validate
+the refill fix; they do not replace a full Chill Penguin co-op playthrough
+or a two-machine netplay session.
