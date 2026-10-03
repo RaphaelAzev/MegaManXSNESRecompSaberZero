@@ -111,6 +111,12 @@ Windows diagnostics are saved beside the executable in
 If a crash produced `crash_report_*.json` or `crash_minidump_*.dmp`, include
 those too. Grab the reports before running the game again.
 
+For netplay connection problems, enable the **Tier 2 diagnostics** mod
+(Developer group) before hosting or joining. Each match then writes
+`saves/netplay/net_diag.jsonl` (the transport, whether ICE connected directly,
+through STUN or through TURN, and any stalls); attach it with the log. The
+file is replaced by the next match.
+
 <details>
 <summary>Building from source and technical details</summary>
 

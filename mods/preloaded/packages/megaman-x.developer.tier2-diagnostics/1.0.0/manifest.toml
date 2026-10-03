@@ -3,7 +3,7 @@ id = "megaman-x.developer.tier2-diagnostics"
 version = "1.0.0"
 name = "Mega Man X Tier 2 Diagnostics"
 author = "mstan"
-description = "Writes tier-2 interpreter coverage JSON and JSONL diagnostics for developer promotion work."
+description = "Writes tier-2 interpreter coverage JSON and JSONL diagnostics for developer promotion work, and netplay connection diagnostics."
 license = "MIT"
 resolver = "declarative"
 save_compatibility = "shared"
@@ -15,7 +15,7 @@ rom_sha256 = "b8f70a6e7fb93819f79693578887e2c11e196bdf1ac6ddc7cb924b1ad0be2d32"
 [[feature]]
 id = "tier2-diagnostics"
 name = "Tier 2 diagnostics"
-description = "Write tier2_mmx_*.json and .jsonl coverage files for recompiler development."
+description = "Write tier2_mmx_*.json and .jsonl coverage files for recompiler development, and saves/netplay/net_diag.jsonl for netplay matches (transport, ICE path, stalls)."
 group = "Developer"
 default_enabled = false
 
