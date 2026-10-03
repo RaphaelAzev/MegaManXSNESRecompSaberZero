@@ -367,6 +367,38 @@ static void coop_air_pickup_checks(const char *fixture) {
   }
   MmxCoopDisable();puts("MMX CO-OP AIRBORNE PICKUP CHECKS PASSED");
 }
+static void coop_refill_freeze_checks(const char *fixture) {
+  for(unsigned character=0;character<2;++character) for(unsigned collector=0;collector<2;++collector) {
+    MmxCoopDisable();check(RtlLoadSnapshot(fixture),"refill freeze fixture loads");
+    check(MmxCoopEnable(character),"refill freeze uses either roster");coop_frames(8,0,0);
+    MmxCoopState s=MmxCoopGetState();
+    check(coop_place_fixture_partner(coop_x(&s.players[0])+48,coop_y(&s.players[0])),"refill freeze partner placed");
+    coop_frames(8,0,0);
+    unsigned airborne=collector^1;
+    MmxCoopSelect(g_ram,airborne);
+    unsigned floor_y=g_ram[0xbb0]|g_ram[0xbb1]<<8,x=g_ram[0xbad]|g_ram[0xbae]<<8,y=floor_y-24;
+    g_ram[0xbb0]=g_ram[0xbcc]=(uint8_t)y;g_ram[0xbb1]=g_ram[0xbcd]=(uint8_t)(y>>8);
+    g_ram[0xbaa]=8;g_ram[0xbab]=2;g_ram[0xbd3]=0;
+    g_ram[0xbc2]=120;g_ram[0xbc3]=1;g_ram[0xbc4]=0;g_ram[0xbc5]=253;
+    MmxCoopSelect(g_ram,collector);g_ram[0xbaa]=0x18;g_ram[0xbab]=2;
+    MmxCoopSelect(g_ram,0);
+    /* Retail refills run in their item/task context, put the collector in
+     * .02=$18, and freeze $1F13..19 including the terrain resolver. The
+     * other controller must not integrate motion against that frozen world. */
+    memset(g_ram+0x1f13,1,7);
+    coop_frames(20,SNES_PAD_RIGHT,SNES_PAD_RIGHT);s=MmxCoopGetState();
+    fprintf(stderr,"refill freeze roster=%u collector=%u airborne=%u position=%u/%u expected=%u/%u\n",
+        character,collector,airborne,coop_x(&s.players[airborne]),coop_y(&s.players[airborne]),x,y);
+    check(coop_x(&s.players[airborne])==x && coop_y(&s.players[airborne])==y,
+        "airborne movement stops while native refill freezes terrain collision");
+    memset(g_ram+0x1f13,0,7);MmxCoopSelect(g_ram,collector);
+    g_ram[0xbaa]=g_ram[0xbab]=0;MmxCoopSelect(g_ram,0);
+    coop_frames(40,0,0);s=MmxCoopGetState();
+    check(coop_y(&s.players[airborne])==floor_y && (s.players[airborne].body[0x27]&127),
+        "airborne player resumes and lands after refill clears freeze");
+  }
+  MmxCoopDisable();puts("MMX CO-OP REFILL FREEZE CHECKS PASSED");
+}
 static void coop_pickup_checks(uint8_t *start,uint8_t *expected,uint8_t *actual,size_t cap) {
   MmxCoopSelect(g_ram,1);g_ram[0xbcf]=7|128;MmxCoopSelect(g_ram,0);
   g_ram[0xbcf]=5|128;MmxCoopCapture(g_ram);
@@ -966,6 +998,7 @@ static void coop_checks(const char *assets, const char *fixture,
     puts("MMX CO-OP PALETTE CAPTURES SAVED");return;
   }
   if(getenv("MMX_COOP_AIR_PICKUP_TEST")) {coop_air_pickup_checks(fixture);return;}
+  if(getenv("MMX_COOP_REFILL_FREEZE_TEST")) {coop_refill_freeze_checks(fixture);return;}
   if(getenv("MMX_COOP_DIALOGUE_FIXTURE")) {coop_dialogue_checks(getenv("MMX_COOP_DIALOGUE_FIXTURE"));return;}
   if(getenv("MMX_COOP_STAGE_FIXTURE")) {coop_stage_entry_checks(getenv("MMX_COOP_STAGE_FIXTURE"));return;}
   if(getenv("MMX_COOP_PLATFORM_CAPTURE")) {coop_platform_checks(fixture,getenv("MMX_COOP_PLATFORM_CAPTURE"));return;}

@@ -682,6 +682,28 @@ integration into `main` and publication as latest `2.0.2-alpha` (not marked prer
 
 ### Opt-in terrain/pickup diagnostics (2026-10-03)
 
+The owner's completed online Chill Penguin trace caught two penetrations:
+P2 at guest frame 8306 near X/Y 3786/826, and P1 at frame 12325 near
+7009/585, eventually stuck at 7080/703. Both began during the native refill
+pause: `$1F13..19=1`, the collector in action `$18`, and the other player
+still integrating its airborne velocity against unchanged previous X/Y.
+The owner did not notice a health pickup; the trace records HP increments
+during these pauses. This is simulation behavior, not a network correction.
+
+Source ROM inspection: `$00:D1F3..D201` does not update previous position
+when `$1F19` is set; `$00:D263..D26C` then skips `$81:9D67`, the terrain
+resolver. The one-player refill parks the collector at `$81:8B4D` (RTS),
+but the second player had no corresponding parked action. Co-op now skips
+both movement controllers during this specific refill pause, through their
+existing balanced `$81:819C` epilogue. Native item tasks continue running,
+so refill completes normally. Imported attack ages are paused too. Death
+and scripted scene handling retain their existing paths.
+
+A ROM-backed regression failed before the fix (the airborne player moved
+101 pixels down during a 20-frame collision pause), then passed for both
+rosters and both collector seats: no movement during refill and ordinary
+landing after it ends. Private owner CSVs/ROMs/fixtures remain untracked.
+
 Intermittent ground penetration was reported in co-op, possibly during a
 health pickup while the other player is airborne. The local-versus-netplay
 distinction and exact trigger remain unconfirmed. Do not treat this as a

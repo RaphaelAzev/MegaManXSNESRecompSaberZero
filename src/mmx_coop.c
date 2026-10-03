@@ -228,6 +228,14 @@ static void select_world_survivor(uint8_t *r) {
     state.anchor=(uint8_t)other;MmxCoopSelect(r,other);
   }
 }
+static bool refill_paused(const uint8_t *r) {
+  if(!r[0x1f19] || state.menu_owner || state.scene_owner) return false;
+  for(unsigned seat=0;seat<2;++seat) {
+    const uint8_t *body=seat==state.current ? r+0xba8 : state.players[seat].body;
+    if(state.players[seat].status==MMX_COOP_ALIVE && body[2]==0x18) return true;
+  }
+  return false;
+}
 void MmxCoopInitialize(uint8_t *r) {
   if (!enabled || state.initialized || !r || r[0xd1] != 2 || r[0xd2] != 4 || r[0xba9] != 2) return;
   state.initialized = 1; state.stage = r[0x1f7a];
@@ -302,6 +310,11 @@ bool MmxCoopFrameTick(uint8_t *r) {
     state.solo_death[state.anchor]=0;
   }
   if (scene_tick(r)) return true;
+  /* Retail refills park their collector in action $18 while the item task
+   * advances HP/energy. $00:D263 skips terrain collision when $1F19 is set.
+   * The other actor must park too; running its motion through that pause
+   * lets it fall through the floor. Keep running the native refill task. */
+  if(refill_paused(r)) return false;
   if (!state.scene_owner && join_tick(r)) return true;
   if (r[0x1f10]>=6) return false;
   unsigned phases[2]={0,0};
@@ -866,6 +879,8 @@ static void controller_hook(CpuState *cpu, uint32_t pc) {
       if(state.current==1) MmxCoopApplyInput(g_ram);
       state.controller_pass=1;
     }
+    if(state.initialized && refill_paused(g_ram))
+      interp_bridge_pre_opcode_redirect(0x81819c);
     return;
   }
   if (!state.initialized || !state.controller_pass) return;
