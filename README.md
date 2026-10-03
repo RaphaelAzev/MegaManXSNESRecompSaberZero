@@ -1,9 +1,18 @@
-# MegaManXSNESRecomp
+# Mega Man X Recompiled
 
-Version 2.0.3-alpha adds optional **Modern Zero**: direct saber attacks, a
-second jump, an air dash, and steering during airborne swings. Select **Modern**
-under **Zero behavior** in either character mod. X3 Behavior stays the default.
-See the [2.0.3-alpha release notes](https://github.com/mstan/MegaManXSNESRecomp/releases/tag/v2.0.3-alpha).
+Play *Mega Man X* on PC with playable Zero, couch co-op and online netplay,
+all sixteen X2/X3 boss weapons, and adaptive widescreen. Choose Zero's original
+X3 combat or the optional Modern style with direct saber attacks, a second
+jump, and an air dash.
+
+[Download](https://github.com/mstan/MegaManXSNESRecomp/releases/latest) |
+[Getting started](#quick-start-pre-built-release) | [Netplay setup](docs/netplay.md)
+
+<a href="https://www.youtube.com/watch?v=TDysNWWJ25g">
+  <img src="https://i.ytimg.com/vi/TDysNWWJ25g/maxresdefault.jpg" width="880" alt="Watch the Mega Man X Recompiled gameplay showcase on YouTube">
+</a>
+
+*Click the thumbnail to watch the gameplay showcase on YouTube.*
 
 <table>
   <tr>
@@ -29,217 +38,85 @@ See the [2.0.3-alpha release notes](https://github.com/mstan/MegaManXSNESRecomp/
 </table>
 
 Gameplay screenshots from the [project preview](https://1379.tech/megaman-x-recompiled-coop-zero-weapons-wip/),
-plus a Modern Zero capture from the 2.0.3-alpha playtest.
+plus a Modern Zero capture from the current playtest.
 
-Version 2.0.2-alpha fixes co-op moving platforms, the airship door and
-Storm Eagle's lift introduction, plus charged Chameleon Sting and Electric
-Spark graphics.
-See the [2.0.2-alpha release notes](https://github.com/mstan/MegaManXSNESRecomp/releases/tag/v2.0.2-alpha).
+## Features
 
-Version 2.0.1 fixes two co-op encounter bugs: Thunder Slimer's puddles
-now trap the player they touch, and either partner returns after Flame
-Mammoth's final door and scrolling boss introduction. These fixes apply to
-offline co-op and netplay. Both peers need the same release for netplay.
-See the [release notes](https://github.com/mstan/MegaManXSNESRecomp/releases/tag/v2.0.1) and
-[netplay setup and limits](docs/netplay.md).
+Checked boxes indicate available features. Configure optional mods in the
+launcher's **Mods** screen; these character and weapon mods target the USA
+Rev 1 build.
 
-Version 1.7.0 adds playable Zero (with a slide through X-sized gaps), X2/X3
-weapons, co-op, and two-player **X / Zero netplay** using recomp-net and
-snesrecomp's lobby and rollback support. Netplay requires co-op and offers the
-original view or fixed 16:9, 21:9, and 32:9 widescreen. See the
-[release notes](https://github.com/mstan/MegaManXSNESRecomp/releases/tag/v1.7.0) and
-[netplay setup and limits](docs/netplay.md).
+| Available | Feature | What it adds |
+|:---------:|---------|--------------|
+| &#9745; | **Password saves (SRAM)** | Remembers the last generated password and prefills it on the next launch. Enabled by default. |
+| &#9745; | **Adaptive widescreen** | Expanded gameplay with adaptive, 16:9, 21:9, and 32:9 views. |
+| &#9745; | **Playable Zero** | X3 Zero with his buster/saber combo and grounded character switching. Separate health for X and Zero. |
+| &#9745; | **Modern Zero** | Direct saber attacks, double jump, air dash, and movement during airborne swings. |
+| &#9745; | **Co-op mode** | X and Zero on screen together, with independent health, weapons, and weapon energy. |
+| &#9745; | **X2 weapons** | All eight boss weapons and their charged attacks, adapted for X and Zero. |
+| &#9745; | **X3 weapons** | All eight boss weapons and their charged attacks, adapted for X and Zero. |
+| &#9745; | **Netplay** | Two-player online co-op with lobbies and rollback, plus optional fixed widescreen. |
 
-Version 1.6.6 fixes Ctrl+R (Reset) leaving a black screen and lets you
-reopen the launcher mid-game with Ctrl+L (or Select+L3 on a controller),
-change settings, and resume from the same moment.
-
-Version 1.6.5 saves launcher settings on close and uses shared SNES shader
-presets and pixel-aspect geometry. Bundled shader choices also survive
-AppImage relaunches and moving the installation.
-
-Version 1.6.3 fixes widescreen sprite layering on Boomer Kuwanger's tower and
-the corrupted electric effect around X after Zero's explosion in Sigma 1.
-
-Version 1.6.2 makes adaptive and fixed widescreen respect **Display Aspect**.
-Choose **8:7 (Square pixels)** with **Fit to screen** to fill a wide window
-while keeping sprites at square-pixel proportions.
-
-Version 1.6.0 adds **Password Saves (SRAM)**: remember the last password
-shown by the game and prefill it when selecting Password on a later launch.
-It is on by default; optionally choose a save file from the launcher's Mods page.
-
-Version 1.5.0 replaces the original 16:9 renderer with adaptive widescreen,
-including fixed 16:9, 21:9 and 32:9 options and an edge-anchored HUD. The renderer has
-passed a complete Windows playthrough; its [implementation and playtest notes](docs/custom-renderer-spike.md)
-record the fixes and validation.
-
-Static recompilation of *Mega Man X* (SNES) into native C, using the
-[snesrecomp](https://github.com/mstan/snesrecomp) framework. This repo
-is the per-game side: the runtime, the recompiled C output, the
-per-game `.cfg`, and the build glue.
-
-## What "static recompilation" means here
-
-The 65816 CPU code from the ROM is statically translated to C — every
-function the analysis can prove is a real generated C function in
-`src/gen/`. Execution is **LLE-first**: an authoritative 65816
-interpreter (LakeSnes-derived, MIT) is the correctness floor, and the
-statically compiled bodies are exact, proven materializations on top of
-it — anything the static pass cannot prove keeps running through the
-interpreter, loudly. **The rest of the SNES is not recompiled** — it's
-hardware. PPU rendering, the APU/SPC700 audio coprocessor, DMA and
-HDMA channels, hardware register I/O, and bank-mapping run through
-snesrecomp's own runner implementations (`snesrecomp/runner/`). Same
-model as N64Recomp and similar projects: recompile the CPU, emulate the
-silicon.
-
-The ROM is **never** redistributed — you supply your own legally-dumped
-copy.
-
-## Current status: fully playable
-
-The game has been tested and is playable end to end on Windows, with
-macOS and Linux builds supported from source. See
-[Releases](../../releases) for the latest packaged version and
-[ISSUES.md](ISSUES.md) for the current known-issue ledger.
-
-The USA Rev 1 build now also includes an **adaptive widescreen Mod**,
-rendering additional gameplay at the sides instead of stretching the original
-image. It is disabled by default and enabled from the launcher's **Mods** page.
-See [Adaptive widescreen support](#adaptive-widescreen-support) for
-availability and controls.
-
-The disabled-by-default **Add Zero** feature (X3 Zero 0.0.1 mod) adds playable
-Zero, his buster/saber combo, and grounded Select exchange with X. Its
-**Starting character** option chooses who starts and appears on the title and
-menus (X by default). Zero dashes through gaps sized for X and keeps sliding
-until he has room to stand. Both characters have
-separate current health; pickups heal only the active character. Enable it in
-**Mods** and select your **Mega Man X3 USA ROM**. Assets are prepared locally
-automatically. See [setup and release notes](docs/zero-0.0.1.md) and the
-[technical handoff](docs/zero-port.md). The [X2/X3 weapon mods](docs/x-weapons-port.md) add all sixteen boss weapons
-and their charged attacks, using your original X2/X3 ROMs.
-
-**X / Zero Co-op** lets you choose P1's character in Mods and assign
-the second controller in Controls. P2 joins automatically at a safe stage
-entrance; hold P2 Select for 1.5 seconds to withdraw and tap it to rejoin.
-Co-op and Add Zero are alternatives: selecting one turns the other off. See the
-[co-op notes and current validation limits](docs/coop-port.md).
-
-<p align="center">
-  <img src="docs/screenshots/widescreen-ocean.png" width="32%" alt="Mega Man X experimental widescreen rendering in an ocean scene">
-  <img src="docs/screenshots/widescreen-highway.png" width="32%" alt="Mega Man X experimental widescreen rendering on the opening highway stage">
-  <img src="docs/screenshots/widescreen-snow-base.png" width="32%" alt="Mega Man X experimental widescreen rendering in a snowy base">
-</p>
-
-### Linux / Steam Deck validation
-
-Tester **littlerobotfairy** completed the game on Linux running on Steam
-Deck (on the contributed widescreen fork build). The complete playthrough
-is documented in the [Twitch VOD](https://www.twitch.tv/videos/2820912518).
-
-If you hit a reproducible lockup or visual regression, please open an
-issue with a savestate (`Shift+F1`) and the frame at which it
-manifested.
+The game has been played through on Windows and Linux/Steam Deck. The Steam
+Deck playthrough by **littlerobotfairy** is available as a
+[Twitch VOD](https://www.twitch.tv/videos/2820912518).
+See [known issues](ISSUES.md) and the [co-op validation notes](docs/coop-port.md)
+for current limits.
 
 ## Quick start (pre-built release)
 
-1. Download the latest release zip from [Releases](../../releases) and
-   extract it.
-2. Run `MegaManXSNESRecomp.exe`. On first launch a file picker asks for your
-   **legally-obtained** *Mega Man X (USA) (Rev 1)* ROM (`.sfc` /
-   `.smc`). The expected SHA-256 is
-   `b8f70a6e7fb93819f79693578887e2c11e196bdf1ac6ddc7cb924b1ad0be2d32`
-   (1.5 MiB, LoROM). 512-byte SMC copier headers are auto-stripped
-   before hashing, so headered or unheadered both work.
-3. Edit `keybinds.ini` (auto-generated next to the exe on first run) to
-   remap keys, then restart.
+1. Download the latest [Windows ZIP or Linux AppImage](https://github.com/mstan/MegaManXSNESRecomp/releases/latest).
+   Extract the ZIP on Windows, or make the AppImage executable on Linux.
+2. Open the launcher and select your own **Mega Man X (USA) (Rev 1)** ROM
+   (`.sfc` or `.smc`). Headered and unheadered ROMs are supported.
+3. Configure your keyboard or controller in **Controls**.
+4. Enable the features you want in **Mods**, then select **Play**.
 
-The path you pick is cached to `rom.cfg` next to the exe so subsequent
-launches skip the picker.
+For Zero or co-op, select your own **Mega Man X3 USA ROM** in Mods. The X3
+weapon mod shares that selection. X2 weapons need your **Mega Man X2 USA ROM**.
+Assets are extracted automatically on your machine.
 
-## Password saves
+Select **Modern** under **Zero behavior** in either Zero mod for saber combat
+and extra aerial movement. **X3 Behavior** is the default. **Add Zero** and
+**X / Zero Co-op** are alternatives; enabling one disables the other.
 
-Version 1.6.0 includes the **Password Saves (SRAM)** mod, on by default.
-It saves the last generated password to a PC file and prefills the title
-screen's Password option. See [Password saves](docs/password-saves.md) for
-the optional file picker and default save location.
+For widescreen, enable **Widescreen** in Mods and choose your view aspect.
+**Display Aspect** in Settings controls pixel proportions. Netplay uses the
+original view or fixed 16:9, 21:9, or 32:9.
 
-## Controls (default `keybinds.ini`)
+Setup guides: [Zero](docs/zero-0.0.1.md), [X2/X3 weapons](docs/x-weapons-port.md),
+[password saves](docs/password-saves.md), and [netplay](docs/netplay.md).
+No ROMs or extracted assets are included in the downloads.
 
-| SNES button | Default key |
-|-------------|-------------|
-| D-Pad       | Arrow keys |
-| A           | X |
-| B           | Z |
-| X           | S |
-| Y           | A |
-| L           | C |
-| R           | V |
-| Start       | Enter |
-| Select      | Right Shift |
+## Controls and co-op
 
-Player 2 is unbound by default — fill in keys in `keybinds.ini` to
-enable a second keyboard player.
+Use the launcher's **Controls** screen to assign devices and remap buttons for
+each player. Xbox, PlayStation, and Switch Pro controllers are supported.
+For couch co-op, assign a controller or keyboard to each player. For netplay,
+configure your local **Player 1** controls; the lobby assigns your game seat.
 
-**Xbox / PlayStation / Switch Pro controllers** are auto-detected via
-SDL_GameController (XInput on Windows). Plug it in before launching, or
-hot-plug after.
+P2 joins automatically at a safe stage entrance in co-op. Hold P2 **Select**
+for 1.5 seconds to withdraw, and tap it to rejoin. A player who dies remains out
+until the next stage or a team restart.
 
-System shortcuts (all rebindable in `config.ini`'s `[KeyMap]` section;
-set a key to an empty value there to unbind it, e.g. `DisplayPerf =`):
+Reopen the launcher during play with **Ctrl+L** or controller **Select+L3**.
+Configure system shortcuts in **Hotkeys**. **F7** opens the save-state browser
+and **F8** opens rewind; both pause gameplay while you choose.
 
-| Action               | Default |
-|----------------------|---------|
-| Save state 1-10      | Shift+F1..F10 |
-| Load state 1-10      | F1..F6, F11, F12, F9, F10 |
-| Save-state browser   | F7 |
-| Rewind filmstrip     | F8 |
-| Toggle pause         | P |
-| Pause (dimmed)       | Shift+P |
-| Reset                | Ctrl+R |
-| Toggle fullscreen    | Alt+Enter |
-| Turbo (fast-forward) | Tab |
-| FPS / perf readout   | F |
-| Toggle PPU renderer  | R |
-| Volume up / down     | Keypad + / Keypad - |
+## Reporting problems
 
-F7 opens the shared save browser; F8 opens the rewind history. Both pause the
-game and audio while you choose. Rebind or clear these keys in the launcher's
-Hotkeys settings or in `[KeyMap]`. Existing default F7/F8 slot loads migrate to
-F11/F12. The launcher also exposes controller bindings.
+[Open an issue](https://github.com/mstan/MegaManXSNESRecomp/issues) with your
+build, enabled mods, and steps to reproduce the problem. For gameplay bugs,
+include a nearby save state and describe the inputs that trigger it.
 
-States include the CPU/interpreter timeline and X1's widescreen spawn/CHR
-bookkeeping. Use new states with the same game variant and runtime build;
-older states remain readable with their original format's limitations.
+Windows diagnostics are saved beside the executable in
+`logs/mmx-<date>-<time>-<process-id>.log`; read-only installations use
+`%TEMP%/MegaManXSNESRecomp/logs`. Attach that log and `last_run_report.json`.
+If a crash produced `crash_report_*.json` or `crash_minidump_*.dmp`, include
+those too. Grab the reports before running the game again.
 
-## Reporting crashes
-
-Windows launches open only the launcher/game. Diagnostic output goes to
-`logs/mmx-<date>-<time>-<process-id>.log` beside the executable, so simultaneous
-netplay instances keep separate logs. If the installation folder is read-only,
-logs go to `%TEMP%/MegaManXSNESRecomp/logs` instead. Attach the matching log when
-reporting a problem. Shell stdout/stderr redirection remains supported.
-
-For a live diagnostic console, set `Console = 1` under `[Logging]` in
-`logging.ini` beside the executable, then restart. The default is `0`; a
-missing `logging.ini` also keeps the console off. This setting affects Windows
-only and is intentionally absent from the launcher UI.
-
-The game continuously records its own boot/run diagnostics. If it
-crashes (or exits with an error), it writes these files next to
-`MegaManXSNESRecomp.exe` — attaching them to a GitHub issue usually lets the crash be
-diagnosed without a repro:
-
-- `crash_report_<timestamp>.json` and `crash_minidump_<timestamp>.dmp`
-  — written at the moment of a crash; never overwritten by later runs.
-- `last_run_report.json` — written at the end of **every** run
-  (crash or clean exit), so grab it right after the bad run if there
-  is no `crash_report_*` file.
-
-None of these contain personal data beyond your Windows version,
-hardware model, and the folder path the game runs from.
+<details>
+<summary>Building from source and technical details</summary>
 
 ## Building from source
 
@@ -335,8 +212,7 @@ land after the shared launcher-UI restructure settles.
 
 ### Adaptive widescreen support
 
-Version 1.4.4 replaces the old fixed 16:9 renderer with the adaptive renderer,
-playtested through the ending on Windows. Enable **Widescreen**
+The adaptive widescreen renderer has been playtested through the ending on Windows. Enable **Widescreen**
 on the launcher's **Mods** page. It is disabled by default; existing enabled
 widescreen installations automatically use the replacement.
 
@@ -402,6 +278,24 @@ uses its checked-in LLE coverage profile as optional AOT input; variants the
 compiler cannot prove remain on the authoritative interpreter fallback.
 `bash tools/regen.sh all` regenerates both regions.
 
+## What "static recompilation" means here
+
+The 65816 CPU code from the ROM is statically translated to C — every
+function the analysis can prove is a real generated C function in
+`src/gen/`. Execution is **LLE-first**: an authoritative 65816
+interpreter (LakeSnes-derived, MIT) is the correctness floor, and the
+statically compiled bodies are exact, proven materializations on top of
+it — anything the static pass cannot prove keeps running through the
+interpreter, loudly. **The rest of the SNES is not recompiled** — it's
+hardware. PPU rendering, the APU/SPC700 audio coprocessor, DMA and
+HDMA channels, hardware register I/O, and bank-mapping run through
+snesrecomp's own runner implementations (`snesrecomp/runner/`). Same
+model as N64Recomp and similar projects: recompile the CPU, emulate the
+silicon.
+
+The ROM is **never** redistributed — you supply your own legally-dumped
+copy.
+
 ## Repo layout
 
 | Path | Purpose |
@@ -415,6 +309,8 @@ compiler cannot prove remain on the authoritative interpreter fallback.
 | `third_party/` | Remaining game dependencies and their licenses. |
 | `CMakeLists.txt` | Shared framework build helpers and USA/JP targets. |
 | `config.ini` | The config. Generated next to the exe on first run if missing. |
+
+</details>
 
 ## License
 
