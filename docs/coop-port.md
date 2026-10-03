@@ -832,6 +832,8 @@ against a top rising 898 -> 893) and lands on the floor below. The co-op
 second-seat platform pass runs on those frames (`contact_pass` 1 then 2), so
 the remaining question is why the native contact at `$84:AB81` rejects Zero.
 This is not yet reproduced against a ROM; no behavior change is included.
+Full frame data and hypotheses for the ROM-side investigation are in
+`docs/storm-eagle-collision-handoff.md`.
 
 The Co-op physics diagnostics mod now records what that needs:
 
