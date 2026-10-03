@@ -1034,6 +1034,7 @@ static void coop_slime_checks(const char *fixture,uint8_t *start,uint8_t *expect
 }
 
 #include "mmx_coop_eagle_test.inc"
+#include "mmx_coop_followup_test.inc"
 static void coop_checks(const char *assets, const char *fixture,
                         uint8_t *start, uint8_t *expected, uint8_t *actual, size_t cap) {
   check(assets && fixture, "co-op check requires private source assets and a grounded fixture");
@@ -1041,6 +1042,7 @@ static void coop_checks(const char *assets, const char *fixture,
   MmxZeroRegisterHooks(); MmxCoopRegisterHooks();
   const char *x2=getenv("MMX_COOP_X2_ASSETS"),*x3=getenv("MMX_COOP_X3_ASSETS");
   if (x2 && x3) check(MmxWeaponsLoadPage(x2,1) && MmxWeaponsLoadPage(x3,2),"private original weapon source packs load");
+  if(getenv("MMX_COOP_FOLLOWUP_TEST")) {coop_followup_checks(fixture);return;}
   if(getenv("MMX_COOP_EAGLE_FIXTURES")) {coop_eagle_checks(getenv("MMX_COOP_EAGLE_FIXTURES"),start,expected,actual,cap);return;}
   if(getenv("MMX_COOP_X1_EFFECTS")) {coop_x1_effect_checks(fixture);return;}
   if(getenv("MMX_COOP_SLIME_TEST")) {coop_slime_checks(fixture,start,expected,actual,cap);return;}

@@ -625,8 +625,10 @@ void MmxZeroPlayerTick(uint8_t r[0x20000]) {
   if (!MmxZeroActive() || !r) return;
   unsigned action = r[0xbaa];
   bool playable = r[0xd1] == 2 && r[0xd2] == 4 && r[0xba9] == 2 &&
-      (r[0xbcf] & 127) && !r[0x1f0c] && !r[0xbdb] &&
-      (action <= 8 || action == 0x10 || action == 0x12 || action == 0x14 || action == 0x20);
+      r[0xd3]<10 && (r[0xbcf] & 127) && !r[0x1f0c] && !r[0xbdb] &&
+      /* Action $0A is the ordinary four-frame landing recovery, with native
+       * fire/charge input still active ($81:8609..865A). */
+      (action <= 0x0a || action == 0x10 || action == 0x12 || action == 0x14 || action == 0x20);
   if (!playable) { MmxZeroCancel(r); return; }
   bool held = (r[0xbdf] & 64) != 0, pressed = (r[0xbe3] & 64) != 0;
   if (modern_behavior) {

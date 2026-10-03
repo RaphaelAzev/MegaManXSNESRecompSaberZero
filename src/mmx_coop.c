@@ -255,6 +255,12 @@ void MmxCoopInitialize(uint8_t *r) {
 }
 bool MmxCoopFrameTick(uint8_t *r) {
   if (!enabled || !state.initialized) return MmxWeaponsFrameTick(r);
+  /* The stage-clear weapon demonstration reuses the native player/shot
+   * pools. It owns that single scripted actor; projecting either stored
+   * co-op body here overwrites its weapon and recorded fire input. */
+  if(r[0xd1]==2 && r[0xd2]==4 && r[0xd3]>=10) {
+    state.stage_pending=1;state.select_hold=state.p1_select_hold=0;return false;
+  }
   if (state.menu_owner) {
     if (state.current==1) MmxCoopApplyInput(r);
     state.select_hold=state.p1_select_hold=0;return false;
@@ -707,7 +713,9 @@ static void pickup_hook(CpuState *cpu,uint32_t pc) {
   } else {MmxCoopSelect(g_ram,state.anchor);state.pickup_pass=0;}
 }
 static void object_hook(CpuState *cpu, uint32_t pc) {
-  if (!enabled || !state.initialized || state.menu_owner || state.scene_owner || state.players[state.anchor^1].status != MMX_COOP_ALIVE) return;
+  if (!enabled || !state.initialized || state.menu_owner || state.scene_owner ||
+      g_ram[0xd1]!=2 || g_ram[0xd2]!=4 || g_ram[0xd3]>=10 ||
+      state.players[state.anchor^1].status != MMX_COOP_ALIVE) return;
   unsigned at = pc & 65535;
   bool entry = at == 0xd2bd || at == 0xd3dd || at == 0xd3fa || at == 0xd43a || at == 0xd457 || at == 0x9d67;
   if (entry) {
@@ -732,10 +740,11 @@ static void object_hook(CpuState *cpu, uint32_t pc) {
 static void platform_hook(CpuState *cpu,uint32_t pc) {
   if(!enabled || !state.initialized || state.menu_owner || state.scene_owner) return;
   unsigned at=pc&65535,d=cpu->D;
-  /* Item $0E uses only .2C's boolean rider latch. In co-op retain one bit
+  /* Items $0E/$0F/$10 share .2C's boolean rider latch. In co-op retain one bit
    * per seat there, projecting a boolean while the native helper executes.
    * Slot initialization still clears it, and snapshots retain both riders. */
-  if(d<0x1628 || d>=0x1928 || (d-0x1628)%48 || g_ram[d+10]!=0x0e) return;
+  if(d<0x1628 || d>=0x1928 || (d-0x1628)%48 ||
+      g_ram[d+10]<0x0e || g_ram[d+10]>0x10) return;
   if(at==0xab81 || at==0xab56) {
     if(state.contact_pass) return;
     state.contact_entry=(uint16_t)at;state.contact_pass=1;
@@ -877,6 +886,7 @@ static void death_hook(CpuState *cpu,uint32_t pc) {
 }
 static void controller_hook(CpuState *cpu, uint32_t pc) {
   if (!enabled) return;
+  if(g_ram[0xd1]!=2 || g_ram[0xd2]!=4 || g_ram[0xd3]>=10) return;
   if ((pc & 0x7fffff) == 0x048fcb) {
     /* There is exactly one X. Preserve his native CHR allocation; Zero's
      * complete body comes from the original X3 asset compositor. PHP has

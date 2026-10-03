@@ -752,3 +752,28 @@ rosters. Both actors survived, only the collector healed, and the airborne
 actor landed without penetrating the floor. These isolated checks validate
 the refill fix; they do not replace a full Chill Penguin co-op playthrough
 or a two-machine netplay session.
+
+### Landing, Storm Eagle supports and weapon-get demonstration (2026-10-03)
+
+Tracking: `beads-8wg.1.82`. X3 Behavior Zero's held buster charge was canceled
+by native action `$0A`, the four-frame landing recovery at `$81:8609..865A`.
+That action retains native firing/charging and now also retains Zero's charge.
+Hurt, death and other combat cancellation paths are unchanged.
+
+Storm Eagle's rising columns (item `$0F`, `$83:F137`) and flying platforms
+(item `$10`, `$87:EE82`) also call `$84:AB81`. They were excluded from the
+two-seat rider handling added for item `$0E`. They now share its per-seat
+`.2C` rider bits and native movement/contact helpers. Flying-platform boarding
+still launches through the original `$87:EEE3` state transition.
+
+The original weapon-get demonstration runs from `$00:AB9A`, using the native
+player and projectile pools during stage-clear phase `$0A`. Co-op projection
+and the previous imported selection could interfere with its scripted actor
+and replace its X1 shots. During this presentation, the native task now owns
+the pools and firing input. Co-op initializes the roster again on stage entry.
+
+`MMX_COOP_FOLLOWUP_TEST=1` checks a full held-charge jump/landing, both types of
+Storm support with Zero alone and both riders, and the real Shotgun Ice demo
+after an imported weapon selection. The demo regression observed no native ice
+projectiles before the presentation guards, and 78 projectile frames afterwards.
+Source ROMs, fixtures, captures and the owner's new PID 54208 logs stay private.

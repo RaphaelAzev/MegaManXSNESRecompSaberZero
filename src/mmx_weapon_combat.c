@@ -201,6 +201,9 @@ void MmxWeaponsPlayerMotion(uint8_t r[0x20000],unsigned d) {
 }
 void MmxWeaponsPlayerTick(uint8_t r[0x20000]) {
   if (!MmxWeaponsEnabled()) return;
+  /* The native weapon-get actor demonstrates its own X1 weapon, independent
+   * of either player's previous imported selection. */
+  if(r[0xd1]==2 && r[0xd2]==4 && r[0xd3]>=10) return;
   cycle_weapon(r);
   if (!combat.valid || combat.stage != r[0x1f7a] || r[0xd1] != 2 || !(r[0xbcf] & 127)) {
     MmxWeaponsCancelShots(r); combat.valid = 1; combat.stage = r[0x1f7a];
@@ -301,12 +304,14 @@ void MmxWeaponsPlayerTick(uint8_t r[0x20000]) {
 }
 void MmxWeaponsSelectShot(const uint8_t r[0x20000], unsigned d) {
   if (!MmxWeaponsCombatActive() || !slot_valid(d)) return;
+  if(r[0xd1]==2 && r[0xd2]==4 && r[0xd3]>=10) return;
   /* Moving/air firing ($81:93EA) clears +$59 before it calls $9D47.
    * Capture the command at $94AF, shared by every firing pose. */
   combat.shots[slot_index(d)].charged=r[0xc01]==4 && (r[0x1f99]&2);
 }
 void MmxWeaponsMarkShot(uint8_t r[0x20000], unsigned d) {
   if (!MmxWeaponsCombatActive() || !slot_valid(d) || !r[d]) return;
+  if(r[0xd1]==2 && r[0xd2]==4 && r[0xd3]>=10) return;
   MmxWeaponsState w = MmxWeaponsGetState();
   MmxWeaponShot *s = combat.shots + slot_index(d);
   bool charged=s->charged!=0;
