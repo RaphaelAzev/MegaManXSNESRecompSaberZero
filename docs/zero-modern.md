@@ -20,6 +20,9 @@ charge/upgrade requirements. X retains his original controller and buster.
   not repeat automatically. A press near the end of recovery buffers another
   swing. Ground and air poses, blade sprites and hitbox arcs come from the
   user's X3 ROM; no new sprite artwork is introduced.
+- Airborne swings retain native horizontal movement and left/right steering,
+  including the jump's normal vertical arc. Ground swings still plant Zero's
+  feet. Landing switches the saber back to the ground behavior.
 - A swing has two contact opportunities, nine simulation ticks apart, worth
   three damage each when the native enemy accepts the hit. Boss invulnerability
   and reflection remain in force, so two contacts do not guarantee two hits.

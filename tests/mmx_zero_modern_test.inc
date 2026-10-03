@@ -25,6 +25,30 @@ static void modern_checks(const char *assets,const char *fixture,uint8 *start,
   check(assets && fixture && MmxZeroLoad(assets),"Modern assets load");
   MmxZeroRegisterHooks(); MmxCoopRegisterHooks();
   g_config.widescreen=false; int w,h; MmxPrepareFrame(1280,720,&w,&h);
+  /* Compare against the same airborne trajectory without attacking. These
+   * exercise the native input-to-velocity controller, not just adapter RAM. */
+  for(unsigned dash=0;dash<2;++dash) {
+    modern_fixture(fixture);
+    for(unsigned i=0;i<10;++i) frame(SNES_PAD_B|SNES_PAD_RIGHT);
+    if(dash) for(unsigned i=0;i<4;++i) frame(SNES_PAD_A|SNES_PAD_RIGHT);
+    size_t before_n=RtlSaveSnapshotToMemory(start,cap);
+    for(unsigned i=0;i<8;++i) frame(SNES_PAD_B|SNES_PAD_RIGHT);
+    unsigned expected_x=modern_x(),expected_y=modern_y();
+    check(RtlLoadSnapshotFromMemory(start,before_n),"restore moving jump before saber");
+    frame(SNES_PAD_Y|SNES_PAD_B|SNES_PAD_RIGHT);
+    for(unsigned i=1;i<8;++i) frame(SNES_PAD_B|SNES_PAD_RIGHT);
+    printf("air slash dash=%u xy=%u,%u reference=%u,%u\n",dash,modern_x(),modern_y(),expected_x,expected_y);
+    check(MmxZeroGetState().slash && modern_x()==expected_x && modern_y()==expected_y,
+        "air saber preserves horizontal movement and native vertical arc");
+    unsigned x=modern_x(); frame(SNES_PAD_B|SNES_PAD_LEFT);
+    check(modern_x()<x && MmxZeroGetState().slash,"air saber permits steering back toward a platform");
+    unsigned d=MmxZeroGetState().projectile;
+    check(d && (g_ram[d+5]|g_ram[d+6]<<8)==modern_x() &&
+        (g_ram[d+8]|g_ram[d+9]<<8)==modern_y() &&
+        (g_ram[d+0x11]&64)==(g_ram[0xbb9]&64),
+        "moving saber collision follows the rendered position and facing");
+    modern_image(dash?"dash-saber-motion":"jump-saber-motion");
+  }
   modern_fixture(fixture);
   frame(SNES_PAD_Y); zero_replay(10);
   check(MmxZeroGetState().slash && !MmxZeroGetState().charge,"tap immediately swings without charging");

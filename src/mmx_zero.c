@@ -737,9 +737,17 @@ slash_update:
         state.modern.hit_phase = 1; state.hit_slots = 0;
       }
     }
-    r[0xbde] = 0; r[0xbdf] &= 128; r[0xbe2] = r[0xbe3] = 0;
+    r[0xbde] = 0; r[0xbe2] = r[0xbe3] = 0;
+    if (modern_behavior && state.air) {
+      /* Keep native left/right air control and jump-height input. The jump
+       * controller rebuilds VX from these inputs at $81:9982; masking them
+       * plants Zero horizontally even if his previous VX is preserved. */
+      r[0xbdf] &= 131;
+    } else {
+      r[0xbdf] &= 128;
+      r[0xbc2] = r[0xbc3] = 0;
+    }
     r[0xc11] = state.facing; clear_charge(r);
-    r[0xbc2] = r[0xbc3] = 0;
     if (!state.air && action != 0) { r[0xbaa] = 0; r[0xbab] = 0; }
     unsigned d = state.projectile;
     if (own_projectile(r, d)) {
@@ -753,6 +761,20 @@ slash_update:
   }
 }
 void MmxZeroPlayerEnd(uint8_t r[0x20000]) {
+  if (MmxZeroModern() && r && state.slash && own_projectile(r,state.projectile)) {
+    /* Air steering has now moved/turned the body. Keep the invisible melee
+     * object attached to the position and facing that will actually render,
+     * before the native enemy collision pass. BB9's facing is copied from
+     * C11 later at $81:8194, so use C11 directly here. */
+    unsigned d = state.projectile;
+    state.facing = r[0xc11] & 64; state.air = !(r[0xbd3] & 4);
+    putword(r + d + 5, word(r + 0xbad));
+    putword(r + d + 8, word(r + 0xbb0));
+    r[d + 0x11] = (r[d + 0x11] & (uint8_t)~64) | state.facing;
+    unsigned age = state.slash >= 7 ? state.slash - 7 : 99;
+    unsigned phase = age < 12 ? age / 3 : 4;
+    putword(r + d + 0x20, age < 19 ? 0xffb0 + (state.air ? 20 : 0) + phase * 4 : 0);
+  }
   if (MmxZeroModern() && r && state.modern.dash_ticks) {
     r[0xc06] &= (uint8_t)~4;
     if (r[0xbaa] != 0x14 || (r[0xbd3] & 4) || state.modern.dash_ticks == 1)
