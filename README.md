@@ -4,25 +4,25 @@ Version 2.0.3-alpha adds optional **Modern Zero**: direct saber attacks, a
 second jump, an air dash, and steering during airborne swings. Select **Modern**
 under **Zero behavior** in either character mod. X3 Behavior stays the default.
 Windows now logs diagnostics to a file without opening a console window.
-See the [2.0.3-alpha release notes](RELEASE_NOTES_v2.0.3-alpha.md).
+See the [2.0.3-alpha release notes](https://github.com/mstan/MegaManXSNESRecomp/releases/tag/v2.0.3-alpha).
 
 Version 2.0.2-alpha fixes co-op moving platforms, the airship door and
 Storm Eagle's lift introduction, plus charged Chameleon Sting and Electric
 Spark graphics.
-See the [2.0.2-alpha release notes](RELEASE_NOTES_v2.0.2-alpha.md).
+See the [2.0.2-alpha release notes](https://github.com/mstan/MegaManXSNESRecomp/releases/tag/v2.0.2-alpha).
 
 Version 2.0.1 fixes two co-op encounter bugs: Thunder Slimer's puddles
 now trap the player they touch, and either partner returns after Flame
 Mammoth's final door and scrolling boss introduction. These fixes apply to
 offline co-op and netplay. Both peers need the same release for netplay.
-See the [release notes](RELEASE_NOTES_v2.0.1.md) and
+See the [release notes](https://github.com/mstan/MegaManXSNESRecomp/releases/tag/v2.0.1) and
 [netplay setup and limits](docs/netplay.md).
 
 Version 1.7.0 adds playable Zero (with a slide through X-sized gaps), X2/X3
 weapons, co-op, and two-player **X / Zero netplay** using recomp-net and
 snesrecomp's lobby and rollback support. Netplay requires co-op and offers the
 original view or fixed 16:9, 21:9, and 32:9 widescreen. See the
-[release notes](RELEASE_NOTES_v1.7.0.md) and
+[release notes](https://github.com/mstan/MegaManXSNESRecomp/releases/tag/v1.7.0) and
 [netplay setup and limits](docs/netplay.md).
 
 Version 1.6.6 fixes Ctrl+R (Reset) leaving a black screen and lets you
@@ -217,6 +217,9 @@ None of these contain personal data beyond your Windows version,
 hardware model, and the folder path the game runs from.
 
 ## Building from source
+
+Release notes belong in the GitHub release description. Do not create or commit
+`RELEASE_NOTES*.md` files, or include them in release packages.
 
 Clone with all framework dependencies, then run the idempotent
 bootstrap check:
