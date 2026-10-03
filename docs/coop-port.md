@@ -16,11 +16,23 @@ in Git or the eventual downloadable mod.
 
 Latest join controls: enabling co-op automatically enrolls P2 and spawns the
 counterpart when gameplay has a safe landing. Both players also return at later
-stage entries/team restarts. Hold P2 **Select** for 90 gameplay frames (1.5
-seconds) to withdraw, retaining HP, weapon energy and selections. P2 stays out
+stage entries/team restarts. Either player can hold **Select** for 90 gameplay frames (1.5
+seconds) to withdraw, retaining HP, weapon energy and selections, provided
+their teammate is alive and visible on screen. A withdrawn player stays out
 until Select is pressed to rejoin or a new stage/team restart begins. Start
 remains pause/menu. Shared subtanks are unchanged, and fallen players cannot
 use Select to rejoin until a new stage/team restart.
+
+Symmetric withdrawal (2026-10-03, `beads-8wg.1.79`) transfers the native
+world anchor to the remaining seat, then returns it to P1 when P1 rejoins.
+Both seats use the existing teleport art and timing, safe landing query,
+and inventory preservation. Separate hold/arming counters prevent simultaneous
+requests from withdrawing both players. P1's two counters occupy former
+reserved menu bytes; struct sizes and existing field offsets are unchanged,
+and older saves initialize those counters to zero. They participate in the
+normal snapshot/rollback state. ROM checks cover both rosters, both seats,
+the full hold interval, dead/dying/offscreen guards, survivor control,
+retained HP/energy, and deterministic mid-arrival replay.
 
 This branch provides a **development playtest build**, not an end-to-end
 campaign certification. The launcher package is `megaman-x.coop` 0.0.1,

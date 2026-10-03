@@ -36,7 +36,7 @@ typedef struct MmxCoopState {
   uint16_t contact_a, contact_x, contact_y, contact_s, contact_d, contact_entry;
   uint8_t contact_p, contact_db, contact_pass, platform_riders; /* Pending .2C bits; formerly reserved. */
   uint8_t enrolled, select_hold, select_armed, stage_pending;
-  uint8_t menu_owner, menu_last, menu_reserved[2]; /* owner 0=none, 1/2=seat */
+  uint8_t menu_owner, menu_last, p1_select_hold, p1_select_armed; /* Last two bytes were reserved. */
   uint8_t pickup_owner[16]; /* Native item slots $1628 + index*$30. */
   uint16_t pickup_s, pickup_d;
   uint8_t pickup_pass, pickup_reserved[3];

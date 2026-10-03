@@ -264,6 +264,65 @@ static void coop_join_checks(unsigned character,const char *fixture,uint8_t *sta
   check(!s.players[1].body[0x33] && !s.players[1].weapons.page && !s.players[1].weapons.weapon &&
       !s.players[1].weapons.menu_page,"checkpoint restart resets P2 to X1 buster");
 }
+static void coop_symmetric_join_checks(const char *fixture,uint8_t *start,uint8_t *expected,uint8_t *actual,size_t cap) {
+  for(unsigned character=0;character<2;++character) for(unsigned seat=0;seat<2;++seat) {
+    MmxCoopDisable();check(RtlLoadSnapshot(fixture),"symmetric teleport fixture loads");
+    check(MmxCoopEnable(character),"symmetric teleport uses either roster");coop_frames(8,0,0);
+    MmxCoopState s=MmxCoopGetState();
+    check(coop_place_fixture_partner(coop_x(&s.players[0])+48,coop_y(&s.players[0])),"symmetric teleport partner placed");
+    coop_frames(40,0,0);
+    MmxCoopSelect(g_ram,seat);g_ram[0xbcf]=7|128;g_ram[0x1f88]=(g_ram[0x1f88]&192)|11;
+    MmxCoopSelect(g_ram,0);MmxCoopCapture(g_ram);
+    size_t before=RtlSaveSnapshotToMemory(start,cap);
+    /* A dead or completely offscreen teammate cannot be left alone. Call
+     * frame policy without native movement so culling/clamping cannot bring
+     * an offscreen test actor back into view during this guard check. */
+    for(unsigned guard=0;guard<3;++guard) {
+      check(RtlLoadSnapshotFromMemory(start,before),"restore teleport guard fixture");
+      MmxCoopSelect(g_ram,seat^1);s=MmxCoopGetState();
+      if(guard==0) {s.players[seat^1].status=MMX_COOP_FALLEN;g_ram[0xbcf]=128;}
+      else if(guard==1) {g_ram[0xbcf]=128;g_ram[0xbaa]=12;}
+      else {unsigned x=(g_ram[0x1e4d]|g_ram[0x1e4e]<<8)+600;
+        g_ram[0xbad]=(uint8_t)x;g_ram[0xbae]=(uint8_t)(x>>8);}
+      MmxCoopCapture(g_ram);s=MmxCoopGetState();
+      if(guard==0) s.players[seat^1].status=MMX_COOP_FALLEN;
+      MmxCoopSetState(&s);MmxCoopSelect(g_ram,seat);
+      MmxCoopPoll(0,0);MmxCoopFrameTick(g_ram);
+      for(unsigned tick=0;tick<95;++tick) {
+        MmxCoopPoll(seat?0:SNES_PAD_SELECT,seat?SNES_PAD_SELECT:0);MmxCoopFrameTick(g_ram);
+      }
+      check(!MmxCoopTransitionActive() && MmxCoopGetState().players[seat].status==MMX_COOP_ALIVE,
+          "either seat cannot withdraw with a dead, dying or offscreen teammate");
+    }
+    check(RtlLoadSnapshotFromMemory(start,before),"restore ordinary teleport fixture");
+    coop_frames(89,seat?0:SNES_PAD_SELECT,seat?SNES_PAD_SELECT:0);
+    check(!MmxCoopTransitionActive(),"either seat requires a full 1.5-second hold");
+    coop_frames(1,seat?0:SNES_PAD_SELECT,seat?SNES_PAD_SELECT:0);
+    check(MmxCoopTransitionActive(),"either seat can begin original teleport-out");
+    unsigned world=g_ram[0xb9c];
+    for(unsigned i=0;i<80 && MmxCoopTransitionActive();++i) coop_frames(1,0,0);
+    s=MmxCoopGetState();
+    check(s.players[seat].status==MMX_COOP_ABSENT && s.anchor==(seat^1) && g_ram[0xb9c]==world,
+        "withdrawal hides only its seat and hands world control to the survivor");
+    unsigned x=coop_x(&s.players[seat^1]);
+    coop_frames(8,seat?SNES_PAD_RIGHT:0,seat?0:SNES_PAD_RIGHT);s=MmxCoopGetState();
+    check(coop_x(&s.players[seat^1])>x && s.players[seat].status==MMX_COOP_ABSENT,
+        "remaining seat moves independently after either player withdraws");
+    coop_frames(1,seat?0:SNES_PAD_SELECT,seat?SNES_PAD_SELECT:0);
+    check(MmxCoopTransitionActive(),"either absent seat can voluntarily return beside survivor");
+    size_t n=RtlSaveSnapshotToMemory(start,cap);coop_frames(20,0,0);
+    size_t en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"symmetric arrival snapshot restores");coop_frames(20,0,0);
+    size_t an=RtlSaveSnapshotToMemory(actual,cap);
+    same(expected,en,actual,an,"symmetric teleport and anchor replay deterministically");
+    for(unsigned i=0;i<80 && MmxCoopTransitionActive();++i) coop_frames(1,0,0);
+    s=MmxCoopGetState();
+    check(s.players[seat].status==MMX_COOP_ALIVE && s.anchor==0 &&
+        (s.players[seat].body[0x27]&127)==7 && s.players[seat].energy[1]==11,
+        "either returning seat retains HP and energy and restores P1 world anchor");
+  }
+  MmxCoopDisable();puts("MMX CO-OP SYMMETRIC TELEPORT CHECKS PASSED");
+}
 static void coop_camera_checks(unsigned character) {
   MmxCoopState s=MmxCoopGetState();unsigned x0=coop_x(&s.players[0]);
   coop_frames(230,0,SNES_PAD_RIGHT);s=MmxCoopGetState();
@@ -999,6 +1058,7 @@ static void coop_checks(const char *assets, const char *fixture,
   }
   if(getenv("MMX_COOP_AIR_PICKUP_TEST")) {coop_air_pickup_checks(fixture);return;}
   if(getenv("MMX_COOP_REFILL_FREEZE_TEST")) {coop_refill_freeze_checks(fixture);return;}
+  if(getenv("MMX_COOP_SYMMETRIC_JOIN_TEST")) {coop_symmetric_join_checks(fixture,start,expected,actual,cap);return;}
   if(getenv("MMX_COOP_DIALOGUE_FIXTURE")) {coop_dialogue_checks(getenv("MMX_COOP_DIALOGUE_FIXTURE"));return;}
   if(getenv("MMX_COOP_STAGE_FIXTURE")) {coop_stage_entry_checks(getenv("MMX_COOP_STAGE_FIXTURE"));return;}
   if(getenv("MMX_COOP_PLATFORM_CAPTURE")) {coop_platform_checks(fixture,getenv("MMX_COOP_PLATFORM_CAPTURE"));return;}
