@@ -69,6 +69,7 @@ New-Item -ItemType Directory -Path $stage -Force | Out-Null
 
 Copy-Item -LiteralPath $exe -Destination $stage
 Copy-Item -LiteralPath (Join-Path $root 'config.ini') -Destination $stage
+Copy-Item -LiteralPath (Join-Path $root 'logging.ini') -Destination $stage
 Copy-Item -LiteralPath (Join-Path $root 'README.md') -Destination $stage
 $releaseNotes = Join-Path $root "RELEASE_NOTES_v$Version.md"
 if (Test-Path -LiteralPath $releaseNotes) {

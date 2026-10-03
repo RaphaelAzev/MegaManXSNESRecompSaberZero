@@ -39,7 +39,7 @@ function(add_mmx_variant TARGET GEN_DIR CFG_DIR)
         endif()
     endif()
     add_executable(${TARGET} ${SNESRECOMP_RUNNER_SOURCES}
-        src/main.c src/mmx_netplay.c src/mmx_display.c src/mmx_renderer.c src/mmx_render_assets.c src/mmx_wide_policy.c
+        src/main.c src/mmx_startup.c src/mmx_netplay.c src/mmx_display.c src/mmx_renderer.c src/mmx_render_assets.c src/mmx_wide_policy.c
         src/mmx_00.c src/gen_stubs.c src/mmx_cpu_infra.c src/mmx_rtl.c
         src/mmx_spc_player.c src/mods/mmx_diagnostics_plugin.c
         src/mods/mmx_widescreen_plugin.c src/mods/mmx_msu1_plugin.c
@@ -100,6 +100,12 @@ function(add_mmx_variant TARGET GEN_DIR CFG_DIR)
                 WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
                 COMMENT "Applying Mega Man X generated-code mod hooks" VERBATIM)
             add_dependencies(${TARGET} ${TARGET}_widescreen_overrides)
+        endif()
+    endif()
+    if(WIN32)
+        set_target_properties(${TARGET} PROPERTIES WIN32_EXECUTABLE TRUE)
+        if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/logging.ini")
+            configure_file(logging.ini logging.ini COPYONLY)
         endif()
     endif()
     recomp_target_launcher_ui(${TARGET} CONSOLE snes

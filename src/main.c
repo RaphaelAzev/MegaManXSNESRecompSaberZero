@@ -18,6 +18,7 @@
 #include "mmx_spc_player.h"
 #include "mmx_default_config.h"
 #include "mmx_netplay.h"
+#include "mmx_startup.h"
 
 #ifndef MMX_VARIANT_JP
 #define MMX_VARIANT_JP 0
@@ -169,6 +170,7 @@ static void MmxAfterFrame(const SnesDesktopHostFrameStats *stats) {
 }
 
 int MMX_DESKTOP_ENTRY(int argc, char **argv) {
+  MmxStartupLogging();
   ConfigUseStateMenuDefaults();
   for (int arg = 1; arg + 1 < argc; ++arg) {
     if (strcmp(argv[arg], "--benchmark") && strcmp(argv[arg], "--benchmark-audio")) continue;

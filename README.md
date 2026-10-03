@@ -185,6 +185,17 @@ older states remain readable with their original format's limitations.
 
 ## Reporting crashes
 
+Windows launches open only the launcher/game. Diagnostic output goes to
+`logs/mmx-<date>-<time>-<process-id>.log` beside the executable, so simultaneous
+netplay instances keep separate logs. If the installation folder is read-only,
+logs go to `%TEMP%/MegaManXSNESRecomp/logs` instead. Attach the matching log when
+reporting a problem. Shell stdout/stderr redirection remains supported.
+
+For a live diagnostic console, set `Console = 1` under `[Logging]` in
+`logging.ini` beside the executable, then restart. The default is `0`; a
+missing `logging.ini` also keeps the console off. This setting affects Windows
+only and is intentionally absent from the launcher UI.
+
 The game continuously records its own boot/run diagnostics. If it
 crashes (or exits with an error), it writes these files next to
 `MegaManXSNESRecomp.exe` — attaching them to a GitHub issue usually lets the crash be
