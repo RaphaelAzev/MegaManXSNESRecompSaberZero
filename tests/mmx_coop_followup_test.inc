@@ -1,4 +1,5 @@
 /* Focused ROM regressions for the owner's October 3 playtest. */
+#include "mmx_render_assets.h"
 static void modern_image(const char *suffix);
 static void coop_followup_fixture(const char *fixture) {
   MmxCoopDisable();check(RtlLoadSnapshot(fixture),"follow-up fixture loads");
@@ -6,6 +7,179 @@ static void coop_followup_fixture(const char *fixture) {
   coop_frames(8,0,0);MmxCoopState s=MmxCoopGetState();
   check(coop_place_fixture_partner(coop_x(&s.players[0])+32,coop_y(&s.players[0])),"follow-up partner placed");
   coop_frames(8,0,0);
+}
+static void coop_storm_landing_checks(const char *fixture) {
+  MmxCoopSetDiagnosticsEnabled(true);
+  const unsigned supports[]={0x0f,0x10,0x13,0x14};
+  for(unsigned roster=0;roster<2;++roster) for(unsigned index=0;index<4;++index) {
+    unsigned kind=supports[index],origin_offset=kind==0x13?24:kind==0x14?32:23;
+    coop_followup_fixture(fixture);MmxCoopState s=MmxCoopGetState();
+    for(unsigned seat=0;seat<2;++seat) {
+      s.players[seat].character=roster^seat;s.players[seat].zero.active_x=!(roster^seat);
+    }
+    MmxCoopSetState(&s);
+    unsigned x=coop_x(&s.players[0]),y=coop_y(&s.players[0])-60,d=0x16b8;
+    memset(g_ram+0x1628,0,0x300);memset(g_ram+d,0,48);
+    g_ram[d]=1;g_ram[d+1]=kind==0x10 ? 4 : 2;g_ram[d+2]=kind==0x14?0:2;g_ram[d+10]=(uint8_t)kind;
+    eagle_putword(g_ram+d+5,x);eagle_putword(g_ram+d+8,y+origin_offset);
+    eagle_putword(g_ram+d+0x22,x);eagle_putword(g_ram+d+0x24,y+origin_offset);
+    eagle_putword(g_ram+d+0x29,y+origin_offset+64);eagle_putword(g_ram+d+0x1c,0x180);
+    eagle_putword(g_ram+d+0x1e,x);g_ram[d+0x26]=64;
+    g_ram[d+0x2c]=1;
+    for(unsigned seat=0;seat<2;++seat) {
+      MmxCoopSelect(g_ram,seat);
+      eagle_putword(g_ram+0xbad,x-(seat?13:0));eagle_putword(g_ram+0xbb0,y-(seat?7:0));
+      eagle_putword(g_ram+0xbca,x-(seat?13:0));eagle_putword(g_ram+0xbcc,y-(seat?9:0));
+      eagle_putword(g_ram+0xbc4,seat?0xfd00:0);
+      g_ram[0xbd3]=0;g_ram[0xbd4]=seat?0:4;g_ram[0xbaa]=seat?8:0;g_ram[0xbab]=2;
+    }
+    MmxCoopSelect(g_ram,0);
+    unsigned landed=0;
+    for(unsigned t=0;t<10;++t) {
+      coop_frames(1,0,0);s=MmxCoopGetState();
+      fprintf(stderr,"landing roster=%u kind=%02x t=%u platform=%u riders=%u p1=%u p2=%u vy=%d flags=%02x/%02x box=%02x%02x\n",roster,kind,t,eagle_word(g_ram+d+8),g_ram[d+0x2c],coop_y(&s.players[0]),coop_y(&s.players[1]),(int16_t)eagle_word(s.players[1].body+0x1c),s.players[1].body[0x2b],s.players[1].body[0x2c],s.players[1].body[0x21],s.players[1].body[0x20]);
+      landed|=g_ram[d+0x2c]&2;
+    }
+    check(landed,"falling partner boards moving Storm support at native speed");
+  }
+  /* $81:E4C7 gates the capsule solely on shared upgrade bits, even when
+   * the other player has died. Do not respawn armor already granted by a password. */
+  for(unsigned owned=0;owned<2;++owned) {
+    coop_followup_fixture(fixture);MmxCoopState s=MmxCoopGetState();
+    s.players[1].status=MMX_COOP_FALLEN;s.players[1].body[0x27]=128;
+    s.stage=5;s.stage_pending=0;
+    MmxCoopSetState(&s);g_ram[0x1f7a]=5;
+    g_ram[0x1f99]=(g_ram[0x1f99]&~1u)|owned;
+    unsigned d=0x16b8;memset(g_ram+d,0,48);
+    g_ram[d]=1;g_ram[d+10]=5;g_ram[d+11]=1;
+    eagle_putword(g_ram+d+5,coop_x(&s.players[0])+80);
+    eagle_putword(g_ram+d+8,coop_y(&s.players[0]));
+    coop_frames(4,0,0);
+    check(owned ? !g_ram[d] : g_ram[d] && g_ram[d+1]==2 && g_ram[d+22]==0x96,
+        "native helmet capsule initializes with fallen Zero and hides only when owned");
+  }
+  MmxCoopSetDiagnosticsEnabled(false);MmxCoopDisable();puts("MMX STORM LANDING CHECKS PASSED");
+}
+static unsigned coop_buster_pixels_equal(const uint32_t *a,const uint32_t *b,const MmxCoopState *state) {
+  const uint8_t *rom=g_snes->cart->rom;unsigned checked=0;
+  for(unsigned seat=0;seat<2;++seat) for(unsigned slot=0;slot<8;++slot) {
+    const uint8_t *q=state->players[seat].shots+slot*64;
+    if(!q[0] || (q[10]!=2 && q[10]!=3)) continue;
+    const MmxSpriteAsset *art=MmxRenderAssetsChargedBuster(q[22],q[23]&127);
+    if(!art) continue;
+    size_t directory=0x68000+q[22]*3;
+    for(unsigned level=0;level<2;++level) {
+      unsigned address=rom[directory]|rom[directory+1]<<8|rom[directory+2]<<16;
+      directory=((address>>16)&127)*0x8000+(address&0x7fff);
+      if(!level) directory+=(q[23]&127)*3;
+    }
+    int x=eagle_word(q+5)-eagle_word(g_ram+0x1e4d);
+    int y=eagle_word(q+8)+(int8_t)q[25]-eagle_word(g_ram+0x1e50);
+    const uint8_t *layout=rom+directory;
+    for(unsigned part=0;part<layout[0];++part) {
+      const uint8_t *p=layout+1+part*4;int size=p[3]&32?16:8;
+      int left=x+((q[17]&64)?-(int8_t)p[0]-size:(int8_t)p[0]);
+      int top=y+((q[17]&128)?-(int8_t)p[1]-size:(int8_t)p[1]);
+      unsigned flip=p[3]^q[17];
+      for(int row=0;row<size;++row) for(int col=0;col<size;++col) {
+        int dx=left+col,dy=top+row;if(dx<0 || dx>=256 || dy<0 || dy>=224) continue;
+        unsigned cx=flip&64?size-1-col:col,cy=flip&128?size-1-row:row;
+        unsigned tile=((((p[2]>>4)+cy/8)&15)<<4)|(((p[2]&15)+cx/8)&15);
+        const uint8_t *bits=art->tiles+tile*32+(cy&7)*2;unsigned shift=7-(cx&7);
+        unsigned pixel=((bits[0]>>shift)&1)|(((bits[1]>>shift)&1)<<1)|
+            (((bits[16]>>shift)&1)<<2)|(((bits[17]>>shift)&1)<<3);
+        if(!pixel) continue;
+        if(a[dy*256+dx]!=b[dy*256+dx]) {
+          fprintf(stderr,"shared CHR affected seat %u shot %u pose %u pixel %d,%d\n",seat,slot,q[23]&127,dx,dy);
+          check(false,"charged projectile pixels survive replacement of shared CHR");
+        }
+        ++checked;
+      }
+    }
+  }
+  return checked;
+}
+static void coop_graphics_followup_checks(const char *fixture) {
+  const char *vile=getenv("MMX_COOP_VILE_FIXTURE");
+  if(!vile) vile=fixture;
+  coop_followup_fixture(vile);
+  MmxCoopSelect(g_ram,1);
+  g_ram[0x1f7a]=0;g_ram[0xbaa]=0x32;g_ram[0xbab]=2;
+  MmxZeroAnimationStart(0xba8,0x49);
+  coop_frames(4,0,0);
+  check(MmxCoopGetState().players[1].body[2]==0x32,"Vile fixture holds native stunned action");
+  modern_image("vile-stun");
+  coop_followup_fixture(fixture);
+  memset(g_ram+0x1228,0,512);memset(g_ram+0xc98,0,0x180);
+  g_ram[0xc01]=g_ram[0xc03]=g_ram[0xc2a]=0;
+  g_ram[0x1228]=1;g_ram[0x1232]=2;g_ram[0xbdd]=1;
+  MmxCoopSelect(g_ram,1);
+  MmxZeroState z=MmxZeroGetState();z.charge=201;MmxZeroSetState(z);
+  MmxCoopSelect(g_ram,0);
+  unsigned beams=0,checked=0,seats=0;
+  for(unsigned t=0;t<28;++t) {
+    coop_frames(1,0,0);
+    MmxCoopState s=MmxCoopGetState();
+    for(unsigned seat=0;seat<2;++seat) for(unsigned slot=0;slot<8;++slot) {
+      const uint8_t *shot=s.players[seat].shots+slot*64;
+      if(shot[0] && (shot[10]==2 || shot[10]==3) &&
+          ((shot[23]&127)<8 || (shot[10]==2 && (shot[23]&127)>=12))) {
+        ++beams;seats|=1u<<seat;
+        const MmxSpriteAsset *art=MmxRenderAssetsChargedBuster(shot[22],shot[23]&127);
+        check(art && !art->live_tiles,"each traveling blue buster has independent original art");
+      }
+    }
+    if(t==10 || t==17) {
+      static uint32_t original[256*224],poisoned[256*224];
+      uint16_t saved[512];memcpy(saved,g_ppu->vram+0x6200,sizeof(saved));
+      uint16_t saved_oam[256];memcpy(saved_oam,g_ppu->oam,sizeof(saved_oam));
+      uint8_t dma=g_ram[0xa3];g_ram[0xa3]=0;
+      /* Isolate each seat's traveling shots from the native charge arc and
+       * other effects. Those legitimately still use these same CHR pages.
+       * Render both original native variants through the partner compositor. */
+      unsigned pixels=0;
+      for(unsigned seat=0;seat<2;++seat) {
+        MmxCoopState isolated=s;unsigned partner=s.current^1;
+        memset(isolated.players[s.current].shots,0,sizeof(isolated.players[s.current].shots));
+        memcpy(isolated.players[partner].shots,s.players[seat].shots,sizeof(isolated.players[partner].shots));
+        memset(isolated.players[partner].body,0,sizeof(isolated.players[partner].body));
+        memset(isolated.players[partner].auxiliaries,0,sizeof(isolated.players[partner].auxiliaries));
+        for(unsigned i=0;i<128;++i) g_ppu->oam[i*2]=0xf000;
+        MmxRendererReset();memcpy(g_ppu->vram+0x6200,saved,sizeof(saved));
+        coop_x_graphics_draw(original,&isolated);
+        memset(g_ppu->vram+0x6200,0,sizeof(saved));
+        coop_x_graphics_draw(poisoned,&isolated);
+        pixels+=coop_buster_pixels_equal(original,poisoned,&isolated);
+      }
+      check(pixels>200,"CHR regression covers opaque pixels across both charged shots");
+      memcpy(g_ppu->vram+0x6200,saved,sizeof(saved));
+      memcpy(g_ppu->oam,saved_oam,sizeof(saved_oam));g_ram[0xa3]=dma;++checked;
+    }
+    if(t==3 || t==11 || t==18) {
+      char suffix[64];snprintf(suffix,sizeof(suffix),"dual-charge-%u",t);
+      modern_image(suffix);zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),suffix);
+    }
+  }
+  check(beams>=20 && checked==2 && seats==3,"dual shot test includes both traveling full-charge beams");
+  coop_followup_fixture(fixture);
+  MmxCoopSelect(g_ram,1);g_ram[0xbcf]=128;g_ram[0xbaa]=12;g_ram[0xbab]=0;
+  MmxCoopCapture(g_ram);MmxCoopSelect(g_ram,0);
+  unsigned circles=0;
+  for(unsigned t=0;t<90;++t) {
+    coop_frames(1,t<40?SNES_PAD_RIGHT:SNES_PAD_LEFT,0);
+    if(t==35 || t==50) {
+      for(unsigned d=0x1928;d<0x1d08;d+=32) if(g_ram[d] && g_ram[d+10]==14) {
+        const MmxSpriteAsset *a=MmxRenderAssetsObjectSprite(g_ram,d,0x1d);
+        check(a && !a->live_tiles,"death orbs use isolated original ROM graphics");
+        ++circles;
+      }
+      char suffix[64];snprintf(suffix,sizeof(suffix),"zero-death-%u",t);
+      modern_image(suffix);zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),suffix);
+    }
+  }
+  check(circles>=8 && MmxCoopGetState().players[0].status==MMX_COOP_ALIVE,
+      "Zero's native death circles survive while X continues playing");
+  MmxCoopDisable();puts("MMX CO-OP GRAPHICS FOLLOWUP CAPTURES PASSED");
 }
 static void coop_followup_checks(const char *fixture) {
   coop_followup_fixture(fixture);

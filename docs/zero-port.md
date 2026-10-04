@@ -441,6 +441,15 @@ saber palette 3 before completion.
 
 ### Highway Vile capture and rescue poses
 
+The earlier electric restraint uses player action `$32`, substate `$00/$02`.
+`$81:91F1` starts native sequence `$49`, which aliases an unrelated attack in
+Zero's normal X3 movement mapping. In Highway, this restraint now holds Zero's
+original X3 staggered hurt pose `$33` until the rescue begins. The shared pose
+selector applies to either co-op seat and single-player Zero. It reuses the
+user's extracted source art; no generated sprite or asset-pack revision is
+needed. A unit regression distinguishes the restraint from the later rescue
+and from action `$32` in other stages.
+
 Owner co-op slot 04 exposed a separate X1 body group during the Vile rescue:
 `$0BBE=$66`, player state `$32/$06`, native pose `$03`. Its animation directory
 is `$AF:CF96`, sprite directory `$8D:9C47`, and CHR list `$85:A886`. The five
@@ -472,3 +481,12 @@ compositor. Original art, white highlights, movement, timing and sound remain
 native. Both seats and roster orders pass the natural death checks, and private
 captures show Zero's red rings with a living X and X's blue rings with a living
 Zero. No new extracted artwork or save-layout change is required.
+
+Co-op also needs to isolate the circles' CHR. `$81:8AD6` loads literal DMA
+list `$04` through `$86:98C5` (records at `$86:996E`), copying `$AF:8000`
+and `$AF:8140` into VRAM `$6000/$6100`. Those are X's body animation pages;
+a surviving X replaces them while moving, corrupting the other player's
+circles. `MmxRenderAssetsObjectSprite` decodes that same ROM list privately
+for small effect `$0E`, group `$1D`, using the original blue buster body
+palette before the emitter-specific red conversion. This preserves circle
+shapes independently of the survivor's pose or weapon palette.

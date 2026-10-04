@@ -1102,6 +1102,10 @@ static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView 
        * Another seat can replace the shared $6200/$6300 weapon upload. */
       if(d>=0x1228 && ram[d+10]==0x0c && group==0x47 && (s.attr&0x0e00)==0x0600)
         asset=MmxRenderAssetsWeaponX(6,false);
+      if(d>=0x1228 && ((ram[d+10]==3 && group==0x9e) || (ram[d+10]==2 && group==0x0e))) {
+        const MmxSpriteAsset *beam=MmxRenderAssetsChargedBuster(group,ram[d+23]&127);
+        if(beam) asset=beam;
+      }
       sprite(ppu,zero?r:&partner_raster,s.x,s.y,s.attr,s.size,y,view,objects,false,asset,s.tile,colors,true,false,false);
     }
   }
@@ -1290,6 +1294,9 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       bool red_ready=stage && MmxZeroEnabled() && !frame_zero.active_x &&
           frame.ram[0xd3]==2 && s.object==0x1ce8 && s.animation==0x19;
       bool red_death = stage && s.animation == 0x1d && MmxZeroDeathOrbRed(frame.ram,s.object);
+      bool coop_buster=stage && frame_coop.initialized && s.object>=0x1228 && s.object<0x1428 &&
+          ((frame.ram[s.object+10]==3 && s.animation==0x9e) ||
+           (frame.ram[s.object+10]==2 && s.animation==0x0e));
       bool menu_body = s.object == 0x1988 && (s.animation == 0 || s.animation == 0x18);
       bool zero_body = zero && (s.object == 0xba8 || menu_body);
       bool triad_x_body=cast_body && !zero && s.object==0xba8;
@@ -1300,7 +1307,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       bool zero_armor = zero && (s.object == 0xc38 || s.object == 0xc58 || s.object == 0xc78 ||
           (zero_menu && (s.object == 0x1928 || s.object == 0x1948 || s.object == 0x1968)));
       bool oam_match = false;
-      if (g_mmx_render_asset_repairs || zero_body || zero_armor || zero_charge || swap_actor || red_ready || red_death || triad_x_body || triad_armor || frozen_enemy) for (int slot = 16; slot < 128; ++slot) {
+      if (g_mmx_render_asset_repairs || coop_buster || zero_body || zero_armor || zero_charge || swap_actor || red_ready || red_death || triad_x_body || triad_armor || frozen_enemy) for (int slot = 16; slot < 128; ++slot) {
         unsigned pos = r->oam[slot * 2], hi = r->high_oam[slot / 4] >> (slot % 4 * 2);
         int ox = (pos & 255) | ((hi & 1) << 8); if (ox >= 256) ox -= 512;
         if (ox == s.x && (pos >> 8) == ((unsigned)s.y & 255) && r->oam[slot * 2 + 1] == s.attr) {
@@ -1392,6 +1399,10 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       if(stage && frame_coop.initialized && s.object>=0x1228 && s.object<0x1428 &&
           frame.ram[s.object+10]==0x0c && s.animation==0x47 && (s.attr&0x0e00)==0x0600)
         asset=MmxRenderAssetsWeaponX(6,false);
+      if(coop_buster) {
+        const MmxSpriteAsset *beam=MmxRenderAssetsChargedBuster(s.animation,frame.ram[s.object+23]&127);
+        if(beam) asset=beam;
+      }
       sprite(&p, r, s.x, s.y, attr, s.size, y, view, objects, !center, asset, s.tile, object_colors, true, false, red_ready || red_death);
     }
     if (stage) coop_partner_row(&p,r,y,view,objects,object_colors);

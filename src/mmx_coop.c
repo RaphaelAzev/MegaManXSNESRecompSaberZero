@@ -876,11 +876,12 @@ static void platform_hook(CpuState *cpu,uint32_t pc) {
   unsigned at=pc&65535,d=cpu->D;
   if(d>=0x1628 && d<0x1928 && !((d-0x1628)%48))
     diagnostic_event(g_ram,cpu,pc,at==0xab81 || at==0xab56 ? "platform-enter" : "platform-return");
-  /* Items $0E/$0F/$10 share .2C's boolean rider latch. In co-op retain one bit
+  /* Items $0E/$0F/$10/$13/$14 share .2C's boolean rider latch. In co-op retain one bit
    * per seat there, projecting a boolean while the native helper executes.
    * Slot initialization still clears it, and snapshots retain both riders. */
   if(d<0x1628 || d>=0x1928 || (d-0x1628)%48 ||
-      g_ram[d+10]<0x0e || g_ram[d+10]>0x10) return;
+      !((g_ram[d+10]>=0x0e && g_ram[d+10]<=0x10) ||
+        g_ram[d+10]==0x13 || g_ram[d+10]==0x14)) return;
   if(at==0xab81 || at==0xab56) {
     if(state.contact_pass) {
       /* Re-entry for the partner's own retry is expected; anything else
