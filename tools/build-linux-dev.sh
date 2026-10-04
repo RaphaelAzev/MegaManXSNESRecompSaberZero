@@ -14,6 +14,8 @@
 #   (no options)          Release build of MegaManXSNESRecomp in build-linux/
 #   --rom PATH            stage a USA ROM as ./mmx.sfc (verified), then build
 #   --regen               regenerate src/gen from ./mmx.sfc before building
+#                         (automatic when src/gen is missing or out of date)
+#   --no-regen            never regenerate automatically; only warn
 #   --setup-host          ROM-free build (no generated code), as CI does
 #   --tests               also build and run the unit tests (ctest)
 #   --run [ARGS...]       launch the game after building (must be last)
@@ -81,6 +83,7 @@ TRACE=0
 VERSION=""
 ROM_SRC=""
 REGEN=0
+NO_REGEN=0
 SETUP_HOST=0
 TESTS=0
 RUN=0
@@ -107,6 +110,7 @@ while [ $# -gt 0 ]; do
     --version) need_value "$@"; VERSION="$2"; shift 2 ;;
     --rom) need_value "$@"; ROM_SRC="$2"; shift 2 ;;
     --regen) REGEN=1; shift ;;
+    --no-regen) NO_REGEN=1; shift ;;
     --setup-host) SETUP_HOST=1; shift ;;
     --tests) TESTS=1; shift ;;
     --run) RUN=1; shift; RUN_ARGS=("$@"); break ;;
@@ -132,6 +136,7 @@ case "$SDL_CHOICE" in auto|SDL3|SDL2) ;; sdl3) SDL_CHOICE=SDL3 ;; sdl2) SDL_CHOI
   *) die "--sdl must be auto, SDL3 or SDL2 (got '$SDL_CHOICE')" ;; esac
 [[ "$JOBS" =~ ^[1-9][0-9]*$ ]] || die "--jobs must be a positive number (got '$JOBS')"
 [ "$REGEN" = 1 ] && [ "$SETUP_HOST" = 1 ] && die "--regen and --setup-host cannot be combined"
+[ "$REGEN" = 1 ] && [ "$NO_REGEN" = 1 ] && die "--regen and --no-regen cannot be combined"
 [ -n "$ROM_SRC" ] && [ "$SETUP_HOST" = 1 ] && die "--rom and --setup-host cannot be combined"
 [ "$OFFLINE" = 1 ] && [ -z "$LIBJUICE_DIR" ] &&
   die "--offline needs --libjuice-dir (git clone -b v1.7.2 https://github.com/paullouisageneau/libjuice)"
@@ -235,16 +240,47 @@ fi
 
 # --------------------------------------------------------- generated code --
 gen_ready() { [ -f src/gen/dispatch_v2.c ]; }
+# What src/gen was generated from: the bank configs, the override script and
+# the recompiler commit. Recorded after every regeneration this script runs.
+GEN_STAMP=src/gen/.build-linux-dev.inputs
+gen_inputs() {
+  { cat recomp/bank*.cfg tools/apply_overrides.py
+    git -C snesrecomp rev-parse HEAD; } 2>/dev/null | sha256sum | awk '{print $1}'
+}
+# Why src/gen is out of date, or nothing when it looks current.
+gen_stale_reason() {
+  if [ -f "$GEN_STAMP" ]; then
+    [ "$(cat "$GEN_STAMP")" = "$(gen_inputs)" ] ||
+      echo "bank configs, overrides or snesrecomp changed since the last regeneration"
+    return 0
+  fi
+  local newer
+  newer="$(find recomp tools/apply_overrides.py -maxdepth 1 \( -name 'bank*.cfg' -o -name apply_overrides.py \) \
+      -newer src/gen/dispatch_v2.c 2>/dev/null | head -3 | tr '\n' ' ')"
+  [ -z "$newer" ] || echo "newer than src/gen: $newer"
+}
 if [ "$SETUP_HOST" = 0 ]; then
   step "Checking generated code"
   if [ "$REGEN" = 0 ] && ! gen_ready; then
-    if [ -f mmx.sfc ]; then
+    if [ -f mmx.sfc ] && [ "$NO_REGEN" = 0 ]; then
       info "src/gen is missing; regenerating from ./mmx.sfc"
       REGEN=1
     else
       die "src/gen is missing and no ROM is staged" \
           "Stage your ROM:   bash $(basename "$0") --rom /path/to/mmx.sfc" \
           "or build ROM-free: bash $(basename "$0") --setup-host"
+    fi
+  fi
+  if [ "$REGEN" = 0 ]; then
+    reason="$(gen_stale_reason)"
+    if [ -n "$reason" ]; then
+      if [ -f mmx.sfc ] && [ "$NO_REGEN" = 0 ]; then
+        info "src/gen is out of date ($reason); regenerating"
+        REGEN=1
+      else
+        warn "src/gen looks out of date ($reason)"
+        warn "an outdated src/gen fails to link (undefined Hle* symbols); run with --regen"
+      fi
     fi
   fi
   if [ "$REGEN" = 1 ]; then
@@ -257,14 +293,9 @@ if [ "$SETUP_HOST" = 0 ]; then
     step "Regenerating src/gen (this takes a while)"
     PYTHON="$PYTHON" bash tools/regen.sh usa --no-tests
     gen_ready || die "regeneration finished without src/gen/dispatch_v2.c"
-  else
-    stale="$(find recomp -name 'bank*.cfg' -newer src/gen/dispatch_v2.c 2>/dev/null | head -3)"
-    if [ -n "$stale" ]; then
-      warn "these bank configs are newer than src/gen; consider --regen:"
-      printf '%s\n' "$stale" | sed 's/^/         /' >&2
-    fi
-    info "src/gen present"
+    gen_inputs > "$GEN_STAMP"
   fi
+  info "src/gen ready"
   if [ "$ALL" = 1 ] && [ ! -f variants/jp/gen/dispatch_v2.c ]; then
     info "Rockman X (JP) is not generated; it will be skipped (tools/regen.sh jp)"
   fi
@@ -341,7 +372,16 @@ BUILD_ARGS=(--build "$BUILD_DIR" --parallel "$JOBS")
 for t in "${BUILD_TARGETS[@]}"; do BUILD_ARGS+=(--target "$t"); done
 [ "$VERBOSE" = 1 ] && BUILD_ARGS+=(--verbose)
 started=$SECONDS
-"$CMAKE" "${BUILD_ARGS[@]}"
+BUILD_LOG="$BUILD_DIR/build.log"
+if ! "$CMAKE" "${BUILD_ARGS[@]}" 2>&1 | tee "$BUILD_LOG"; then
+  hints=("Full log: $BUILD_LOG")
+  if grep -Eq "undefined reference to .Hle|src/gen/[^ ]*: .*error:|_widescreen_overrides|no bank\*_v2\.c under" "$BUILD_LOG"; then
+    hints+=("The generated code in src/gen does not match this checkout."
+            "Regenerate it:  bash $(basename "$0") --regen")
+  fi
+  grep -q "No space left on device" "$BUILD_LOG" && hints+=("The disk is full.")
+  die "build failed" "${hints[@]}"
+fi
 info "built in $((SECONDS - started))s"
 
 if [ "$TESTS" = 1 ]; then
