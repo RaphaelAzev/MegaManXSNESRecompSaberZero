@@ -1,6 +1,10 @@
 #include "mmx_coop_view.h"
 
 static bool online;
+/* Agreed mod option; actual session gating forces shared views offline. */
+static bool independent=true;
+void MmxCoopViewsSetIndependent(bool enabled) { independent=enabled; }
+bool MmxCoopViewsIndependent(void) { return independent; }
 static MmxCoopViewWorldState world;
 MmxCoopViewWorldState MmxCoopViewsGetWorldState(void) { return world; }
 void MmxCoopViewsSetWorldState(const MmxCoopViewWorldState *s) { world=*s; }

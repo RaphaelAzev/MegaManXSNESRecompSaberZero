@@ -1,9 +1,11 @@
 # Independent cameras for online co-op
 
-Online co-op gives each peer the view of its assigned session seat. Couch
-co-op retains the shared camera and its horizontal separation limit. This
-policy is automatic when the existing co-op mod runs in an active netplay
-session; there is no additional mod or launcher setting.
+Online co-op defaults to **Independent** cameras: each peer sees its assigned
+session seat. In the netplay mod settings, the host can choose **X / Zero
+Co-op → Netplay cameras → Unified** to retain the shared camera and horizontal
+separation limit. Both peers adopt this choice through the room's mod agreement.
+The setting appears only in netplay. Offline single-player and couch co-op
+always use Unified, regardless of the stored option value.
 
 A living player transported out for a scripted scene immediately watches the
 scene owner's camera, including departure and arrival. The existing native
@@ -19,6 +21,12 @@ simulation and select a local view only for presentation.
 
 ## Ownership and rendering
 
+The `cameras` choice lives in the co-op manifest and is part of the host's
+mod plan/fingerprint. Plugin activation applies the agreed value on both
+peers. The game-local launcher wrapper hides it offline and validates it
+before an online launch. Neither the local seat nor a local display setting
+can opt a single peer into a different simulation policy.
+
 `src/mmx_coop_view.c` derives the non-anchor view from that player's body,
 clamped to authored camera limits. The native camera remains the world
 anchor's camera and drives shared scripts. On scene handoff both views use
@@ -30,8 +38,9 @@ The bounds are `$1E56` minimum X, `$1E58` maximum X, `$1E5A` minimum Y and
 body X minus 128 and body Y minus 160. Online motion retains stage bounds and
 native pit death, rather than the couch co-op 224-pixel tether.
 
-`MmxBeforeFrame` sets the common online policy from `snes_netplay_active()` and
-co-op activation. `snes_netplay_local_slot()` selects the renderer's seat.
+`MmxBeforeFrame` enables independent policy only when `snes_netplay_active()`,
+co-op activation and the agreed `cameras=independent` option are all true.
+`snes_netplay_local_slot()` selects the renderer's seat.
 The local controller/device index is not the session seat and is not used
 for this decision. Builds without netplay select the shared view.
 

@@ -1,7 +1,7 @@
 # X / Zero netplay
 
 Tracking: `beads-8wg.1.54`. Initial implementation: `feat/netplay-coop`,
-first stable release 1.7.0; current latest release 2.0.3-alpha.
+first stable release 1.7.0.
 USA Rev 1 only; the Japanese edition remains unchanged.
 
 ## Playing
@@ -20,6 +20,10 @@ USA Rev 1 only; the Japanese edition remains unchanged.
    the counterpart. X2/X3 weapons are optional; each peer supplies the required
    source ROM locally. The room adopts the host's mod versions and options,
    and refuses missing or incompatible selections.
+   **Netplay cameras** defaults to **Independent**, following each peer's
+   character. Choose **Unified** for a shared view and separation limit.
+   Offline play always uses Unified. Dead or cutscene-transported players
+   watch their partner's camera while Independent is active.
 5. Leave widescreen disabled for the original view, or select **16:9, 21:9,
    or 32:9**. These use the existing renderer. Adaptive is unavailable online.
    Resizing scales/letterboxes the agreed view; it cannot reveal a larger

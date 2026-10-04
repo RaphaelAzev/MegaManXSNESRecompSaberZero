@@ -70,7 +70,7 @@ int MmxDisplay_GetCurrentFrameWidth(void) { return snesrecomp_desktop_frame_widt
 
 static void MmxBeforeFrame(void) {
 #if SNESRECOMP_NET
-  MmxCoopViewsSetOnline(snes_netplay_active() && MmxCoopEnabled());
+  MmxCoopViewsSetOnline(snes_netplay_active() && MmxCoopEnabled() && MmxCoopViewsIndependent());
   MmxRendererSetPeerView(MmxCoopViewsOnline()?snes_netplay_local_slot():-1);
 #else
   MmxCoopViewsSetOnline(false);MmxRendererSetPeerView(-1);

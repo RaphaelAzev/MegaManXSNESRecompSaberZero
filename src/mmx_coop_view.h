@@ -6,6 +6,8 @@
 typedef struct MmxCoopView { int x, y; unsigned player; } MmxCoopView;
 void MmxCoopViewsSetOnline(bool online);
 bool MmxCoopViewsOnline(void);
+void MmxCoopViewsSetIndependent(bool independent);
+bool MmxCoopViewsIndependent(void);
 typedef struct MmxCoopViewWorldState {
   uint8_t seen[256],stage,initialized;
   /* Balanced native world/contact continuations must survive rollback. */

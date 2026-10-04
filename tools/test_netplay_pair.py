@@ -18,6 +18,8 @@ def main():
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--independent-views", action="store_true",
                    help="Separate the online actors and capture each peer's local view")
+    p.add_argument("--unified-views", action="store_true",
+                   help="Test host-selected Unified cameras and shared screen tether")
     args = p.parse_args()
     for key in ("exe", "rom", "x2", "x3", "fixture"):
         setattr(args, key, getattr(args, key).resolve(strict=True))
@@ -45,8 +47,10 @@ def main():
                        SNESRECOMP_LLE_BOUNCE="1")
             if seat:
                 env["MMX_NETPLAY_PAIR_GUEST"] = "1"
-            if args.independent_views:
+            if args.independent_views or args.unified_views:
                 env["MMX_NETPLAY_VIEWS_TEST"] = "1"
+            if args.unified_views:
+                env["MMX_NETPLAY_UNIFIED_TEST"] = "1"
             log = (work / "pair.log").open("wb")
             logs.append(log)
             processes.append(subprocess.Popen([str(peer_exe), str(args.rom)], cwd=work,

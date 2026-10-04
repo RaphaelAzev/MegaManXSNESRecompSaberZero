@@ -47,6 +47,20 @@ label = "X3 Behavior"
 value = "modern"
 label = "Modern"
 
+[[option]]
+feature = "coop"
+id = "cameras"
+label = "Netplay cameras"
+description = "Independent follows your player. Unified keeps both players on one shared screen. The host chooses for both peers; offline play always uses Unified."
+type = "choice"
+default = "independent"
+[[option.choice]]
+value = "independent"
+label = "Independent"
+[[option.choice]]
+value = "unified"
+label = "Unified"
+
 [[resource]]
 feature = "coop"
 id = "x3-rom"

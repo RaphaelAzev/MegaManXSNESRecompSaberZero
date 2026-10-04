@@ -81,6 +81,10 @@ static int validate_plan(void) {
     return fail("Netplay requires X + Zero co-op. Reopen Netplay to prepare the room.");
   if (snes_mod_runtime_feature_enabled_c(kZero, "zero"))
     return fail("Character switching must be off during co-op netplay.");
+  char cameras[32] = {0};
+  snes_mod_runtime_feature_option_value_c(kCoop, "coop", "cameras", cameras, sizeof(cameras));
+  if (strcmp(cameras, "independent") && strcmp(cameras, "unified"))
+    return fail("Choose Independent or Unified netplay cameras. Restore the bundled co-op mod if this option is missing.");
   if (snes_mod_runtime_feature_enabled_c(kWide, "widescreen")) {
     char aspect[32] = {0};
     snes_mod_runtime_feature_option_value_c(kWide, "widescreen", "aspect", aspect, sizeof(aspect));
@@ -105,6 +109,11 @@ static int set_enabled(void *ctx, const char *pkg, int enabled) {
 }
 static int feature_get(void *ctx, int index, RecompLauncherCModFeature *out) {
   if (!s_mods->feature_get(ctx, index, out)) return 0;
+  if (!s_active && !strcmp(out->package_id, kCoop)) {
+    RecompLauncherCModOption option;
+    for (int i=0; s_mods->feature_option_get(ctx, kCoop, out->id, i, &option); ++i)
+      if (!strcmp(option.id, "cameras")) --out->option_count;
+  }
   if (s_active && !strcmp(out->package_id, kZero)) out->hidden = 1;
   if (s_active && !strcmp(out->package_id, kCoop) && !out->has_error)
     snprintf(out->status, sizeof(out->status), "Required for netplay");
@@ -112,7 +121,14 @@ static int feature_get(void *ctx, int index, RecompLauncherCModFeature *out) {
 }
 static int option_get(void *ctx, const char *pkg, const char *fid, int index,
                       RecompLauncherCModOption *out) {
-  if (!s_mods->feature_option_get(ctx, pkg, fid, index, out)) return 0;
+  if (!s_active && !strcmp(pkg, kCoop)) {
+    int visible=0, found=0;
+    for (int i=0; s_mods->feature_option_get(ctx, pkg, fid, i, out); ++i) {
+      if (!strcmp(out->id, "cameras")) continue;
+      if (visible++==index) { found=1; break; }
+    }
+    if (!found) return 0;
+  } else if (!s_mods->feature_option_get(ctx, pkg, fid, index, out)) return 0;
   if (s_active && !strcmp(pkg, kWide) && !strcmp(out->id, "aspect")) {
     out->choice_count = 3;
     snprintf(out->default_value, sizeof(out->default_value), "16:9");
@@ -134,6 +150,8 @@ static int choice_get(void *ctx, const char *pkg, const char *fid, const char *o
 }
 static int set_option(void *ctx, const char *pkg, const char *fid, const char *option, const char *value) {
   s_error[0] = 0;
+  if (!s_active && !strcmp(pkg, kCoop) && !strcmp(option, "cameras"))
+    return fail("Offline play always uses Unified cameras. Open Netplay to choose the room's cameras.");
   if (!strcmp(option, "behavior") &&
       ((!strcmp(pkg, kZero) && !strcmp(fid, "zero")) ||
        (!strcmp(pkg, kCoop) && !strcmp(fid, "coop")))) {
