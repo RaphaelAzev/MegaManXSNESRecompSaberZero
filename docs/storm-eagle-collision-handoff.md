@@ -563,3 +563,34 @@ kind-3 records, restoring the authored timing in every stage. Covered in
 `tests/mmx_wide_policy_test.c`. Assumes the capsule record is kind 3; it lands
 in the enemy pool, as kind 3 does. A workaround on older builds:
 `SNESRECOMP_WS_SPAWN=0`.
+
+## Update: capsule confirmed fixed; boss-lift lockup (open)
+
+The owner confirmed that the helmet capsule now spawns on arrival.
+
+New: `coop-physics-20261004-143825-4064456-1.csv` + `mmx-20261004-143812-4064456.log`
+(online, Unified, both alive). Both players dash-jump onto the ship lift
+(enemy `$48` at `$1840,$0160`). At host frame 14874 X lands first: `.2C` = 1,
+`eagle_lift_hook` begins scene transport (scene owner X), X takes body lock
+`$46`, and Zero is still airborne (action `$08`, one frame behind). Zero's
+teleport frames run (14874..14882). The native frame runs once more at 14883
+(X `46 00` → `46 04`), and then no player or object updates run again. The
+lift stays in state `02 02` for the rest of the capture. The log shows why:
+
+    [brk] architectural BRK at $32:0000 ...
+    edges: $80F3B4>$81EC50(aot_call) $000000>$81EC98(entry) $81EC9D>$828398(aot_call)
+           $80F3B4>$50D2ED(external) $50D2ED>$320000(return) $320000>$00FFAC(vector)
+
+So the object dispatcher at `$80:F3B4` called `$81:EC50` (the airship door's
+handler: the `door_hook` sites are `$81:EC98/ECC6/ECC7`), and then dispatched to
+the garbage address `$50:D2ED`. `door_hook` takes no action while a scene owner
+is set, so `$81:EC98` here is only the interpreter entry. Not yet determined:
+which slot's handler pointer or state index was corrupt, and whether this
+predates the `$82:D7D7` routing on this branch (it is in `OPTIONAL` and
+interpreted now; its RTL observers act only during a class `$59/$5A` pass).
+`MMX_COOP_EAGLE_FIXTURES` covers this lift with two riders landing together.
+This capture differs: the partner lands one frame after the scene began.
+
+Also reported, without trace coverage: in the ship interior (end-of-stage
+ladder tube and the entry port before the boss door), player sprites show on
+the wrong layer or disappear (custom renderer, `new_renderer=1`).
