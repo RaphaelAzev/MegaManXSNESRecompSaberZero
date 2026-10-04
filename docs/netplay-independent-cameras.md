@@ -1,11 +1,19 @@
 # Independent cameras for online co-op
 
-Online co-op defaults to **Independent** cameras: each peer sees its assigned
-session seat. In the netplay mod settings, the host can choose **X / Zero
-Co-op → Netplay cameras → Unified** to retain the shared camera and horizontal
-separation limit. Both peers adopt this choice through the room's mod agreement.
+Online co-op defaults to **Unified** cameras, retaining the shared camera and
+horizontal separation limit. In the netplay mod settings, the host can choose
+**X / Zero Co-op → Netplay cameras → Independent (Experimental)** for each peer
+to see its assigned session seat. Both peers adopt this choice through the room's mod agreement.
 The setting appears only in netplay. Offline single-player and couch co-op
 always use Unified, regardless of the stored option value.
+
+Owner playtesting of 2.1.0-alpha reported garbled player/platform graphics and
+camera shaking near Storm Eagle's moving platforms. Independent remains an
+experimental opt-in while these reports are investigated (`beads-8wg.1.95`).
+Viewport culling/activation is a possible contributor, not an established cause.
+Keeping every spawned actor alive indefinitely could exhaust native actor pools
+and change stage behavior, so no lifetime or culling adjustment is bundled with
+the default change.
 
 A living player transported out for a scripted scene immediately watches the
 scene owner's camera, including departure and arrival. The existing native

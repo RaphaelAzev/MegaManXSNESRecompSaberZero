@@ -41,8 +41,8 @@ static void netplay_policy_checks(const char *root, const char *rom, const char 
   launcher_model_set_view(&m, LNG_VIEW_NETPLAY_MODE);
   const RecompLauncherCModProvider *p = gi.mods;
   check(p->feature_option_get(p->ctx,coop,"coop",2,&camera_option) &&
-      !strcmp(camera_option.id,"cameras") && !strcmp(camera_option.value,"independent") &&
-      camera_option.choice_count==2,"netplay exposes Independent by default and Unified opt-out");
+      !strcmp(camera_option.id,"cameras") && !strcmp(camera_option.value,"unified") &&
+      camera_option.choice_count==2,"netplay exposes Unified by default and Independent opt-in");
   check(MmxNetplayActive() && snes_mod_runtime_feature_enabled_c(coop, "coop") &&
       !snes_mod_runtime_feature_enabled_c(zero, "zero"), "entering Netplay replaces exchange with co-op");
   check(!p->feature_enable(p->ctx, coop, "coop", 0) &&
@@ -68,7 +68,7 @@ static void netplay_policy_checks(const char *root, const char *rom, const char 
     MmxPasswordPrefill(g_ram);
     check(!g_ram[0x1e60], "online password screen keeps synchronized defaults");
     check(MmxZeroModern(),"Modern option reaches the activated Zero controller");
-    check(MmxCoopViewsIndependent(),"default camera option reaches the controller");
+    check(!MmxCoopViewsIndependent(),"Unified default reaches the controller");
     check(MmxCoopEnabled() && MmxCoopGetState().players[0].character == MMX_COOP_ZERO, "netplay activates the selected roster");
     int expected_width = 0;
     for (int pixels = 0; pixels < 3; ++pixels) {
@@ -81,6 +81,11 @@ static void netplay_policy_checks(const char *root, const char *rom, const char 
     }
   }
   char independent_plan[2048],unified_plan[2048];
+  snes_mod_runtime_effective_set_c(unified_plan,sizeof(unified_plan));
+  check(p->feature_set_option(p->ctx,coop,"coop","cameras","independent") &&
+      p->commit_netplay(p->ctx,rom),"host can opt into Independent");
+  snes_mod_runtime_activate_plugins_c();
+  check(MmxCoopViewsIndependent(),"Independent opt-in reaches the controller");
   snes_mod_runtime_effective_set_c(independent_plan,sizeof(independent_plan));
   check(p->feature_set_option(p->ctx,coop,"coop","cameras","unified") &&
       p->commit_netplay(p->ctx,rom),"host can commit Unified opt-out");
@@ -148,6 +153,7 @@ static void netplay_pair_checks(const char *root, const char *rom, const char *x
   if (!guest) {
     if(getenv("MMX_NETPLAY_UNIFIED_TEST"))
       check(mods->feature_set_option(mods->ctx,coop,"coop","cameras","unified"),"host opts out of independent views");
+    else check(mods->feature_set_option(mods->ctx,coop,"coop","cameras","independent"),"host opts into independent views");
     mods->feature_set_option(mods->ctx, coop, "coop", "player1", "zero");
     mods->feature_enable(mods->ctx, wide, "widescreen", 1);
     mods->feature_set_option(mods->ctx, wide, "widescreen", "aspect", "21:9");

@@ -20,8 +20,9 @@ USA Rev 1 only; the Japanese edition remains unchanged.
    the counterpart. X2/X3 weapons are optional; each peer supplies the required
    source ROM locally. The room adopts the host's mod versions and options,
    and refuses missing or incompatible selections.
-   **Netplay cameras** defaults to **Independent**, following each peer's
-   character. Choose **Unified** for a shared view and separation limit.
+   **Netplay cameras** defaults to **Unified**, with a shared view and separation
+   limit. **Independent (Experimental)** follows each peer's character; it is
+   opt-in while graphics glitches and camera shaking are investigated.
    Offline play always uses Unified. Dead or cutscene-transported players
    watch their partner's camera while Independent is active.
 5. Leave widescreen disabled for the original view, or select **16:9, 21:9,

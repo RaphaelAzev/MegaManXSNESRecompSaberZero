@@ -2,7 +2,7 @@
 
 static bool online;
 /* Agreed mod option; actual session gating forces shared views offline. */
-static bool independent=true;
+static bool independent=false;
 void MmxCoopViewsSetIndependent(bool enabled) { independent=enabled; }
 bool MmxCoopViewsIndependent(void) { return independent; }
 static MmxCoopViewWorldState world;
