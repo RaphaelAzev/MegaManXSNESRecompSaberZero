@@ -32,7 +32,10 @@ typedef struct MmxCoopState {
   uint8_t return_p, return_db;
   uint8_t time_tick, effect_return; /* Previous seat + 1 during a dash-effect update; formerly reserved. */
   uint16_t object_a, object_x, object_y, object_s, object_d, object_entry;
-  uint8_t object_p, object_db, object_pass, object_reserved;
+  uint8_t object_p, object_db, object_pass;
+  /* Storm Eagle elevator (enemy $59) riders: bit 0 P1, bit 1 P2, bits 4..7
+   * enemy slot + 1 (0 = none). Formerly reserved, so older saves read 0. */
+  uint8_t elevator_riders;
   uint16_t contact_a, contact_x, contact_y, contact_s, contact_d, contact_entry;
   uint8_t contact_p, contact_db, contact_pass, platform_riders; /* Pending .2C bits; formerly reserved. */
   uint8_t enrolled, select_hold, select_armed, stage_pending;

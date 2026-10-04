@@ -323,3 +323,54 @@ check whether the elevator's ascent tests `.2C` bit 0 only. If it does, Zero
 riding alone sets bit 1, not bit 0, so he collides and stands on it but may
 not start the ascent; the fix would be to report "any rider" in bit 0 for this
 class.
+
+## Update: two riders jitter; the elevator does not call AB81 (2026-10-04)
+
+`coop-physics-20261004-023918-3736094-1.csv` (host frames 4199..5020), after
+the enemy-pool platform change. Both players now ride, but jitter: `$0BD4`
+bit 2 alternates between X and Zero every frame and the elevator's `.2C`
+never shows two riders (always `$81`). Zero alone landed and rode normally
+(frames 4743..4758), so the single rider latch is being fought over.
+
+The trace now covers the enemy pool at `$84:AB81/AB56` and there is **no**
+call with D = `$0E68` (the elevator's slot), so the enemy-pool change in
+`platform_hook` never ran; it is reverted. The elevator's contact is elsewhere.
+
+Frame 4851: a seat switch to Zero happens with no co-op pass open (the
+`select-before seat 1 kp0` row), then Zero is carried 877 -> 874 in a
+`contact_pass` 1 pass with Zero current; on 4852 X is current for that pass
+and is carried instead. So whichever seat is current when the elevator's
+contact runs takes the rider latch, and something switches the current seat
+on alternate frames before it.
+
+The trace now labels every seat switch with the `mmx_coop.c` source line of
+the `MmxCoopSelect` call (`caller` column, `L<line>`), and logs the enemy pool
+on switch rows while an elevator part (`$58..$5A`) is live, so the next run
+shows which hook switches seats and when `.2C` flips. ROM-side, the useful
+question is which routine `$59` uses for rider contact (likely within the
+enemy contact path co-op retries at `$84:9B03`).
+
+## Update: boarding order decides who gets the elevator; fix (2026-10-04)
+
+`coop-physics-20261004-110601-3947117-1.csv` (host frames 5783..6813; built
+before the seat-switch labels). Not a regression from the revert: here **X
+boarded first** (host frame 6131, `.2C` `$80` -> `$81`) and Zero then fell
+through it to the floor (6206 on), as in the original report. In the jitter
+recording Zero had boarded first. The elevator latches exactly one rider in
+`.2C` bit 0, and the first boarder owns it.
+
+Where the latch is set: on ride frames there are no item platform calls, and
+X is carried by the elevator's delta (Y 889 -> 887 on host frame 6305) inside
+the first `contact_pass` 1 pass, with X current. The only source of those
+passes here is `contact_hook`, so the elevator's rider contact runs inside
+`$84:9B03` (enemy body contact), which co-op already retries for the second
+seat. With one latch, the second seat's call saw "already ridden".
+
+Fix in this branch: for enemy `$59` at `$84:9B03`, co-op keeps one rider bit
+per seat (in the formerly reserved `object_reserved` byte, now
+`elevator_riders`: bits 0/1 per seat, high nibble slot + 1; the 4,664-byte ABI
+is unchanged and older saves read 0). Each seat's call sees only its own bit
+in `.2C` bit 0; afterwards bit 0 holds "anyone riding" for the elevator's own
+ascent logic, and bit 7 is untouched. If the elevator clears bit 0 itself,
+both stored riders are cleared at the next pass. Not yet verified against
+the ROM; please confirm `$59`'s rider contact is inside `$84:9B03`.
