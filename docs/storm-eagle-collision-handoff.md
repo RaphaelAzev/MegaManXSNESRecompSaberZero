@@ -484,3 +484,23 @@ was incidental: Zero had jumped off the right edge.
 Change: the `$82:D7D7` second-seat retry now covers class `$5A` as well as
 `$59`. The frame-end carry stays tied to the `$59` top (its own slot is now
 recorded, so a later `$5A` pass doesn't redirect it).
+
+## Update: ride jitter is the shared camera; wall-slide seam
+
+`coop-physics-20261004-132512-4023531-1.csv`: the top and sides now collide for
+both seats. On the ride both bodies end each frame exactly at `el_y − 19`; the
+elevator rises 2,1,2,1 px. The shared camera (`camera_hook`, the midpoint of
+both stored bodies) runs late in the frame, after the elevator has carried X
+but before the frame-end partner carry, so it averaged this frame's X with
+last frame's Zero. The camera lagged a frame, and X's screen y alternated
+95/96. The partner carry now runs at the column's (`$5A`) `$82:D7D7` entry,
+right after the top has moved, and again at the camera hook; the frame-end
+call remains as a fallback.
+
+Wall slide on the column's left side (state `$12`, holding right): both seats
+drop to falling (`$08`) for 1–2 frames at `el_y + 21` (X) / `+29` (Zero), then
+catch again. For X, the unmodified first-seat query, the top part (`$59`)
+pushes him down out of its bottom edge (y 735→738→741) and stops pushing him
+sideways, while the column only starts pushing at y 742. That is a seam
+between the two parts' boxes in the native routine, not a co-op path. Needs a
+single-player comparison to confirm it is original behaviour.
