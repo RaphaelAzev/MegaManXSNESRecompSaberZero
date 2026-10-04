@@ -74,7 +74,7 @@ static void gravity_effect_tick(uint8_t *r,MmxWeaponShot *s) {
     static const int8_t shake[4]={0,1,0,-1};s->x=(s->vx+shake[s->age&3])*256;
   } else if(s->charged) {
     s->vy-=192;if(s->vy<-4096) s->vy=-4096;s->y+=s->vy;
-    if((s->y>>8)<(int)word(r+0x1e50)-32) {gravity_destroy(r,s);return;}
+    if((s->y>>8)<(int)camera_y(r)-32) {gravity_destroy(r,s);return;}
   } else {
     unsigned a=gravity_angle((well->x-s->x)>>8,(well->y-s->y)>>8);
     int vx,vy;
@@ -90,7 +90,7 @@ static void gravity_capture(uint8_t *r,MmxWeaponShot *well) {
   for(unsigned d=0xe68;d<0x1228;d+=64) {
     if(!r[d] || r[d+1]!=2 || !(r[d+0x27]&127) || r[d+0x28]>=6 ||
         !word(r+d+0x20) || !MmxWeaponsEnemyActive(r,d,1)) continue;
-    int x=(int)word(r+d+5)-(int)word(r+0x1e4d),y=(int)word(r+d+8)-(int)word(r+0x1e50);
+    int x=(int)word(r+d+5)-(int)camera_x(r),y=(int)word(r+d+8)-(int)camera_y(r);
     if(x<0 || x>=256 || y<0 || y>=224) continue;
     unsigned box=word(r+d+0x20);
     size_t off=0x30000+(box&0x7fff);
@@ -110,8 +110,8 @@ static void gravity_particle(uint8_t *r,unsigned age) {
   for(unsigned i=0;i<16;++i) if(!combat.effects[i].active) {
     MmxWeaponShot *s=combat.effects+i;memset(s,0,sizeof(*s));
     s->active=1;s->age=1;s->page=2;s->weapon=6;s->group=15;s->variant=3;
-    s->x=((int)word(r+0x1e4d)+(int)(bubble_random(i)&127)+(age&4?128:0))*256;
-    s->y=((int)word(r+0x1e50)+224)*256;s->vy=-4096;
+    s->x=((int)camera_x(r)+(int)(bubble_random(i)&127)+(age&4?128:0))*256;
+    s->y=((int)camera_y(r)+224)*256;s->vy=-4096;
     animation_start(s,5+(bubble_random(i+1)&3));return;
   }
 }
@@ -145,7 +145,7 @@ static void gravity_tick(uint8_t *r,unsigned d,MmxWeaponShot *s) {
       if(!gravity_actor(1)) {retire(r,d);return;}
       if(s->muzzle_pose==1) {
         s->vy-=192;s->y+=s->vy;animation_step(s);
-        if((s->y>>8)<(int)word(r+0x1e50)-16) {s->muzzle_pose=2;s->origin_x=300;}
+        if((s->y>>8)<(int)camera_y(r)-16) {s->muzzle_pose=2;s->origin_x=300;}
       } else if(s->muzzle_pose==2) {
         if(!--s->origin_x) {retire(r,d);return;}
         gravity_capture(r,s);if(!(s->age&3)) gravity_particle(r,s->age);

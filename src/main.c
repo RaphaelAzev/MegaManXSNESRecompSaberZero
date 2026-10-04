@@ -20,6 +20,8 @@
 #include "mmx_netplay.h"
 #include "mmx_startup.h"
 #include "mmx_coop_trace.h"
+#include "mmx_coop_view.h"
+#include "netplay/snes_netplay.h"
 #include "host_paths.h"
 #include <ctype.h>
 
@@ -67,6 +69,12 @@ bool MmxDisplay_IsWidescreenActive(void) {
 int MmxDisplay_GetCurrentFrameWidth(void) { return snesrecomp_desktop_frame_width(); }
 
 static void MmxBeforeFrame(void) {
+#if SNESRECOMP_NET
+  MmxCoopViewsSetOnline(snes_netplay_active() && MmxCoopEnabled());
+  MmxRendererSetPeerView(MmxCoopViewsOnline()?snes_netplay_local_slot():-1);
+#else
+  MmxCoopViewsSetOnline(false);MmxRendererSetPeerView(-1);
+#endif
   /* MMX's draw hook runs the original per-line HDMA sequence itself. */
   snes_set_hdma_beam_enabled(g_snes, false);
   if (g_snes->cart) {

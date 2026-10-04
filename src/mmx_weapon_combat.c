@@ -26,6 +26,10 @@ _Static_assert(sizeof(MmxWeaponShot) == 40 && offsetof(MmxWeaponCombatState,enem
     offsetof(MmxWeaponCombatState,effects)==MMX_WEAPON_COMBAT_DAMAGE_SIZE &&
     sizeof(MmxWeaponCombatState) == 1028, "Weapon combat save ABI");
 static unsigned word(const uint8_t *p) { return p[0] | (p[1] << 8); }
+static unsigned (*view_query)(const uint8_t *,bool);
+void MmxWeaponsCameraQuery(unsigned (*query)(const uint8_t *,bool)) { view_query=query; }
+static unsigned camera_x(const uint8_t *r) { return view_query?view_query(r,false):word(r+0x1e4d); }
+static unsigned camera_y(const uint8_t *r) { return view_query?view_query(r,true):word(r+0x1e50); }
 static void putword(uint8_t *p, unsigned value) { p[0] = (uint8_t)value; p[1] = (uint8_t)(value >> 8); }
 static bool slot_valid(unsigned d) { return d >= 0x1228 && d < 0x1428 && (d & 63) == 0x28; }
 static void silk_player_tick(uint8_t *r);
@@ -633,9 +637,9 @@ static void bubble_tick(uint8_t *r,unsigned d,MmxWeaponShot *s) {
     }
     s->x+=s->vx;s->y+=s->vy;
   }
-  if (++s->age>400 || !s->active || (s->x>>8)<(int)word(r+0x1e4d)-96 ||
-      (s->x>>8)>(int)word(r+0x1e4d)+352 || (s->y>>8)<(int)word(r+0x1e50)-128 ||
-      (s->y>>8)>(int)word(r+0x1e50)+320) { retire(r,d);return; }
+  if (++s->age>400 || !s->active || (s->x>>8)<(int)camera_x(r)-96 ||
+      (s->x>>8)>(int)camera_x(r)+352 || (s->y>>8)<(int)camera_y(r)-128 ||
+      (s->y>>8)>(int)camera_y(r)+320) { retire(r,d);return; }
   native_object(r,d,s);
   if (s->muzzle_pose==3 || (s->charged && !s->muzzle_pose)) putword(r+d+0x20,0);
 }
@@ -718,9 +722,9 @@ static void magnet_tick(uint8_t *r,unsigned d,MmxWeaponShot *s) {
     }
     animation_step(s);
   }
-  if (++s->age>1600 || !s->active || (s->x>>8)<(int)word(r+0x1e4d)-32 ||
-      (s->x>>8)>=(int)word(r+0x1e4d)+288 || (s->y>>8)<(int)word(r+0x1e50)-16 ||
-      (s->y>>8)>=(int)word(r+0x1e50)+240) { retire(r,d);return; }
+  if (++s->age>1600 || !s->active || (s->x>>8)<(int)camera_x(r)-32 ||
+      (s->x>>8)>=(int)camera_x(r)+288 || (s->y>>8)<(int)camera_y(r)-16 ||
+      (s->y>>8)>=(int)camera_y(r)+240) { retire(r,d);return; }
   if (!(s->age&1) && (s->charged || s->muzzle_pose==3)) s->hit_slots=0;
   native_object(r,d,s);
 }
@@ -827,9 +831,9 @@ static void speed_tick(uint8_t *r,unsigned d,MmxWeaponShot *s) {
     }
     s->x+=s->vx; /* Source fire and water shot pass through solid terrain. */
   }
-  if (++s->age>240 || !s->active || (!s->charged && ((s->x>>8)<(int)word(r+0x1e4d)-32 ||
-      (s->x>>8)>=(int)word(r+0x1e4d)+288 || (s->y>>8)<(int)word(r+0x1e50)-16 ||
-      (s->y>>8)>=(int)word(r+0x1e50)+240))) { retire(r,d);return; }
+  if (++s->age>240 || !s->active || (!s->charged && ((s->x>>8)<(int)camera_x(r)-32 ||
+      (s->x>>8)>=(int)camera_x(r)+288 || (s->y>>8)<(int)camera_y(r)-16 ||
+      (s->y>>8)>=(int)camera_y(r)+240))) { retire(r,d);return; }
   native_object(r,d,s);
   if (s->charged ? s->tether_pose : s->variant==3 || s->muzzle_pose==3 || (s->variant==1 && !s->muzzle_pose))
     putword(r+d+0x20,0);
@@ -901,8 +905,8 @@ static void frost_tick(uint8_t *r,unsigned d,MmxWeaponShot *s) {
   unsigned phase=s->muzzle_pose;
   if (s->variant==2) {
     s->vy+=48;s->x+=s->vx;s->y+=s->vy;
-    if (++s->age>180 || (s->y>>8)>(int)word(r+0x1e50)+256 ||
-        (s->x>>8)<(int)word(r+0x1e4d)-64 || (s->x>>8)>(int)word(r+0x1e4d)+320) { retire(r,d);return; }
+    if (++s->age>180 || (s->y>>8)>(int)camera_y(r)+256 ||
+        (s->x>>8)<(int)camera_x(r)-64 || (s->x>>8)>(int)camera_x(r)+320) { retire(r,d);return; }
     native_object(r,d,s);putword(r+d+0x20,0);return;
   } else if (phase==(s->charged ? 4u : 7u)) {
     if (!s->origin_x || !--s->origin_x) { retire(r,d);return; }
@@ -1008,9 +1012,9 @@ static void frost_tick(uint8_t *r,unsigned d,MmxWeaponShot *s) {
     if (!--s->origin_x) { retire(r,d);return; }
     s->vx=-s->vx;s->x+=s->vx;animation_step(s);
   }
-  if (++s->age>720 || !s->active || s->x/256<(int)word(r+0x1e4d)-96 ||
-      s->x/256>(int)word(r+0x1e4d)+352 || s->y/256<(int)word(r+0x1e50)-160 ||
-      s->y/256>(int)word(r+0x1e50)+320) { retire(r,d);return; }
+  if (++s->age>720 || !s->active || s->x/256<(int)camera_x(r)-96 ||
+      s->x/256>(int)camera_x(r)+352 || s->y/256<(int)camera_y(r)-160 ||
+      s->y/256>(int)camera_y(r)+320) { retire(r,d);return; }
   native_object(r,d,s);
   if ((s->charged && s->muzzle_pose==4) || (!s->charged && s->muzzle_pose>=6)) putword(r+d+0x20,0);
 }
@@ -1120,9 +1124,9 @@ static void wheel_tick(uint8_t *r,unsigned d,MmxWeaponShot *s) {
       animation_start(s,wheel_spin_sequence(s));
     animation_step(s);
   }
-  if (++s->age>600 || !s->active || s->x/256<(int)word(r+0x1e4d)-96 ||
-      s->x/256>(int)word(r+0x1e4d)+352 || s->y/256<(int)word(r+0x1e50)-160 ||
-      s->y/256>(int)word(r+0x1e50)+288) { retire(r,d); return; }
+  if (++s->age>600 || !s->active || s->x/256<(int)camera_x(r)-96 ||
+      s->x/256>(int)camera_x(r)+352 || s->y/256<(int)camera_y(r)-160 ||
+      s->y/256>(int)camera_y(r)+288) { retire(r,d); return; }
   native_object(r,d,s);
   if ((!s->charged && (s->muzzle_pose==6 || s->tether_pose)) ||
       (s->charged && !s->muzzle_pose)) putword(r+d+0x20,0);
@@ -1184,9 +1188,9 @@ static void sonic_tick(uint8_t *r, unsigned d, MmxWeaponShot *s) {
     if (original >= 1024) s->vy = (int16_t)-(768 + (original & 255));
     animation_step(s);
   }
-  if (++s->age > 360 || s->x/256 < (int)word(r+0x1e4d)-96 ||
-      s->x/256 > (int)word(r+0x1e4d)+352 || s->y/256 < (int)word(r+0x1e50)-160 ||
-      s->y/256 > (int)word(r+0x1e50)+288 || !s->active) { retire(r,d); return; }
+  if (++s->age > 360 || s->x/256 < (int)camera_x(r)-96 ||
+      s->x/256 > (int)camera_x(r)+352 || s->y/256 < (int)camera_y(r)-160 ||
+      s->y/256 > (int)camera_y(r)+288 || !s->active) { retire(r,d); return; }
   native_object(r,d,s);
   if (s->muzzle_pose == 3) putword(r+d+0x20,0);
 }
@@ -1264,9 +1268,9 @@ static void acid_tick(uint8_t *r, unsigned d, MmxWeaponShot *s) {
       }
     }
   }
-  if (++s->age > 360 || s->x/256 < (int)word(r+0x1e4d)-128 ||
-      s->x/256 > (int)word(r+0x1e4d)+384 || s->y/256 < (int)word(r+0x1e50)-192 ||
-      s->y/256 > (int)word(r+0x1e50)+416) { retire(r,d); return; }
+  if (++s->age > 360 || s->x/256 < (int)camera_x(r)-128 ||
+      s->x/256 > (int)camera_x(r)+384 || s->y/256 < (int)camera_y(r)-192 ||
+      s->y/256 > (int)camera_y(r)+416) { retire(r,d); return; }
   /* The growth sequence marks its final size with bit 1. */
   if (s->charged && s->variant < 128 && (s->flags & 2)) animation_start(s,0);
   else animation_step(s);
@@ -1340,9 +1344,9 @@ static void ray_tick(uint8_t *r, unsigned d, MmxWeaponShot *s) {
     if (!(s->origin_x & 7)) ray_emit(r,s);
     animation_step(s);
   }
-  if (++s->age > 300 || s->x/256 < (int)word(r+0x1e4d)-96 ||
-      s->x/256 > (int)word(r+0x1e4d)+352 || s->y/256 < (int)word(r+0x1e50)-160 ||
-      s->y/256 > (int)word(r+0x1e50)+320 || !s->active) { retire(r,d); return; }
+  if (++s->age > 300 || s->x/256 < (int)camera_x(r)-96 ||
+      s->x/256 > (int)camera_x(r)+352 || s->y/256 < (int)camera_y(r)-160 ||
+      s->y/256 > (int)camera_y(r)+320 || !s->active) { retire(r,d); return; }
   native_object(r,d,s);
   if (s->variant == 3 || (s->variant < 2 && (!s->charged || !s->variant))) putword(r+d+0x20,0);
 }

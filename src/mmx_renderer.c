@@ -5,6 +5,7 @@
 #include "mmx_zero.h"
 #include "mmx_weapons.h"
 #include "mmx_weapon_combat.h"
+#include "mmx_coop_view.h"
 #include <math.h>
 
 /* Mode-1 decode/composition follows SuperMetroidRecomp's sm_renderer.c.
@@ -37,6 +38,11 @@ static MmxWeaponsState frame_weapons;
 static MmxWeaponCombatState frame_weapon_combat;
 static MmxCoopState frame_coop;
 static bool frame_held;
+static int peer_seat=-1,view_dx,view_dy;
+void MmxRendererSetPeerView(int seat) { peer_seat=seat>=0 && seat<2?seat:-1; }
+static int view_camera(const uint8_t *r,unsigned address) {
+  return (int)(r[address]|r[address+1]<<8)+(address==0x1e4d?view_dx:view_dy);
+}
 void MmxRendererHoldFrame(bool held) {frame_held=held;}
 static uint8_t partner_ram[0x20000];
 static Raster partner_raster;
@@ -223,7 +229,7 @@ void MmxRendererObserveObject(const uint8_t ram[0x20000], uint16_t object) {
     building_stage = ram[0x1f7a];
   }
   current_object = object;
-  if (observed_lists || !g_mmx_expanded_sprites) return;
+  if (observed_lists || (!g_mmx_expanded_sprites && !MmxCoopViewsOnline())) return;
   observed_lists = true;
   expand_queues(ram);
 }
@@ -329,7 +335,7 @@ void MmxRendererBeginFrame(const uint8_t ram[0x20000]) {
   }
   frame.expanded_count = latched_stage == ram[0x1f7a] ? expanded_latched_count : 0;
   memcpy(frame.expanded, expanded_latched, frame.expanded_count * sizeof(Piece));
-  frame.expand = g_mmx_expanded_sprites;
+  frame.expand = g_mmx_expanded_sprites || MmxCoopViewsOnline();
   if (MmxZeroEnabled() && frame.expand) for (unsigned i = 0; i < frame.piece_count; ++i) {
     Piece p = frame.pieces[i]; if (!zero_actor(p.object,p.animation)) continue;
     bool found = false;
@@ -575,6 +581,7 @@ static uint16_t background(const Ppu *p, const Raster *r, unsigned layer, int x,
   bool armadillo_lower_shaft = false;
   unsigned bpp = layer == 2 ? 2 : 4, size = PPU_bigTiles(p, layer) ? 16 : 8;
   int px = (x + p->hScroll[layer]) & 1023, py = (y + p->vScroll[layer]) & 1023;
+  if(stage && layer==2 && water) py=(py+view_dy)&1023;
   unsigned sc = p->bgXsc[layer], tx = px / size, ty = py / size;
   unsigned a = (sc & 0xfc) * 256 + (tx & 31) + (ty & 31) * 32;
   if ((sc & 1) && (tx & 32)) a += 1024;
@@ -585,11 +592,11 @@ static uint16_t background(const Ppu *p, const Raster *r, unsigned layer, int x,
     if (icon >= 0) { *private_color = icon; return 0x8001; }
     tile = weapon_menu_tile(tx, ty, tile);
   }
-  if (stage && size == 8 && layer < 2 && (x < 0 || x >= 256)) {
+  if (stage && size == 8 && layer < 2 && (x < 0 || x >= 256 || view_dx || view_dy)) {
     int wx, wy;
     if (layer == 0) {
-      wx = MmxDisplay_ExpandStageScroll((uint16_t)word(frame.ram, 0x1e4d), p->hScroll[0]) + x;
-      wy = MmxDisplay_ExpandStageScroll((uint16_t)word(frame.ram, 0x1e50), p->vScroll[0]) + y;
+      wx = MmxDisplay_ExpandStageScroll((uint16_t)word(frame.ram, 0x1e4d), p->hScroll[0]) + view_dx + x;
+      wy = MmxDisplay_ExpandStageScroll((uint16_t)word(frame.ram, 0x1e50), p->vScroll[0]) + view_dy + y;
       /* $81:F9B7 joins the shaft at camera $1F00,$0600 to $0100,$0800.
        * Project its continuation before that native-coordinate relocation,
        * so the wide sides already show the lower room while X falls. */
@@ -613,6 +620,15 @@ static uint16_t background(const Ppu *p, const Raster *r, unsigned layer, int x,
       int stream_x = (int16_t)word(frame.ram, 0x1e8d), stream_y = (int16_t)word(frame.ram, 0x1e90);
       wx = stream_x + (((p->hScroll[1] - stream_x + 512) & 1023) - 512) + x;
       wy = stream_y + (((p->vScroll[1] - stream_y + 512) & 1023) - 512) + y;
+      /* $00:DF08 dispatches BG2 follow modes. Retain the raster offset and
+       * apply the exact half/full camera relation; actor/script modes stay
+       * canonical while their shared scene owns both views. */
+      unsigned mode=frame.ram[0x1e89];
+      int nx=word(frame.ram,0x1e4d),ny=word(frame.ram,0x1e50);
+      if(mode==2 || mode==14) wx+=((nx+view_dx)>>1)-(nx>>1);
+      else if(mode==4 || mode==16) wx+=view_dx;
+      if(mode==2 || mode==16) wy+=((ny+view_dy)>>1)-(ny>>1);
+      else if(mode==4 || mode==14) wy+=view_dy;
       /* The boat's BG2 body occupies one source screen; surrounding map
        * cells are staging art. The controller scrolls that screen into view. */
       if (frame.ram[0x1f7a] == 1 && frame.ram[0x1e89] == 0x0c &&
@@ -660,7 +676,7 @@ static uint16_t background(const Ppu *p, const Raster *r, unsigned layer, int x,
         bool left = door_body(wx - 16, wy), right = door_body(wx + 16, wy);
         if (left || right) {
           int boundary = (wx & ~15) + (right ? 16 : 0);
-          bool view_left = word(frame.ram, 0x1e4d) + 128 < (unsigned)boundary;
+          bool view_left = view_camera(frame.ram, 0x1e4d) + 128 < boundary;
           /* Retain the column facing the current room. Only its duplicate
            * samples the neighboring wall; a distant closed door stays visible. */
           if (view_left && left) wx += 16;
@@ -785,6 +801,7 @@ static unsigned spark_lights(LightBeam beams[2], int extra) {
       (uint16_t)word(frame.lines[0].registers, 14));
   int camera_y = MmxDisplay_ExpandStageScroll((uint16_t)word(frame.ram, 0x1e50),
       (uint16_t)word(frame.lines[0].registers, 22));
+  camera_x+=view_dx;camera_y+=view_dy;
   unsigned count = 0;
   for (unsigned d = 0xe68; d <= 0x1228 && count < 2; d += 64) {
     const uint8_t *r = frame.ram;
@@ -868,8 +885,8 @@ static void moved_enemy_row(const MmxWeaponShot *s,const Ppu *p,const Raster *r,
   unsigned group=frame.ram[d+22];
   const uint8_t *a=sprite_arrangement(group,frame.ram[d+23]&127);if(!a) return;
   const MmxSpriteAsset *asset=MmxRenderAssetsObjectSprite(frame.ram,d,group);
-  int x=(s->x>>8)-(int)word(frame.ram,0x1e4d);
-  int sy=(s->y>>8)+(int8_t)frame.ram[d+25]-(int)word(frame.ram,0x1e50);
+  int x=(s->x>>8)-(int)view_camera(frame.ram,0x1e4d);
+  int sy=(s->y>>8)+(int8_t)frame.ram[d+25]-(int)view_camera(frame.ram,0x1e50);
   for(int i=(int)a[0]-1;i>=0;--i) {
     Piece piece=make_piece(a+i*4,x,sy,frame.ram[d+17]&64,
         frame.ram[d+17]&63,frame.ram[d+24],group,d);
@@ -913,12 +930,12 @@ static void weapon_effects_row(const MmxWeaponCombatState *combat,const Ppu *p,c
       if (s->charged && s->muzzle_pose && s->radius) {
         static const uint8_t flash[6]={15,16,16,17,17,18};
         MmxWeaponShot center=*s;center.facing=s->tether_pose ? 64 : 0;
-        weapon_sprite_row(&center,flash[6-s->radius],s->origin_x-word(frame.ram,0x1e4d),
-            s->origin_y-word(frame.ram,0x1e50),y,view,objects,object_colors);
+        weapon_sprite_row(&center,flash[6-s->radius],s->origin_x-view_camera(frame.ram,0x1e4d),
+            s->origin_y-view_camera(frame.ram,0x1e50),y,view,objects,object_colors);
       } else if (!s->charged && (s->muzzle_pose==2 || s->muzzle_pose==3 || s->muzzle_pose==5)) {
         unsigned duration=s->origin_x>=1024 ? 1 : s->origin_x>=512 ? 2 : 3;
-        weapon_sprite_row(s,9+(unsigned)s->origin_y/duration%5,(s->x>>8)-word(frame.ram,0x1e4d),
-            (s->y>>8)+8-word(frame.ram,0x1e50),y,view,objects,object_colors);
+        weapon_sprite_row(s,9+(unsigned)s->origin_y/duration%5,(s->x>>8)-view_camera(frame.ram,0x1e4d),
+            (s->y>>8)+8-view_camera(frame.ram,0x1e50),y,view,objects,object_colors);
       }
     }
     if (s->page==1 && s->weapon==6 && s->variant) {
@@ -926,12 +943,12 @@ static void weapon_effects_row(const MmxWeaponCombatState *combat,const Ppu *p,c
       unsigned pose=(s->charged ? 20 : 5)+s->tether_pose/3;
       for (int link=8;link>=0;--link) {
         int x=(s->origin_x*(8-link)+(s->x>>8)*link)/8;
-        weapon_sprite_row(s,pose,x-word(frame.ram,0x1e4d),
-            (s->y>>8)-word(frame.ram,0x1e50),y,view,objects,object_colors);
+        weapon_sprite_row(s,pose,x-view_camera(frame.ram,0x1e4d),
+            (s->y>>8)-view_camera(frame.ram,0x1e50),y,view,objects,object_colors);
       }
     }
     if (s->charged && s->page == 2 && s->weapon == 4 && s->variant!=4) {
-      int ox=s->origin_x-word(frame.ram,0x1e4d), oy=s->origin_y-word(frame.ram,0x1e50);
+      int ox=s->origin_x-view_camera(frame.ram,0x1e4d), oy=s->origin_y-view_camera(frame.ram,0x1e50);
       weapon_sprite_row(s,s->tether_pose,ox,oy,y,view,objects,object_colors);
       weapon_sprite_row(s,s->muzzle_pose,ox,oy,y,view,objects,object_colors);
     }
@@ -942,20 +959,20 @@ static void weapon_effects_row(const MmxWeaponCombatState *combat,const Ppu *p,c
       for (int delay=2;delay>=1;--delay) {
         int remaining = delay - (s->variant == 3 ? s->radius : 0);
         if (remaining > 0 && s->age > (unsigned)delay+1)
-          weapon_sprite_row(s,13+delay,((s->x-s->vx*remaining)>>8)-word(frame.ram,0x1e4d),
-              ((s->y-s->vy*remaining)>>8)-word(frame.ram,0x1e50),y,view,objects,object_colors);
+          weapon_sprite_row(s,13+delay,((s->x-s->vx*remaining)>>8)-view_camera(frame.ram,0x1e4d),
+              ((s->y-s->vy*remaining)>>8)-view_camera(frame.ram,0x1e50),y,view,objects,object_colors);
       }
       if (s->variant == 3) continue;
     }
-    weapon_sprite_row(s,s->pose,(s->x>>8)-word(frame.ram,0x1e4d),
-        (s->y>>8)-word(frame.ram,0x1e50),y,view,objects,object_colors);
+    weapon_sprite_row(s,s->pose,(s->x>>8)-view_camera(frame.ram,0x1e4d),
+        (s->y>>8)-view_camera(frame.ram,0x1e50),y,view,objects,object_colors);
   }
 }
 static void teleport_actor_row(const uint8_t *ram,const MmxZeroState *zero,const Ppu *p,
                                const Raster *r,int y,MmxRenderView view,uint16_t *objects,int *object_colors) {
   unsigned pose = MmxZeroSwapPose(zero);
-  int x = (int16_t)(word(ram,0xbad) - word(ram,0x1e4d));
-  int sy = (int16_t)(word(ram,0xbb0) - word(ram,0x1e50)) + zero->swap_y;
+  int x = (int16_t)(word(ram,0xbad) - view_camera(ram,0x1e4d));
+  int sy = (int16_t)(word(ram,0xbb0) - view_camera(ram,0x1e50)) + zero->swap_y;
   unsigned flip = ram[0xbb9] & 64;
   if (!zero->active_x) {
     const uint8_t *pixels = MmxZeroTeleportPose(pose);
@@ -1042,8 +1059,8 @@ static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView 
     const uint8_t *body = MmxZeroPose(ram,&partner->zero);
     const uint8_t *blade = MmxZeroBlade(&partner->zero);
     const uint8_t *charge = !ram[0xbdb] && !partner->weapons.weapon ? MmxZeroChargePose(&partner->zero) : NULL;
-    int x = (int16_t)(word(ram,0xbad)-word(ram,0x1e4d));
-    int sy = (int16_t)(word(ram,0xbb0)-word(ram,0x1e50))+MmxZeroPoseOffsetY(ram);
+    int x = (int16_t)(word(ram,0xbad)-view_camera(ram,0x1e4d));
+    int sy = (int16_t)(word(ram,0xbb0)-view_camera(ram,0x1e50))+MmxZeroPoseOffsetY(ram);
     if (cast) {
       MmxZeroState z=partner->zero;z.burst=z.air=0;blade=NULL;
       if (cast->weapon==3) z.slash=cast->pose==39?1:cast->pose==41?3:cast->pose==29?6:
@@ -1080,8 +1097,8 @@ static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView 
     }
   }
   if (!zero && cast && ram[0xbb6]) weapon_sprite_row(cast,cast->pose,
-      (int16_t)(word(ram,0xbad)-word(ram,0x1e4d)),
-      (int16_t)(word(ram,0xbb0)-word(ram,0x1e50)),y,view,objects,colors);
+      (int16_t)(word(ram,0xbad)-view_camera(ram,0x1e4d)),
+      (int16_t)(word(ram,0xbb0)-view_camera(ram,0x1e50)),y,view,objects,colors);
   for (unsigned i=0;i<24;++i) {
     unsigned d = i==0 ? 0xba8 : i<16 ? 0xc38+(i-1)*32 : 0x1228+(i-16)*64;
     if (d==0xba8 ? !ram[d+1] || !ram[d+14] : !ram[d] || !(ram[d+14]&128)) continue;
@@ -1092,8 +1109,8 @@ static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView 
     unsigned group = ram[d+22];
     const uint8_t *a = sprite_arrangement(group,ram[d+23]&127);
     if (!a) continue;
-    int x = (int16_t)(word(ram,d+5)-word(ram,0x1e4d));
-    int sy = (int16_t)(word(ram,d+8)+(int8_t)ram[d+25]-word(ram,0x1e50));
+    int x = (int16_t)(word(ram,d+5)-view_camera(ram,0x1e4d));
+    int sy = (int16_t)(word(ram,d+8)+(int8_t)ram[d+25]-view_camera(ram,0x1e50));
     for (int j=(int)a[0]-1;j>=0;--j) {
       Piece s = make_piece(a+j*4,x,sy,ram[d+17]&64,ram[d+17]&63,ram[d+24],group,d);
       const MmxSpriteAsset *asset=!zero && weapon_colors && zero_actor(d,group) &&
@@ -1175,6 +1192,12 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
   bool menu = zero_menu || weapon_menu;
   bool zero_title = zero_title_menu();
   bool stage = MmxWidePolicy_IsStageScene(frame.ram) && !menu;
+  view_dx=view_dy=0;
+  if(stage && peer_seat>=0 && frame_coop.initialized && MmxCoopViewsOnline()) {
+    MmxCoopView camera=MmxCoopViewForPlayer(frame.ram,&frame_coop,(unsigned)peer_seat);
+    view_dx=camera.x-(int)word(frame.ram,0x1e4d);
+    view_dy=camera.y-(int)word(frame.ram,0x1e50);
+  }
   if(stage && frame_coop.initialized &&
       frame_coop.players[frame_coop.current^1].character==MMX_COOP_X)
     prepare_partner_graphics();
@@ -1315,6 +1338,9 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
           replaced[slot] = true; center = true;
         }
       }
+      /* Match original OAM before reprojection. HUD and native script panels
+       * keep screen coordinates; world pieces use the selected peer origin. */
+      if(stage) {s.x-=view_dx;s.y-=view_dy;}
       /* Resource bindings own CHR/palette, not OBJ priority. Kuwanger's
        * platform backs deliberately sit behind the tower even though their
        * foreground pieces use the same resource. Preserve both priority bits
@@ -1328,21 +1354,22 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
         if (oam_match && !zero_drawn[0]) {
           zero_drawn[0]=true;
           weapon_sprite_row(cast_body,cast_body->pose,
-              (int16_t)(word(frame.ram,0xbad)-word(frame.ram,0x1e4d)),
-              (int16_t)(word(frame.ram,0xbb0)-word(frame.ram,0x1e50)),y,view,objects,object_colors);
+              (int16_t)(word(frame.ram,0xbad)-view_camera(frame.ram,0x1e4d)),
+              (int16_t)(word(frame.ram,0xbb0)-view_camera(frame.ram,0x1e50)),y,view,objects,object_colors);
         }
         continue;
       }
       if (zero_body && !oam_match && !(frame.expand && frame.ram[s.object + 14] &&
-          (s.x + s.size <= 0 || s.x >= 256))) continue;
+          (view_dx || view_dy || s.x + s.size <= 0 || s.x >= 256))) continue;
       if(stage && frame_coop.initialized && frame_zero.active_x && frame.ram[0xc31] &&
-          s.object>=0xba8 && s.object<0xc98 && !oam_match && s.x<256 && s.x+s.size>0) continue;
+          s.object>=0xba8 && s.object<0xc98 && !oam_match && !view_dx && !view_dy &&
+          s.x<256 && s.x+s.size>0) continue;
       if (zero_body) {
         if (!zero_drawn[menu_body]) {
           zero_drawn[menu_body] = true;
           const uint8_t *body = menu_body ? MmxZeroMenuPose() : zero;
-          int zx = menu_body ? 128 : (int16_t)(word(frame.ram, 0xbad) - word(frame.ram, 0x1e4d));
-          int zy = menu_body ? 152 : (int16_t)(word(frame.ram, 0xbb0) - word(frame.ram, 0x1e50)) + MmxZeroPoseOffsetY(frame.ram);
+          int zx = menu_body ? 128 : (int16_t)(word(frame.ram, 0xbad) - view_camera(frame.ram,0x1e4d));
+          int zy = menu_body ? 152 : (int16_t)(word(frame.ram, 0xbb0) - view_camera(frame.ram,0x1e50)) + MmxZeroPoseOffsetY(frame.ram);
           bool pilot = !menu_body && s.animation==0x6b;
           if(pilot) {
             /* X1 switches to a separate pilot group on boarding. Its pose
@@ -1386,8 +1413,8 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       if (zero_charge) {
         /* Spread the original motes around Zero's taller body. Keep each
          * sparkle's pixel art and native animation, timing and visibility. */
-        int cx = (int16_t)(word(frame.ram,0xbad) - word(frame.ram,0x1e4d));
-        int cy = (int16_t)(word(frame.ram,0xbb0) - word(frame.ram,0x1e50));
+        int cx = (int16_t)(word(frame.ram,0xbad) - view_camera(frame.ram,0x1e4d));
+        int cy = (int16_t)(word(frame.ram,0xbb0) - view_camera(frame.ram,0x1e50));
         s.x += (s.x + s.size / 2 - cx) / 4;
         s.y += (s.y + s.size / 2 - cy) / 4 - 6;
       }
@@ -1431,6 +1458,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       bool zero_icon = (stage || zero_menu) && MmxZeroEnabled() && !frame_zero.active_x && slot == 0 &&
           x == 8 && sy == 80 && attr == 0x3486 && size == 16;
       bool anchored = stage && hud && sy < 96 && (slot < 16 || (bar_count >= 4 && slot >= bar_first && slot < bar_first + bar_count));
+      if(stage && !anchored) {x-=view_dx;sy-=view_dy;}
       if (anchored) { if (x < 25) x -= view.extra; else if (x >= 216) x += view.extra; }
       if (stage && frame_weapons.page && frame_weapons.weapon && slot == 7 && (pos & 255) == 24 && sy == 80 && attr == 0x3620) {
         /* Dedicated source gameplay footer, with its original frame,
@@ -1450,8 +1478,8 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       sprite(&p, r, x, sy, attr, size, y, view, objects, false, NULL, 0, object_colors, false, zero_icon, false);
     }
     if (charge && zero_drawn[0] && !swapping) {
-      int zx=(int16_t)(word(frame.ram,0xbad)-word(frame.ram,0x1e4d));
-      int zy=(int16_t)(word(frame.ram,0xbb0)-word(frame.ram,0x1e50))-8;
+      int zx=(int16_t)(word(frame.ram,0xbad)-view_camera(frame.ram,0x1e4d));
+      int zy=(int16_t)(word(frame.ram,0xbb0)-view_camera(frame.ram,0x1e50))-8;
       int row=y-zy+64;
       unsigned palette=frame_zero.charge>=81 && frame_zero.charge<201 ? 32 : 0;
       if(row>=0 && row<MMX_ZERO_HEIGHT) for(int col=0;col<MMX_ZERO_WIDTH;++col) {

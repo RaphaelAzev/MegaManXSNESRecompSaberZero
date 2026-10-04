@@ -45,7 +45,7 @@ static void fang_route(MmxWeaponShot *s) {
   s->vy=(route==1 && index==1)?(s->variant==1?-768:768):0;
 }
 static bool fang_visible(const uint8_t *r,const MmxWeaponShot *s) {
-  int x=(s->x>>8)-(int)word(r+0x1e4d),y=(s->y>>8)-(int)word(r+0x1e50);
+  int x=(s->x>>8)-(int)camera_x(r),y=(s->y>>8)-(int)camera_y(r);
   return x>=-32 && x<288 && y>=-16 && y<240;
 }
 static void fang_attach(uint8_t *r,unsigned d,MmxWeaponShot *s) {

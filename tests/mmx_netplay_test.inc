@@ -98,6 +98,8 @@ static void netplay_policy_checks(const char *root, const char *rom, const char 
 
 #if defined(SNES_HAS_LOBBY_CLIENT)
 static uint16_t netplay_test_pad(unsigned tick, int seat) {
+  if(getenv("MMX_NETPLAY_VIEWS_TEST")) return seat && tick<220 ?
+      SNES_PAD_RIGHT|SNES_PAD_Y|(tick>=40 && tick<50?SNES_PAD_B:0) : 0;
   if (tick < 40) return seat ? SNES_PAD_RIGHT : 0;
   if (tick < 70) return seat ? SNES_PAD_B : SNES_PAD_RIGHT;
   if (tick < 100) return tick % 12 == 0 ? SNES_PAD_Y : 0;
@@ -134,9 +136,15 @@ static void netplay_pair_checks(const char *root, const char *rom, const char *x
   }
   np->set_player_name(np->ctx, guest ? "GuestTest" : "HostTest");
   char endpoint[64] = "127.0.0.1:17970", bind[64] = "0.0.0.0:17971";
+  if(getenv("MMX_NETPLAY_PAIR_PORT")) {
+    int port=atoi(getenv("MMX_NETPLAY_PAIR_PORT"));check(port>1024 && port<65534,"private LAN test port valid");
+    snprintf(endpoint,sizeof(endpoint),"127.0.0.1:%d",port);
+    snprintf(bind,sizeof(bind),"0.0.0.0:%d",port+1);
+  }
   RecompLauncherCSettings settings = {0};
   if (!guest) check(np->create(np->ctx, "MMX private test", endpoint, "", &settings, 1, 2)==0, "host creates a two-seat LAN room");
-  else { SDL_Delay(250); check(np->join(np->ctx, "lan:127.0.0.1:17970", "", bind)==0, "guest joins LAN room"); }
+  else { char room[80];snprintf(room,sizeof(room),"lan:%s",endpoint);
+    SDL_Delay(250);check(np->join(np->ctx,room,"",bind)==0,"guest joins LAN room"); }
   RecompLauncherCNetplayLaunch launch = {0};
   uint32_t started = SDL_GetTicks(); int requested = 0;
   while (SDL_GetTicks() - started < 15000) {
@@ -162,6 +170,14 @@ static void netplay_pair_checks(const char *root, const char *rom, const char *x
   /* Both imported weapon pools must survive actual rollback replay too. */
   coop_weapon_select(0,1,4); coop_weapon_select(1,2,5); g_ram[0x1f99]|=2;
   coop_frames(2,0,0);
+  if(getenv("MMX_NETPLAY_VIEWS_TEST")) {
+    for(unsigned seat=0;seat<2;++seat) {
+      MmxCoopSelect(g_ram,seat);g_ram[0xc30]=g_ram[0xc32]=255;
+      if(g_ram[0xbaa]==14) g_ram[0xbaa]=g_ram[0xbab]=0;
+      MmxCoopCapture(g_ram);
+    }
+    MmxCoopSelect(g_ram,0);
+  }
   SnesHostLaunchResult result;
   snes_host_app_apply_launch(&launch, &result);
   char plan[2048]; snes_mod_runtime_effective_set_c(plan, sizeof(plan));
@@ -188,6 +204,15 @@ static void netplay_pair_checks(const char *root, const char *rom, const char *x
   s=MmxCoopGetState();
   check(MmxCoopValidState(&s) && s.players[0].status==MMX_COOP_ALIVE && s.players[1].status==MMX_COOP_ALIVE,
       "both players remain alive with independent contexts");
+  if(getenv("MMX_NETPLAY_VIEWS_TEST")) {
+    MmxCoopView a=MmxCoopViewForPlayer(g_ram,&s,0),b=MmxCoopViewForPlayer(g_ram,&s,1);
+    fprintf(stderr,"peer origins=%d,%d / %d,%d anchor=%u\n",a.x,a.y,b.x,b.y,s.anchor);
+    check(b.x>a.x+250,"real online peers separate beyond the shared screen");
+    static uint32_t pixels[470*224];
+    check(MmxRendererDraw(pixels,(MmxRenderView){470,107,21.0/9.0},true),"local online view renders");
+    SDL_Surface *surface=SDL_CreateSurfaceFrom(470,224,SDL_PIXELFORMAT_ARGB8888,pixels,470*4);
+    check(surface && SDL_SaveBMP(surface,"local-view.bmp"),"actual peer view captured");SDL_DestroySurface(surface);
+  }
   printf("PAIR_RESULT seat=%d frames=%u confirmed=%u episodes=%u replay=%llu x=%u,%u hp=%u,%u\n",
       guest,frames,snes_netplay_rb_confirmed_through(),snes_netplay_rb_episode_count(),
       (unsigned long long)snes_netplay_rb_resim_ticks(),coop_x(&s.players[0]),coop_x(&s.players[1]),

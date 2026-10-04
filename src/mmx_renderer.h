@@ -1,4 +1,6 @@
 #pragma once
+/* Local presentation only. -1 selects the existing shared view. */
+void MmxRendererSetPeerView(int seat);
 #include "snes/ppu.h"
 #include "mmx_display.h"
 #include "mmx_coop.h"

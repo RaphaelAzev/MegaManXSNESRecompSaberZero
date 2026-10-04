@@ -70,17 +70,17 @@ static void blade_tick(uint8_t *r,unsigned d,MmxWeaponShot *s) {
     s->x+=direction*dx*256;s->y+=dy*256;
   } else if(s->charged) {
     s->x+=s->vx;s->y+=s->vy;
-    if(s->x/256<(int)word(r+0x1e4d)-32 || s->x/256>(int)word(r+0x1e4d)+288 ||
-        s->y/256<(int)word(r+0x1e50)-32 || s->y/256>(int)word(r+0x1e50)+256) {retire(r,d);return;}
+    if(s->x/256<(int)camera_x(r)-32 || s->x/256>(int)camera_x(r)+288 ||
+        s->y/256<(int)camera_y(r)-32 || s->y/256>(int)camera_y(r)+256) {retire(r,d);return;}
   } else {
     s->vx-=(int16_t)(direction*32);s->vy+=s->variant?-16:16;
     if(s->vy>192) s->vy=192;
     if(s->vy<-192) s->vy=-192;
     s->x+=s->vx;s->y+=s->vy;
   }
-  if(++s->age>240 || s->x/256<(int)word(r+0x1e4d)-256 ||
-      s->x/256>(int)word(r+0x1e4d)+512 || s->y/256<(int)word(r+0x1e50)-256 ||
-      s->y/256>(int)word(r+0x1e50)+480) {retire(r,d);return;}
+  if(++s->age>240 || s->x/256<(int)camera_x(r)-256 ||
+      s->x/256>(int)camera_x(r)+512 || s->y/256<(int)camera_y(r)-256 ||
+      s->y/256>(int)camera_y(r)+480) {retire(r,d);return;}
   animation_step(s);
   if(!s->active) {retire(r,d);return;}
   native_object(r,d,s);

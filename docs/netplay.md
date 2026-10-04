@@ -136,6 +136,10 @@ python tools/test_netplay_desktop.py --exe build-netplay/MegaManXSNESRecomp.exe 
 
 Remote playtesting is tracked separately in `beads-8wg.1.55`.
 
+Online co-op's [independent camera implementation](netplay-independent-cameras.md)
+documents per-seat views, shared world activation, scene handoff and focused
+rollback checks. Couch co-op keeps its shared camera.
+
 ## Startup and frame delivery follow-up (2026-09-30)
 
 The shared host now batches diagnostic formatting. On this Windows machine,

@@ -1,4 +1,6 @@
 #include "mmx_coop.h"
+#include "mmx_coop_view.h"
+#include "mmx_renderer.h"
 #include "mmx_coop_trace.h"
 _Static_assert(sizeof(MmxCoopState) == MMX_COOP_LEGACY_STATE_SIZE + 2 * sizeof(MmxZeroModernState),
                "Update the legacy co-op importer when its layout changes");
@@ -46,6 +48,12 @@ static void trace_event(unsigned kind,uint32_t pc,unsigned a,unsigned b,const Cp
 static bool scene_tick(uint8_t *r);
 static unsigned word(const uint8_t *p) {return p[0]|p[1]<<8;}
 static void putword(uint8_t *p,unsigned v) {p[0]=(uint8_t)v;p[1]=(uint8_t)(v>>8);}
+static unsigned weapon_view(const uint8_t *r,bool vertical) {
+  if(!MmxCoopViewsOnline() || !state.initialized || state.menu_owner || state.scene_owner)
+    return word(r+(vertical?0x1e50:0x1e4d));
+  MmxCoopView v=MmxCoopViewForPlayer(r,&state,state.current);
+  return (unsigned)(vertical?v.y:v.x);
+}
 static void sound(uint8_t *r,unsigned command) {
   unsigned i=r[0xba3]&30;r[0xb72+i]=(uint8_t)command;r[0xb73+i]=0;r[0xba3]=(uint8_t)((i+2)&30);
 }
@@ -249,6 +257,8 @@ bool MmxCoopTransitionActive(void) {
 
 bool MmxCoopEnabled(void) { return enabled; }
 void MmxCoopReset(void) {
+  MmxCoopViewsResetWorld();
+  MmxWeaponsCameraQuery(enabled?weapon_view:NULL);
   platform_entry.valid=false;
   memset(&state, 0, sizeof(state));
   MmxWeaponsPartnerCombat(NULL);
@@ -398,6 +408,7 @@ bool MmxCoopFrameTick(uint8_t *r) {
     return false;
   }
   if (state.stage_pending==1 && r[0xd3]==4 && !r[0x1f0c]) {
+    MmxCoopViewsResetWorld();
     /* Native stage entry/reset has rebuilt P1. Preserve enrollment and
      * reserves, refill P2 as agreed, and wait for safe ground to arrive. */
     MmxWeaponsState weapons=MmxWeaponsGetState();
@@ -677,7 +688,8 @@ static void eagle_lift_hook(CpuState *cpu,uint32_t pc) {
 static bool living_on_screen(const uint8_t *r,unsigned seat) {
   const MmxCoopPlayer *p=&state.players[seat];
   const uint8_t *b=seat==state.current ? r+0xba8 : p->body;
-  int x=(int)word(b+5)-word(r+0x1e4d),y=(int)word(b+8)-word(r+0x1e50);
+  MmxCoopView camera=MmxCoopViewForPlayer(r,&state,seat);
+  int x=(int)word(b+5)-camera.x,y=(int)word(b+8)-camera.y;
   int height=p->character==MMX_COOP_ZERO ? 44 : 36;
   return p->status==MMX_COOP_ALIVE && (b[0x27]&127) && b[2]!=12 &&
       !p->zero.swap_phase && x+12>0 && x-12<256 && y+16>0 && y+16-height<224;
@@ -765,9 +777,11 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
     unsigned bit=slime_bit(cpu->D);
     if(bit && g_ram[cpu->D+2]!=12 && g_ram[cpu->D+2]!=14) slime_owner(bit,state.current);
   }
-  if(state.menu_owner || state.scene_owner || state.players[state.anchor^1].status!=MMX_COOP_ALIVE) return;
+  if(state.menu_owner || state.scene_owner ||
+      (!state.contact_pass && state.players[state.current^1].status!=MMX_COOP_ALIVE)) return;
   if (at == 0x9b03 || at == 0x9b43) {
-    if (state.current==state.anchor && !state.contact_pass) {
+    if (!state.contact_pass) {
+      MmxCoopViewsContactPlayer(state.current);
       state.contact_pass = 1; state.contact_entry = (uint16_t)at;
       state.contact_s = cpu->S; state.contact_d = cpu->D;
       TRACE(CONTACT,pc,0,0,cpu);
@@ -790,14 +804,14 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
     state.contact_a = cpu->A; state.contact_x = cpu->X; state.contact_y = cpu->Y;
     state.contact_db = cpu->DB; cpu_mirrors_to_p(cpu); state.contact_p = cpu->P;
     TRACE(CONTACT,pc,1,cpu->A,cpu);
-    MmxCoopSelect(g_ram,state.anchor^1); state.contact_pass = 2;
+    MmxCoopSelect(g_ram,MmxCoopViewsGetWorldState().contact_player^1); state.contact_pass = 2;
     interp_bridge_pre_opcode_redirect(0x840000 | state.contact_entry);
   } else {
     if(slime && (cpu->A&255)) slime_owner(slime,state.current);
     TRACE(CONTACT,pc,2,cpu->A,cpu);
     bool first_hit = (state.contact_a & 255) != 0;
     bool no_second_hit = !(cpu->A & 255);
-    MmxCoopSelect(g_ram,state.anchor);
+    MmxCoopSelect(g_ram,MmxCoopViewsGetWorldState().contact_player);
     if (first_hit || no_second_hit) {
       cpu->A = state.contact_a; cpu->X = state.contact_x; cpu->Y = state.contact_y;
       cpu->DB = state.contact_db; cpu->P = state.contact_p; cpu_p_to_mirrors(cpu);
@@ -961,6 +975,20 @@ static bool shared_screen(void) {
       !g_ram[0x1f0c] && !g_ram[0x1f23] && !g_ram[0x1f48];
 }
 static void constrain_player(uint8_t *r) {
+  if(MmxCoopViewsOnline()) {
+    if(state.scene_owner || state.menu_owner || r[0xd3]!=4) return;
+    int x=word(r+0xbad),lo=word(r+0x1e56)+8,hi=word(r+0x1e58)+248;
+    if(hi<lo) return;
+    int limited=x<lo?lo:x>hi?hi:x;
+    if(x!=limited) {putword(r+0xbad,(unsigned)limited);r[0xbac]=0;putword(r+0xbc2,0);}
+    /* A partner can reach the authored pit edge while the native camera is
+     * still far above it, so E12D's canonical-camera branch may never run. */
+    if((r[0xbcf]&127) && r[0xbaa]!=12 &&
+        (int16_t)(word(r+0xbb0)-32-word(r+0x1e5c)-224)>=0) {
+      ++r[0xbd8];r[0xbd7]=8;r[0xbce]=127;r[0xbaa]=r[0xc12]=12;r[0xbab]=0;r[0xbcf]=128;
+    }
+    return;
+  }
   if (!shared_screen()) return;
   const MmxCoopPlayer *other=&state.players[state.current^1];
   int x=word(r+0xbad),ox=word(other->body+5);
@@ -976,14 +1004,14 @@ static void camera_hook(CpuState *cpu,uint32_t pc) {
     if (!enabled || !state.initialized || state.menu_owner || state.scene_owner || MmxCoopTransitionActive()) return;
     MmxCoopPlayer *p=&state.players[state.anchor^1];
     if (p->status==MMX_COOP_ALIVE && (p->body[0x27]&127) &&
-        (int16_t)(word(p->body+8)-32-word(g_ram))>=0) {
+        (int16_t)(word(p->body+8)-32-(MmxCoopViewsOnline()?word(g_ram+0x1e5c)+224:word(g_ram)))>=0) {
       TRACE(PIT,pc,state.anchor^1,0,cpu);
       ++p->body[0x30];p->body[0x2f]=8;p->body[0x26]=127;
       p->body[2]=p->body[0x6a]=12;p->body[3]=0;p->body[0x27]=128;
     }
     return;
   }
-  if (!shared_screen()) return;
+  if (!shared_screen() || MmxCoopViewsOnline()) return;
   unsigned axis=((pc&65535)==0xdebf || (pc&65535)==0xdeca) ? 8 : 5;
   unsigned a=word(state.players[0].body+axis),b=word(state.players[1].body+axis);
   cpu->A=(uint16_t)((a+b)/2);
@@ -1173,7 +1201,67 @@ static void controller_hook(CpuState *cpu, uint32_t pc) {
 void MmxCoopTraceFrame(const uint8_t *r) {
   if (g_mmx_coop_trace && enabled && state.initialized) MmxCoopTraceFrameEnd(&state,r);
 }
+static void view_world_hook(CpuState *cpu,uint32_t pc) {
+  if(!MmxCoopViewsOnline() || !enabled || !state.initialized || state.stage_pending ||
+      state.menu_owner || state.scene_owner || g_ram[0xd3]!=4) return;
+  unsigned at=pc&65535;
+  if(at==0xdcd7) {
+    extern void MmxCoopViewsSpawnWorld(CpuState *);
+    MmxCoopCapture(g_ram);MmxCoopViewsSpawnWorld(cpu);return;
+  }
+  if(at==0xdd2d) {
+    extern bool MmxCoopViewsSpawnAllowed(uint16_t);
+    if(!MmxCoopViewsSpawnAllowed(cpu->D)) interp_bridge_pre_opcode_redirect(0x00dd97);
+    return;
+  }
+  unsigned d=cpu->D;
+  if(d>0x1fe0) return;
+  int x=word(g_ram+d+5),y=word(g_ram+d+8),margin=g_mmx_custom_view.extra;
+  int left=64,right=320,top=64,bottom=288;
+  if(at==0x809e) {left=96;right=352;top=80;bottom=304;}
+  if(at==0x80c3) {left=32;right=288;top=16;bottom=240;}
+  if(at==0x8957) {left=128;right=384;top=128;bottom=352;}
+  bool outside=!MmxCoopViewContains(g_ram,&state,x,y,left,right,top,bottom,margin);
+  cpu->_flag_C=outside;cpu->P=(cpu->P&~1)|(outside?1:0);
+  /* Both coordinates must belong to the SAME player region. Skip the second
+   * native camera comparison only after replacing the complete rectangle. */
+  if(at==0x807d) interp_bridge_pre_opcode_redirect(0x82808c);
+  if(at==0x809e) interp_bridge_pre_opcode_redirect(outside?0x8280af:0x8280d9);
+  if(at==0x80c3) interp_bridge_pre_opcode_redirect(outside?0x8280d4:0x8280d9);
+  if(at==0x8957) interp_bridge_pre_opcode_redirect(0x838966);
+}
+static void view_actor_hook(CpuState *cpu,uint32_t pc) {
+  if(!MmxCoopViewsOnline() || !enabled || !state.initialized) return;
+  unsigned at=pc&65535;
+  MmxCoopViewWorldState world=MmxCoopViewsGetWorldState();
+  if(at==0xd4f9 || at==0xd522 || at==0xd49c || at==0xd4c5) {
+    if(world.actor_return) {
+      MmxCoopSelect(g_ram,world.actor_return-1);MmxCoopViewsActorReturn(0);
+      select_world_survivor(g_ram);
+    }
+    return;
+  }
+  if(state.stage_pending || state.menu_owner || state.scene_owner || g_ram[0xd3]!=4 || world.actor_return) return;
+  if(cpu->D<0xe68 || (cpu->D>=0x1228 && cpu->D<0x1428)) return;
+  MmxCoopCapture(g_ram);
+  unsigned nearest=state.anchor;uint64_t best=UINT64_MAX;
+  int ex=word(g_ram+cpu->D+5),ey=word(g_ram+cpu->D+8);
+  for(unsigned seat=0;seat<2;++seat) {
+    const MmxCoopPlayer *p=&state.players[seat];
+    if(p->status!=MMX_COOP_ALIVE || !(p->body[0x27]&127) || p->body[2]==12 || p->zero.swap_phase) continue;
+    int64_t dx=(int)word(p->body+5)-ex,dy=(int)word(p->body+8)-ey;
+    uint64_t distance=(uint64_t)(dx*dx+dy*dy);
+    if(distance<best) {best=distance;nearest=seat;}
+  }
+  MmxCoopViewsActorReturn(state.current+1);MmxCoopSelect(g_ram,nearest);
+}
 void MmxCoopRegisterHooks(void) {
+  const unsigned actors[]={0xd4f6,0xd4f9,0xd515,0xd522,0xd499,0xd49c,0xd4b8,0xd4c5};
+  for(unsigned i=0;i<sizeof(actors)/sizeof(actors[0]);++i)
+    interp_bridge_set_pre_opcode_hook(actors[i],view_actor_hook);
+  const unsigned views[]={0x00dcd7,0x00dd2d,0x82807d,0x82809e,0x8280c3,0x838957};
+  for(unsigned i=0;i<sizeof(views)/sizeof(views[0]);++i)
+    interp_bridge_set_pre_opcode_hook(views[i],view_world_hook);
   interp_bridge_set_pre_opcode_hook(0x819c86,dash_effect_hook);
   interp_bridge_set_pre_opcode_hook(0x80f478,dash_effect_hook);
   interp_bridge_set_pre_opcode_hook(0x80f47c,dash_effect_hook);

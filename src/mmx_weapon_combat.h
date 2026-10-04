@@ -32,6 +32,8 @@ void MmxWeaponsSetCombatState(MmxWeaponCombatState state);
 /* Optional second actor; the caller owns this stable snapshot. NULL restores
  * single-player behavior. World enemy captures/time effects consider both. */
 void MmxWeaponsPartnerCombat(const MmxWeaponCombatState *state);
+/* Derived per-owner view for imported projectile lifetimes. NULL is native. */
+void MmxWeaponsCameraQuery(unsigned (*query)(const uint8_t *,bool));
 unsigned MmxWeaponsTimePhase(const MmxWeaponCombatState *state);
 /* Live X1 terrain, available even when no imported weapon pack is enabled. */
 unsigned MmxWeaponsTerrainClass(const uint8_t ram[0x20000],int x,int y);
