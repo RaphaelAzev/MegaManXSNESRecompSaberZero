@@ -242,6 +242,11 @@ static void test_spawn_record_ownership(void) {
   assert(MmxWidePolicy_SpawnRecordAllowed(0x08, 3, 0x02, true));
   assert(!MmxWidePolicy_SpawnRecordAllowed(6, 3, 0x37, false));
   assert(MmxWidePolicy_SpawnRecordAllowed(6, 3, 0x37, true));
+  /* Dr. Light's capsules keep the authored native timing in every stage. */
+  for (unsigned stage = 0; stage < 13; ++stage) {
+    assert(!MmxWidePolicy_SpawnRecordAllowed(stage, 3, 0x4d, false));
+    assert(MmxWidePolicy_SpawnRecordAllowed(stage, 3, 0x4d, true));
+  }
   /* The same boss IDs recur in fortress stages. No per-stage exception
    * may put any encounter back into the widened ordinary-enemy scan. */
   const uint8_t bosses[] = {2,5,7,0x0a,0x0c,0x14,0x31,0x52,0x5d,0x62,0x63,0x65,3,0x22};

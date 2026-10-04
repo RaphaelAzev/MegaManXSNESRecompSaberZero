@@ -281,8 +281,12 @@ bool MmxWidePolicy_SpawnRecordAllowed(uint8_t stage, uint8_t kind,
 
   /* Boss records belong to the native scan, just like camera/door events.
    * Its independent cursor reaches them at the authored arena boundary.
-   * Streakers also retain their room timing, with a moving offscreen entry. */
-  if (kind == 3 && (MmxWidePolicy_IsBossEncounter(object_id) || object_id == 0x37))
+   * Streakers also retain their room timing, with a moving offscreen entry.
+   * Dr. Light's capsule ($4D) does too: Storm Eagle's helmet capsule
+   * (4040,720) lies below the corridor the early cursor crosses its column
+   * from, so DCDB's height test rejected it and nothing rescanned it. */
+  if (kind == 3 && (MmxWidePolicy_IsBossEncounter(object_id) || object_id == 0x37 ||
+                    object_id == 0x4d))
     return native_pass;
 
   return native_pass ? kind != 3 : kind == 3;

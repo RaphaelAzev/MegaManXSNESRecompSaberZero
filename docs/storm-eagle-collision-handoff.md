@@ -545,3 +545,21 @@ And in the dialogue screenshot, only one peer draws Dr. Light's hologram.
 
 Next: read the enemy spawner's edge windows (horizontal and vertical scan
 margins) for this room and compare with a solo arrival.
+
+## Update: capsule cause is widescreen spawn ownership, not co-op
+
+With widescreen spawning on, kind-3 records are allocated only by the early
+wide DC36/DCDB pass (anchor = native + margin + 32), and the native pass
+rejects kind 3 (`MmxWidePolicy_SpawnRecordAllowed`). The wide cursor crosses
+the helmet capsule's column (x 4032..4063) while the camera is still in the
+upper corridor (y ≈ 431). DCDB's height test rejects the record at y 720, and
+the column is never scanned horizontally again. The vertical scan at the
+corridor drop covers only to cam + 256 (3765 + 256 = 4021), short of the
+column. It finally spawned on a later vertical scroll at camera x 3840. A 4:3
+native anchor reaches the column only after the camera has dropped to 512.
+
+Fix: `$4D` (Dr. Light's capsule) joins bosses and streakers as native-pass-only
+kind-3 records, restoring the authored timing in every stage. Covered in
+`tests/mmx_wide_policy_test.c`. Assumes the capsule record is kind 3; it lands
+in the enemy pool, as kind 3 does. A workaround on older builds:
+`SNESRECOMP_WS_SPAWN=0`.
