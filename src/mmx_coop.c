@@ -713,6 +713,7 @@ static struct {
   uint16_t d,s,a,x,y,ra,rx,ry; uint8_t rp,rdb;
   uint32_t ret; /* JSL return address on the stack at entry */
   uint8_t carry; /* partner seat + 1 to carry at frame end, 0 for none */
+  uint16_t carry_d; /* the riding top's slot */
   uint16_t carry_x,carry_y; /* elevator position when the partner boarded */
 } lift;
 static uint32_t lift_stack_ret(const CpuState *cpu) {
@@ -735,7 +736,10 @@ static void lift_find_rtl(void) {
 /* Host side, between frames: hook registration never runs inside a hook. */
 void MmxCoopHostFrame(void) { if(enabled) lift_find_rtl(); }
 static bool lift_elevator(unsigned d) {
-  return d>=0xe68 && d<0x1228 && !((d-0xe68)%64) && g_ram[d] && g_ram[d+10]==0x59;
+  /* $59 is the top the players ride; $5A, 83 px below it, is the column
+   * whose sides block them. Both query $82:D7D7 for the current seat. */
+  return d>=0xe68 && d<0x1228 && !((d-0xe68)%64) && g_ram[d] &&
+      (g_ram[d+10]==0x59 || g_ram[d+10]==0x5a);
 }
 static void lift_reset(void) { lift.pass=0;lift.carry=0; }
 static void lift_close(void) {
@@ -776,7 +780,8 @@ static void lift_rtl_hook(CpuState *cpu,uint32_t pc) {
    * projected body, so it always gets the first seat's answer; a riding
    * partner is moved by the same amount in MmxCoopLiftCarry at frame end. */
   cpu->A=lift.ra;cpu->X=lift.rx;cpu->Y=lift.ry;cpu->DB=lift.rdb;cpu->P=lift.rp;cpu_p_to_mirrors(cpu);
-  if(second_rides) {
+  if(second_rides && g_ram[d+10]==0x59) {
+    lift.carry_d=(uint16_t)d;
     lift.carry=(uint8_t)((lift.first^1)+1);
     lift.carry_x=(uint16_t)(g_ram[d+5]|g_ram[d+6]<<8);
     lift.carry_y=(uint16_t)(g_ram[d+8]|g_ram[d+9]<<8);
@@ -788,7 +793,7 @@ static void lift_rtl_hook(CpuState *cpu,uint32_t pc) {
  * in the same frame instead of the partner catching up a frame late. */
 void MmxCoopLiftCarry(uint8_t *r) {
   if(!lift.carry) return;
-  unsigned seat=lift.carry-1u,d=lift.d;
+  unsigned seat=lift.carry-1u,d=lift.carry_d;
   lift.carry=0;
   if(!enabled || !state.initialized || !lift_elevator(d) ||
       state.players[seat].status!=MMX_COOP_ALIVE) return;

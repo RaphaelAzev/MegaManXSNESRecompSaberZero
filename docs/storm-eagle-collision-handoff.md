@@ -470,3 +470,17 @@ capture, `MmxCoopLiftCarry` moves the partner's body by however far the
 elevator moved since then (ignored above 16 px, as a warp). The caller now
 always gets the first seat's registers back. The state is host-only and
 cleared on reset and rollback.
+
+## Update: the column part ($5A) also queries $82:D7D7
+
+`coop-physics-20261004-130931-4015389-1.csv`: once the elevator reached the top
+(y 720) and stayed there, Zero could not climb its sides or get back on. A
+second part, slot 3 (`D = $0F28`, class `$5A`, same x, 83 px below the top),
+calls `$82:D7D7` every frame (792 calls), always for X only. It is the
+column's body. X stopped against its left side (x 1342 = el_x − 21), while Zero
+walked through it (x 1347–1392) and so had no wall to kick off. The getting hit
+was incidental: Zero had jumped off the right edge.
+
+Change: the `$82:D7D7` second-seat retry now covers class `$5A` as well as
+`$59`. The frame-end carry stays tied to the `$59` top (its own slot is now
+recorded, so a later `$5A` pass doesn't redirect it).
