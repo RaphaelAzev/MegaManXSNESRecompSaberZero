@@ -504,3 +504,62 @@ pushes him down out of its bottom edge (y 735→738→741) and stops pushing him
 sideways, while the column only starts pushing at y 742. That is a seam
 between the two parts' boxes in the native routine, not a co-op path. Needs a
 single-player comparison to confirm it is original behaviour.
+
+## Update: helmet capsule still absent (netplay, Zero fallen)
+
+`coop-physics-20261004-140424-4045650-1.csv` (+ `.previous.csv`, host frames
+10909..14624, online co-op, Unified cameras). Zero (seat 2) fell into a pit at
+host frame 11772 (y 1089) and stayed fallen. X reached the same spot as in the
+first report: camera fixed at 3840/512, X idling at x 3981..4071, y 655
+(frames ~13780..14624).
+
+- `$1F99` is `$18` on every row, so the helmet bit (`$01`) is clear: the
+  capsule's own "already owned" gate should not remove it.
+- The item pool held no capsule at any point in the room. In the whole
+  capture, only one item of class `$05` appears, for a single frame
+  (11023, x `$0750` y `$0288`, state `01 00 00`, while both players were
+  alive), far from the room. It vanished the next frame.
+- The enemy pool near the room holds only two stale class `$46` slots.
+
+So in both reports the capsule never spawns while Zero is fallen. That
+points at the world spawn (or the room's capsule trigger), not the `$81:E4C7`
+initializer. Still unknown: whether it spawns in co-op with both alive, and
+which pool and trigger the room's capsule uses. That needs the stage's object
+table / spawner code read against these coordinates.
+
+## Update: the helmet capsule is a camera-scroll spawn ($4D in the enemy pool)
+
+`coop-physics-20261004-141547-4053487-1.csv` (online, both alive): the capsule
+is enemy class `$4D` (slot 0, x `$0FC8` = 4040, y `$02D0` = 720), not an item.
+It did not spawn when the camera arrived (3765/431 → down to 3765/512 at X's
+drop, x 3894, then right to 3840/512 at frame 8064), although at 3840/512 the
+capsule sits inside the screen (200, 208). It spawned at frame 8432, on the
+first frame the camera scrolled down again (454 → 458) after a wall jump had
+pulled it up to y 454. So the spawn is edge-triggered by camera scrolling, and
+co-op's arrival path (shared camera = midpoint of the two bodies; Zero 2–6 px
+behind X) never crossed the trigger, presumably by a pixel or two of margin.
+The first report's camera path (Zero fallen) also never re-scrolled.
+
+Also seen: from the spawn onward the camera alternates 3840/3843 every frame.
+And in the dialogue screenshot, only one peer draws Dr. Light's hologram.
+
+Next: read the enemy spawner's edge windows (horizontal and vertical scan
+margins) for this room and compare with a solo arrival.
+
+## Update: capsule cause is widescreen spawn ownership, not co-op
+
+With widescreen spawning on, kind-3 records are allocated only by the early
+wide DC36/DCDB pass (anchor = native + margin + 32), and the native pass
+rejects kind 3 (`MmxWidePolicy_SpawnRecordAllowed`). The wide cursor crosses
+the helmet capsule's column (x 4032..4063) while the camera is still in the
+upper corridor (y ≈ 431). DCDB's height test rejects the record at y 720, and
+the column is never scanned horizontally again. The vertical scan at the
+corridor drop covers only to cam + 256 (3765 + 256 = 4021), short of the
+column. It finally spawned on a later vertical scroll at camera x 3840. A 4:3
+native anchor reaches the column only after the camera has dropped to 512.
+
+Fix: `$4D` (Dr. Light's capsule) joins bosses and streakers as native-pass-only
+kind-3 records, restoring the authored timing in every stage. Covered in
+`tests/mmx_wide_policy_test.c`. Assumes the capsule record is kind 3; it lands
+in the enemy pool, as kind 3 does. A workaround on older builds:
+`SNESRECOMP_WS_SPAWN=0`.
