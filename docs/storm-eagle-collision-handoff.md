@@ -394,3 +394,29 @@ re-enters with the registers the caller passed in (host-only, invalidated on
 state load and reset). The trace adds `contact-enter`/`contact-return` rows
 with D, registers and the enemy slot while an elevator part is live, so the
 next recording confirms which slot `$84:9B03` serves and with what inputs.
+
+## Update: the elevator collides inside its own update (2026-10-04)
+
+`coop-physics-20261004-115107-3972177-1.csv` (host frames 6115..6893, with the
+contact trace). Two findings settle where the elevator's player collision is:
+
+- The elevator's slot `$0E68` only ever appears at `$84:9B43` (with entry
+  registers identical for both seats); `$84:9B03` is never called for it. So
+  the `$84:9B03` per-seat rider latch never ran, and the contact-register
+  restore had nothing to fix for it. Both are reverted.
+- On a rising frame (host 6609) X moves 896 -> 895 **before** any contact pass,
+  between the object passes and the first `contact-enter`, and no contact call
+  moves him. The elevator carries and collides with the player inside its own
+  enemy update, once per frame, against whichever seat is current (normally X).
+  Co-op has no second-seat pass for that, which explains every observation:
+  Zero passes through it and cannot land while X is current, and works when X
+  warps out and Zero becomes the current seat.
+
+The fix belongs in a second-seat pass around the player-interaction routine
+the `$59` update calls. The ship lift's rider query is `$82:D7D7`, so the
+branch routes `$82:D7D7` through the interpreter when it is a generated entry
+(optional in `apply_coop_hooks.py`; a build without it only warns) and logs
+each call as `lift-contact` with D, registers, slot and JSL caller. ROM-side:
+find what enemy `$59`'s handler calls to test, carry and push the player, and
+give that call the same second-seat retry with per-seat `.2C` rider bits that
+`platform_hook` gives the items.
