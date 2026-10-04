@@ -141,3 +141,70 @@ rollback state, inputs and WRAM/co-op hashes for locating forks.
 Requested from the owner: one Storm Eagle run with the mod on, covering the
 column, the hovering platforms and the capsule, sending the physics CSV, its
 `.previous.csv` and both players' netplay CSVs.
+
+## Update: second recording (2.0.6-alpha, 2026-10-03 21:39)
+
+Inputs: `coop-physics-20261003-213919-424-1.csv` (host frames 8718..9372;
+its `.previous.csv` was not supplied), `coop-netplay-20261003-213919-424-1.csv`,
+`net_diag.jsonl` and the session log, all from the guest (slot 1).
+
+### The column is item `$0F`, called from `$83:F18F` / `$83:F198`
+
+The new `items` column shows twelve live slots, all class `$0F`, bobbing
+(state byte 1 cycling `02/06` and `04/08`). The new platform rows show
+`$83:F18F` calling `$84:AB81` (top contact) and `$83:F198` calling `$84:AB56`
+(side contact) for every column, for both seats.
+
+### Riding works, landing as the non-anchor seat does not
+
+- Frames 8718..8814: X and Zero (11 px apart) ride the same descending column
+  with `.2C = 03`. Both seats' `AB81` calls carry their rider by the column's
+  delta (Y 791 -> 792 for both), and both gain `$0BD4` bit 2.
+- 8838: X dies; anchor becomes Zero. Zero then lands on columns normally
+  (8856, 8964).
+- Owner observation: when X warps out, Zero immediately starts colliding with
+  the elevating column again. So the failure depends on co-op, not on Zero.
+
+### Probable cause, and the fix in this branch
+
+`platform_hook` opens the pass at `AB81`/`AB56` entry, and at the first seat's
+return it saves the return registers, projects the partner and redirects to
+the routine's entry. The partner therefore re-enters `AB81` with the first
+call's *return* `A/X/Y/P/DB`, not with the registers `$83:F18F` passed in.
+
+That fits every observation: an existing rider is carried from the item's own
+fields (works with any registers); a new landing goes through the full contact
+test, which would read the caller's inputs (fails as the second seat); with
+the partner absent or dead there is no second pass, so the remaining player
+gets the native call with the right inputs (works).
+
+The fix saves the entry registers when the pass opens and restores them before
+the second seat's redirect (host-only state, validated by item pointer and S,
+invalidated on state load; the 4,664-byte co-op ABI is unchanged). The return
+registers are still restored afterwards as before. The physics trace now
+records `regs` (`A:X:Y:P:DB`) on every hooked row, so the next recording shows
+both calls' inputs directly. **Not yet verified against the ROM.** Please
+confirm with a ROM-backed landing case: partner falling onto a `$0F` column
+and a `$10` flying platform while the anchor rides it and while it is empty.
+
+`contact_hook` (`$84:9B03/9B43`) uses the same re-entry pattern; it is left
+unchanged here.
+
+### Lag in this session
+
+- **Not TURN.** ICE selected `srflx` candidates on both ends (direct UDP via
+  STUN); all 368 `net_diag.jsonl` samples report `ice_path=srflx`, `turn=0`,
+  and no admit stalls (`stall_ms` 0).
+- **The simulation ran slow.** 9,365 ticks in 186 s, about 51 ticks/s (dips to
+  37..45 ticks/s from 78 s to 143 s). The owner's 2.0.5 session ran at about
+  58 ticks/s.
+- **Five rollback forks** (ticks 3977, 4086 `apu`, 4736 `wram`, 4807 `wram`,
+  7865 `wram`), each followed by 60 ticks of lockstep. Lockstep waits on every
+  remote input, which feels heavy.
+- **The diagnostics were expensive.** The physics trace started at tick ~3300,
+  just before the slow stretch, and filled a 32 MiB segment by frame 8718
+  (~16 platform rows a frame, hex-encoded with one `snprintf` per byte, under
+  Wine). The encoder is now table-based. A run with the mod off would isolate
+  the remaining cost.
+- To locate the forks, compare `wram_hash` in both players'
+  `coop-netplay-*.csv` around those ticks. Only the guest's file was supplied.

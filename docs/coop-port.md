@@ -856,3 +856,10 @@ state. Rollback re-simulates ticks, so the last row per tick is the kept one;
 the first tick whose hashes differ between the two players' files is where
 the simulations forked. The file is observation only and is not written
 outside netplay.
+
+Follow-up (2.0.6-alpha recording): riding a `$0F` column works for both seats,
+but a non-anchor seat cannot land on one, and Zero lands normally once X is
+gone. The second seat re-entered `$84:AB81/AB56` with the first call's return
+registers; it now re-enters with the registers the item routine passed in.
+The physics trace adds a `regs` column and a faster hex encoder. Details and
+the netplay lag analysis are in `docs/storm-eagle-collision-handoff.md`.
