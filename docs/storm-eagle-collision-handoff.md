@@ -616,3 +616,31 @@ before this work, with co-op on and off. If they don't, the generated
 
 Next for the lift lock: reproduce solo (co-op off), offline co-op, and on a
 build before this branch's elevator work (`8ce45fd`).
+
+## Update: boss-lift crash is the interpreted airship door state `$81:EC98`
+
+The owner ran the stage solo (co-op off): everything works, lift included.
+In co-op, with X fallen and Zero riding alone, both peers crash identically:
+
+    [brk] architectural BRK at $32:0005
+    edges: $80F3B4>$81EC50(aot_call) $000000>$81EC98(entry) $81EC9D>$828398(aot_call)
+           $80F3B4>$50D2ED(external) ...
+
+`$81:EC98` is a co-op `TARGETS` entry (door_hook's `$81:EC98` pass). With co-op
+enabled, the generated code hands it to the interpreter unconditionally.
+Interpreted during the lift ride, the airship door's `$81:EC98` state leaves
+the dispatcher at `$80:F3B4` jumping to `$50:D2ED`. The generated state (solo)
+does not. In both crash captures door_hook had nothing to do there (scene
+owner set, or partner fallen).
+
+Change: `tools/apply_coop_hooks.py` takes per-entry `POLICIES`. The doors
+(`$81:E70D`, `$81:EC98`) enter the interpreter only when door_hook can open a
+pass (`door_route`: co-op active, no menu/scene owner, no open door pass,
+partner alive, and for EC98 `$1F41` clear). Otherwise they run generated, as
+in single player. Ordinary co-op door crossings keep their existing path.
+Underlying interpreter/generated mismatch at `$81:EC98` not yet isolated.
+
+Canisters (owner retest, co-op, both players together): shots still pass
+through them with `$82:D7D7` interpreted again, so 9d4c006 was not their
+cause either. Solo is fine. Open; the physics trace has no shot/enemy-HP
+fields to show it yet.

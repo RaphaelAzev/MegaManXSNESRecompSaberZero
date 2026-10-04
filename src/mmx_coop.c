@@ -677,6 +677,18 @@ static bool scene_tick(uint8_t *r) {
   }
   return false;
 }
+/* The generated door states enter the interpreter (where door_hook runs) only
+ * when the hook can open its pass: same conditions as below. Interpreting
+ * $81:EC98 otherwise gains nothing, and during Storm Eagle's lift ride its
+ * interpreted run dispatches to garbage ($50:D2ED) while the generated one,
+ * as in single player, does not. */
+static bool door_route(bool ec98) {
+  return enabled && state.initialized && !state.menu_owner && !state.scene_owner &&
+      !state.door_pass && !(ec98 && g_ram[0x1f41]) &&
+      state.players[state.anchor^1].status==MMX_COOP_ALIVE;
+}
+bool MmxCoopDoorRouteE70D(const CpuState *cpu) { (void)cpu; return door_route(false); }
+bool MmxCoopDoorRouteEC98(const CpuState *cpu) { (void)cpu; return door_route(true); }
 static void door_hook(CpuState *cpu,uint32_t pc) {
   if(!enabled || !state.initialized || state.menu_owner) return;
   unsigned at=pc&65535;
