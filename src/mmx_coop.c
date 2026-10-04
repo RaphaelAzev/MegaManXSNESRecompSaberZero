@@ -137,8 +137,8 @@ static void diagnostic_pool(const uint8_t *r,unsigned base,unsigned stride,unsig
   for(unsigned i=0;i<slots && n<cap;++i) {
     const uint8_t *d=r+base+i*stride;
     if(!d[0]) continue;
-    int w=snprintf(out+n,cap-n,"%s%u:%02x:%04x:%04x:%02x%02x%02x:%02x",n?";":"",
-        i,d[10],word(d+5),word(d+8),d[0],d[1],d[2],d[0x2c]);
+    int w=snprintf(out+n,cap-n,"%s%u:%02x:%04x:%04x:%02x%02x%02x:%02x:%02x",n?";":"",
+        i,d[10],word(d+5),word(d+8),d[0],d[1],d[2],d[0x2c],d[0x27]);
     if(w<0) break;
     n+=(size_t)w;
   }
@@ -159,7 +159,7 @@ static const char kPhysicsHeader[]=
     "menu_owner,scene_owner,camera_x,camera_y,freeze_flags,pickup_owners,seat,"
     "character,status,input,x,y,previous_x,previous_y,vx,vy,hp,ground,"
     "terrain_above_feet,solid_above_feet,terrain_feet,solid_feet,body,scratch,"
-    "upgrades,caller,items,regs,slot,enemies\n";
+    "upgrades,caller,items,regs,slot,enemies,shots\n";
 static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,const char *event) {
   if (!diagnostic_enabled || !enabled || !state.initialized) return;
   FILE *out=diagnostic_ready(&physics_file,"physics",kPhysicsHeader);
@@ -167,7 +167,7 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
   bool frame_end=!strcmp(event,"frame-end");
   bool platform=!strncmp(event,"platform",8) || !strncmp(event,"contact",7) ||
       !strcmp(event,"lift-contact");
-  char flags[15],owners[33],scratch[129],items[16*32+1]={0},caller[12]={0},regs[24]={0},slot[64*2+1]={0},enemies[15*32+1]={0};
+  char flags[15],owners[33],scratch[129],items[16*36+1]={0},caller[12]={0},regs[24]={0},slot[64*2+1]={0},enemies[15*36+1]={0},shots[12*36+1]={0};
   diagnostic_hex(flags,r+0x1f13,7);
   diagnostic_hex(owners,state.pickup_owner,16);
   diagnostic_hex(scratch,r,64);
@@ -186,7 +186,9 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
     const uint8_t *e=r+0xe68+i*64;
     if(e[0] && e[10]>=0x58 && e[10]<=0x5a) elevator=true;
   }
-  if(frame_end || elevator) diagnostic_pool(r,0xe68,64,15,enemies,sizeof(enemies));
+  if(frame_end || elevator || platform) diagnostic_pool(r,0xe68,64,15,enemies,sizeof(enemies));
+  /* The current seat's shots ($0C98, twelve 32-byte slots). */
+  if(frame_end || platform) diagnostic_pool(r,0xc98,32,12,shots,sizeof(shots));
   /* The contacted item's whole 48-byte slot: a byte the first seat's call
    * writes and the second seat's call reads shows up between their rows. */
   if(platform && cpu && cpu->D>=0x1628 && cpu->D<0x1928 && !((cpu->D-0x1628)%48))
@@ -212,7 +214,7 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
     int count=fprintf(out,
         "%u,%d,%u,%s,%06x,%04x,%04x,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%04x,"
         "%u,%u,%u,%u,%s,%s,%u,%u,%u,%04x,%d,%d,%u,%u,%d,%d,%u,%u,%u,%u,%u,%u,%s,%s,"
-        "%02x,%s,%s,%s,%s,%s\n",
+        "%02x,%s,%s,%s,%s,%s,%s\n",
         sequence,snes_frame_counter,r[0xb9c],event,(unsigned)pc,
         cpu?(unsigned)cpu->D:0,cpu?(unsigned)cpu->S:0,r[0x1f7a],r[0xd1],r[0xd2],r[0xd3],
         state.current,state.anchor,state.controller_pass,state.object_pass,state.contact_pass,
@@ -221,7 +223,7 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
         (int16_t)word(b+0x1a),(int16_t)word(b+0x1c),b[0x27]&127,b[0x2b],
         MmxWeaponsTerrainClass(r,x,y+8),MmxWeaponsTerrainSolid(r,x,y+8,true,NULL),
         MmxWeaponsTerrainClass(r,x,y+16),MmxWeaponsTerrainSolid(r,x,y+16,true,NULL),body,scratch,
-        r[0x1f99],caller,items,regs,slot,enemies);
+        r[0x1f99],caller,items,regs,slot,enemies,shots);
     if(count<0) {diagnostic_close(&physics_file);physics_file.checked=true;return;}
     physics_file.bytes+=count;
   }
@@ -677,6 +679,18 @@ static bool scene_tick(uint8_t *r) {
   }
   return false;
 }
+/* The generated door states enter the interpreter (where door_hook runs) only
+ * when the hook can open its pass: same conditions as below. Interpreting
+ * $81:EC98 otherwise gains nothing, and during Storm Eagle's lift ride its
+ * interpreted run dispatches to garbage ($50:D2ED) while the generated one,
+ * as in single player, does not. */
+static bool door_route(bool ec98) {
+  return enabled && state.initialized && !state.menu_owner && !state.scene_owner &&
+      !state.door_pass && !(ec98 && g_ram[0x1f41]) &&
+      state.players[state.anchor^1].status==MMX_COOP_ALIVE;
+}
+bool MmxCoopDoorRouteE70D(const CpuState *cpu) { (void)cpu; return door_route(false); }
+bool MmxCoopDoorRouteEC98(const CpuState *cpu) { (void)cpu; return door_route(true); }
 static void door_hook(CpuState *cpu,uint32_t pc) {
   if(!enabled || !state.initialized || state.menu_owner) return;
   unsigned at=pc&65535;
@@ -914,12 +928,18 @@ static void slime_hook(CpuState *cpu,uint32_t pc) {
   }
 }
 /* Trace the enemy contact calls while a Storm Eagle elevator part lives. */
-static bool contact_traced(void) {
+static bool contact_traced(unsigned d,unsigned entry) {
   if(!diagnostic_enabled) return false;
   for(unsigned i=0;i<15;++i) {
     const uint8_t *e=g_ram+0xe68+i*64;
     if(e[0] && e[10]>=0x58 && e[10]<=0x5a) return true;
   }
+  /* Shot contact ($84:9B43) for an enemy near the screen while the current
+   * seat has a live shot: shows whether each seat's shots reach a target. */
+  if(entry!=0x9b43 || d<0xe68 || d>=0x1228 || (d-0xe68)%64 || !g_ram[d]) return false;
+  int dx=(int)word(g_ram+d+5)-(int)word(g_ram+0x1e4d);
+  if(dx<-64 || dx>320+64) return false;
+  for(unsigned i=0;i<12;++i) if(g_ram[0xc98+i*32]) return true;
   return false;
 }
 static void contact_hook(CpuState *cpu,uint32_t pc) {
@@ -930,10 +950,10 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
     unsigned bit=slime_bit(cpu->D);
     if(bit && g_ram[cpu->D+2]!=12 && g_ram[cpu->D+2]!=14) slime_owner(bit,state.current);
   }
+  if ((at == 0x9b03 || at == 0x9b43) && contact_traced(cpu->D,at))
+    diagnostic_event(g_ram,cpu,pc,"contact-enter");
   if(state.menu_owner || state.scene_owner ||
       (!state.contact_pass && state.players[state.current^1].status!=MMX_COOP_ALIVE)) return;
-  if ((at == 0x9b03 || at == 0x9b43) && contact_traced())
-    diagnostic_event(g_ram,cpu,pc,"contact-enter");
   if (at == 0x9b03 || at == 0x9b43) {
     if (!state.contact_pass) {
       MmxCoopViewsContactPlayer(state.current);
@@ -946,7 +966,7 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
   /* A helper may return through a shared RTL; only the owning guest call's
    * balanced return boundary can complete or restart this pass. */
   if (!state.contact_pass || cpu->S != state.contact_s || cpu->D != state.contact_d) return;
-  if (contact_traced()) diagnostic_event(g_ram,cpu,pc,"contact-return");
+  if (contact_traced(cpu->D,state.contact_entry)) diagnostic_event(g_ram,cpu,pc,"contact-return");
   unsigned slime=state.contact_entry==0x9b03 ? slime_bit(cpu->D) : 0;
   if (state.contact_pass == 1) {
     /* Slimer's puddle can capture one actor. Keep the actual contact seat

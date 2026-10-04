@@ -15,6 +15,12 @@ TARGETS |= VIEW_TARGETS
 # so co-op diagnostics can observe them; a build without one only warns.
 # $82:D7D7: enemy rider-contact query (ship lift; probably the E-tank elevator).
 OPTIONAL = {0x02d7d7}
+# Targets whose interpreter entry depends on the caller's state: the policy
+# receives the CPU and is asked at each generated entry. The airship door's
+# $81:EC98 state crashes when interpreted during the Storm Eagle lift ride
+# (dispatch to $50:D2ED), so the doors enter the interpreter only when
+# door_hook can open its pass.
+POLICIES = {0x01e70d: 'MmxCoopDoorRouteE70D', 0x01ec98: 'MmxCoopDoorRouteEC98'}
 
 
 def apply(text):
@@ -33,8 +39,13 @@ def apply(text):
             # supplied an inherited return context. Leaving it pending lets
             # an unrelated compiled child adopt the wrong frame and execute
             # the platform's continuation twice (Highway $82:E9ED).
-            policy='MmxCoopViewsOnline' if (native_pc & 0x7fffff) in VIEW_TARGETS else 'MmxCoopEnabled'
-            output.append(f'  {MARKER} {{ extern bool {policy}(void); if ({policy}()) {{ RecompReturn r = interp_tier_dispatch_bank_miss(cpu, 0x{native_pc:06x}u, _entry_s, _hrv); RecompStackPop(); return r; }} }}\n')
+            key = native_pc & 0x7fffff
+            if key in POLICIES:
+                decl, test = f'{POLICIES[key]}(const CpuState *)', f'{POLICIES[key]}(cpu)'
+            else:
+                policy = 'MmxCoopViewsOnline' if key in VIEW_TARGETS else 'MmxCoopEnabled'
+                decl, test = f'{policy}(void)', f'{policy}()'
+            output.append(f'  {MARKER} {{ extern bool {decl}; if ({test}) {{ RecompReturn r = interp_tier_dispatch_bank_miss(cpu, 0x{native_pc:06x}u, _entry_s, _hrv); RecompStackPop(); return r; }} }}\n')
             found.add(native_pc & 0x7fffff)
             native_pc = 0
     return ''.join(output), found
