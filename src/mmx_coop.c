@@ -750,10 +750,13 @@ static void lift_find_rtl(void) {
 /* Host side, between frames: hook registration never runs inside a hook. */
 void MmxCoopHostFrame(void) { if(enabled) lift_find_rtl(); }
 static bool lift_elevator(unsigned d) {
-  /* $59 is the top the players ride; $5A, 83 px below it, is the column
-   * whose sides block them. Both query $82:D7D7 for the current seat. */
-  return d>=0xe68 && d<0x1228 && !((d-0xe68)%64) && g_ram[d] &&
-      (g_ram[d+10]==0x59 || g_ram[d+10]==0x5a);
+  /* Solid enemies that query $82:D7D7 for the current seat only:
+   * Storm Eagle's E-tank elevator top ($59) and its column ($5A, 83 px
+   * below), and Flame Mammoth's scrap blocks dropped onto the conveyor
+   * ($2A, from $87:9C7B/9D89). */
+  if(d<0xe68 || d>=0x1228 || (d-0xe68)%64 || !g_ram[d]) return false;
+  unsigned c=g_ram[d+10];
+  return c==0x59 || c==0x5a || c==0x2a;
 }
 static void lift_reset(void) { lift.pass=0;lift.carry=0; }
 static void lift_close(void) {
