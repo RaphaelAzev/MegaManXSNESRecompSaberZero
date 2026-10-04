@@ -267,7 +267,7 @@ void MmxCoopDisable(void) { enabled = false; starting_character = 0; MmxCoopRese
 MmxCoopState MmxCoopGetState(void) { return state; }
 bool MmxCoopValidState(const MmxCoopState *s) {
   if (!s || s->initialized > 1 || s->current > 1 || s->controller_pass > 2 ||
-      s->reserved || s->object_reserved || s->object_pass > 2 ||
+      s->effect_return>2 || s->object_reserved || s->object_pass > 2 ||
       s->platform_riders > 3 || s->contact_pass > 2 || s->enrolled>1 ||
       s->select_hold>180 || s->select_armed>1 || s->stage_pending>2 || /* Accept older 3-second hold saves. */
       s->menu_owner>2 || s->menu_last>1 || s->p1_select_hold>90 || s->p1_select_armed>1 ||
@@ -1068,6 +1068,37 @@ static void death_hook(CpuState *cpu,uint32_t pc) {
       break;
   }
 }
+static void dash_effect_hook(CpuState *cpu,uint32_t pc) {
+  if(!enabled || !state.initialized) return;
+  unsigned at=pc&0x7fffff,d=cpu->D;
+  if(at==0x019c86) {
+    /* The allocator has written class $0B; its unused parent-pointer bytes
+     * keep ownership in WRAM, including save states and rollback snapshots. */
+    unsigned effect=cpu->X;
+    if(d==0xba8 && effect>=0x1928 && effect<0x1d08 && (effect&31)==8 &&
+        g_ram[effect] && g_ram[effect+10]==0x0b) {
+      g_ram[effect+12]=(uint8_t)(state.current+1);g_ram[effect+13]=0xd5;
+    }
+  } else if(at==0x00f478) {
+    if(d<0x1928 || d>=0x1d08 || (d&31)!=8 || g_ram[d+10]!=0x0b ||
+        g_ram[d+13]!=0xd5 || !g_ram[d+12] || g_ram[d+12]>2) return;
+    unsigned owner=g_ram[d+12]-1;
+    state.effect_return=(uint8_t)(state.current+1);
+    MmxCoopSelect(g_ram,owner);
+    /* The native updater reads the projected body's position/action. Dead
+     * or withdrawn players cannot leave a flame following the survivor. */
+    if(state.players[owner].status!=MMX_COOP_ALIVE || !(g_ram[0xbcf]&127) ||
+        state.players[owner].zero.swap_phase) {
+      memset(g_ram+d,0,4);g_ram[d+14]=g_ram[d+15]=0;
+      /* This is the outer JSR frame, before F478's JSL. Return via its RTS;
+       * jumping to the inner updater's RTL would consume the wrong stack. */
+      interp_bridge_pre_opcode_redirect(0x80f47c);
+    }
+  } else if(at==0x00f47c && state.effect_return) {
+    unsigned previous=state.effect_return-1;state.effect_return=0;
+    MmxCoopSelect(g_ram,previous);
+  }
+}
 static void controller_hook(CpuState *cpu, uint32_t pc) {
   if (!enabled) return;
   if(g_ram[0xd1]!=2 || g_ram[0xd2]!=4 || g_ram[0xd3]>=10) return;
@@ -1143,6 +1174,9 @@ void MmxCoopTraceFrame(const uint8_t *r) {
   if (g_mmx_coop_trace && enabled && state.initialized) MmxCoopTraceFrameEnd(&state,r);
 }
 void MmxCoopRegisterHooks(void) {
+  interp_bridge_set_pre_opcode_hook(0x819c86,dash_effect_hook);
+  interp_bridge_set_pre_opcode_hook(0x80f478,dash_effect_hook);
+  interp_bridge_set_pre_opcode_hook(0x80f47c,dash_effect_hook);
   interp_bridge_set_pre_opcode_hook(0x87c0ae,eagle_lift_hook);
   interp_bridge_set_pre_opcode_hook(0x87c0b4,eagle_lift_hook);
   const unsigned platforms[]={0x84ab81,0x84ac34,0x84ab56,0x84ab80};

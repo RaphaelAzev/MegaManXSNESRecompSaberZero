@@ -30,7 +30,7 @@ typedef struct MmxCoopState {
    * during an interpreter deadline. Guest cycles are never rolled back. */
   uint16_t return_a, return_x, return_y, return_s;
   uint8_t return_p, return_db;
-  uint8_t time_tick, reserved;
+  uint8_t time_tick, effect_return; /* Previous seat + 1 during a dash-effect update; formerly reserved. */
   uint16_t object_a, object_x, object_y, object_s, object_d, object_entry;
   uint8_t object_p, object_db, object_pass, object_reserved;
   uint16_t contact_a, contact_x, contact_y, contact_s, contact_d, contact_entry;
