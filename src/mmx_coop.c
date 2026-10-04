@@ -36,8 +36,6 @@ _Static_assert(sizeof(MmxCoopState) == 4664, "Co-op save ABI");
 static bool join_tick(uint8_t *r);
 /* Registers the item routine passed into $84:AB81/AB56; see platform_hook. */
 static struct {bool valid;uint16_t d,s,a,x,y;uint8_t p,db;} platform_entry;
-/* Same for $84:9B03/9B43; see contact_hook. */
-static struct {bool valid;uint16_t d,s,a,x,y;uint8_t p,db;} contact_regs;
 /* --coop-trace: observation only; see mmx_coop_trace.h. */
 static void trace_event(unsigned kind,uint32_t pc,unsigned a,unsigned b,const CpuState *cpu) {
   MmxCoopTraceEvent e={(uint32_t)snes_frame_counter,pc,cpu?cpu->S:0,cpu?cpu->D:0,
@@ -167,7 +165,8 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
   FILE *out=diagnostic_ready(&physics_file,"physics",kPhysicsHeader);
   if (!out) return;
   bool frame_end=!strcmp(event,"frame-end");
-  bool platform=!strncmp(event,"platform",8) || !strncmp(event,"contact",7);
+  bool platform=!strncmp(event,"platform",8) || !strncmp(event,"contact",7) ||
+      !strcmp(event,"lift-contact");
   char flags[15],owners[33],scratch[129],items[16*32+1]={0},caller[12]={0},regs[24]={0},slot[64*2+1]={0},enemies[15*32+1]={0};
   diagnostic_hex(flags,r+0x1f13,7);
   diagnostic_hex(owners,state.pickup_owner,16);
@@ -195,7 +194,8 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
   else if(platform && cpu && cpu->D>=0xe68 && cpu->D<0x1228 && !((cpu->D-0xe68)%64))
     diagnostic_hex(slot,r+cpu->D,64);
   /* Entry to a long subroutine: the JSL return address names the item code. */
-  if(platform && cpu && !strcmp(event,"platform-enter") && cpu->S<0x1ffd)
+  if(platform && cpu && (!strcmp(event,"platform-enter") || !strcmp(event,"lift-contact")) &&
+      cpu->S<0x1ffd)
     snprintf(caller,sizeof(caller),"%06x",
         (unsigned)((r[cpu->S+1]|r[cpu->S+2]<<8|r[cpu->S+3]<<16)+1)&0xffffff);
   unsigned sequence=++diagnostic_sequence;
@@ -282,7 +282,7 @@ bool MmxCoopTransitionActive(void) {
 
 bool MmxCoopEnabled(void) { return enabled; }
 void MmxCoopReset(void) {
-  platform_entry.valid=false;contact_regs.valid=false;
+  platform_entry.valid=false;
   MmxCoopViewsResetWorld();
   MmxWeaponsCameraQuery(enabled?weapon_view:NULL);
   platform_entry.valid=false;
@@ -303,7 +303,7 @@ void MmxCoopDisable(void) { enabled = false; starting_character = 0; MmxCoopRese
 MmxCoopState MmxCoopGetState(void) { return state; }
 bool MmxCoopValidState(const MmxCoopState *s) {
   if (!s || s->initialized > 1 || s->current > 1 || s->controller_pass > 2 ||
-      s->effect_return>2 || (s->elevator_riders & 12) || s->object_pass > 2 ||
+      s->effect_return>2 || s->object_reserved || s->object_pass > 2 ||
       s->platform_riders > 3 || s->contact_pass > 2 || s->enrolled>1 ||
       s->select_hold>180 || s->select_armed>1 || s->stage_pending>2 || /* Accept older 3-second hold saves. */
       s->menu_owner>2 || s->menu_last>1 || s->p1_select_hold>90 || s->p1_select_armed>1 ||
@@ -331,7 +331,7 @@ bool MmxCoopValidState(const MmxCoopState *s) {
   return s->players[0].character != s->players[1].character;
 }
 void MmxCoopSetState(const MmxCoopState *s) {
-  platform_entry.valid=false;contact_regs.valid=false;
+  platform_entry.valid=false;
   if (enabled && MmxCoopValidState(s)) {
     state = *s;
     MmxWeaponsPartnerCombat(state.initialized ? &state.players[state.current^1].combat : NULL);
@@ -695,6 +695,12 @@ static void door_hook(CpuState *cpu,uint32_t pc) {
     interp_bridge_pre_opcode_redirect((pc&0xff0000)|state.door_entry);
   } else {MmxCoopSelect(g_ram,state.anchor);state.door_pass=0;}
 }
+/* Observation only: every $82:D7D7 rider-contact query with its D, registers,
+ * slot and JSL caller, for the E-tank elevator investigation. Fires only when
+ * tools/apply_coop_hooks.py found the routine as a generated entry. */
+static void lift_contact_trace(CpuState *cpu,uint32_t pc) {
+  if(enabled && state.initialized) diagnostic_event(g_ram,cpu,pc,"lift-contact");
+}
 static void eagle_lift_hook(CpuState *cpu,uint32_t pc) {
   if(!enabled || !state.initialized || state.menu_owner || state.scene_owner) return;
   unsigned d=cpu->D;
@@ -799,42 +805,6 @@ static void slime_hook(CpuState *cpu,uint32_t pc) {
     else {g_ram[d+2]=16;g_ram[d+3]=0;} /* Native release/pop animation. */
   }
 }
-/* Storm Eagle's E-tank elevator (enemy $59) latches one rider in .2C bit 0
- * (bit 7 stays set) from inside its $84:9B03 body contact. Co-op retries that
- * contact for the second seat, so the first boarder owned the latch: the other
- * player fell through it, or, boarding first, both fought over it each frame.
- * Keep one rider bit per seat, show each seat's call only its own bit, and
- * leave "anyone riding" in bit 0 for the elevator's own ascent logic. */
-static bool elevator_slot(unsigned d) {
-  return d>=0xe68 && d<0x1228 && !((d-0xe68)%64) && g_ram[d]!=0 && g_ram[d+10]==0x59;
-}
-static unsigned elevator_riders(unsigned d) {
-  unsigned tag=(d-0xe68)/64+1;
-  if((state.elevator_riders>>4)!=tag) /* first two-seat pass on this elevator */
-    /* Only reached as a pass opens: credit an existing latch to the pass's
-     * first seat (contact_player), the one whose call sees it first. */
-    state.elevator_riders=(uint8_t)(tag<<4|((g_ram[d+0x2c]&1)<<state.current));
-  return state.elevator_riders&3;
-}
-/* At pass start bit 0 is what the last pass left ("anyone riding") unless the
- * elevator itself cleared it; then nobody rides, whatever was stored. */
-static void elevator_sync(unsigned d) {
-  if(!(g_ram[d+0x2c]&1) && (state.elevator_riders>>4)==(d-0xe68)/64+1)
-    state.elevator_riders&=0xf0;
-}
-static void elevator_project(unsigned d) {
-  g_ram[d+0x2c]=(uint8_t)((g_ram[d+0x2c]&~1u)|((elevator_riders(d)>>state.current)&1));
-}
-static void elevator_record(unsigned d) {
-  unsigned riders=elevator_riders(d),bit=1u<<state.current;
-  riders=(riders&~bit)|((g_ram[d+0x2c]&1)?bit:0);
-  state.elevator_riders=(uint8_t)((state.elevator_riders&0xf0)|riders);
-}
-/* Registers the caller passed into $84:9B03/9B43 for the first seat. The
- * partner's retry re-enters with these, as platform_hook does: re-entering
- * with the first call's return values left solid objects (Storm Eagle's
- * elevator) without collision for the second seat, while ordinary damage
- * contact, which reads only the enemy slot, still worked. Host-only. */
 /* Trace the enemy contact calls while a Storm Eagle elevator part lives. */
 static bool contact_traced(void) {
   if(!diagnostic_enabled) return false;
@@ -858,15 +828,10 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
     diagnostic_event(g_ram,cpu,pc,"contact-enter");
   if (at == 0x9b03 || at == 0x9b43) {
     if (!state.contact_pass) {
-      cpu_mirrors_to_p(cpu);
-      contact_regs.valid=true;contact_regs.d=cpu->D;contact_regs.s=cpu->S;
-      contact_regs.a=cpu->A;contact_regs.x=cpu->X;contact_regs.y=cpu->Y;
-      contact_regs.p=cpu->P;contact_regs.db=cpu->DB;
       MmxCoopViewsContactPlayer(state.current);
       state.contact_pass = 1; state.contact_entry = (uint16_t)at;
       state.contact_s = cpu->S; state.contact_d = cpu->D;
       TRACE(CONTACT,pc,0,0,cpu);
-      if (at==0x9b03 && elevator_slot(cpu->D)) {elevator_sync(cpu->D);elevator_project(cpu->D);}
     }
     return;
   }
@@ -887,21 +852,10 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
     state.contact_a = cpu->A; state.contact_x = cpu->X; state.contact_y = cpu->Y;
     state.contact_db = cpu->DB; cpu_mirrors_to_p(cpu); state.contact_p = cpu->P;
     TRACE(CONTACT,pc,1,cpu->A,cpu);
-    bool elevator=state.contact_entry==0x9b03 && elevator_slot(cpu->D);
-    if (elevator) elevator_record(cpu->D);
     MmxCoopSelect(g_ram,MmxCoopViewsGetWorldState().contact_player^1); state.contact_pass = 2;
-    if (elevator) elevator_project(cpu->D);
-    if (contact_regs.valid && contact_regs.d==cpu->D && contact_regs.s==cpu->S) {
-      cpu->A=contact_regs.a;cpu->X=contact_regs.x;cpu->Y=contact_regs.y;
-      cpu->DB=contact_regs.db;cpu->P=contact_regs.p;cpu_p_to_mirrors(cpu);
-    }
     interp_bridge_pre_opcode_redirect(0x840000 | state.contact_entry);
   } else {
     if(slime && (cpu->A&255)) slime_owner(slime,state.current);
-    if(state.contact_entry==0x9b03 && elevator_slot(cpu->D)) {
-      elevator_record(cpu->D);
-      g_ram[cpu->D+0x2c]=(uint8_t)((g_ram[cpu->D+0x2c]&~1u)|((state.elevator_riders&3)!=0));
-    }
     TRACE(CONTACT,pc,2,cpu->A,cpu);
     bool first_hit = (state.contact_a & 255) != 0;
     bool no_second_hit = !(cpu->A & 255);
@@ -910,7 +864,7 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
       cpu->A = state.contact_a; cpu->X = state.contact_x; cpu->Y = state.contact_y;
       cpu->DB = state.contact_db; cpu->P = state.contact_p; cpu_p_to_mirrors(cpu);
     }
-    state.contact_pass = 0; contact_regs.valid = false;
+    state.contact_pass = 0;
     /* A fatal contact can happen immediately before a boss tests player HP
      * and permanently disables its own damage receiver. Finish both contact
      * passes, then expose the living world actor to that native continuation. */
@@ -1370,6 +1324,7 @@ void MmxCoopRegisterHooks(void) {
   interp_bridge_set_pre_opcode_hook(0x80f47c,dash_effect_hook);
   interp_bridge_set_pre_opcode_hook(0x87c0ae,eagle_lift_hook);
   interp_bridge_set_pre_opcode_hook(0x87c0b4,eagle_lift_hook);
+  interp_bridge_set_pre_opcode_hook(0x82d7d7,lift_contact_trace);
   const unsigned platforms[]={0x84ab81,0x84ac34,0x84ab56,0x84ab80};
   for(unsigned i=0;i<sizeof(platforms)/sizeof(platforms[0]);++i)
     interp_bridge_set_pre_opcode_hook(platforms[i],platform_hook);
