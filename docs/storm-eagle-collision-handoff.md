@@ -594,13 +594,3 @@ This capture differs: the partner lands one frame after the scene began.
 Also reported, without trace coverage: in the ship interior (end-of-stage
 ladder tube and the entry port before the boss door), player sprites show on
 the wrong layer or disappear (custom renderer, `new_renderer=1`).
-
-Owner follow-up: the lockup also happens with X fallen and Zero riding alone,
-where neither scene transport nor any partner retry runs. Riding together,
-Zero beams out and X's graphics break before the lock. So landing order is
-not the trigger. The one branch change that touched this lift was routing the
-generated `$82:D7D7` through the interpreter for every caller while co-op is
-on (the lift queries it every frame). That routing is now gated per call by
-`MmxCoopLiftRoute(cpu)`: only `$59/$5A` slots enter the interpreter, and
-`$48` and every other caller run the generated code as on `main` before this
-work. If the lock persists, it predates this branch.
