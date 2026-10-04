@@ -26,7 +26,7 @@ static bool parasitic_target(const uint8_t *r,unsigned enemy,int kind) {
       r[enemy+1]!=2 || !(r[enemy+0x27]&127) || r[enemy+0x28]>=6 ||
       (kind>=0 && r[enemy+10]!=kind) || !word(r+enemy+0x20) ||
       !MmxWeaponsEnemyActive(r,enemy,1)) return false;
-  int x=(int)word(r+enemy+5)-(int)word(r+0x1e4d),y=(int)word(r+enemy+8)-(int)word(r+0x1e50);
+  int x=(int)word(r+enemy+5)-(int)camera_x(r),y=(int)word(r+enemy+8)-(int)camera_y(r);
   return x>=0 && x<256 && y>=0 && y<224;
 }
 static unsigned parasitic_search(const uint8_t *r,const MmxWeaponShot *s) {

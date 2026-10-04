@@ -13,6 +13,8 @@ static void check(int ok, const char *what) {
 }
 static void frame(unsigned input) {
   MmxBeforeFrame();
+  if(getenv("MMX_COOP_VIEWS_TEST") || getenv("MMX_COOP_VIEWS_BOOT_TEST") ||
+      getenv("MMX_COOP_ONLINE_FIXTURE")) MmxCoopViewsSetOnline(true);
   RtlRunFrame(input | (1u << 30));
   CaptureSimulationFrame(1);
 }
@@ -1939,6 +1941,9 @@ int main(int argc, char **argv) {
   uint8 *start = malloc(cap), *expected = malloc(cap), *actual = malloc(cap);
   const char *zero_assets = getenv("MMX_ZERO_TEST_ASSETS");
   const char *zero_title = getenv("MMX_ZERO_TITLE_FIXTURE");
+  if(getenv("MMX_COOP_VIEWS_BOOT_TEST")) {
+    coop_view_boot_checks(zero_assets,start,expected,actual,cap);return 0;
+  }
   if (getenv("MMX_GRAPHICS_PACING_TEST")) {
     graphics_pacing_checks(zero_assets, start, expected, actual, cap);
     return 0;

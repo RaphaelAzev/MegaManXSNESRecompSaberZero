@@ -1,6 +1,7 @@
 """Two real MMX lobby/runtime peers; all state lives in a private test directory."""
 import argparse
 import os
+import random
 from pathlib import Path
 import shutil
 import subprocess
@@ -15,6 +16,10 @@ def main():
     p.add_argument("--x3", type=Path, required=True)
     p.add_argument("--fixture", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--independent-views", action="store_true",
+                   help="Separate the online actors and capture each peer's local view")
+    p.add_argument("--unified-views", action="store_true",
+                   help="Test host-selected Unified cameras and shared screen tether")
     args = p.parse_args()
     for key in ("exe", "rom", "x2", "x3", "fixture"):
         setattr(args, key, getattr(args, key).resolve(strict=True))
@@ -23,6 +28,7 @@ def main():
     catalog = Path(__file__).resolve().parents[1] / "mods/preloaded/packages"
     processes = []
     logs = []
+    port = random.randrange(20000, 50000)
     try:
         for seat in range(2):
             work = root / f"peer{seat}"
@@ -35,11 +41,16 @@ def main():
             env = {k: v for k, v in os.environ.items()
                    if not k.startswith(("MMX_", "SNES_NET", "SNES_RB_", "RNET_"))}
             env.update(MMX_NETPLAY_PAIR_ROOT=str(work / "catalog"),
+                       MMX_NETPLAY_PAIR_PORT=str(port),
                        MMX_COOP_X2_ROM=str(args.x2), MMX_COOP_X3_ROM=str(args.x3),
                        MMX_ZERO_TEST_FIXTURE=str(args.fixture),
                        SNESRECOMP_LLE_BOUNCE="1")
             if seat:
                 env["MMX_NETPLAY_PAIR_GUEST"] = "1"
+            if args.independent_views or args.unified_views:
+                env["MMX_NETPLAY_VIEWS_TEST"] = "1"
+            if args.unified_views:
+                env["MMX_NETPLAY_UNIFIED_TEST"] = "1"
             log = (work / "pair.log").open("wb")
             logs.append(log)
             processes.append(subprocess.Popen([str(peer_exe), str(args.rom)], cwd=work,

@@ -8,7 +8,9 @@ MARKER = '/*MMX-COOP*/'
 TARGETS = {0x01812e, 0x048fca, 0x0280b4, 0xd2bd, 0xd3dd, 0xd3fa, 0xd43a, 0xd457,
            0x049b03, 0x049b43, 0x019d67, 0xde9d, 0xdebc, 0xe543, 0x049c0e,
            0x018a5c, 0x018a92, 0x018add, 0x9d9e, 0x01e70d, 0x01ec98, 0xd48d,
-           0xde40, 0x03a8bd, 0x04ab81, 0x04ab56, 0x07c07a}
+           0xde40, 0x03a8bd, 0x04ab81, 0x04ab56, 0x07c07a, 0xf478, 0x019c70}
+VIEW_TARGETS={0x00dc36,0x00dcdb,0x02806e,0x02808f,0x00d4aa}
+TARGETS |= VIEW_TARGETS
 
 
 def apply(text):
@@ -27,7 +29,8 @@ def apply(text):
             # supplied an inherited return context. Leaving it pending lets
             # an unrelated compiled child adopt the wrong frame and execute
             # the platform's continuation twice (Highway $82:E9ED).
-            output.append(f'  {MARKER} {{ extern bool MmxCoopEnabled(void); if (MmxCoopEnabled()) {{ RecompReturn r = interp_tier_dispatch_bank_miss(cpu, 0x{native_pc:06x}u, _entry_s, _hrv); RecompStackPop(); return r; }} }}\n')
+            policy='MmxCoopViewsOnline' if (native_pc & 0x7fffff) in VIEW_TARGETS else 'MmxCoopEnabled'
+            output.append(f'  {MARKER} {{ extern bool {policy}(void); if ({policy}()) {{ RecompReturn r = interp_tier_dispatch_bank_miss(cpu, 0x{native_pc:06x}u, _entry_s, _hrv); RecompStackPop(); return r; }} }}\n')
             found.add(native_pc & 0x7fffff)
             native_pc = 0
     return ''.join(output), found

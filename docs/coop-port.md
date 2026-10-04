@@ -835,6 +835,33 @@ This is not yet reproduced against a ROM; no behavior change is included.
 Full frame data and hypotheses for the ROM-side investigation are in
 `docs/storm-eagle-collision-handoff.md`.
 
+### Dash effect graphics and ownership (2026-10-03)
+
+Tracking: `beads-8wg.1.90`. `$81:9C70` allocates small effect `$0B`;
+`$81:F0D7` selects arrangement group `$60`. Its flame and ignition sparks
+borrow tiles from the native dash body uploads. Co-op Zero suppresses body
+DMA at `$84:8FCB`, while X continues uploading unrelated poses into the same
+`$6000/$6100` pages. This made X's body fragments appear behind Zero.
+
+The renderer decodes the original X1 five-byte DMA lists from `$85:A597`
+privately: body pose `$37` supplies the startup sparks (effect pose `$04`),
+and `$38` supplies the steady flame/sparks. Native arrangements, palette 1,
+timing and guest VRAM remain unchanged; no generated artwork is used.
+
+The effect also read the global projected player's position/action. The
+allocator hook at `$81:9C86` now records the creator in unused effect parent
+bytes `.0C` (seat + 1) and `.0D` (`$D5` marker). `$80:F478` projects that
+creator while the original `$81:F0D7` updater runs; `$80:F47C` restores its caller's
+seat. Withdrawn/dead owners retire their effects. The previous seat is saved
+in `MmxCoopState.effect_return`, replacing an existing reserved byte without
+changing the save layout. Ownership lives in WRAM and participates in saves
+and rollback. Unmarked effects from older snapshots retain their old binding
+until their short native animation expires.
+
+Private ROM checks use `MMX_COOP_DASH_TEST=1` to cover both rosters and world
+anchors, effect lifetime, deterministic replay and dash pixels while X's
+live body CHR is overwritten. Source ROMs, fixtures and captures stay local.
+
 The Co-op physics diagnostics mod now records what that needs:
 
 - `upgrades`: `$1F99` armor bits on every row (capsules hide once collected).

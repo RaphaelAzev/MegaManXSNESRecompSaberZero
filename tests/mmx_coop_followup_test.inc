@@ -1,6 +1,98 @@
 /* Focused ROM regressions for the owner's October 3 playtest. */
 #include "mmx_render_assets.h"
 static void modern_image(const char *suffix);
+static void coop_followup_fixture(const char *fixture);
+static void coop_dash_effect_checks(const char *fixture,uint8_t *start,uint8_t *expected,
+                                    uint8_t *actual,size_t cap) {
+  bool custom=g_mmx_custom_renderer;g_mmx_custom_renderer=true;
+  for(unsigned roster=0;roster<2;++roster) for(unsigned anchor=0;anchor<2;++anchor) {
+    fprintf(stderr,"dash case roster=%u anchor=%u\n",roster,anchor);
+    coop_followup_fixture(fixture);g_ram[0x1f99]|=8;
+    MmxCoopState s=MmxCoopGetState();
+    for(unsigned seat=0;seat<2;++seat) {
+      s.players[seat].character=(uint8_t)(roster^seat);
+      s.players[seat].zero.active_x=!(roster^seat);
+    }
+    MmxZeroSetState(s.players[s.current].zero);
+    MmxCoopSetState(&s);MmxCoopSelect(g_ram,1);
+    g_ram[0xc11]=0;g_ram[0xbce]=127;MmxCoopCapture(g_ram);
+    MmxCoopSelect(g_ram,anchor);s=MmxCoopGetState();s.anchor=(uint8_t)anchor;MmxCoopSetState(&s);
+    coop_frames(120,0,SNES_PAD_Y);
+    MmxCoopSelect(g_ram,1);g_ram[0xc11]=0;MmxCoopCapture(g_ram);MmxCoopSelect(g_ram,anchor);
+    unsigned effects=0;
+    for(unsigned t=0;t<18;++t) {
+      coop_frames(1,0,SNES_PAD_Y|SNES_PAD_A|SNES_PAD_LEFT);s=MmxCoopGetState();
+      if(t==1) fprintf(stderr,"dash action=%02x ground=%02x held=%02x facing=%02x\n",s.players[1].body[2],s.players[1].body[0x5e],s.players[1].body[0x36],s.players[1].body[0x69]);
+      check(s.current==anchor && !s.effect_return,"dash update restores its caller's player projection");
+      for(unsigned d=0x1928;d<0x1d08;d+=32) if(g_ram[d] && g_ram[d+10]==0x0b) {
+        check(g_ram[d+12]==2 && g_ram[d+13]==0xd5,"native dash effect records its creator in WRAM");
+        unsigned x=eagle_word(g_ram+d+5);
+        check(x<=coop_x(&s.players[1])+64 && x>=coop_x(&s.players[1]),"dash ignition stays at the creator's start position");
+        const MmxSpriteAsset *art=MmxRenderAssetsObjectSprite(g_ram,d,0x60);
+        check(art && !art->live_tiles && art->live_colors,"dash uses isolated original ROM art and native palette");
+        ++effects;
+      }
+      if(t==8) {
+        size_t n=RtlSaveSnapshotToMemory(start,cap);check(n,"mid-dash snapshot saves");
+        coop_frames(4,0,SNES_PAD_Y|SNES_PAD_A|SNES_PAD_LEFT);
+        size_t en=RtlSaveSnapshotToMemory(expected,cap);
+        check(RtlLoadSnapshotFromMemory(start,n),"mid-dash snapshot restores");
+        coop_frames(4,0,SNES_PAD_Y|SNES_PAD_A|SNES_PAD_LEFT);
+        same(expected,en,actual,RtlSaveSnapshotToMemory(actual,cap),"owned dash effects replay deterministically");
+        if(!roster) {char suffix[48];snprintf(suffix,sizeof(suffix),"dash-fixed-anchor-%u",anchor);modern_image(suffix);}
+      }
+    }
+    check(effects>=4,"partner dash effects remain visible while the other actor idles");
+    coop_frames(45,0,0);
+    for(unsigned d=0x1928;d<0x1d08;d+=32)
+      check(!g_ram[d] || g_ram[d+10]!=0x0b,"native dash effects end with their creator's dash");
+  }
+  for(unsigned owner=0;owner<2;++owner) {
+    coop_followup_fixture(fixture);MmxCoopSelect(g_ram,owner^1);
+    MmxCoopState s=MmxCoopGetState();s.anchor=(uint8_t)(owner^1);
+    s.players[owner].status=MMX_COOP_ABSENT;MmxCoopSetState(&s);
+    uint8_t *effect=g_ram+0x1928;memset(effect,0,32);
+    effect[0]=0x81;effect[10]=0x0b;effect[12]=(uint8_t)(owner+1);effect[13]=0xd5;
+    coop_frames(2,0,0);s=MmxCoopGetState();
+    check(!effect[0] && s.current==(owner^1) && !s.effect_return,
+        "withdrawn player's dash retires without damaging the survivor's return stack");
+  }
+  /* Submit only the flame, then corrupt X's entire live body page. This
+   * covers the screenshot's three-piece trail as well as the ignition sparks. */
+  coop_followup_fixture(fixture);MmxCoopState isolated=MmxCoopGetState();
+  g_mmx_custom_renderer=true;
+  g_ppu->inidisp=15;g_ppu->screenEnabled[0]|=16;
+  for(unsigned seat=0;seat<2;++seat) {
+    memset(isolated.players[seat].body,0,sizeof(isolated.players[seat].body));
+    memset(isolated.players[seat].auxiliaries,0,sizeof(isolated.players[seat].auxiliaries));
+    isolated.players[seat].status=MMX_COOP_FALLEN;
+  }
+  memset(g_ram+0xba8,0,0x90);memset(g_ram+0xc38,0,0x1e0);
+  memset(g_ram+0xe7,0,6);g_ram[0xe7]=1;eagle_putword(g_ram+0x920,0x1928);
+  uint8_t *q=g_ram+0x1928;memset(q,0,32);q[0]=0x81;q[1]=1;q[10]=0x0b;q[14]=0x81;q[17]=0x22;q[22]=0x60;
+  eagle_putword(q+5,eagle_word(g_ram+0x1e4d)+128);
+  eagle_putword(q+8,eagle_word(g_ram+0x1e50)+128);
+  uint16_t saved[1024];memcpy(saved,g_ppu->vram+0x6000,sizeof(saved));
+  uint8_t dma=g_ram[0xa3];g_ram[0xa3]=0;
+  for(unsigned slot=0;slot<128;++slot) g_ppu->oam[slot*2]=0xf000;
+  bool expanded=g_mmx_expanded_sprites;g_mmx_expanded_sprites=true;
+  const unsigned poses[]={0,1,4,5,6};
+  static uint32_t original[256*224],poisoned[256*224],empty[256*224];
+  for(unsigned i=0;i<sizeof(poses)/sizeof(poses[0]);++i) {
+    q[23]=(uint8_t)poses[i];
+    MmxRendererReset();MmxRendererObserveObject(g_ram,0x1928);MmxRendererLatchSprites();
+    memcpy(g_ppu->vram+0x6000,saved,sizeof(saved));coop_x_graphics_draw(original,&isolated);
+    memset(g_ppu->vram+0x6000,0xa5,sizeof(saved));coop_x_graphics_draw(poisoned,&isolated);
+    check(!memcmp(original,poisoned,sizeof(original)),"dash pixels survive arbitrary X body uploads");
+    if(getenv("MMX_ZERO_TEST_CAPTURE")) zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),".dash-layout.cap");
+    MmxRendererReset();g_ram[0xe7]=0;MmxRendererObserveObject(g_ram,0x1928);MmxRendererLatchSprites();
+    coop_x_graphics_draw(empty,&isolated);g_ram[0xe7]=1;
+    unsigned visible=0;for(unsigned p=0;p<256*224;++p) visible+=original[p]!=empty[p];
+    check(visible>5,"dash CHR regression includes visible original effect pixels");
+  }
+  memcpy(g_ppu->vram+0x6000,saved,sizeof(saved));g_ram[0xa3]=dma;g_mmx_expanded_sprites=expanded;
+  MmxCoopDisable();g_mmx_custom_renderer=custom;puts("MMX CO-OP DASH EFFECT CHECKS PASSED");
+}
 static void coop_followup_fixture(const char *fixture) {
   MmxCoopDisable();check(RtlLoadSnapshot(fixture),"follow-up fixture loads");
   MmxZeroSetModern(false);check(MmxCoopEnable(0),"follow-up co-op enables");

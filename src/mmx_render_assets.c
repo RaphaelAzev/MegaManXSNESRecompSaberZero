@@ -13,6 +13,8 @@ static MmxSpriteAsset teleport_x[8];
 static bool teleport_x_ready;
 static MmxSpriteAsset death_orbs;
 static bool death_orbs_ready;
+static MmxSpriteAsset dash_effect[2];
+static bool dash_effect_ready[2];
 static MmxSpriteAsset charged_buster[2][21];
 static bool charged_buster_ready[2][21];
 static MmxSpriteAsset player_weapons[9][2];
@@ -36,6 +38,7 @@ void MmxRenderAssetsSetRom(const uint8_t *bytes, size_t size) {
   captive_zero_ready = 0;
   teleport_x_ready = false;
   death_orbs_ready = false;
+  memset(dash_effect_ready,0,sizeof(dash_effect_ready));
   memset(charged_buster_ready,0,sizeof(charged_buster_ready));
   memset(player_weapon_ready,0,sizeof(player_weapon_ready));
 }
@@ -298,6 +301,33 @@ const MmxSpriteAsset *MmxRenderAssetsSprite(unsigned stage, unsigned section, un
 const MmxSpriteAsset *MmxRenderAssetsObjectSprite(const uint8_t ram[0x20000],
                                                 unsigned object, unsigned animation) {
   if (!ram) return NULL;
+  /* $81:9C70/$81:F0D7 use the dash body's flame/spark tiles ($0D..0F),
+   * not a world resource. A co-op X can replace that page while Zero dashes.
+   * Decode the original startup/steady dash uploads privately; retain native
+   * effect timing, arrangements and palette 1. No guest VRAM is changed. */
+  if (object >= 0x1928 && object < 0x1d08 && (object & 31) == 8 &&
+      ram[object + 10] == 0x0b && animation == 0x60) {
+    unsigned startup=(ram[object+0x17]&127)==4;
+    if (!dash_effect_ready[startup]) {
+      if (!rom) return NULL;
+      MmxSpriteAsset *art=&dash_effect[startup];memset(art,0,sizeof(*art));
+      unsigned pose=startup ? 0x37 : 0x38;
+      size_t list=0x2a597+word(0x2a597+pose*2);
+      bool complete=false;
+      for(unsigned n=0;n<32;++n,list+=5) {
+        if(!range(list,5)) return NULL;
+        unsigned count=rom[list]*16;if(!count) {complete=true;break;}
+        int dest=(rom[list+4]&127)*512-0xc000;
+        size_t source=lorom(word(list+1)|(rom[list+3]<<16));
+        if(!range(source,count) || dest<0 || dest+count>sizeof(art->tiles)) return NULL;
+        memcpy(art->tiles+dest,rom+source,count);
+        if(rom[list+4]&128) {complete=true;break;}
+      }
+      if(!complete) return NULL;
+      art->attributes=2;art->live_colors=true;dash_effect_ready[startup]=true;
+    }
+    return &dash_effect[startup];
+  }
   /* $81:8AD6 loads the death circles into X's body pages at $6000/$6100.
    * A living co-op X keeps uploading his animation there. Decode the same
    * literal ROM DMA list privately so either seat's death retains its art. */

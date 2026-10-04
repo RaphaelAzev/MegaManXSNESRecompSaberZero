@@ -6,6 +6,7 @@
 #include "mmx_weapon_combat.h"
 #include "mmx_coop.h"
 #include "mmx_coop_trace.h"
+#include "mmx_coop_view.h"
 #include "variables.h"
 #include "common_cpu_infra.h"
 #include "snes/snes.h"
@@ -362,7 +363,7 @@ void mmx_host_yield(uint8_t countdown) {
 #include "snes/saveload.h"
 
 #define MMX_SAV_CHUNK_MAGIC   0x4D4D5854u  /* "MMXT" */
-#define MMX_SAV_CHUNK_VERSION 15u /* Per-player Modern Zero movement/combat. */
+#define MMX_SAV_CHUNK_VERSION 16u /* Independent-view placement history. */
 
 typedef struct MmxSavChunk {
   uint32_t magic, version;
@@ -396,6 +397,7 @@ static MmxZeroState g_load_zero;
 static MmxWeaponsState g_load_weapons;
 static MmxWeaponCombatState g_load_weapon_combat;
 static MmxCoopState g_load_coop;
+static MmxCoopViewWorldState g_load_views;
 
 void MmxStateSaveExtra(struct SaveLoadInfo *sli) {
   MmxSavChunk c;
@@ -437,6 +439,10 @@ void MmxStateSaveExtra(struct SaveLoadInfo *sli) {
     MmxCoopState coop = MmxCoopGetState();
     sli->func(sli, &coop, sizeof(coop));
   }
+  if(c.version>=16) {
+    MmxCoopViewWorldState views=MmxCoopViewsGetWorldState();
+    sli->func(sli,&views,sizeof(views));
+  }
 }
 
 void MmxStateLoadExtra(struct SaveLoadInfo *sli, uint32_t version) {
@@ -447,6 +453,7 @@ void MmxStateLoadExtra(struct SaveLoadInfo *sli, uint32_t version) {
   memset(&g_load_weapons, 0, sizeof(g_load_weapons));
   memset(&g_load_weapon_combat, 0, sizeof(g_load_weapon_combat));
   memset(&g_load_coop, 0, sizeof(g_load_coop));
+  memset(&g_load_views,0,sizeof(g_load_views));
   memset(&g_load_chunk, 0, sizeof(g_load_chunk));
   sli->func(sli, &g_load_chunk, sizeof(g_load_chunk));
   if (g_load_chunk.magic == MMX_SAV_CHUNK_MAGIC &&
@@ -505,6 +512,15 @@ void MmxStateLoadExtra(struct SaveLoadInfo *sli, uint32_t version) {
       if (!MmxCoopValidState(&g_load_coop)) g_load_chunk_ok = 0;
     } else g_load_chunk_ok = 0;
   }
+  if(g_load_complete && g_load_chunk.version>=16) {
+    if(RtlStateBytesRemaining(sli)>=sizeof(g_load_views)) {
+      sli->func(sli,&g_load_views,sizeof(g_load_views));
+      if(g_load_views.initialized>1 || g_load_views.stage>12 ||
+          g_load_views.actor_return>2 || g_load_views.contact_player>1) g_load_chunk_ok=0;
+    } else g_load_chunk_ok=0;
+  }
+  if(g_load_complete && g_load_chunk.version<16)
+    g_load_views.contact_player=g_load_coop.anchor;
   if (!g_load_chunk_ok)
     fprintf(stderr, "[mmx_state] load: bad game chunk (magic=%08x ver=%u)\n",
             g_load_chunk.magic, g_load_chunk.version);
@@ -536,6 +552,7 @@ void MmxOnStateLoaded(uint32_t version) {
   MmxWeaponsSetCombatState(g_load_weapon_combat);
   if (complete && g_load_chunk.version >= 14) MmxCoopSetState(&g_load_coop);
   else MmxCoopReset();
+  MmxCoopViewsSetWorldState(&g_load_views);
   MmxCoopTraceStateLoaded();
   if (version < 5 || !g_load_chunk_ok) {
     /* Legacy v4 save: no chunk, no rebuild — preserve the historical
@@ -1292,6 +1309,65 @@ void MmxWsCollectiblePass(CpuState *cpu) {
   s_ws_spawn_pass.active = s_ws_spawn_pass.visible_rescan = 0;
   memcpy(g_ram + dpage, scratch, sizeof(scratch));
   *cpu = saved;
+}
+
+static bool s_view_spawn_pass;
+static bool MmxViewRecordWanted(unsigned flag,const MmxCoopState *coop) {
+  if(flag<0xfa00 || flag>0xfffb) return false;
+  unsigned rec=g_ram[flag+3]|g_ram[flag+4]<<8;
+  const uint8_t *desc=RomPtr(0x850000u|rec);
+  if(rec<0x8000) return false;
+  int x=(desc[5]|desc[6]<<8)&0x1fff,y=(desc[1]|desc[2]<<8)&0x1fff;
+  unsigned kind=desc[0]&15;
+  if(kind>3) return false;
+  /* Mechanisms, doors and encounter controllers retain their native entry
+   * timing around a player. Ordinary enemies get the usual spawn hysteresis. */
+  bool scripted=kind!=3 || MmxWidePolicy_IsBossEncounter(desc[3]);
+  return MmxCoopViewContains(g_ram,coop,x,y,scripted?0:64,scripted?256:320,
+      scripted?32:64,scripted?256:288,scripted?0:g_mmx_custom_view.extra);
+}
+bool MmxCoopViewsSpawnAllowed(uint16_t dp) {
+  unsigned flag=g_ram[dp+0x14]|g_ram[dp+0x15]<<8;
+  if(MmxCoopViewsSeen(flag)) return false;
+  if(!s_view_spawn_pass) return true;
+  MmxCoopState coop=MmxCoopGetState();
+  return MmxViewRecordWanted(flag,&coop);
+}
+void MmxCoopViewsSpawnWorld(CpuState *cpu) {
+  MmxCoopState coop=MmxCoopGetState();
+  MmxCoopViewsBeginStage(g_ram[0x1f7a]);
+  CpuState saved=*cpu;
+  uint16_t dp=cpu->D;
+  uint8_t scratch[32];memcpy(scratch,g_ram+dp,sizeof(scratch));
+  /* The native table has one pointer per 32px column. Flag entries are
+   * (live byte, Y word, ROM descriptor word). Reuse DCDB's allocator and
+   * collected flags, with a separate rollback-owned visit bit preventing
+   * killed enemies from reappearing during a stationary rescan. */
+  for(unsigned col=0;col<256;++col) {
+    unsigned table=0xf800+col*2;
+    unsigned first=g_ram[table]|g_ram[table+1]<<8;
+    unsigned end=g_ram[table+2]|g_ram[table+3]<<8;
+    if(first<0xfa02 || end>0xfffc || end<first || (end-first)%5) continue;
+    bool spawn=false;
+    for(unsigned flag=first;flag<end;flag+=5) {
+      bool wanted=MmxViewRecordWanted(flag,&coop);
+      if(!wanted) MmxCoopViewsMark(flag,false);
+      else if(g_ram[flag]) MmxCoopViewsMark(flag,true);
+      else if(!MmxCoopViewsSeen(flag)) spawn=true;
+    }
+    if(!spawn) continue;
+    /* Candidate filtering is per rectangle/record, so a wide vertical scan
+     * cannot load the empty gap between two separated players. */
+    memset(g_ram+dp,0,6);
+    g_ram[dp]=(uint8_t)(col*32);g_ram[dp+1]=(uint8_t)(col*32>>8);
+    g_ram[dp+4]=0xff;g_ram[dp+5]=0x1f;
+    s_view_spawn_pass=true;*cpu=saved;
+    (void)cpu_dispatch_call_pc(cpu,0x00dcdbu,0x00dc8fu);
+    s_view_spawn_pass=false;
+    for(unsigned flag=first;flag<end;flag+=5)
+      if(g_ram[flag] && MmxViewRecordWanted(flag,&coop)) MmxCoopViewsMark(flag,true);
+  }
+  memcpy(g_ram+dp,scratch,sizeof(scratch));*cpu=saved;
 }
 
 /* bank_82_B964 controls the intro-stage helicopter's entrance. Vanilla

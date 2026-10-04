@@ -189,8 +189,8 @@ static void silk_tick(uint8_t *r,unsigned d,MmxWeaponShot *s) {
   if (!s->active) { retire(r,d);return; }
   if (s->age<65535) ++s->age; /* A held cluster has no source time limit. */
   if ((!s->charged || s->muzzle_pose>=2) &&
-      (s->x/256 < (int)word(r+0x1e4d)-32 || s->x/256 >= (int)word(r+0x1e4d)+288 ||
-       s->y/256 < (int)word(r+0x1e50)-16 || s->y/256 >= (int)word(r+0x1e50)+240)) {
+      (s->x/256 < (int)camera_x(r)-32 || s->x/256 >= (int)camera_x(r)+288 ||
+       s->y/256 < (int)camera_y(r)-16 || s->y/256 >= (int)camera_y(r)+240)) {
     retire(r,d);return;
   }
   native_object(r,d,s);

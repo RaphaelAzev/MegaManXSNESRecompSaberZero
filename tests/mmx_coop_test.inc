@@ -599,6 +599,11 @@ static void coop_scene_checks(const char *fixture,uint8_t *start,uint8_t *expect
         ++departures;
         check(s.scene_owner==driver+1 && s.anchor==driver,"touching player owns native door walk");
       }
+      if(s.scene_phase && MmxCoopViewsOnline()) {
+        MmxCoopView owner=MmxCoopViewForPlayer(g_ram,&s,driver),partner=MmxCoopViewForPlayer(g_ram,&s,driver^1);
+        check(owner.x==partner.x && owner.y==partner.y && partner.player==driver,
+            "scripted transport immediately gives both seats the owner's camera");
+      }
       if(s.scene_phase==2 && last_phase==1 && departures==expected_doors) coop_image(driver,"door-hidden");
       if(s.scene_phase==3 && last_phase==2) {
         check(s.players[driver^1].status==MMX_COOP_ALIVE &&
@@ -1035,6 +1040,7 @@ static void coop_slime_checks(const char *fixture,uint8_t *start,uint8_t *expect
 
 #include "mmx_coop_eagle_test.inc"
 #include "mmx_coop_followup_test.inc"
+#include "mmx_coop_views_test.inc"
 static void coop_checks(const char *assets, const char *fixture,
                         uint8_t *start, uint8_t *expected, uint8_t *actual, size_t cap) {
   check(assets && fixture, "co-op check requires private source assets and a grounded fixture");
@@ -1043,6 +1049,8 @@ static void coop_checks(const char *assets, const char *fixture,
   const char *x2=getenv("MMX_COOP_X2_ASSETS"),*x3=getenv("MMX_COOP_X3_ASSETS");
   if (x2 && x3) check(MmxWeaponsLoadPage(x2,1) && MmxWeaponsLoadPage(x3,2),"private original weapon source packs load");
   if(getenv("MMX_COOP_FOLLOWUP_TEST")) {coop_followup_checks(fixture);return;}
+  if(getenv("MMX_COOP_VIEWS_TEST")) {coop_view_checks(fixture,start,expected,actual,cap);return;}
+  if(getenv("MMX_COOP_DASH_TEST")) {coop_dash_effect_checks(fixture,start,expected,actual,cap);return;}
   if(getenv("MMX_COOP_GRAPHICS_FOLLOWUP_TEST")) {coop_graphics_followup_checks(fixture);return;}
   if(getenv("MMX_COOP_STORM_LANDING_TEST")) {coop_storm_landing_checks(fixture);return;}
   if(getenv("MMX_COOP_EAGLE_FIXTURES")) {coop_eagle_checks(getenv("MMX_COOP_EAGLE_FIXTURES"),start,expected,actual,cap);return;}

@@ -106,7 +106,7 @@ static void triad_release(uint8_t *r,MmxWeaponShot *s) {
 }
 static bool triad_visible(const uint8_t *r,const MmxWeaponShot *s) {
   const MmxWeaponPose *p=MmxWeaponsPose(2,3,11,s->pose);
-  int x=(s->x>>8)-(int)word(r+0x1e4d),y=(s->y>>8)-(int)word(r+0x1e50);
+  int x=(s->x>>8)-(int)camera_x(r),y=(s->y>>8)-(int)camera_y(r);
   if (!p) return false;
   int left=(s->facing&64)?-p->left-p->width:p->left;
   int top=(s->facing&128)?-p->top-p->height:p->top;
@@ -176,7 +176,7 @@ static void triad_tick(uint8_t *r,unsigned d,MmxWeaponShot *s) {
   if (s->charged) {
     if (!s->variant) {
       if (r[0xbaa]==14 || r[0xbaa]==12 || r[0x1f0c]) {retire(r,d);return;}
-      s->x=((int)word(r+0x1e4d)+128)*256;s->y=((int)word(r+0x1e50)+112)*256;
+      s->x=((int)camera_x(r)+128)*256;s->y=((int)camera_y(r)+112)*256;
       if (!s->muzzle_pose) {
         if (!(r[0xbd3]&4)) {triad_native(r,d,s);return;}
         s->muzzle_pose=1;r[0xbaa]=0;r[0xbab]=2;putword(r+0xbc2,0);putword(r+0xbc4,0);
