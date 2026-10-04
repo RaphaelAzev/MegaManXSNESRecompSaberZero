@@ -295,3 +295,31 @@ enemy slot as `slot:class:x:y:state0state1state2:2C`), which identifies the
 elevator's class and whether `.2C` latches its rider. ROM-side: find that
 class's handler and the contact routine it calls, then extend the existing
 second-seat contact pattern to it.
+
+## Update: the elevator is enemy $59 (2026-10-04)
+
+`coop-physics-20261004-015640-3707798-1.csv` (host frames 4714..5345) names
+it. The new `enemies` column shows enemy slot 0, class `$59`, at X `$553`
+(1363), the X that X rides at. Its `.2C` reads `$80` while empty and `$81`
+from host frame 5138, when X boards; it then rises from Y `$399` while Zero
+stays on the floor at Y 911. Classes `$5A` and `$58` share X `$553` and move
+with it (parts of the same structure).
+
+`$0BD4` bit 2 plus a bit-0 rider latch in `.2C` is exactly what `$84:AB81`
+produces for the items, so the elevator very likely calls the same helpers
+from the enemy pool. `platform_hook` and the platform trace rows both
+filtered on the item pool, which is why no calls were logged and no second
+seat pass ran.
+
+Change in this branch: enemy-pool slots of classes `$58..$5A` now get the same
+second-seat `$84:AB81/AB56` pass as the item platforms. Per-seat riders stay
+in `.2C` bits 0/1 with the object's other bits (the elevator's bit 7)
+preserved; for these classes a seat rode when the helper left bit 0 set. Item
+platforms behave exactly as before. Platform trace rows now cover the enemy
+pool too, with the 64-byte enemy slot in `slot`.
+
+Open questions for the ROM: confirm `$59` (and `$58/$5A`) call `$84:AB81/AB56`;
+check whether the elevator's ascent tests `.2C` bit 0 only. If it does, Zero
+riding alone sets bit 1, not bit 0, so he collides and stands on it but may
+not start the ascent; the fix would be to report "any rider" in bit 0 for this
+class.
