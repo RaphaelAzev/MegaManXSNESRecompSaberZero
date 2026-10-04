@@ -741,6 +741,11 @@ static bool lift_elevator(unsigned d) {
   return d>=0xe68 && d<0x1228 && !((d-0xe68)%64) && g_ram[d] &&
       (g_ram[d+10]==0x59 || g_ram[d+10]==0x5a);
 }
+/* Generated $82:D7D7 enters the interpreter only for the elevator's parts, so
+ * the lift hooks can see it; every other caller keeps the generated path. */
+bool MmxCoopLiftRoute(const CpuState *cpu) {
+  return enabled && !MMX_VARIANT_JP && cpu && lift_elevator(cpu->D);
+}
 static void lift_reset(void) { lift.pass=0;lift.carry=0; }
 static void lift_close(void) {
   if(lift.pass==2) MmxCoopSelect(g_ram,lift.first);
