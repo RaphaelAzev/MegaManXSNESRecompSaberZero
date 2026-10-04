@@ -748,6 +748,9 @@ static void lift_close(void) {
 }
 static void lift_contact_hook(CpuState *cpu,uint32_t pc) {
   if(!enabled || !state.initialized) return;
+  /* The next part to query (the $5A column) runs after the top has moved:
+   * carry the partner now, before the camera and sprites read him. */
+  if(lift.carry && cpu->D!=lift.carry_d) MmxCoopLiftCarry(g_ram);
   diagnostic_event(g_ram,cpu,pc,"lift-contact");
   if(lift.pass || state.menu_owner || state.scene_owner || !lift_elevator(cpu->D) ||
       state.players[state.current^1].status!=MMX_COOP_ALIVE ||
@@ -778,7 +781,7 @@ static void lift_rtl_hook(CpuState *cpu,uint32_t pc) {
   MmxCoopSelect(g_ram,lift.first);
   /* The handler moves the elevator after the query and carries only the
    * projected body, so it always gets the first seat's answer; a riding
-   * partner is moved by the same amount in MmxCoopLiftCarry at frame end. */
+   * partner is moved by the same amount in MmxCoopLiftCarry. */
   cpu->A=lift.ra;cpu->X=lift.rx;cpu->Y=lift.ry;cpu->DB=lift.rdb;cpu->P=lift.rp;cpu_p_to_mirrors(cpu);
   if(second_rides && g_ram[d+10]==0x59) {
     lift.carry_d=(uint16_t)d;
@@ -788,9 +791,10 @@ static void lift_rtl_hook(CpuState *cpu,uint32_t pc) {
   }
   lift.pass=0;
 }
-/* End of frame, before capture: shift the partner who answered the elevator's
- * query by however far the elevator moved after it, so both riders track it
- * in the same frame instead of the partner catching up a frame late. */
+/* Shift the partner who answered the elevator's query by however far the
+ * elevator moved after it, so both riders track it in the same frame. Runs at
+ * the column's query (before the shared camera averages the two bodies and
+ * the sprites are drawn), at the camera, and at frame end as a fallback. */
 void MmxCoopLiftCarry(uint8_t *r) {
   if(!lift.carry) return;
   unsigned seat=lift.carry-1u,d=lift.carry_d;
@@ -1157,6 +1161,7 @@ static void constrain_player(uint8_t *r) {
   if (limited!=x) {putword(r+0xbad,(unsigned)limited);r[0xbac]=0;putword(r+0xbc2,0);}
 }
 static void camera_hook(CpuState *cpu,uint32_t pc) {
+  MmxCoopLiftCarry(g_ram);
   if ((pc&65535)==0xe12d) {
     /* The native bottom-camera clamp checks only $0BB0. Apply that same
      * signed feet threshold to the other actor before the original check.
