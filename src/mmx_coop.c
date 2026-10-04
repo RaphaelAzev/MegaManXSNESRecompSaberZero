@@ -290,7 +290,7 @@ void MmxCoopDisable(void) { enabled = false; starting_character = 0; MmxCoopRese
 MmxCoopState MmxCoopGetState(void) { return state; }
 bool MmxCoopValidState(const MmxCoopState *s) {
   if (!s || s->initialized > 1 || s->current > 1 || s->controller_pass > 2 ||
-      s->reserved || s->object_reserved || s->object_pass > 2 ||
+      s->reserved || (s->elevator_riders & 12) || s->object_pass > 2 ||
       s->platform_riders > 3 || s->contact_pass > 2 || s->enrolled>1 ||
       s->select_hold>180 || s->select_armed>1 || s->stage_pending>2 || /* Accept older 3-second hold saves. */
       s->menu_owner>2 || s->menu_last>1 || s->p1_select_hold>90 || s->p1_select_armed>1 ||
@@ -784,6 +784,35 @@ static void slime_hook(CpuState *cpu,uint32_t pc) {
     else {g_ram[d+2]=16;g_ram[d+3]=0;} /* Native release/pop animation. */
   }
 }
+/* Storm Eagle's E-tank elevator (enemy $59) latches one rider in .2C bit 0
+ * (bit 7 stays set) from inside its $84:9B03 body contact. Co-op retries that
+ * contact for the second seat, so the first boarder owned the latch: the other
+ * player fell through it, or, boarding first, both fought over it each frame.
+ * Keep one rider bit per seat, show each seat's call only its own bit, and
+ * leave "anyone riding" in bit 0 for the elevator's own ascent logic. */
+static bool elevator_slot(unsigned d) {
+  return d>=0xe68 && d<0x1228 && !((d-0xe68)%64) && g_ram[d]!=0 && g_ram[d+10]==0x59;
+}
+static unsigned elevator_riders(unsigned d) {
+  unsigned tag=(d-0xe68)/64+1;
+  if((state.elevator_riders>>4)!=tag) /* first two-seat pass on this elevator */
+    state.elevator_riders=(uint8_t)(tag<<4|((g_ram[d+0x2c]&1)<<state.anchor));
+  return state.elevator_riders&3;
+}
+/* At pass start bit 0 is what the last pass left ("anyone riding") unless the
+ * elevator itself cleared it; then nobody rides, whatever was stored. */
+static void elevator_sync(unsigned d) {
+  if(!(g_ram[d+0x2c]&1) && (state.elevator_riders>>4)==(d-0xe68)/64+1)
+    state.elevator_riders&=0xf0;
+}
+static void elevator_project(unsigned d) {
+  g_ram[d+0x2c]=(uint8_t)((g_ram[d+0x2c]&~1u)|((elevator_riders(d)>>state.current)&1));
+}
+static void elevator_record(unsigned d) {
+  unsigned riders=elevator_riders(d),bit=1u<<state.current;
+  riders=(riders&~bit)|((g_ram[d+0x2c]&1)?bit:0);
+  state.elevator_riders=(uint8_t)((state.elevator_riders&0xf0)|riders);
+}
 static void contact_hook(CpuState *cpu,uint32_t pc) {
   if (!enabled || !state.initialized) return;
   unsigned at = pc & 65535;
@@ -798,6 +827,7 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
       state.contact_pass = 1; state.contact_entry = (uint16_t)at;
       state.contact_s = cpu->S; state.contact_d = cpu->D;
       TRACE(CONTACT,pc,0,0,cpu);
+      if (at==0x9b03 && elevator_slot(cpu->D)) {elevator_sync(cpu->D);elevator_project(cpu->D);}
     }
     return;
   }
@@ -817,10 +847,17 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
     state.contact_a = cpu->A; state.contact_x = cpu->X; state.contact_y = cpu->Y;
     state.contact_db = cpu->DB; cpu_mirrors_to_p(cpu); state.contact_p = cpu->P;
     TRACE(CONTACT,pc,1,cpu->A,cpu);
+    bool elevator=state.contact_entry==0x9b03 && elevator_slot(cpu->D);
+    if (elevator) elevator_record(cpu->D);
     MmxCoopSelect(g_ram,state.anchor^1); state.contact_pass = 2;
+    if (elevator) elevator_project(cpu->D);
     interp_bridge_pre_opcode_redirect(0x840000 | state.contact_entry);
   } else {
     if(slime && (cpu->A&255)) slime_owner(slime,state.current);
+    if(state.contact_entry==0x9b03 && elevator_slot(cpu->D)) {
+      elevator_record(cpu->D);
+      g_ram[cpu->D+0x2c]=(uint8_t)((g_ram[cpu->D+0x2c]&~1u)|((state.elevator_riders&3)!=0));
+    }
     TRACE(CONTACT,pc,2,cpu->A,cpu);
     bool first_hit = (state.contact_a & 255) != 0;
     bool no_second_hit = !(cpu->A & 255);
