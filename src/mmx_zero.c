@@ -278,6 +278,12 @@ const uint8_t *MmxZeroPose(const uint8_t ram[0x20000], const MmxZeroState *s) {
    * group $66 below owns the subsequent fall, kneeling and dialogue. */
   if (ram[0x1f7a] == 0 && ram[0xbaa] == 0x32 && ram[0xbab] <= 2)
     return poses + (size_t)0x33 * MMX_ZERO_WIDTH * MMX_ZERO_HEIGHT;
+  /* Action $36 is the ground-shock stun (Flame Mammoth's stomp). Its X1
+   * frames $4B/$4C have no X3 movement record, so the native frame index
+   * named an empty pose and Zero vanished for the whole stun. Hold the same
+   * staggered hurt pose. */
+  if (ram[0xbaa] == 0x36)
+    return poses + (size_t)0x33 * MMX_ZERO_WIDTH * MMX_ZERO_HEIGHT;
   /* X1's Vile capture/rescue uses group $66, not the normal body group.
    * Its five poses are kneeling/blinking, then suspended. Use original X3
    * kneeling/hurt art instead of reading these as running/firing sequences. */
