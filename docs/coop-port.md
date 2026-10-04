@@ -866,12 +866,22 @@ The Co-op physics diagnostics mod now records what that needs:
 
 - `upgrades`: `$1F99` armor bits on every row (capsules hide once collected).
 - `items` on frame-end and platform rows: every live item slot as
-  `slot:class:x:y:state0..2:2C`, separated by `;`. Platforms are classes
+  `slot:class:x:y:state0..2:2C:27`, separated by `;`. Platforms are classes
   `$0E..$10/$13/$14`; `.2C` is the rider latch.
 - `platform-enter` / `platform-return` rows at `$84:AB81`/`$84:AB56` and their
   returns for any item slot, before co-op switches seats, with the current
   seat's body. `caller` on entry rows is the JSL return address, naming the
   item routine that asked for contact.
+- `enemies` on frame-end and contact rows: every live enemy slot as
+  `slot:class:x:y:state0..2:2C:hp` (`hp` is `.27`).
+- `shots` on frame-end and contact rows: the current seat's live shots
+  (`$0C98`, twelve 32-byte slots) in the same `slot:class:x:y:state:2C:27`
+  form. Frame-end rows describe the world-anchor seat.
+- `contact-enter` / `contact-return` rows at `$84:9B43` (shot contact) for
+  each enemy within the widened screen while the current seat has a live shot.
+  Rows come from both seats' passes (`current`), with the enemy's whole slot
+  in `slot` and the routine's registers. They show whether a seat's shots
+  reach a target such as Storm Eagle's flame canisters, and what A returns.
 
 During netplay the mod also writes `logs/coop-netplay-*.csv`, sharing the
 physics file's name stem and its two-segment 32 MiB limit. One row per
