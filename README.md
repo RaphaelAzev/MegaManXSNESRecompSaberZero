@@ -189,6 +189,20 @@ cmake --build build-dev --target MegaManXSNESRecomp
 ctest --test-dir build-dev --output-on-failure
 ```
 
+On Linux, `tools/build-linux-dev.sh` wraps those steps for a `build-linux/`
+tree. It checks the toolchain, submodules, SDL3/SDL2 and generated code first
+and prints the fix for anything missing, reuses the build directory, and can
+stage and verify a ROM, regenerate, run the unit tests or launch the game:
+
+```bash
+bash tools/build-linux-dev.sh --rom /path/to/mmx.sfc   # first build from a ROM
+bash tools/build-linux-dev.sh                           # incremental rebuild
+bash tools/build-linux-dev.sh --tests --run             # test, then play
+bash tools/build-linux-dev.sh --setup-host --tests      # ROM-free, like CI
+```
+
+See `bash tools/build-linux-dev.sh --help` for every option.
+
 On macOS, add `-DCMAKE_PREFIX_PATH="$(brew --prefix)"` if CMake does not find
 Homebrew's SDL3. Apple Silicon contributors running an x86_64-translated shell
 must also configure with `-DCMAKE_OSX_ARCHITECTURES=arm64`. Packaging helpers
