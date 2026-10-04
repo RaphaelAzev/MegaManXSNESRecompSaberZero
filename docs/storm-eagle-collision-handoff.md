@@ -374,3 +374,310 @@ in `.2C` bit 0; afterwards bit 0 holds "anyone riding" for the elevator's own
 ascent logic, and bit 7 is untouched. If the elevator clears bit 0 itself,
 both stored riders are cleared at the next pass. Not yet verified against
 the ROM; please confirm `$59`'s rider contact is inside `$84:9B03`.
+
+## Update: the second seat's $84:9B03 call gets the wrong registers (2026-10-04)
+
+`coop-physics-20261004-114220-3966696-1.csv` (host frames 3673..5158, merged
+`main` with the per-seat elevator latch). Seat-switch labels confirm X is
+carried by the elevator (Y 845 -> 843, host frame 4961) inside
+`contact_hook`'s first pass (the select at the `contact_player^1` line), so
+the elevator's collision runs in `$84:9B03`. But Zero, standing inside the
+elevator's footprint at X 1367 / Y 911, is never pushed out, including frames
+4800..4833 when nobody rides it (`.2C` `$80`). So the latch is not the whole
+story: the second seat's `$84:9B03` call never collides with the elevator.
+
+`contact_hook` redirected the partner's retry to `$84:9B03` with the first
+call's return registers, the same flaw fixed earlier for `platform_hook`.
+Ordinary enemy damage contact evidently reads only the enemy slot, but a solid
+object's collision appears to use the caller's inputs. The partner now
+re-enters with the registers the caller passed in (host-only, invalidated on
+state load and reset). The trace adds `contact-enter`/`contact-return` rows
+with D, registers and the enemy slot while an elevator part is live, so the
+next recording confirms which slot `$84:9B03` serves and with what inputs.
+
+## Update: the elevator collides inside its own update (2026-10-04)
+
+`coop-physics-20261004-115107-3972177-1.csv` (host frames 6115..6893, with the
+contact trace). Two findings settle where the elevator's player collision is:
+
+- The elevator's slot `$0E68` only ever appears at `$84:9B43` (with entry
+  registers identical for both seats); `$84:9B03` is never called for it. So
+  the `$84:9B03` per-seat rider latch never ran, and the contact-register
+  restore had nothing to fix for it. Both are reverted.
+- On a rising frame (host 6609) X moves 896 -> 895 **before** any contact pass,
+  between the object passes and the first `contact-enter`, and no contact call
+  moves him. The elevator carries and collides with the player inside its own
+  enemy update, once per frame, against whichever seat is current (normally X).
+  Co-op has no second-seat pass for that, which explains every observation:
+  Zero passes through it and cannot land while X is current, and works when X
+  warps out and Zero becomes the current seat.
+
+The fix belongs in a second-seat pass around the player-interaction routine
+the `$59` update calls. The ship lift's rider query is `$82:D7D7`, so the
+branch routes `$82:D7D7` through the interpreter when it is a generated entry
+(optional in `apply_coop_hooks.py`; a build without it only warns) and logs
+each call as `lift-contact` with D, registers, slot and JSL caller. ROM-side:
+find what enemy `$59`'s handler calls to test, carry and push the player, and
+give that call the same second-seat retry with per-seat `.2C` rider bits that
+`platform_hook` gives the items.
+
+## Update: the elevator asks $82:D7D7; second-seat query added (2026-10-04)
+
+`coop-physics-20261004-121627-3985163-1.csv` (host frames 3621..4428), with the
+optional `$82:D7D7` trace active. The elevator's slot (`D = $0E68`, class
+`$59`) calls `$82:D7D7` once per frame from its handler, one call site per
+state, always with X current and no co-op pass open:
+
+| JSL return | elevator state (+1/+2) | frames |
+|---|---|---|
+| `$87:E857` | `02 00` | 1 |
+| `$87:E8A6` | `04 00` (idle) | 37 |
+| `$87:E97D` | `08 04` | 4 |
+| `$87:E9C8` | `0E 04` (waiting at the bottom) | 342 |
+| `$87:E9F9` | `10 04` (rising) | 94 |
+
+`.2C` reads `$80` at every entry: the handler clears the rider bit and asks
+again each frame, as the ship lift does. So no rider state persists across
+frames, and only the current seat was ever asked.
+
+Change in this branch: for class `$59`, when the current seat's `$82:D7D7`
+call reaches its RTL, co-op restores the entry `.2C` and registers, projects
+the other living seat and calls `$82:D7D7` again; at the second RTL it ORs
+both answers into `.2C` (bit 7 preserved), selects the first seat back, and
+returns the first seat's registers unless only the partner rides. The RTL is
+found at run time: each `$6B` byte in the 1 KiB after `$82:D7D7` (LoROM
+`0x157D7`) is hooked, and only the one executed with the entry's stack
+pointer, slot and JSL return address completes the pass. Host-only state; a
+pass left open is closed at the next frame. USA only. Not yet verified
+against the ROM: please confirm `$82:D7D7` resolves contact for `$0BA8` (it
+appears to: X is carried before any other contact pass) and that its RTL lies
+in that window.
+
+## Update: both ride, partner carried in the same frame
+
+Retest with the `$82:D7D7` retry: Zero (partner) now collides with and rides
+the elevator. X looked jerky on the way up. In
+`coop-physics-20261004-124931-4005421-1.csv` the order inside a frame is: X's
+query (no movement), Zero's query (snaps him onto the top, e.g. y 875→874),
+then the handler moves the elevator (893→891) and carries only the projected
+body, X (874→872). At frame end X sat at `el_y−19` on all 772 riding frames;
+Zero did on 638 and trailed by 1–2 px on the other 134, catching up at his
+next query. The two bodies were drawn a frame apart, which reads as jitter.
+
+Change: when the partner's query sets `.2C` bit 0, co-op records the
+elevator's position (slot +5 x, +8 y). At the end of the frame, before
+capture, `MmxCoopLiftCarry` moves the partner's body by however far the
+elevator moved since then (ignored above 16 px, as a warp). The caller now
+always gets the first seat's registers back. The state is host-only and
+cleared on reset and rollback.
+
+## Update: the column part ($5A) also queries $82:D7D7
+
+`coop-physics-20261004-130931-4015389-1.csv`: once the elevator reached the top
+(y 720) and stayed there, Zero could not climb its sides or get back on. A
+second part, slot 3 (`D = $0F28`, class `$5A`, same x, 83 px below the top),
+calls `$82:D7D7` every frame (792 calls), always for X only. It is the
+column's body. X stopped against its left side (x 1342 = el_x − 21), while Zero
+walked through it (x 1347–1392) and so had no wall to kick off. The getting hit
+was incidental: Zero had jumped off the right edge.
+
+Change: the `$82:D7D7` second-seat retry now covers class `$5A` as well as
+`$59`. The frame-end carry stays tied to the `$59` top (its own slot is now
+recorded, so a later `$5A` pass doesn't redirect it).
+
+## Update: ride jitter is the shared camera; wall-slide seam
+
+`coop-physics-20261004-132512-4023531-1.csv`: the top and sides now collide for
+both seats. On the ride both bodies end each frame exactly at `el_y − 19`; the
+elevator rises 2,1,2,1 px. The shared camera (`camera_hook`, the midpoint of
+both stored bodies) runs late in the frame, after the elevator has carried X
+but before the frame-end partner carry, so it averaged this frame's X with
+last frame's Zero. The camera lagged a frame, and X's screen y alternated
+95/96. The partner carry now runs at the column's (`$5A`) `$82:D7D7` entry,
+right after the top has moved, and again at the camera hook; the frame-end
+call remains as a fallback.
+
+Wall slide on the column's left side (state `$12`, holding right): both seats
+drop to falling (`$08`) for 1–2 frames at `el_y + 21` (X) / `+29` (Zero), then
+catch again. For X, the unmodified first-seat query, the top part (`$59`)
+pushes him down out of its bottom edge (y 735→738→741) and stops pushing him
+sideways, while the column only starts pushing at y 742. That is a seam
+between the two parts' boxes in the native routine, not a co-op path. Needs a
+single-player comparison to confirm it is original behaviour.
+
+## Update: helmet capsule still absent (netplay, Zero fallen)
+
+`coop-physics-20261004-140424-4045650-1.csv` (+ `.previous.csv`, host frames
+10909..14624, online co-op, Unified cameras). Zero (seat 2) fell into a pit at
+host frame 11772 (y 1089) and stayed fallen. X reached the same spot as in the
+first report: camera fixed at 3840/512, X idling at x 3981..4071, y 655
+(frames ~13780..14624).
+
+- `$1F99` is `$18` on every row, so the helmet bit (`$01`) is clear: the
+  capsule's own "already owned" gate should not remove it.
+- The item pool held no capsule at any point in the room. In the whole
+  capture, only one item of class `$05` appears, for a single frame
+  (11023, x `$0750` y `$0288`, state `01 00 00`, while both players were
+  alive), far from the room. It vanished the next frame.
+- The enemy pool near the room holds only two stale class `$46` slots.
+
+So in both reports the capsule never spawns while Zero is fallen. That
+points at the world spawn (or the room's capsule trigger), not the `$81:E4C7`
+initializer. Still unknown: whether it spawns in co-op with both alive, and
+which pool and trigger the room's capsule uses. That needs the stage's object
+table / spawner code read against these coordinates.
+
+## Update: the helmet capsule is a camera-scroll spawn ($4D in the enemy pool)
+
+`coop-physics-20261004-141547-4053487-1.csv` (online, both alive): the capsule
+is enemy class `$4D` (slot 0, x `$0FC8` = 4040, y `$02D0` = 720), not an item.
+It did not spawn when the camera arrived (3765/431 → down to 3765/512 at X's
+drop, x 3894, then right to 3840/512 at frame 8064), although at 3840/512 the
+capsule sits inside the screen (200, 208). It spawned at frame 8432, on the
+first frame the camera scrolled down again (454 → 458) after a wall jump had
+pulled it up to y 454. So the spawn is edge-triggered by camera scrolling, and
+co-op's arrival path (shared camera = midpoint of the two bodies; Zero 2–6 px
+behind X) never crossed the trigger, presumably by a pixel or two of margin.
+The first report's camera path (Zero fallen) also never re-scrolled.
+
+Also seen: from the spawn onward the camera alternates 3840/3843 every frame.
+And in the dialogue screenshot, only one peer draws Dr. Light's hologram.
+
+Next: read the enemy spawner's edge windows (horizontal and vertical scan
+margins) for this room and compare with a solo arrival.
+
+## Update: capsule cause is widescreen spawn ownership, not co-op
+
+With widescreen spawning on, kind-3 records are allocated only by the early
+wide DC36/DCDB pass (anchor = native + margin + 32), and the native pass
+rejects kind 3 (`MmxWidePolicy_SpawnRecordAllowed`). The wide cursor crosses
+the helmet capsule's column (x 4032..4063) while the camera is still in the
+upper corridor (y ≈ 431). DCDB's height test rejects the record at y 720, and
+the column is never scanned horizontally again. The vertical scan at the
+corridor drop covers only to cam + 256 (3765 + 256 = 4021), short of the
+column. It finally spawned on a later vertical scroll at camera x 3840. A 4:3
+native anchor reaches the column only after the camera has dropped to 512.
+
+Fix: `$4D` (Dr. Light's capsule) joins bosses and streakers as native-pass-only
+kind-3 records, restoring the authored timing in every stage. Covered in
+`tests/mmx_wide_policy_test.c`. Assumes the capsule record is kind 3; it lands
+in the enemy pool, as kind 3 does. A workaround on older builds:
+`SNESRECOMP_WS_SPAWN=0`.
+
+## Update: capsule confirmed fixed; boss-lift lockup (open)
+
+The owner confirmed that the helmet capsule now spawns on arrival.
+
+New: `coop-physics-20261004-143825-4064456-1.csv` + `mmx-20261004-143812-4064456.log`
+(online, Unified, both alive). Both players dash-jump onto the ship lift
+(enemy `$48` at `$1840,$0160`). At host frame 14874 X lands first: `.2C` = 1,
+`eagle_lift_hook` begins scene transport (scene owner X), X takes body lock
+`$46`, and Zero is still airborne (action `$08`, one frame behind). Zero's
+teleport frames run (14874..14882). The native frame runs once more at 14883
+(X `46 00` → `46 04`), and then no player or object updates run again. The
+lift stays in state `02 02` for the rest of the capture. The log shows why:
+
+    [brk] architectural BRK at $32:0000 ...
+    edges: $80F3B4>$81EC50(aot_call) $000000>$81EC98(entry) $81EC9D>$828398(aot_call)
+           $80F3B4>$50D2ED(external) $50D2ED>$320000(return) $320000>$00FFAC(vector)
+
+So the object dispatcher at `$80:F3B4` called `$81:EC50` (the airship door's
+handler: the `door_hook` sites are `$81:EC98/ECC6/ECC7`), and then dispatched to
+the garbage address `$50:D2ED`. `door_hook` takes no action while a scene owner
+is set, so `$81:EC98` here is only the interpreter entry. Not yet determined:
+which slot's handler pointer or state index was corrupt, and whether this
+predates the `$82:D7D7` routing on this branch (it is in `OPTIONAL` and
+interpreted now; its RTL observers act only during a class `$59/$5A` pass).
+`MMX_COOP_EAGLE_FIXTURES` covers this lift with two riders landing together.
+This capture differs: the partner lands one frame after the scene began.
+
+Also reported, without trace coverage: in the ship interior (end-of-stage
+ladder tube and the entry port before the boss door), player sprites show on
+the wrong layer or disappear (custom renderer, `new_renderer=1`).
+
+## Update: `$82:D7D7` routing is not the boss-lift cause; canister regression
+
+9d4c006 gated `$82:D7D7`'s interpreter routing to the E-tank elevator slots.
+The owner's retest (`coop-physics-20261004-151358-4079217-1.csv`) still locks at
+the ship lift. Same pattern: the lift reaches state `02 02` at host frame
+10704, Zero's scene-transport frames run, the native frame runs once (10713,
+world tick 45→46), and the world tick never advances again. The owner also hit
+it earlier with X fallen and Zero riding alone (no scene transport, no partner
+retry), on the build that routed every caller. The lift locks with the routine
+both compiled and interpreted, so the routing is not the cause.
+
+The gate itself regressed: with `$82:D7D7` compiled for every other caller,
+weapon shots stop hitting Storm Eagle's destructible flame canisters. So those
+canisters use `$82:D7D7`, and the compiled routine behaves differently from
+the interpreted one for them. The gate is reverted (always interpreted under
+co-op, as in f24c7a8). Worth checking: whether canisters take hits on `main`
+before this work, with co-op on and off. If they don't, the generated
+`bank_82_D7D7` has a translation fault the interpreter avoids.
+
+Next for the lift lock: reproduce solo (co-op off), offline co-op, and on a
+build before this branch's elevator work (`8ce45fd`).
+
+## Update: boss-lift crash is the interpreted airship door state `$81:EC98`
+
+The owner ran the stage solo (co-op off): everything works, lift included.
+In co-op, with X fallen and Zero riding alone, both peers crash identically:
+
+    [brk] architectural BRK at $32:0005
+    edges: $80F3B4>$81EC50(aot_call) $000000>$81EC98(entry) $81EC9D>$828398(aot_call)
+           $80F3B4>$50D2ED(external) ...
+
+`$81:EC98` is a co-op `TARGETS` entry (door_hook's `$81:EC98` pass). With co-op
+enabled, the generated code hands it to the interpreter unconditionally.
+Interpreted during the lift ride, the airship door's `$81:EC98` state leaves
+the dispatcher at `$80:F3B4` jumping to `$50:D2ED`. The generated state (solo)
+does not. In both crash captures door_hook had nothing to do there (scene
+owner set, or partner fallen).
+
+Change: `tools/apply_coop_hooks.py` takes per-entry `POLICIES`. The doors
+(`$81:E70D`, `$81:EC98`) enter the interpreter only when door_hook can open a
+pass (`door_route`: co-op active, no menu/scene owner, no open door pass,
+partner alive, and for EC98 `$1F41` clear). Otherwise they run generated, as
+in single player. Ordinary co-op door crossings keep their existing path.
+Underlying interpreter/generated mismatch at `$81:EC98` not yet isolated.
+
+Canisters (owner retest, co-op, both players together): shots still pass
+through them with `$82:D7D7` interpreted again, so 9d4c006 was not their
+cause either. Solo is fine. Open; the physics trace has no shot/enemy-HP
+fields to show it yet.
+
+## Update: lift and canisters confirmed; capsule upgrade during dialogue
+
+The owner confirms the ship lift (after da6ac91) and the flame canisters both
+work now. The canisters were probably another casualty of the interpreted
+door state.
+
+New (`coop-physics-20261004-170832-4134177-1`, offline co-op): X jumps into the
+helmet capsule while it opens (frame 6923, capsule `02 02 → 02 04`, X action
+`$1E`). Dr. Light (`$5C`) appears at 6947 (capsule `02 06`, dialogue). At 6968,
+the frame Zero dash-walks into the capsule (x 4047, capsule 4040), it advances
+to `02 08` and the armor sequence starts under the dialogue. contact_hook
+retried `$84:9B03` body contact for every enemy slot, the capsule included, so
+the partner's touch re-entered it. The co-op design already says capsule
+interaction follows the world actor only.
+
+Change: contact_hook opens no partner pass for a class `$4D` slot. Capsule
+`$84:9B03/9B43` contact rows are now always traced.
+
+## Update: Zero masks X with the ship's foreground (sprite priority)
+
+The owner confirms the capsule and lift fixes. Last report: inside the ship
+(around x 6208..6336, y 224), Zero looks like he takes on the BG's colours.
+His shape covers X but is filled with the foreground tiles.
+
+`coop-physics-20261004-173914-4148951-1`: X's `.11` turns on bit 4 once, at
+frame 9514, when he drops into the ship (x 5447, y 173), and keeps it until
+the boss lift (frame 12101). His priority is 3 (`$32/$72`). Zero stays `$22/$62`
+(priority 2) throughout, and everywhere else the two always match. The stage
+writes the priority to the world actor's `$0BB9` only. On the SNES the
+first-listed sprite pixel wins, and only then is compared against the BG.
+So the priority-2 Zero, drawn over X, lets the high-priority hull tiles
+through in Zero's shape, X included.
+
+Change: `MmxCoopSyncPriority` (frame end, before capture) copies the world
+actor's `.11 & $30` to the living partner. Facing and palette bits are kept.
+Deterministic, with no stored state.

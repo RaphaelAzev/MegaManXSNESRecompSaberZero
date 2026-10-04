@@ -137,8 +137,8 @@ static void diagnostic_pool(const uint8_t *r,unsigned base,unsigned stride,unsig
   for(unsigned i=0;i<slots && n<cap;++i) {
     const uint8_t *d=r+base+i*stride;
     if(!d[0]) continue;
-    int w=snprintf(out+n,cap-n,"%s%u:%02x:%04x:%04x:%02x%02x%02x:%02x",n?";":"",
-        i,d[10],word(d+5),word(d+8),d[0],d[1],d[2],d[0x2c]);
+    int w=snprintf(out+n,cap-n,"%s%u:%02x:%04x:%04x:%02x%02x%02x:%02x:%02x",n?";":"",
+        i,d[10],word(d+5),word(d+8),d[0],d[1],d[2],d[0x2c],d[0x27]);
     if(w<0) break;
     n+=(size_t)w;
   }
@@ -159,14 +159,15 @@ static const char kPhysicsHeader[]=
     "menu_owner,scene_owner,camera_x,camera_y,freeze_flags,pickup_owners,seat,"
     "character,status,input,x,y,previous_x,previous_y,vx,vy,hp,ground,"
     "terrain_above_feet,solid_above_feet,terrain_feet,solid_feet,body,scratch,"
-    "upgrades,caller,items,regs,slot,enemies\n";
+    "upgrades,caller,items,regs,slot,enemies,shots\n";
 static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,const char *event) {
   if (!diagnostic_enabled || !enabled || !state.initialized) return;
   FILE *out=diagnostic_ready(&physics_file,"physics",kPhysicsHeader);
   if (!out) return;
   bool frame_end=!strcmp(event,"frame-end");
-  bool platform=!strncmp(event,"platform",8);
-  char flags[15],owners[33],scratch[129],items[16*32+1]={0},caller[12]={0},regs[24]={0},slot[64*2+1]={0},enemies[15*32+1]={0};
+  bool platform=!strncmp(event,"platform",8) || !strncmp(event,"contact",7) ||
+      !strcmp(event,"lift-contact");
+  char flags[15],owners[33],scratch[129],items[16*36+1]={0},caller[12]={0},regs[24]={0},slot[64*2+1]={0},enemies[15*36+1]={0},shots[12*36+1]={0};
   diagnostic_hex(flags,r+0x1f13,7);
   diagnostic_hex(owners,state.pickup_owner,16);
   diagnostic_hex(scratch,r,64);
@@ -185,7 +186,9 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
     const uint8_t *e=r+0xe68+i*64;
     if(e[0] && e[10]>=0x58 && e[10]<=0x5a) elevator=true;
   }
-  if(frame_end || elevator) diagnostic_pool(r,0xe68,64,15,enemies,sizeof(enemies));
+  if(frame_end || elevator || platform) diagnostic_pool(r,0xe68,64,15,enemies,sizeof(enemies));
+  /* The current seat's shots ($0C98, twelve 32-byte slots). */
+  if(frame_end || platform) diagnostic_pool(r,0xc98,32,12,shots,sizeof(shots));
   /* The contacted item's whole 48-byte slot: a byte the first seat's call
    * writes and the second seat's call reads shows up between their rows. */
   if(platform && cpu && cpu->D>=0x1628 && cpu->D<0x1928 && !((cpu->D-0x1628)%48))
@@ -193,7 +196,8 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
   else if(platform && cpu && cpu->D>=0xe68 && cpu->D<0x1228 && !((cpu->D-0xe68)%64))
     diagnostic_hex(slot,r+cpu->D,64);
   /* Entry to a long subroutine: the JSL return address names the item code. */
-  if(platform && cpu && !strcmp(event,"platform-enter") && cpu->S<0x1ffd)
+  if(platform && cpu && (!strcmp(event,"platform-enter") || !strcmp(event,"lift-contact")) &&
+      cpu->S<0x1ffd)
     snprintf(caller,sizeof(caller),"%06x",
         (unsigned)((r[cpu->S+1]|r[cpu->S+2]<<8|r[cpu->S+3]<<16)+1)&0xffffff);
   unsigned sequence=++diagnostic_sequence;
@@ -210,7 +214,7 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
     int count=fprintf(out,
         "%u,%d,%u,%s,%06x,%04x,%04x,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%04x,"
         "%u,%u,%u,%u,%s,%s,%u,%u,%u,%04x,%d,%d,%u,%u,%d,%d,%u,%u,%u,%u,%u,%u,%s,%s,"
-        "%02x,%s,%s,%s,%s,%s\n",
+        "%02x,%s,%s,%s,%s,%s,%s\n",
         sequence,snes_frame_counter,r[0xb9c],event,(unsigned)pc,
         cpu?(unsigned)cpu->D:0,cpu?(unsigned)cpu->S:0,r[0x1f7a],r[0xd1],r[0xd2],r[0xd3],
         state.current,state.anchor,state.controller_pass,state.object_pass,state.contact_pass,
@@ -219,7 +223,7 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
         (int16_t)word(b+0x1a),(int16_t)word(b+0x1c),b[0x27]&127,b[0x2b],
         MmxWeaponsTerrainClass(r,x,y+8),MmxWeaponsTerrainSolid(r,x,y+8,true,NULL),
         MmxWeaponsTerrainClass(r,x,y+16),MmxWeaponsTerrainSolid(r,x,y+16,true,NULL),body,scratch,
-        r[0x1f99],caller,items,regs,slot,enemies);
+        r[0x1f99],caller,items,regs,slot,enemies,shots);
     if(count<0) {diagnostic_close(&physics_file);physics_file.checked=true;return;}
     physics_file.bytes+=count;
   }
@@ -279,7 +283,9 @@ bool MmxCoopTransitionActive(void) {
 }
 
 bool MmxCoopEnabled(void) { return enabled; }
+static void lift_reset(void);
 void MmxCoopReset(void) {
+  platform_entry.valid=false;lift_reset();
   MmxCoopViewsResetWorld();
   MmxWeaponsCameraQuery(enabled?weapon_view:NULL);
   platform_entry.valid=false;
@@ -300,7 +306,7 @@ void MmxCoopDisable(void) { enabled = false; starting_character = 0; MmxCoopRese
 MmxCoopState MmxCoopGetState(void) { return state; }
 bool MmxCoopValidState(const MmxCoopState *s) {
   if (!s || s->initialized > 1 || s->current > 1 || s->controller_pass > 2 ||
-      s->effect_return>2 || (s->elevator_riders & 12) || s->object_pass > 2 ||
+      s->effect_return>2 || s->object_reserved || s->object_pass > 2 ||
       s->platform_riders > 3 || s->contact_pass > 2 || s->enrolled>1 ||
       s->select_hold>180 || s->select_armed>1 || s->stage_pending>2 || /* Accept older 3-second hold saves. */
       s->menu_owner>2 || s->menu_last>1 || s->p1_select_hold>90 || s->p1_select_armed>1 ||
@@ -328,7 +334,7 @@ bool MmxCoopValidState(const MmxCoopState *s) {
   return s->players[0].character != s->players[1].character;
 }
 void MmxCoopSetState(const MmxCoopState *s) {
-  platform_entry.valid=false;
+  platform_entry.valid=false;lift_reset();
   if (enabled && MmxCoopValidState(s)) {
     state = *s;
     MmxWeaponsPartnerCombat(state.initialized ? &state.players[state.current^1].combat : NULL);
@@ -411,8 +417,10 @@ void MmxCoopInitialize(uint8_t *r) {
   state.enrolled=1;state.stage_pending=2;
   MmxWeaponsPartnerCombat(&partner->combat);
 }
+static void lift_close(void);
 bool MmxCoopFrameTick(uint8_t *r) {
   if (!enabled || !state.initialized) return MmxWeaponsFrameTick(r);
+  lift_close(); /* an elevator query never spans a frame */
   if (g_mmx_coop_trace) {MmxCoopTraceFrameBegin(&state);TRACE(FRAME,0,0,0,NULL);}
   /* The stage-clear weapon demonstration reuses the native player/shot
    * pools. It owns that single scripted actor; projecting either stored
@@ -671,6 +679,18 @@ static bool scene_tick(uint8_t *r) {
   }
   return false;
 }
+/* The generated door states enter the interpreter (where door_hook runs) only
+ * when the hook can open its pass: same conditions as below. Interpreting
+ * $81:EC98 otherwise gains nothing, and during Storm Eagle's lift ride its
+ * interpreted run dispatches to garbage ($50:D2ED) while the generated one,
+ * as in single player, does not. */
+static bool door_route(bool ec98) {
+  return enabled && state.initialized && !state.menu_owner && !state.scene_owner &&
+      !state.door_pass && !(ec98 && g_ram[0x1f41]) &&
+      state.players[state.anchor^1].status==MMX_COOP_ALIVE;
+}
+bool MmxCoopDoorRouteE70D(const CpuState *cpu) { (void)cpu; return door_route(false); }
+bool MmxCoopDoorRouteEC98(const CpuState *cpu) { (void)cpu; return door_route(true); }
 static void door_hook(CpuState *cpu,uint32_t pc) {
   if(!enabled || !state.initialized || state.menu_owner) return;
   unsigned at=pc&65535;
@@ -691,6 +711,131 @@ static void door_hook(CpuState *cpu,uint32_t pc) {
     MmxCoopSelect(g_ram,state.anchor^1);state.door_pass=2;
     interp_bridge_pre_opcode_redirect((pc&0xff0000)|state.door_entry);
   } else {MmxCoopSelect(g_ram,state.anchor);state.door_pass=0;}
+}
+/* Storm Eagle's E-tank elevator (enemy $59) clears .2C and asks $82:D7D7,
+ * once a frame, whether the player stands on it: the query resolves contact
+ * for the projected body ($0BA8) and sets .2C bit 0 for a rider. Only the
+ * current seat was ever asked, so the other player fell through it and passed
+ * through its sides. Ask again for the other living seat, exactly as
+ * platform_hook retries $84:AB81: same entry .2C and registers, the partner
+ * projected, and the two answers OR-ed into .2C so either rider lifts it.
+ * The pass never spans a frame, so its state is host-only. D7D7's RTL is
+ * found at run time: every $6B byte after the entry is hooked, and only the
+ * one executed with the entry's stack pointer completes the pass. */
+static struct {
+  uint8_t pass,first,entry_2c,first_2c,p,db;
+  uint16_t d,s,a,x,y,ra,rx,ry; uint8_t rp,rdb;
+  uint32_t ret; /* JSL return address on the stack at entry */
+  uint8_t carry; /* partner seat + 1 to carry at frame end, 0 for none */
+  uint16_t carry_d; /* the riding top's slot */
+  uint16_t carry_x,carry_y; /* elevator position when the partner boarded */
+} lift;
+static uint32_t lift_stack_ret(const CpuState *cpu) {
+  return cpu->S<0x1ffd ? (uint32_t)(g_ram[cpu->S+1]|g_ram[cpu->S+2]<<8|g_ram[cpu->S+3]<<16) : 0;
+}
+static void lift_rtl_hook(CpuState *cpu,uint32_t pc);
+#ifndef MMX_VARIANT_JP
+#define MMX_VARIANT_JP 0
+#endif
+static void lift_find_rtl(void) {
+  static bool scanned;
+  /* USA addresses: the JP build keeps the single-seat query. */
+  if(MMX_VARIANT_JP || scanned || !g_snes || !g_snes->cart || !g_snes->cart->rom) return;
+  scanned=true;
+  const uint32_t base=(0x02u<<15)|(0xd7d7&0x7fff); /* LoROM $82:D7D7 */
+  for(uint32_t i=1;i<0x400 && base+i<g_snes->cart->romSize;++i)
+    if(g_snes->cart->rom[base+i]==0x6b)
+      interp_bridge_add_pre_opcode_hook(0x820000|((0xd7d7+i)&0xffff),lift_rtl_hook);
+}
+/* Host side, between frames: hook registration never runs inside a hook. */
+void MmxCoopHostFrame(void) { if(enabled) lift_find_rtl(); }
+static bool lift_elevator(unsigned d) {
+  /* $59 is the top the players ride; $5A, 83 px below it, is the column
+   * whose sides block them. Both query $82:D7D7 for the current seat. */
+  return d>=0xe68 && d<0x1228 && !((d-0xe68)%64) && g_ram[d] &&
+      (g_ram[d+10]==0x59 || g_ram[d+10]==0x5a);
+}
+static void lift_reset(void) { lift.pass=0;lift.carry=0; }
+static void lift_close(void) {
+  if(lift.pass==2) MmxCoopSelect(g_ram,lift.first);
+  lift.pass=0;
+}
+static void lift_contact_hook(CpuState *cpu,uint32_t pc) {
+  if(!enabled || !state.initialized) return;
+  /* The next part to query (the $5A column) runs after the top has moved:
+   * carry the partner now, before the camera and sprites read him. */
+  if(lift.carry && cpu->D!=lift.carry_d) MmxCoopLiftCarry(g_ram);
+  diagnostic_event(g_ram,cpu,pc,"lift-contact");
+  if(lift.pass || state.menu_owner || state.scene_owner || !lift_elevator(cpu->D) ||
+      state.players[state.current^1].status!=MMX_COOP_ALIVE ||
+      !(state.players[state.current^1].body[0x27]&127)) return;
+  cpu_mirrors_to_p(cpu);
+  lift.pass=1;lift.first=state.current;lift.d=cpu->D;lift.s=cpu->S;
+  lift.a=cpu->A;lift.x=cpu->X;lift.y=cpu->Y;lift.p=cpu->P;lift.db=cpu->DB;
+  lift.entry_2c=g_ram[cpu->D+0x2c];lift.ret=lift_stack_ret(cpu);
+}
+static void lift_rtl_hook(CpuState *cpu,uint32_t pc) {
+  /* Same stack depth, slot and return address: D7D7's own RTL, not another
+   * bank $82 routine returning to a different caller. */
+  if(!lift.pass || cpu->S!=lift.s || cpu->D!=lift.d || lift_stack_ret(cpu)!=lift.ret) return;
+  diagnostic_event(g_ram,cpu,pc,"lift-return");
+  unsigned d=lift.d;
+  if(lift.pass==1) {
+    lift.first_2c=g_ram[d+0x2c];
+    cpu_mirrors_to_p(cpu);
+    lift.ra=cpu->A;lift.rx=cpu->X;lift.ry=cpu->Y;lift.rp=cpu->P;lift.rdb=cpu->DB;
+    MmxCoopSelect(g_ram,lift.first^1);lift.pass=2;
+    g_ram[d+0x2c]=lift.entry_2c;
+    cpu->A=lift.a;cpu->X=lift.x;cpu->Y=lift.y;cpu->DB=lift.db;cpu->P=lift.p;cpu_p_to_mirrors(cpu);
+    interp_bridge_pre_opcode_redirect(0x82d7d7);
+    return;
+  }
+  bool second_rides=g_ram[d+0x2c]&1;
+  g_ram[d+0x2c]=(uint8_t)(lift.first_2c|g_ram[d+0x2c]);
+  MmxCoopSelect(g_ram,lift.first);
+  /* The handler moves the elevator after the query and carries only the
+   * projected body, so it always gets the first seat's answer; a riding
+   * partner is moved by the same amount in MmxCoopLiftCarry. */
+  cpu->A=lift.ra;cpu->X=lift.rx;cpu->Y=lift.ry;cpu->DB=lift.rdb;cpu->P=lift.rp;cpu_p_to_mirrors(cpu);
+  if(second_rides && g_ram[d+10]==0x59) {
+    lift.carry_d=(uint16_t)d;
+    lift.carry=(uint8_t)((lift.first^1)+1);
+    lift.carry_x=(uint16_t)(g_ram[d+5]|g_ram[d+6]<<8);
+    lift.carry_y=(uint16_t)(g_ram[d+8]|g_ram[d+9]<<8);
+  }
+  lift.pass=0;
+}
+/* Shift the partner who answered the elevator's query by however far the
+ * elevator moved after it, so both riders track it in the same frame. Runs at
+ * the column's query (before the shared camera averages the two bodies and
+ * the sprites are drawn), at the camera, and at frame end as a fallback. */
+void MmxCoopLiftCarry(uint8_t *r) {
+  if(!lift.carry) return;
+  unsigned seat=lift.carry-1u,d=lift.carry_d;
+  lift.carry=0;
+  if(!enabled || !state.initialized || !lift_elevator(d) ||
+      state.players[seat].status!=MMX_COOP_ALIVE) return;
+  uint8_t *body=seat==state.current ? r+0xba8 : state.players[seat].body;
+  int dx=(int16_t)((r[d+5]|r[d+6]<<8)-lift.carry_x);
+  int dy=(int16_t)((r[d+8]|r[d+9]<<8)-lift.carry_y);
+  if(!dx && !dy) return;
+  if(dx<-16 || dx>16 || dy<-16 || dy>16) return; /* warped, not carried */
+  uint16_t x=(uint16_t)((body[5]|body[6]<<8)+dx),y=(uint16_t)((body[8]|body[9]<<8)+dy);
+  body[5]=(uint8_t)x;body[6]=(uint8_t)(x>>8);body[8]=(uint8_t)y;body[9]=(uint8_t)(y>>8);
+}
+/* Stage sections set the player's OBJ priority once, on the world actor:
+ * entering Storm Eagle's ship writes .11 bit 4 (priority 3, in front of the
+ * hull's high-priority foreground) to $0BB9 and clears it at the boss lift.
+ * The partner kept priority 2, so the PPU's first-sprite rule let Zero's
+ * shape punch the foreground through X wherever they overlapped. Both seats
+ * otherwise always share these bits; follow the world actor's. */
+void MmxCoopSyncPriority(uint8_t *r) {
+  if(!enabled || !state.initialized || state.menu_owner || state.scene_owner) return;
+  unsigned seat=state.anchor^1;
+  if(state.players[seat].status!=MMX_COOP_ALIVE) return;
+  const uint8_t *world=state.anchor==state.current ? r+0xba8 : state.players[state.anchor].body;
+  uint8_t *body=seat==state.current ? r+0xba8 : state.players[seat].body;
+  body[0x11]=(uint8_t)((body[0x11]&~0x30)|(world[0x11]&0x30));
 }
 static void eagle_lift_hook(CpuState *cpu,uint32_t pc) {
   if(!enabled || !state.initialized || state.menu_owner || state.scene_owner) return;
@@ -796,36 +941,24 @@ static void slime_hook(CpuState *cpu,uint32_t pc) {
     else {g_ram[d+2]=16;g_ram[d+3]=0;} /* Native release/pop animation. */
   }
 }
-/* Storm Eagle's E-tank elevator (enemy $59) latches one rider in .2C bit 0
- * (bit 7 stays set) from inside its $84:9B03 body contact. Co-op retries that
- * contact for the second seat, so the first boarder owned the latch: the other
- * player fell through it, or, boarding first, both fought over it each frame.
- * Keep one rider bit per seat, show each seat's call only its own bit, and
- * leave "anyone riding" in bit 0 for the elevator's own ascent logic. */
-static bool elevator_slot(unsigned d) {
-  return d>=0xe68 && d<0x1228 && !((d-0xe68)%64) && g_ram[d]!=0 && g_ram[d+10]==0x59;
+/* Trace the enemy contact calls while a Storm Eagle elevator part lives. */
+static bool capsule_slot(unsigned d) {
+  return d>=0xe68 && d<0x1228 && !((d-0xe68)%64) && g_ram[d] && g_ram[d+10]==0x4d;
 }
-static unsigned elevator_riders(unsigned d) {
-  unsigned tag=(d-0xe68)/64+1;
-  if((state.elevator_riders>>4)!=tag) /* first two-seat pass on this elevator */
-    /* Only reached as a pass opens: credit an existing latch to the pass's
-     * first seat (contact_player), the one whose call sees it first. */
-    state.elevator_riders=(uint8_t)(tag<<4|((g_ram[d+0x2c]&1)<<state.current));
-  return state.elevator_riders&3;
-}
-/* At pass start bit 0 is what the last pass left ("anyone riding") unless the
- * elevator itself cleared it; then nobody rides, whatever was stored. */
-static void elevator_sync(unsigned d) {
-  if(!(g_ram[d+0x2c]&1) && (state.elevator_riders>>4)==(d-0xe68)/64+1)
-    state.elevator_riders&=0xf0;
-}
-static void elevator_project(unsigned d) {
-  g_ram[d+0x2c]=(uint8_t)((g_ram[d+0x2c]&~1u)|((elevator_riders(d)>>state.current)&1));
-}
-static void elevator_record(unsigned d) {
-  unsigned riders=elevator_riders(d),bit=1u<<state.current;
-  riders=(riders&~bit)|((g_ram[d+0x2c]&1)?bit:0);
-  state.elevator_riders=(uint8_t)((state.elevator_riders&0xf0)|riders);
+static bool contact_traced(unsigned d,unsigned entry) {
+  if(!diagnostic_enabled) return false;
+  if(capsule_slot(d)) return true;
+  for(unsigned i=0;i<15;++i) {
+    const uint8_t *e=g_ram+0xe68+i*64;
+    if(e[0] && e[10]>=0x58 && e[10]<=0x5a) return true;
+  }
+  /* Shot contact ($84:9B43) for an enemy near the screen while the current
+   * seat has a live shot: shows whether each seat's shots reach a target. */
+  if(entry!=0x9b43 || d<0xe68 || d>=0x1228 || (d-0xe68)%64 || !g_ram[d]) return false;
+  int dx=(int)word(g_ram+d+5)-(int)word(g_ram+0x1e4d);
+  if(dx<-64 || dx>320+64) return false;
+  for(unsigned i=0;i<12;++i) if(g_ram[0xc98+i*32]) return true;
+  return false;
 }
 static void contact_hook(CpuState *cpu,uint32_t pc) {
   if (!enabled || !state.initialized) return;
@@ -835,21 +968,28 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
     unsigned bit=slime_bit(cpu->D);
     if(bit && g_ram[cpu->D+2]!=12 && g_ram[cpu->D+2]!=14) slime_owner(bit,state.current);
   }
+  if ((at == 0x9b03 || at == 0x9b43) && contact_traced(cpu->D,at))
+    diagnostic_event(g_ram,cpu,pc,"contact-enter");
   if(state.menu_owner || state.scene_owner ||
       (!state.contact_pass && state.players[state.current^1].status!=MMX_COOP_ALIVE)) return;
   if (at == 0x9b03 || at == 0x9b43) {
+    /* Dr. Light's capsule ($4D) is driven by the world actor alone. Retrying
+     * its body contact for the partner re-entered the capsule mid-dialogue:
+     * Zero walking into it moved it from Light's dialogue (state 6) to the
+     * upgrade (state 8), so the armor sequence played under the text. */
+    if (!state.contact_pass && capsule_slot(cpu->D)) return;
     if (!state.contact_pass) {
       MmxCoopViewsContactPlayer(state.current);
       state.contact_pass = 1; state.contact_entry = (uint16_t)at;
       state.contact_s = cpu->S; state.contact_d = cpu->D;
       TRACE(CONTACT,pc,0,0,cpu);
-      if (at==0x9b03 && elevator_slot(cpu->D)) {elevator_sync(cpu->D);elevator_project(cpu->D);}
     }
     return;
   }
   /* A helper may return through a shared RTL; only the owning guest call's
    * balanced return boundary can complete or restart this pass. */
   if (!state.contact_pass || cpu->S != state.contact_s || cpu->D != state.contact_d) return;
+  if (contact_traced(cpu->D,state.contact_entry)) diagnostic_event(g_ram,cpu,pc,"contact-return");
   unsigned slime=state.contact_entry==0x9b03 ? slime_bit(cpu->D) : 0;
   if (state.contact_pass == 1) {
     /* Slimer's puddle can capture one actor. Keep the actual contact seat
@@ -863,17 +1003,10 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
     state.contact_a = cpu->A; state.contact_x = cpu->X; state.contact_y = cpu->Y;
     state.contact_db = cpu->DB; cpu_mirrors_to_p(cpu); state.contact_p = cpu->P;
     TRACE(CONTACT,pc,1,cpu->A,cpu);
-    bool elevator=state.contact_entry==0x9b03 && elevator_slot(cpu->D);
-    if (elevator) elevator_record(cpu->D);
     MmxCoopSelect(g_ram,MmxCoopViewsGetWorldState().contact_player^1); state.contact_pass = 2;
-    if (elevator) elevator_project(cpu->D);
     interp_bridge_pre_opcode_redirect(0x840000 | state.contact_entry);
   } else {
     if(slime && (cpu->A&255)) slime_owner(slime,state.current);
-    if(state.contact_entry==0x9b03 && elevator_slot(cpu->D)) {
-      elevator_record(cpu->D);
-      g_ram[cpu->D+0x2c]=(uint8_t)((g_ram[cpu->D+0x2c]&~1u)|((state.elevator_riders&3)!=0));
-    }
     TRACE(CONTACT,pc,2,cpu->A,cpu);
     bool first_hit = (state.contact_a & 255) != 0;
     bool no_second_hit = !(cpu->A & 255);
@@ -1071,6 +1204,7 @@ static void constrain_player(uint8_t *r) {
   if (limited!=x) {putword(r+0xbad,(unsigned)limited);r[0xbac]=0;putword(r+0xbc2,0);}
 }
 static void camera_hook(CpuState *cpu,uint32_t pc) {
+  MmxCoopLiftCarry(g_ram);
   if ((pc&65535)==0xe12d) {
     /* The native bottom-camera clamp checks only $0BB0. Apply that same
      * signed feet threshold to the other actor before the original check.
@@ -1342,6 +1476,7 @@ void MmxCoopRegisterHooks(void) {
   interp_bridge_set_pre_opcode_hook(0x80f47c,dash_effect_hook);
   interp_bridge_set_pre_opcode_hook(0x87c0ae,eagle_lift_hook);
   interp_bridge_set_pre_opcode_hook(0x87c0b4,eagle_lift_hook);
+  interp_bridge_set_pre_opcode_hook(0x82d7d7,lift_contact_hook);
   const unsigned platforms[]={0x84ab81,0x84ac34,0x84ab56,0x84ab80};
   for(unsigned i=0;i<sizeof(platforms)/sizeof(platforms[0]);++i)
     interp_bridge_set_pre_opcode_hook(platforms[i],platform_hook);

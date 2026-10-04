@@ -80,6 +80,7 @@ static void MmxBeforeFrame(void) {
   if (g_snes->cart) {
     MmxZeroSetCollisionRom(g_snes->cart->rom, g_snes->cart->romSize);
     MmxWeaponsCollisionRom(g_snes->cart->rom, g_snes->cart->romSize);
+    MmxCoopHostFrame();
   }
   MmxRendererHoldFrame(MmxCoopTransitionActive());
   if (g_mmx_custom_renderer) MmxRendererLatchSprites();

@@ -1017,6 +1017,8 @@ void RunOneFrameOfGame(void) {
   }
   cpu_trace_px_breadcrumb(&g_cpu, 0x2003, "after_Internal");
   MmxZeroHealthSync(g_ram);
+  MmxCoopLiftCarry(g_ram);
+  MmxCoopSyncPriority(g_ram);
   MmxCoopCapture(g_ram);
   MmxCoopTraceFrame(g_ram);
   g_first_frame_done = true;
