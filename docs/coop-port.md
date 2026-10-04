@@ -891,3 +891,12 @@ survivor moves. Zero's emitter marker still selects the red palette ramp;
 X's particles remain blue. Neither change introduces new artwork or a save
 format change. Private ROM-backed checks and captures use
 `MMX_COOP_GRAPHICS_FOLLOWUP_TEST=1`; source ROMs and fixtures remain untracked.
+
+Follow-up (2.0.6-alpha recording): the second seat also re-entered
+`$84:AB81/AB56` with the first call's return registers rather than the
+registers the item routine passed in. It now re-enters with the caller's
+registers. This was the trace-only hypothesis before the ROM reproduction
+below; it is kept as a defensive correction and is not covered by
+`MMX_COOP_STORM_LANDING_TEST`. The physics trace adds a `regs` column and a
+faster hex encoder; the netplay lag analysis is in
+`docs/storm-eagle-collision-handoff.md`.

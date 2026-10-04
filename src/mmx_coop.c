@@ -32,6 +32,8 @@ static unsigned starting_character;
 _Static_assert(sizeof(MmxCoopPlayer) == 2276, "Co-op player save ABI");
 _Static_assert(sizeof(MmxCoopState) == 4664, "Co-op save ABI");
 static bool join_tick(uint8_t *r);
+/* Registers the item routine passed into $84:AB81/AB56; see platform_hook. */
+static struct {bool valid;uint16_t d,s,a,x,y;uint8_t p,db;} platform_entry;
 /* --coop-trace: observation only; see mmx_coop_trace.h. */
 static void trace_event(unsigned kind,uint32_t pc,unsigned a,unsigned b,const CpuState *cpu) {
   MmxCoopTraceEvent e={(uint32_t)snes_frame_counter,pc,cpu?cpu->S:0,cpu?cpu->D:0,
@@ -129,23 +131,35 @@ static void diagnostic_items(const uint8_t *r,char *out,size_t cap) {
     n+=(size_t)w;
   }
 }
+/* Per-byte snprintf dominated the trace cost (body/scratch/items on ~16 rows
+ * a frame with Storm Eagle's columns); encode with a table instead. */
+static void diagnostic_hex(char *out,const uint8_t *p,size_t n) {
+  static const char digits[]="0123456789abcdef";
+  for(size_t i=0;i<n;++i) {out[i*2]=digits[p[i]>>4];out[i*2+1]=digits[p[i]&15];}
+  out[n*2]=0;
+}
 static const char kPhysicsHeader[]=
     "sequence,host_frame,world_tick,event,pc,cpu_d,cpu_s,stage,mode,submode,phase,"
     "current,anchor,controller_pass,object_pass,contact_pass,pickup_pass,pickup_d,"
     "menu_owner,scene_owner,camera_x,camera_y,freeze_flags,pickup_owners,seat,"
     "character,status,input,x,y,previous_x,previous_y,vx,vy,hp,ground,"
     "terrain_above_feet,solid_above_feet,terrain_feet,solid_feet,body,scratch,"
-    "upgrades,caller,items\n";
+    "upgrades,caller,items,regs\n";
 static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,const char *event) {
   if (!diagnostic_enabled || !enabled || !state.initialized) return;
   FILE *out=diagnostic_ready(&physics_file,"physics",kPhysicsHeader);
   if (!out) return;
   bool frame_end=!strcmp(event,"frame-end");
   bool platform=!strncmp(event,"platform",8);
-  char flags[15],owners[33],scratch[129],items[16*32+1]={0},caller[7]={0};
-  for(unsigned i=0;i<7;++i) snprintf(flags+i*2,3,"%02x",r[0x1f13+i]);
-  for(unsigned i=0;i<16;++i) snprintf(owners+i*2,3,"%02x",state.pickup_owner[i]);
-  for(unsigned i=0;i<64;++i) snprintf(scratch+i*2,3,"%02x",r[i]);
+  char flags[15],owners[33],scratch[129],items[16*32+1]={0},caller[7]={0},regs[24]={0};
+  diagnostic_hex(flags,r+0x1f13,7);
+  diagnostic_hex(owners,state.pickup_owner,16);
+  diagnostic_hex(scratch,r,64);
+  /* A:X:Y:P:DB at the hook, before co-op changes them (P from the flag mirrors). */
+  if(cpu) {
+    CpuState c=*cpu;cpu_mirrors_to_p(&c);
+    snprintf(regs,sizeof(regs),"%04x:%04x:%04x:%02x:%02x",c.A,c.X,c.Y,c.P,c.DB);
+  }
   if(frame_end || platform) diagnostic_items(r,items,sizeof(items));
   /* Entry to a long subroutine: the JSL return address names the item code. */
   if(platform && cpu && !strcmp(event,"platform-enter") && cpu->S<0x1ffd)
@@ -160,12 +174,12 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
     const uint8_t *b=seat==state.current ? r+0xba8 : p->body;
     char body[0x90*2+1]={0};
     if(frame_end || platform || !strcmp(event,"pickup"))
-      for(unsigned i=0;i<0x90;++i) snprintf(body+i*2,3,"%02x",b[i]);
+      diagnostic_hex(body,b,0x90);
     int x=word(b+5),y=word(b+8);
     int count=fprintf(out,
         "%u,%d,%u,%s,%06x,%04x,%04x,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%04x,"
         "%u,%u,%u,%u,%s,%s,%u,%u,%u,%04x,%d,%d,%u,%u,%d,%d,%u,%u,%u,%u,%u,%u,%s,%s,"
-        "%02x,%s,%s\n",
+        "%02x,%s,%s,%s\n",
         sequence,snes_frame_counter,r[0xb9c],event,(unsigned)pc,
         cpu?(unsigned)cpu->D:0,cpu?(unsigned)cpu->S:0,r[0x1f7a],r[0xd1],r[0xd2],r[0xd3],
         state.current,state.anchor,state.controller_pass,state.object_pass,state.contact_pass,
@@ -174,7 +188,7 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
         (int16_t)word(b+0x1a),(int16_t)word(b+0x1c),b[0x27]&127,b[0x2b],
         MmxWeaponsTerrainClass(r,x,y+8),MmxWeaponsTerrainSolid(r,x,y+8,true,NULL),
         MmxWeaponsTerrainClass(r,x,y+16),MmxWeaponsTerrainSolid(r,x,y+16,true,NULL),body,scratch,
-        r[0x1f99],caller,items);
+        r[0x1f99],caller,items,regs);
     if(count<0) {diagnostic_close(&physics_file);physics_file.checked=true;return;}
     physics_file.bytes+=count;
   }
@@ -235,6 +249,7 @@ bool MmxCoopTransitionActive(void) {
 
 bool MmxCoopEnabled(void) { return enabled; }
 void MmxCoopReset(void) {
+  platform_entry.valid=false;
   memset(&state, 0, sizeof(state));
   MmxWeaponsPartnerCombat(NULL);
   state.players[0].character = (uint8_t)starting_character;
@@ -280,6 +295,7 @@ bool MmxCoopValidState(const MmxCoopState *s) {
   return s->players[0].character != s->players[1].character;
 }
 void MmxCoopSetState(const MmxCoopState *s) {
+  platform_entry.valid=false;
   if (enabled && MmxCoopValidState(s)) {
     state = *s;
     MmxWeaponsPartnerCombat(state.initialized ? &state.players[state.current^1].combat : NULL);
@@ -871,6 +887,11 @@ static void object_hook(CpuState *cpu, uint32_t pc) {
     cpu_p_to_mirrors(cpu); state.object_pass = 0;
   }
 }
+/* The second seat re-enters $84:AB81/AB56 with the registers the item routine
+ * passed in (platform_entry), not with the first seat's return values. A rider
+ * is carried from the item's own fields, but a new landing reads the caller's
+ * inputs. Host-only: a state load invalidates it, keeping the previous
+ * behavior for a pass already in progress. */
 static void platform_hook(CpuState *cpu,uint32_t pc) {
   if(!enabled || !state.initialized || state.menu_owner || state.scene_owner) return;
   unsigned at=pc&65535,d=cpu->D;
@@ -896,6 +917,10 @@ static void platform_hook(CpuState *cpu,uint32_t pc) {
     state.contact_entry=(uint16_t)at;state.contact_pass=1;
     state.contact_d=(uint16_t)d;state.contact_s=cpu->S;
     state.platform_riders=g_ram[d+0x2c]&3;
+    cpu_mirrors_to_p(cpu);
+    platform_entry.valid=true;platform_entry.d=(uint16_t)d;platform_entry.s=cpu->S;
+    platform_entry.a=cpu->A;platform_entry.x=cpu->X;platform_entry.y=cpu->Y;
+    platform_entry.p=cpu->P;platform_entry.db=cpu->DB;
     if(at==0xab81) g_ram[d+0x2c]=(state.platform_riders>>state.current)&1;
     return;
   }
@@ -913,6 +938,10 @@ static void platform_hook(CpuState *cpu,uint32_t pc) {
     if(state.contact_entry==0xab81) TRACE_MARK(state.anchor^1,PLATFORM);
     MmxCoopSelect(g_ram,state.anchor^1);state.contact_pass=2;
     if(state.contact_entry==0xab81) g_ram[d+0x2c]=(state.platform_riders>>state.current)&1;
+    if(platform_entry.valid && platform_entry.d==d && platform_entry.s==cpu->S) {
+      cpu->A=platform_entry.a;cpu->X=platform_entry.x;cpu->Y=platform_entry.y;
+      cpu->DB=platform_entry.db;cpu->P=platform_entry.p;cpu_p_to_mirrors(cpu);
+    }
     interp_bridge_pre_opcode_redirect(0x840000|state.contact_entry);
     return;
   }
@@ -923,7 +952,7 @@ static void platform_hook(CpuState *cpu,uint32_t pc) {
     cpu->A=state.contact_a;cpu->X=state.contact_x;cpu->Y=state.contact_y;
     cpu->DB=state.contact_db;cpu->P=state.contact_p;cpu_p_to_mirrors(cpu);
   }
-  state.contact_pass=state.platform_riders=0;
+  state.contact_pass=state.platform_riders=0;platform_entry.valid=false;
 }
 static bool shared_screen(void) {
   return enabled && state.initialized && !state.menu_owner && !state.scene_owner && state.players[0].status==MMX_COOP_ALIVE &&
