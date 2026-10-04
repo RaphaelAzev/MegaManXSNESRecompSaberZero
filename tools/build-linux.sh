@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# build-linux.sh — DEFINITIVE Linux build/package script for a recomp game.
+# build-linux-prod.sh — DEFINITIVE Linux build/package script for a recomp game.
 #
 # This is the Linux counterpart to tools/make_release.ps1 (Windows). It mirrors
 # the same prod-vs-debug discipline:
@@ -28,15 +28,15 @@
 # overwritten, or native picker results stop selecting the correct fallback.
 #
 # Usage:
-#   bash tools/build-linux.sh                 # prod AppImage (default)
-#   bash tools/build-linux.sh --version 1.3.2 # stamp + name a release build
-#   bash tools/build-linux.sh --config debug  # debug build (TCP server + rings)
-#   bash tools/build-linux.sh --regen         # regen src/gen first (tools/regen.sh)
-#   bash tools/build-linux.sh --run           # launch the AppImage after building
-#   bash tools/build-linux.sh --no-package    # configure + build only, skip AppImage
-#   bash tools/build-linux.sh --nopin         # allow local snesrecomp changes
-#   bash tools/build-linux.sh --out DIR       # where to drop the .AppImage
-#   bash tools/build-linux.sh --jobs N        # parallel build jobs (default: nproc)
+#   bash tools/build-linux-prod.sh                 # prod AppImage (default)
+#   bash tools/build-linux-prod.sh --version 1.3.2 # stamp + name a release build
+#   bash tools/build-linux-prod.sh --config debug  # debug build (TCP server + rings)
+#   bash tools/build-linux-prod.sh --regen         # regen src/gen first (tools/regen.sh)
+#   bash tools/build-linux-prod.sh --run           # launch the AppImage after building
+#   bash tools/build-linux-prod.sh --no-package    # configure + build only, skip AppImage
+#   bash tools/build-linux-prod.sh --nopin         # allow local snesrecomp changes
+#   bash tools/build-linux-prod.sh --out DIR       # where to drop the .AppImage
+#   bash tools/build-linux-prod.sh --jobs N        # parallel build jobs (default: nproc)
 #
 # Prereqs: python3, cmake, a C/C++ toolchain, SDL3 (or SNESRECOMP_SDL_BACKEND=SDL2 with
 # libsdl2-dev), libgl1-mesa-dev. linuxdeploy/appimagetool are fetched into the
@@ -126,7 +126,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-BUILD="$REPO/build-linux-$CONFIG"
+BUILD="$REPO/build-linux-prod-$CONFIG"
 echo "==================== $APP_NAME ($CONFIG, v$VERSION) ===================="
 cd "$REPO"
 
@@ -402,3 +402,5 @@ python3 "$REPO/tools/test_appimage_picker.py" "$APPDIR"
 sha256sum "$APP"
 
 if [ "$DO_RUN" = "1" ]; then echo "[run] $APP"; "$APP" || true; fi
+
+
