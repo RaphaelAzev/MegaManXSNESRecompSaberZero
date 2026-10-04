@@ -157,7 +157,7 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
   if (!out) return;
   bool frame_end=!strcmp(event,"frame-end");
   bool platform=!strncmp(event,"platform",8);
-  char flags[15],owners[33],scratch[129],items[16*32+1]={0},caller[7]={0},regs[24]={0},slot[48*2+1]={0},enemies[15*32+1]={0};
+  char flags[15],owners[33],scratch[129],items[16*32+1]={0},caller[7]={0},regs[24]={0},slot[64*2+1]={0},enemies[15*32+1]={0};
   diagnostic_hex(flags,r+0x1f13,7);
   diagnostic_hex(owners,state.pickup_owner,16);
   diagnostic_hex(scratch,r,64);
@@ -172,6 +172,8 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
    * writes and the second seat's call reads shows up between their rows. */
   if(platform && cpu && cpu->D>=0x1628 && cpu->D<0x1928 && !((cpu->D-0x1628)%48))
     diagnostic_hex(slot,r+cpu->D,48);
+  else if(platform && cpu && cpu->D>=0xe68 && cpu->D<0x1228 && !((cpu->D-0xe68)%64))
+    diagnostic_hex(slot,r+cpu->D,64);
   /* Entry to a long subroutine: the JSL return address names the item code. */
   if(platform && cpu && !strcmp(event,"platform-enter") && cpu->S<0x1ffd)
     snprintf(caller,sizeof(caller),"%06x",
@@ -903,17 +905,32 @@ static void object_hook(CpuState *cpu, uint32_t pc) {
  * is carried from the item's own fields, but a new landing reads the caller's
  * inputs. Host-only: a state load invalidates it, keeping the previous
  * behavior for a pass already in progress. */
+/* Slots whose rider contact goes through $84:AB81/AB56. Items $0E/$0F/$10/$13/$14
+ * use .2C as a boolean rider latch. Storm Eagle's E-tank elevator is enemy
+ * $59, beside its $58/$5A parts; its .2C keeps bit 7 set and latches the
+ * rider in bit 0 ($80 -> $81 when X boards). */
+static bool platform_item(unsigned d) {
+  if(d<0x1628 || d>=0x1928 || (d-0x1628)%48) return false;
+  unsigned c=g_ram[d+10];
+  return (c>=0x0e && c<=0x10) || c==0x13 || c==0x14;
+}
+static bool platform_enemy(unsigned d) {
+  return d>=0xe68 && d<0x1228 && !((d-0xe68)%64) && g_ram[d+10]>=0x58 && g_ram[d+10]<=0x5a;
+}
+/* Co-op keeps one rider bit per seat in .2C bits 0/1 and projects the current
+ * seat's as bit 0 while the native helper runs. Higher bits (the elevator's
+ * bit 7) belong to the object and are never touched. */
+static void platform_project(unsigned d) {
+  g_ram[d+0x2c]=(uint8_t)((g_ram[d+0x2c]&~3u)|((state.platform_riders>>state.current)&1));
+}
 static void platform_hook(CpuState *cpu,uint32_t pc) {
   if(!enabled || !state.initialized || state.menu_owner || state.scene_owner) return;
   unsigned at=pc&65535,d=cpu->D;
-  if(d>=0x1628 && d<0x1928 && !((d-0x1628)%48))
+  if((d>=0x1628 && d<0x1928 && !((d-0x1628)%48)) || (d>=0xe68 && d<0x1228 && !((d-0xe68)%64)))
     diagnostic_event(g_ram,cpu,pc,at==0xab81 || at==0xab56 ? "platform-enter" : "platform-return");
-  /* Items $0E/$0F/$10/$13/$14 share .2C's boolean rider latch. In co-op retain one bit
-   * per seat there, projecting a boolean while the native helper executes.
-   * Slot initialization still clears it, and snapshots retain both riders. */
-  if(d<0x1628 || d>=0x1928 || (d-0x1628)%48 ||
-      !((g_ram[d+10]>=0x0e && g_ram[d+10]<=0x10) ||
-        g_ram[d+10]==0x13 || g_ram[d+10]==0x14)) return;
+  /* Slot initialization still clears .2C, and snapshots retain both riders. */
+  bool enemy=platform_enemy(d);
+  if(!enemy && !platform_item(d)) return;
   if(at==0xab81 || at==0xab56) {
     if(state.contact_pass) {
       /* Re-entry for the partner's own retry is expected; anything else
@@ -932,14 +949,16 @@ static void platform_hook(CpuState *cpu,uint32_t pc) {
     platform_entry.valid=true;platform_entry.d=(uint16_t)d;platform_entry.s=cpu->S;
     platform_entry.a=cpu->A;platform_entry.x=cpu->X;platform_entry.y=cpu->Y;
     platform_entry.p=cpu->P;platform_entry.db=cpu->DB;
-    if(at==0xab81) g_ram[d+0x2c]=(state.platform_riders>>state.current)&1;
+    if(at==0xab81) platform_project(d);
     return;
   }
   if(!state.contact_pass || state.contact_d!=d || state.contact_s!=cpu->S ||
       (state.contact_entry!=0xab81 && state.contact_entry!=0xab56)) return;
   if(state.contact_entry==0xab81) {
     unsigned bit=1u<<state.current;
-    state.platform_riders=(state.platform_riders&~bit)|(g_ram[d+0x2c]?bit:0);
+    /* Items hold a plain boolean; the elevator's bit 7 is not a rider. */
+    unsigned rode=enemy ? (g_ram[d+0x2c]&1) : (g_ram[d+0x2c]!=0);
+    state.platform_riders=(state.platform_riders&~bit)|(rode?bit:0);
   }
   if(state.contact_pass==1 && state.players[state.anchor^1].status==MMX_COOP_ALIVE &&
       (state.players[state.anchor^1].body[0x27]&127)) {
@@ -948,7 +967,7 @@ static void platform_hook(CpuState *cpu,uint32_t pc) {
     TRACE(PLATFORM,pc,1,state.platform_riders,cpu);
     if(state.contact_entry==0xab81) TRACE_MARK(state.anchor^1,PLATFORM);
     MmxCoopSelect(g_ram,state.anchor^1);state.contact_pass=2;
-    if(state.contact_entry==0xab81) g_ram[d+0x2c]=(state.platform_riders>>state.current)&1;
+    if(state.contact_entry==0xab81) platform_project(d);
     if(platform_entry.valid && platform_entry.d==d && platform_entry.s==cpu->S) {
       cpu->A=platform_entry.a;cpu->X=platform_entry.x;cpu->Y=platform_entry.y;
       cpu->DB=platform_entry.db;cpu->P=platform_entry.p;cpu_p_to_mirrors(cpu);
@@ -956,7 +975,7 @@ static void platform_hook(CpuState *cpu,uint32_t pc) {
     interp_bridge_pre_opcode_redirect(0x840000|state.contact_entry);
     return;
   }
-  g_ram[d+0x2c]=state.platform_riders;
+  g_ram[d+0x2c]=(uint8_t)((enemy ? g_ram[d+0x2c]&~3u : 0)|state.platform_riders);
   TRACE(PLATFORM,pc,2,state.platform_riders,cpu);
   if(state.contact_pass==2) {
     MmxCoopSelect(g_ram,state.anchor);
