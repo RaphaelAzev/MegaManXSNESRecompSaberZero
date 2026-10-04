@@ -452,3 +452,21 @@ pass left open is closed at the next frame. USA only. Not yet verified
 against the ROM: please confirm `$82:D7D7` resolves contact for `$0BA8` (it
 appears to: X is carried before any other contact pass) and that its RTL lies
 in that window.
+
+## Update: both ride, partner carried in the same frame
+
+Retest with the `$82:D7D7` retry: Zero (partner) now collides with and rides
+the elevator. X looked jerky on the way up. In
+`coop-physics-20261004-124931-4005421-1.csv` the order inside a frame is: X's
+query (no movement), Zero's query (snaps him onto the top, e.g. y 875→874),
+then the handler moves the elevator (893→891) and carries only the projected
+body, X (874→872). At frame end X sat at `el_y−19` on all 772 riding frames;
+Zero did on 638 and trailed by 1–2 px on the other 134, catching up at his
+next query. The two bodies were drawn a frame apart, which reads as jitter.
+
+Change: when the partner's query sets `.2C` bit 0, co-op records the
+elevator's position (slot +5 x, +8 y). At the end of the frame, before
+capture, `MmxCoopLiftCarry` moves the partner's body by however far the
+elevator moved since then (ignored above 16 px, as a warp). The caller now
+always gets the first seat's registers back. The state is host-only and
+cleared on reset and rollback.

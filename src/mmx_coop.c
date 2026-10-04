@@ -712,6 +712,8 @@ static struct {
   uint8_t pass,first,entry_2c,first_2c,p,db;
   uint16_t d,s,a,x,y,ra,rx,ry; uint8_t rp,rdb;
   uint32_t ret; /* JSL return address on the stack at entry */
+  uint8_t carry; /* partner seat + 1 to carry at frame end, 0 for none */
+  uint16_t carry_x,carry_y; /* elevator position when the partner boarded */
 } lift;
 static uint32_t lift_stack_ret(const CpuState *cpu) {
   return cpu->S<0x1ffd ? (uint32_t)(g_ram[cpu->S+1]|g_ram[cpu->S+2]<<8|g_ram[cpu->S+3]<<16) : 0;
@@ -735,7 +737,7 @@ void MmxCoopHostFrame(void) { if(enabled) lift_find_rtl(); }
 static bool lift_elevator(unsigned d) {
   return d>=0xe68 && d<0x1228 && !((d-0xe68)%64) && g_ram[d] && g_ram[d+10]==0x59;
 }
-static void lift_reset(void) { lift.pass=0; }
+static void lift_reset(void) { lift.pass=0;lift.carry=0; }
 static void lift_close(void) {
   if(lift.pass==2) MmxCoopSelect(g_ram,lift.first);
   lift.pass=0;
@@ -767,14 +769,36 @@ static void lift_rtl_hook(CpuState *cpu,uint32_t pc) {
     interp_bridge_pre_opcode_redirect(0x82d7d7);
     return;
   }
-  bool first_rides=lift.first_2c&1, second_rides=g_ram[d+0x2c]&1;
+  bool second_rides=g_ram[d+0x2c]&1;
   g_ram[d+0x2c]=(uint8_t)(lift.first_2c|g_ram[d+0x2c]);
   MmxCoopSelect(g_ram,lift.first);
-  /* Hand the caller the first seat's answer unless only the partner rides. */
-  if(first_rides || !second_rides) {
-    cpu->A=lift.ra;cpu->X=lift.rx;cpu->Y=lift.ry;cpu->DB=lift.rdb;cpu->P=lift.rp;cpu_p_to_mirrors(cpu);
+  /* The handler moves the elevator after the query and carries only the
+   * projected body, so it always gets the first seat's answer; a riding
+   * partner is moved by the same amount in MmxCoopLiftCarry at frame end. */
+  cpu->A=lift.ra;cpu->X=lift.rx;cpu->Y=lift.ry;cpu->DB=lift.rdb;cpu->P=lift.rp;cpu_p_to_mirrors(cpu);
+  if(second_rides) {
+    lift.carry=(uint8_t)((lift.first^1)+1);
+    lift.carry_x=(uint16_t)(g_ram[d+5]|g_ram[d+6]<<8);
+    lift.carry_y=(uint16_t)(g_ram[d+8]|g_ram[d+9]<<8);
   }
   lift.pass=0;
+}
+/* End of frame, before capture: shift the partner who answered the elevator's
+ * query by however far the elevator moved after it, so both riders track it
+ * in the same frame instead of the partner catching up a frame late. */
+void MmxCoopLiftCarry(uint8_t *r) {
+  if(!lift.carry) return;
+  unsigned seat=lift.carry-1u,d=lift.d;
+  lift.carry=0;
+  if(!enabled || !state.initialized || !lift_elevator(d) ||
+      state.players[seat].status!=MMX_COOP_ALIVE) return;
+  uint8_t *body=seat==state.current ? r+0xba8 : state.players[seat].body;
+  int dx=(int16_t)((r[d+5]|r[d+6]<<8)-lift.carry_x);
+  int dy=(int16_t)((r[d+8]|r[d+9]<<8)-lift.carry_y);
+  if(!dx && !dy) return;
+  if(dx<-16 || dx>16 || dy<-16 || dy>16) return; /* warped, not carried */
+  uint16_t x=(uint16_t)((body[5]|body[6]<<8)+dx),y=(uint16_t)((body[8]|body[9]<<8)+dy);
+  body[5]=(uint8_t)x;body[6]=(uint8_t)(x>>8);body[8]=(uint8_t)y;body[9]=(uint8_t)(y>>8);
 }
 static void eagle_lift_hook(CpuState *cpu,uint32_t pc) {
   if(!enabled || !state.initialized || state.menu_owner || state.scene_owner) return;
