@@ -504,3 +504,25 @@ pushes him down out of its bottom edge (y 735→738→741) and stops pushing him
 sideways, while the column only starts pushing at y 742. That is a seam
 between the two parts' boxes in the native routine, not a co-op path. Needs a
 single-player comparison to confirm it is original behaviour.
+
+## Update: helmet capsule still absent (netplay, Zero fallen)
+
+`coop-physics-20261004-140424-4045650-1.csv` (+ `.previous.csv`, host frames
+10909..14624, online co-op, Unified cameras). Zero (seat 2) fell into a pit at
+host frame 11772 (y 1089) and stayed fallen. X reached the same spot as in the
+first report: camera fixed at 3840/512, X idling at x 3981..4071, y 655
+(frames ~13780..14624).
+
+- `$1F99` is `$18` on every row, so the helmet bit (`$01`) is clear: the
+  capsule's own "already owned" gate should not remove it.
+- The item pool held no capsule at any point in the room. In the whole
+  capture, only one item of class `$05` appears, for a single frame
+  (11023, x `$0750` y `$0288`, state `01 00 00`, while both players were
+  alive), far from the room. It vanished the next frame.
+- The enemy pool near the room holds only two stale class `$46` slots.
+
+So in both reports the capsule never spawns while Zero is fallen. That
+points at the world spawn (or the room's capsule trigger), not the `$81:E4C7`
+initializer. Still unknown: whether it spawns in co-op with both alive, and
+which pool and trigger the room's capsule uses. That needs the stage's object
+table / spawner code read against these coordinates.
