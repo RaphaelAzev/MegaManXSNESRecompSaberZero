@@ -526,3 +526,22 @@ points at the world spawn (or the room's capsule trigger), not the `$81:E4C7`
 initializer. Still unknown: whether it spawns in co-op with both alive, and
 which pool and trigger the room's capsule uses. That needs the stage's object
 table / spawner code read against these coordinates.
+
+## Update: the helmet capsule is a camera-scroll spawn ($4D in the enemy pool)
+
+`coop-physics-20261004-141547-4053487-1.csv` (online, both alive): the capsule
+is enemy class `$4D` (slot 0, x `$0FC8` = 4040, y `$02D0` = 720), not an item.
+It did not spawn when the camera arrived (3765/431 → down to 3765/512 at X's
+drop, x 3894, then right to 3840/512 at frame 8064), although at 3840/512 the
+capsule sits inside the screen (200, 208). It spawned at frame 8432, on the
+first frame the camera scrolled down again (454 → 458) after a wall jump had
+pulled it up to y 454. So the spawn is edge-triggered by camera scrolling, and
+co-op's arrival path (shared camera = midpoint of the two bodies; Zero 2–6 px
+behind X) never crossed the trigger, presumably by a pixel or two of margin.
+The first report's camera path (Zero fallen) also never re-scrolled.
+
+Also seen: from the spawn onward the camera alternates 3840/3843 every frame.
+And in the dialogue screenshot, only one peer draws Dr. Light's hologram.
+
+Next: read the enemy spawner's edge windows (horizontal and vertical scan
+margins) for this room and compare with a solo arrival.
