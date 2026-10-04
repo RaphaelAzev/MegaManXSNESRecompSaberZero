@@ -245,3 +245,53 @@ an owned one; it verifies this gate rather than recreating the old world spawn.
 Keep the new `upgrades` and
 `items` diagnostics for a fresh approach if the capsule is still absent with
 the helmet bit clear; do not force a duplicate capsule to appear.
+
+## Update: register fix tested, still failing (2026-10-04)
+
+The owner tested a local Linux build of `main` (`375b31d`: `$13/$14` filter
+plus the register re-entry change). P2 still cannot land on the `$0F` pillars,
+and also walks through their sides: `$84:AB56` side contact fails for the
+second seat just like `$84:AB81` landing, while riding (carry via `.2C`) keeps
+working and everything works once the partner is gone.
+
+Next hypothesis: the first seat's call writes a byte in the item slot (for
+example a "contact handled" flag) that the second seat's re-entry reads and
+then skips its contact test. Only `.2C` is projected per seat today. The
+physics trace now records the contacted item's full 48-byte slot (`slot`
+column) on every platform row, so the first seat's entry/return and the
+second seat's entry/return can be diffed byte by byte. ROM-side, it would
+settle quickly by reading which item fields `$84:AB81/AB56` read and write.
+
+The Linux build previously wrote no session log (stderr only), which is why
+the owner's local run produced no `mmx-*.log`. It now follows the Windows
+policy (`logs/mmx-*.log` beside the executable unless `logging.ini` Console=1
+or `MMX_LOG_CONSOLE=1`).
+
+## Update: the E-tank elevator is not in the item pool (2026-10-04)
+
+Owner recording `coop-physics-20261004-014404-3699341-1.csv` (local Linux
+build, host frames 6040..6802, stage 5). The new `slot` column shows no item
+byte changing in or between the two seats' `$84:AB81/AB56` calls, so the
+"shared item flag" hypothesis is ruled out for the platforms that do use them
+(two class `$0E` slots, callers `$83:F124/$83:F12D`).
+
+The decisive part is frames 6400..6800: X stands on the elevator at X 1363
+(`$0BD4` bit 2 set) and rides it from Y 902 up to 701, while Zero stands at
+X 1362 on the floor (Y 911) *inside* it, never gaining `$0BD4` bit 2. During
+that ride there are no live item slots and no `$84:AB81/AB56` calls at all.
+This is the same 902 -> 701 ascent as the first recording's "column" at host
+frame 34800 (X at 1371), so that case was this elevator too; the `$0F` rows
+logged around it belonged to other objects.
+
+So the elevator is an object outside the `$1628` item pool, most likely an
+enemy-pool object (`$0E68 + slot*$40`) with its own rider/side contact, and
+co-op runs that contact for the world anchor only. The ship lift (enemy `$48`)
+is the one enemy rider co-op already handles, by retrying its `$82:D7D7`
+contact query from `$87:C0AE`. The elevator probably needs the same treatment:
+a second-seat retry of its contact routine, with per-seat rider state.
+
+The physics trace now adds an `enemies` column on frame-end rows (every live
+enemy slot as `slot:class:x:y:state0state1state2:2C`), which identifies the
+elevator's class and whether `.2C` latches its rider. ROM-side: find that
+class's handler and the contact routine it calls, then extend the existing
+second-seat contact pattern to it.

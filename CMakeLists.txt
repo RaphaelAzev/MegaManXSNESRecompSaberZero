@@ -104,9 +104,11 @@ function(add_mmx_variant TARGET GEN_DIR CFG_DIR)
     endif()
     if(WIN32)
         set_target_properties(${TARGET} PROPERTIES WIN32_EXECUTABLE TRUE)
-        if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/logging.ini")
-            configure_file(logging.ini logging.ini COPYONLY)
-        endif()
+    endif()
+    # Logging policy beside the executable on every platform; never replace
+    # a player's edited copy.
+    if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/logging.ini")
+        configure_file(logging.ini logging.ini COPYONLY)
     endif()
     recomp_target_launcher_ui(${TARGET} CONSOLE snes
         BOXART ${CMAKE_CURRENT_SOURCE_DIR}/recomp/launcher/boxart.tga)
