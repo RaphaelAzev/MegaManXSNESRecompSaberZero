@@ -662,3 +662,22 @@ interaction follows the world actor only.
 
 Change: contact_hook opens no partner pass for a class `$4D` slot. Capsule
 `$84:9B03/9B43` contact rows are now always traced.
+
+## Update: Zero masks X with the ship's foreground (sprite priority)
+
+The owner confirms the capsule and lift fixes. Last report: inside the ship
+(around x 6208..6336, y 224), Zero looks like he takes on the BG's colours.
+His shape covers X but is filled with the foreground tiles.
+
+`coop-physics-20261004-173914-4148951-1`: X's `.11` turns on bit 4 once, at
+frame 9514, when he drops into the ship (x 5447, y 173), and keeps it until
+the boss lift (frame 12101). His priority is 3 (`$32/$72`). Zero stays `$22/$62`
+(priority 2) throughout, and everywhere else the two always match. The stage
+writes the priority to the world actor's `$0BB9` only. On the SNES the
+first-listed sprite pixel wins, and only then is compared against the BG.
+So the priority-2 Zero, drawn over X, lets the high-priority hull tiles
+through in Zero's shape, X included.
+
+Change: `MmxCoopSyncPriority` (frame end, before capture) copies the world
+actor's `.11 & $30` to the living partner. Facing and palette bits are kept.
+Deterministic, with no stored state.

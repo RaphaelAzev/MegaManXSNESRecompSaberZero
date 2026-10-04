@@ -823,6 +823,20 @@ void MmxCoopLiftCarry(uint8_t *r) {
   uint16_t x=(uint16_t)((body[5]|body[6]<<8)+dx),y=(uint16_t)((body[8]|body[9]<<8)+dy);
   body[5]=(uint8_t)x;body[6]=(uint8_t)(x>>8);body[8]=(uint8_t)y;body[9]=(uint8_t)(y>>8);
 }
+/* Stage sections set the player's OBJ priority once, on the world actor:
+ * entering Storm Eagle's ship writes .11 bit 4 (priority 3, in front of the
+ * hull's high-priority foreground) to $0BB9 and clears it at the boss lift.
+ * The partner kept priority 2, so the PPU's first-sprite rule let Zero's
+ * shape punch the foreground through X wherever they overlapped. Both seats
+ * otherwise always share these bits; follow the world actor's. */
+void MmxCoopSyncPriority(uint8_t *r) {
+  if(!enabled || !state.initialized || state.menu_owner || state.scene_owner) return;
+  unsigned seat=state.anchor^1;
+  if(state.players[seat].status!=MMX_COOP_ALIVE) return;
+  const uint8_t *world=state.anchor==state.current ? r+0xba8 : state.players[state.anchor].body;
+  uint8_t *body=seat==state.current ? r+0xba8 : state.players[seat].body;
+  body[0x11]=(uint8_t)((body[0x11]&~0x30)|(world[0x11]&0x30));
+}
 static void eagle_lift_hook(CpuState *cpu,uint32_t pc) {
   if(!enabled || !state.initialized || state.menu_owner || state.scene_owner) return;
   unsigned d=cpu->D;
