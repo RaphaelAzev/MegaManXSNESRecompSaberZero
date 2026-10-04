@@ -36,6 +36,8 @@ _Static_assert(sizeof(MmxCoopState) == 4664, "Co-op save ABI");
 static bool join_tick(uint8_t *r);
 /* Registers the item routine passed into $84:AB81/AB56; see platform_hook. */
 static struct {bool valid;uint16_t d,s,a,x,y;uint8_t p,db;} platform_entry;
+/* Same for $84:9B03/9B43; see contact_hook. */
+static struct {bool valid;uint16_t d,s,a,x,y;uint8_t p,db;} contact_regs;
 /* --coop-trace: observation only; see mmx_coop_trace.h. */
 static void trace_event(unsigned kind,uint32_t pc,unsigned a,unsigned b,const CpuState *cpu) {
   MmxCoopTraceEvent e={(uint32_t)snes_frame_counter,pc,cpu?cpu->S:0,cpu?cpu->D:0,
@@ -165,7 +167,7 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
   FILE *out=diagnostic_ready(&physics_file,"physics",kPhysicsHeader);
   if (!out) return;
   bool frame_end=!strcmp(event,"frame-end");
-  bool platform=!strncmp(event,"platform",8);
+  bool platform=!strncmp(event,"platform",8) || !strncmp(event,"contact",7);
   char flags[15],owners[33],scratch[129],items[16*32+1]={0},caller[12]={0},regs[24]={0},slot[64*2+1]={0},enemies[15*32+1]={0};
   diagnostic_hex(flags,r+0x1f13,7);
   diagnostic_hex(owners,state.pickup_owner,16);
@@ -280,6 +282,7 @@ bool MmxCoopTransitionActive(void) {
 
 bool MmxCoopEnabled(void) { return enabled; }
 void MmxCoopReset(void) {
+  platform_entry.valid=false;contact_regs.valid=false;
   MmxCoopViewsResetWorld();
   MmxWeaponsCameraQuery(enabled?weapon_view:NULL);
   platform_entry.valid=false;
@@ -328,7 +331,7 @@ bool MmxCoopValidState(const MmxCoopState *s) {
   return s->players[0].character != s->players[1].character;
 }
 void MmxCoopSetState(const MmxCoopState *s) {
-  platform_entry.valid=false;
+  platform_entry.valid=false;contact_regs.valid=false;
   if (enabled && MmxCoopValidState(s)) {
     state = *s;
     MmxWeaponsPartnerCombat(state.initialized ? &state.players[state.current^1].combat : NULL);
@@ -827,6 +830,20 @@ static void elevator_record(unsigned d) {
   riders=(riders&~bit)|((g_ram[d+0x2c]&1)?bit:0);
   state.elevator_riders=(uint8_t)((state.elevator_riders&0xf0)|riders);
 }
+/* Registers the caller passed into $84:9B03/9B43 for the first seat. The
+ * partner's retry re-enters with these, as platform_hook does: re-entering
+ * with the first call's return values left solid objects (Storm Eagle's
+ * elevator) without collision for the second seat, while ordinary damage
+ * contact, which reads only the enemy slot, still worked. Host-only. */
+/* Trace the enemy contact calls while a Storm Eagle elevator part lives. */
+static bool contact_traced(void) {
+  if(!diagnostic_enabled) return false;
+  for(unsigned i=0;i<15;++i) {
+    const uint8_t *e=g_ram+0xe68+i*64;
+    if(e[0] && e[10]>=0x58 && e[10]<=0x5a) return true;
+  }
+  return false;
+}
 static void contact_hook(CpuState *cpu,uint32_t pc) {
   if (!enabled || !state.initialized) return;
   unsigned at = pc & 65535;
@@ -837,8 +854,14 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
   }
   if(state.menu_owner || state.scene_owner ||
       (!state.contact_pass && state.players[state.current^1].status!=MMX_COOP_ALIVE)) return;
+  if ((at == 0x9b03 || at == 0x9b43) && contact_traced())
+    diagnostic_event(g_ram,cpu,pc,"contact-enter");
   if (at == 0x9b03 || at == 0x9b43) {
     if (!state.contact_pass) {
+      cpu_mirrors_to_p(cpu);
+      contact_regs.valid=true;contact_regs.d=cpu->D;contact_regs.s=cpu->S;
+      contact_regs.a=cpu->A;contact_regs.x=cpu->X;contact_regs.y=cpu->Y;
+      contact_regs.p=cpu->P;contact_regs.db=cpu->DB;
       MmxCoopViewsContactPlayer(state.current);
       state.contact_pass = 1; state.contact_entry = (uint16_t)at;
       state.contact_s = cpu->S; state.contact_d = cpu->D;
@@ -850,6 +873,7 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
   /* A helper may return through a shared RTL; only the owning guest call's
    * balanced return boundary can complete or restart this pass. */
   if (!state.contact_pass || cpu->S != state.contact_s || cpu->D != state.contact_d) return;
+  if (contact_traced()) diagnostic_event(g_ram,cpu,pc,"contact-return");
   unsigned slime=state.contact_entry==0x9b03 ? slime_bit(cpu->D) : 0;
   if (state.contact_pass == 1) {
     /* Slimer's puddle can capture one actor. Keep the actual contact seat
@@ -867,6 +891,10 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
     if (elevator) elevator_record(cpu->D);
     MmxCoopSelect(g_ram,MmxCoopViewsGetWorldState().contact_player^1); state.contact_pass = 2;
     if (elevator) elevator_project(cpu->D);
+    if (contact_regs.valid && contact_regs.d==cpu->D && contact_regs.s==cpu->S) {
+      cpu->A=contact_regs.a;cpu->X=contact_regs.x;cpu->Y=contact_regs.y;
+      cpu->DB=contact_regs.db;cpu->P=contact_regs.p;cpu_p_to_mirrors(cpu);
+    }
     interp_bridge_pre_opcode_redirect(0x840000 | state.contact_entry);
   } else {
     if(slime && (cpu->A&255)) slime_owner(slime,state.current);
@@ -882,7 +910,7 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
       cpu->A = state.contact_a; cpu->X = state.contact_x; cpu->Y = state.contact_y;
       cpu->DB = state.contact_db; cpu->P = state.contact_p; cpu_p_to_mirrors(cpu);
     }
-    state.contact_pass = 0;
+    state.contact_pass = 0; contact_regs.valid = false;
     /* A fatal contact can happen immediately before a boss tests player HP
      * and permanently disables its own damage receiver. Finish both contact
      * passes, then expose the living world actor to that native continuation. */
