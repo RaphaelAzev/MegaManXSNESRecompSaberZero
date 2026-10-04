@@ -272,6 +272,12 @@ const uint8_t *MmxZeroPose(const uint8_t ram[0x20000], const MmxZeroState *s) {
    * During invulnerability the next update can hide the player while OAM
    * still contains the preceding visible frame. The compositor owns blinking. */
   if (!poses || !ram || (s && s->active_x)) return NULL;
+  /* $81:91F1's Highway electric restraint starts native sequence $49.
+   * That sequence is an attack alias in the ordinary X3 movement map.
+   * Keep Zero in his original staggered hurt pose until the rescue starts;
+   * group $66 below owns the subsequent fall, kneeling and dialogue. */
+  if (ram[0x1f7a] == 0 && ram[0xbaa] == 0x32 && ram[0xbab] <= 2)
+    return poses + (size_t)0x33 * MMX_ZERO_WIDTH * MMX_ZERO_HEIGHT;
   /* X1's Vile capture/rescue uses group $66, not the normal body group.
    * Its five poses are kneeling/blinking, then suspended. Use original X3
    * kneeling/hurt art instead of reading these as running/firing sequences. */

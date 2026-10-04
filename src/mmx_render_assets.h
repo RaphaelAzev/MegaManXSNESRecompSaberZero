@@ -17,6 +17,8 @@ const MmxSpriteAsset *MmxRenderAssetsCaptiveZero(void);
 const MmxSpriteAsset *MmxRenderAssetsTeleportX(unsigned pose);
 /* Native X1 weapon-selection DMA and palettes, isolated from the other seat. */
 const MmxSpriteAsset *MmxRenderAssetsWeaponX(unsigned weapon, bool body);
+/* Full native buster pose, independent of another co-op shot's CHR upload. */
+const MmxSpriteAsset *MmxRenderAssetsChargedBuster(unsigned group, unsigned pose);
 /* Charged Sting's original eight-step body palette sequence. */
 bool MmxRenderAssetsStingPalette(unsigned phase, uint16_t colors[16]);
 const MmxSpriteAsset *MmxRenderAssetsObjectSprite(const uint8_t ram[0x20000],

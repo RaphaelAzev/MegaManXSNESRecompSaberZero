@@ -165,7 +165,12 @@ The new `items` column shows twelve live slots, all class `$0F`, bobbing
 - Owner observation: when X warps out, Zero immediately starts colliding with
   the elevating column again. So the failure depends on co-op, not on Zero.
 
-### Probable cause, and the fix in this branch
+### Register re-entry (trace hypothesis; superseded as the cause)
+
+The maintainer follow-up below found the actual cause against the ROM
+(items `$13/$14` missing from the filter). The column rows here were nearby
+`$0F` items. The register change described next remains as a defensive
+correction.
 
 `platform_hook` opens the pass at `AB81`/`AB56` entry, and at the first seat's
 return it saves the return registers, projects the partner and redirects to
@@ -208,3 +213,35 @@ unchanged here.
   the remaining cost.
 - To locate the forks, compare `wram_hash` in both players'
   `coop-netplay-*.csv` around those ticks. Only the guest's file was supplied.
+
+## Maintainer follow-up (2026-10-03)
+
+Hypothesis 2 reproduced against the source ROM: the later supports are native
+item classes `$13/$14`, outside the existing co-op `$0E..$10` filter. Their
+dispatch entries in `$80:F320` lead to `$83:F27D/$F360`. Both use the same
+boolean `.2C` rider latch and call `$84:AB81/$AB56`:
+
+- `$13`: landing caller `$83:F2D8`, side-contact caller `$83:F2E1`, bounds
+  `$86:DB58` (paused landing caller `$83:F343`).
+- `$14`: landing caller `$83:F3FC`, side-contact caller `$83:F405`, bounds
+  `$86:DB98`.
+
+The first seat could ride these supports, but the co-op hook never projected
+their latch or retried contact for the partner. Contact rows for other nearby
+items explained why the old trace appeared to contain both passes. The fix
+includes `$13/$14` in that existing per-seat handling; it does not change Zero's
+box or native landing thresholds. `MMX_COOP_STORM_LANDING_TEST=1` exercises a
+falling partner beside a current rider on `$0F/$10/$13/$14`, in both character
+arrangements. The new `$13` case fails before the fix and all eight cases pass
+after it, including the continuously rising `$14` support.
+
+The helmet report remains unconfirmed. The real capsule is item `$05`; its
+initializer `$81:E4C7` reads shared `$1F99 & item.0B` and removes itself if the
+upgrade is owned. Helmet uses mask `$01`. That check does not read either
+player's health, Zero's virtual upgrade hook, or a netplay flag. The old
+trace cannot establish whether that bit was set. The focused source-ROM check
+with X alive and Zero fallen initializes an unowned helmet capsule and removes
+an owned one; it verifies this gate rather than recreating the old world spawn.
+Keep the new `upgrades` and
+`items` diagnostics for a fresh approach if the capsule is still absent with
+the helmet bit clear; do not force a duplicate capsule to appear.

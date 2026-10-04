@@ -840,7 +840,7 @@ The Co-op physics diagnostics mod now records what that needs:
 - `upgrades`: `$1F99` armor bits on every row (capsules hide once collected).
 - `items` on frame-end and platform rows: every live item slot as
   `slot:class:x:y:state0..2:2C`, separated by `;`. Platforms are classes
-  `$0E..$10`; `.2C` is the rider latch.
+  `$0E..$10/$13/$14`; `.2C` is the rider latch.
 - `platform-enter` / `platform-return` rows at `$84:AB81`/`$84:AB56` and their
   returns for any item slot, before co-op switches seats, with the current
   seat's body. `caller` on entry rows is the JSL return address, naming the
@@ -857,9 +857,46 @@ the first tick whose hashes differ between the two players' files is where
 the simulations forked. The file is observation only and is not written
 outside netplay.
 
-Follow-up (2.0.6-alpha recording): riding a `$0F` column works for both seats,
-but a non-anchor seat cannot land on one, and Zero lands normally once X is
-gone. The second seat re-entered `$84:AB81/AB56` with the first call's return
-registers; it now re-enters with the registers the item routine passed in.
-The physics trace adds a `regs` column and a faster hex encoder. Details and
-the netplay lag analysis are in `docs/storm-eagle-collision-handoff.md`.
+The subsequent source-ROM reproduction found that the later platforms are
+items `$13/$14` (`$83:F27D/$F360`), which were omitted from `platform_hook`.
+They share the existing `.2C` boolean rider contract, so they now use the same
+per-seat projection and native contact retry as `$0E..$10`. A falling partner
+could not board `$13` before the fix; both character arrangements now board
+and ride `$0F/$10/$13/$14`. See the handoff's maintainer follow-up for callers,
+collision boxes, and the still-unconfirmed helmet capsule report. The focused
+regression is `MMX_COOP_STORM_LANDING_TEST=1`.
+
+### Co-op buster and death graphics (2026-10-03)
+
+Tracking: `beads-8wg.1.85`, `beads-8wg.1.88`. The Highway Vile restraint now
+uses Zero's original X3 hurt pose rather than interpreting X1 sequence `$49`
+as an ordinary X3 attack. See `zero-port.md` for the native state distinction.
+
+Co-op buster shots retain X1 projectiles `$02/$03`, groups `$0E/$9E`.
+`$83:89E3/$8C70` select the five-byte pose-DMA directories `$85:AAF3/$AB9A`,
+consumed by `$84:8FCA`. Their transfers share VRAM `$6200/$6300`, with different top and
+bottom row lengths by pose. One shot's growth/flight upload can replace the
+other shot's lower tiles. The compositor now binds each traveling shot to
+its own original ROM pose art for either seat, without changing guest DMA,
+combat timing, or rollback state. Poses `$01/$06` inherit the preceding
+growth transfers `$00/$05`; group `$0E` poses `$01..$03` reuse `$00`, and its
+full-charge flight aliases `$11/$12/$14` reuse `$0C`. Palette selection stays
+live so native colors and fades remain intact. Shared disappearance poses
+`$08..$0B` (group `$0E`) and `$08..$0A` (group `$9E`) retain
+their native binding.
+
+Death circles also share X's body pages `$6000/$6100`. Their original literal
+DMA list is now decoded separately, preserving native circle art while the
+survivor moves. Zero's emitter marker still selects the red palette ramp;
+X's particles remain blue. Neither change introduces new artwork or a save
+format change. Private ROM-backed checks and captures use
+`MMX_COOP_GRAPHICS_FOLLOWUP_TEST=1`; source ROMs and fixtures remain untracked.
+
+Follow-up (2.0.6-alpha recording): the second seat also re-entered
+`$84:AB81/AB56` with the first call's return registers rather than the
+registers the item routine passed in. It now re-enters with the caller's
+registers. This was the trace-only hypothesis before the ROM reproduction
+below; it is kept as a defensive correction and is not covered by
+`MMX_COOP_STORM_LANDING_TEST`. The physics trace adds a `regs` column and a
+faster hex encoder; the netplay lag analysis is in
+`docs/storm-eagle-collision-handoff.md`.

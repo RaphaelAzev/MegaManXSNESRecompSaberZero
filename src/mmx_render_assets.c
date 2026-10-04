@@ -11,6 +11,10 @@ static MmxSpriteAsset captive_zero;
 static unsigned captive_zero_ready;
 static MmxSpriteAsset teleport_x[8];
 static bool teleport_x_ready;
+static MmxSpriteAsset death_orbs;
+static bool death_orbs_ready;
+static MmxSpriteAsset charged_buster[2][21];
+static bool charged_buster_ready[2][21];
 static MmxSpriteAsset player_weapons[9][2];
 static uint8_t player_weapon_ready[9];
 static uint8_t ready[256], sprite_resource[256];
@@ -31,6 +35,8 @@ void MmxRenderAssetsSetRom(const uint8_t *bytes, size_t size) {
   bg_stage = ~0u;
   captive_zero_ready = 0;
   teleport_x_ready = false;
+  death_orbs_ready = false;
+  memset(charged_buster_ready,0,sizeof(charged_buster_ready));
   memset(player_weapon_ready,0,sizeof(player_weapon_ready));
 }
 const MmxSpriteAsset *MmxRenderAssetsWeaponX(unsigned weapon, bool body) {
@@ -71,6 +77,41 @@ const MmxSpriteAsset *MmxRenderAssetsWeaponX(unsigned weapon, bool body) {
     if(!complete) return NULL;
   }
   player_weapon_ready[weapon]=1;return body?actor:art;
+}
+const MmxSpriteAsset *MmxRenderAssetsChargedBuster(unsigned group,unsigned pose) {
+  if (!rom || (group!=0x0e && group!=0x9e) ||
+      pose>=(group==0x0e ? 21 : 12) || (pose>=8 && pose<=11 && group==0x0e) ||
+      (group==0x9e && pose>=8 && pose<=10)) return NULL;
+  unsigned kind=group==0x9e;
+  if (charged_buster_ready[kind][pose]) return &charged_buster[kind][pose];
+  const MmxSpriteAsset *palette=MmxRenderAssetsWeaponX(0,false);
+  if (!palette) return NULL;
+  MmxSpriteAsset *art=&charged_buster[kind][pose];
+  memset(art,0,sizeof(*art));
+  /* $83:89E3/$8C70 select pose-DMA tables $85:AAF3/$AB9A for groups $0E/$9E. Native
+   * $84:8FCA uploads both rows to $6200/$6300. Each pose has different
+   * row lengths; a second player's pose can erase the first shot's bottom. */
+  /* Poses 1 and 6 have no transfer; they reuse the preceding growth pose.
+   * The shared disappearance poses 8..10 retain their native live binding. */
+  unsigned upload_pose=kind ? (pose==1 ? 0 : pose==6 ? 5 : pose) :
+      pose<4 ? 0 : (pose==17 || pose==18 || pose==20) ? 12 : pose;
+  size_t table=kind ? 0x2ab9a : 0x2aaf3;
+  size_t list=table+word(table+upload_pose*2);
+  bool complete=false;
+  for (unsigned n=0;n<32;++n,list+=5) {
+    if (!range(list,5)) return NULL;
+    unsigned count=rom[list]*16;
+    if (!count) {complete=true;break;}
+    int dest=(rom[list+4]&127)*512-0xc000;
+    size_t source=lorom(word(list+1)|(rom[list+3]<<16));
+    if (!range(source,count) || dest<0 || dest+count>sizeof(art->tiles)) return NULL;
+    memcpy(art->tiles+dest,rom+source,count);
+    if (rom[list+4]&128) {complete=true;break;}
+  }
+  if (!complete) return NULL;
+  memcpy(art->colors,palette->colors,sizeof(art->colors));
+  art->attributes=6;art->live_colors=true;charged_buster_ready[kind][pose]=true;
+  return art;
 }
 bool MmxRenderAssetsStingPalette(unsigned phase,uint16_t colors[16]) {
   if(!rom || !colors || phase>14 || (phase&1)) return false;
@@ -257,6 +298,31 @@ const MmxSpriteAsset *MmxRenderAssetsSprite(unsigned stage, unsigned section, un
 const MmxSpriteAsset *MmxRenderAssetsObjectSprite(const uint8_t ram[0x20000],
                                                 unsigned object, unsigned animation) {
   if (!ram) return NULL;
+  /* $81:8AD6 loads the death circles into X's body pages at $6000/$6100.
+   * A living co-op X keeps uploading his animation there. Decode the same
+   * literal ROM DMA list privately so either seat's death retains its art. */
+  if (object >= 0x1928 && object < 0x1d08 && (object & 31) == 8 &&
+      ram[object + 10] == 14 && animation == 0x1d) {
+    if (!death_orbs_ready) {
+      const MmxSpriteAsset *body=MmxRenderAssetsWeaponX(0,true);
+      if (!rom || !body) return NULL;
+      size_t list=0x30000+(word(0x318c5+4)&0x7fff);
+      memset(&death_orbs,0,sizeof(death_orbs));
+      bool complete=false;
+      for (unsigned n=0;n<32;++n,list+=7) {
+        if (!range(list,7)) return NULL;
+        unsigned count=word(list);if(count&1) {complete=true;break;}
+        int dest=((int)word(list+2)-0x6000)*2;
+        size_t source=lorom(word(list+4)|(rom[list+6]<<16));
+        if (!range(source,count) || dest<0 || dest+count>sizeof(death_orbs.tiles)) return NULL;
+        memcpy(death_orbs.tiles+dest,rom+source,count);
+      }
+      if (!complete) return NULL;
+      memcpy(death_orbs.colors,body->colors,sizeof(death_orbs.colors));
+      death_orbs.attributes=2;death_orbs_ready=true;
+    }
+    return &death_orbs;
+  }
   /* Vile's electric restraint ($81:B443, projectile $16) keeps animation
    * $52 when the fortress cutscene replaces Ride Armor resource $49 with
    * $9B. Its native-timed live tiles/palette remain valid; the enemy animation

@@ -163,6 +163,19 @@ int main(void) {
     if(tiers[c] && tiers[c]<8) assert(ram[0xc01]==(tiers[c]==4?2:8));
   }
   assert(MmxZeroGetState().burst == 1 && !ram[0x1228]);
+  /* Highway restraint is native action $32 with sequence $49. It must
+   * override a mirrored attack pose without changing rescue group $66. */
+  player(); ram[0xbaa]=0x32; ram[0xbab]=2;
+  MmxZeroState stunned={.anim_valid=1,.anim_pose=0x72};
+  const uint8_t *base=MmxZeroMenuPose();
+  assert(MmxZeroPose(ram,&stunned)==base+0x33*128*128);
+  ram[0x1f7a]=8;
+  assert(MmxZeroPose(ram,&stunned)==base+0x72*128*128);
+  ram[0x1f7a]=0; ram[0xbab]=6; ram[0xbbe]=0x66; ram[0xbbf]=3;
+  assert(MmxZeroPose(ram,&stunned)==base+0x49*128*128);
+  ram[0xbbf]=4;
+  assert(MmxZeroPose(ram,&stunned)==base+0x34*128*128);
+  stunned.active_x=1; assert(!MmxZeroPose(ram,&stunned));
   /* Landing straight down ($0A) keeps a held charge and a pending combo. */
   player();
   for(unsigned i=0;i<150;++i) tick(64,i==0?64:0);
