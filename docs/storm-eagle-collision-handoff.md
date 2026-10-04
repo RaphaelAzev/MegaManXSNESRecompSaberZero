@@ -374,3 +374,23 @@ in `.2C` bit 0; afterwards bit 0 holds "anyone riding" for the elevator's own
 ascent logic, and bit 7 is untouched. If the elevator clears bit 0 itself,
 both stored riders are cleared at the next pass. Not yet verified against
 the ROM; please confirm `$59`'s rider contact is inside `$84:9B03`.
+
+## Update: the second seat's $84:9B03 call gets the wrong registers (2026-10-04)
+
+`coop-physics-20261004-114220-3966696-1.csv` (host frames 3673..5158, merged
+`main` with the per-seat elevator latch). Seat-switch labels confirm X is
+carried by the elevator (Y 845 -> 843, host frame 4961) inside
+`contact_hook`'s first pass (the select at the `contact_player^1` line), so
+the elevator's collision runs in `$84:9B03`. But Zero, standing inside the
+elevator's footprint at X 1367 / Y 911, is never pushed out, including frames
+4800..4833 when nobody rides it (`.2C` `$80`). So the latch is not the whole
+story: the second seat's `$84:9B03` call never collides with the elevator.
+
+`contact_hook` redirected the partner's retry to `$84:9B03` with the first
+call's return registers, the same flaw fixed earlier for `platform_hook`.
+Ordinary enemy damage contact evidently reads only the enemy slot, but a solid
+object's collision appears to use the caller's inputs. The partner now
+re-enters with the registers the caller passed in (host-only, invalidated on
+state load and reset). The trace adds `contact-enter`/`contact-return` rows
+with D, registers and the enemy slot while an elevator part is live, so the
+next recording confirms which slot `$84:9B03` serves and with what inputs.
