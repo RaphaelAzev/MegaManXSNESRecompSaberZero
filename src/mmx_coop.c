@@ -243,7 +243,7 @@ static const char kNetplayHeader[]=
     "slot,host,input_player,transport,ice_failed,remote_lead,input_delay,"
     "published_inputs,active_mask,quiesced,draining,state_barrier,desync_tick,"
     "desync_local,desync_remote,p1_input,p2_input,current,anchor,stage,mode,"
-    "submode,phase,wram_hash,coop_hash\n";
+    "submode,phase,wram_hash,coop_hash,p1_hash,p2_hash,shared_hash,p1_body,p2_body\n";
 static void diagnostic_netplay(const uint8_t *r) {
 #if SNESRECOMP_NET
   if (!diagnostic_enabled || !snes_netplay_active()) return;
@@ -254,9 +254,15 @@ static void diagnostic_netplay(const uint8_t *r) {
   if(snes_netplay_input_desync(&tick,&local,&remote)) snprintf(desync,sizeof(desync),"%u",(unsigned)tick);
   else local=remote=0;
   const char *transport=snes_netplay_transport_name();
+  /* Which part of the co-op state forked: each seat's stored copy (body,
+   * auxiliaries, shots, weapons, combat, Zero state) and everything after
+   * the two seats. The stored bodies are written out whole. */
+  char bodies[2][0x90*2+1];
+  for(unsigned i=0;i<2;++i) diagnostic_hex(bodies[i],state.players[i].body,0x90);
+  const uint8_t *shared=(const uint8_t *)&state+sizeof(state.players);
   int count=fprintf(out,
       "%u,%d,%u,%u,%u,%u,%d,%d,%d,%d,%s,%d,%d,%d,%u,%x,%d,%d,%d,%s,%08x,%08x,"
-      "%04x,%04x,%u,%u,%u,%u,%u,%u,%08x,%08x\n",
+      "%04x,%04x,%u,%u,%u,%u,%u,%u,%08x,%08x,%08x,%08x,%08x,%s,%s\n",
       diagnostic_sequence,snes_frame_counter,r[0xb9c],(unsigned)snes_netplay_sim_tick(),
       (unsigned)snes_netplay_frames_finished(),RtlSpeculativeFrame(),snes_netplay_rollback_active(),
       snes_netplay_local_slot(),snes_netplay_is_host(),snes_netplay_input_player(),
@@ -266,7 +272,10 @@ static void diagnostic_netplay(const uint8_t *r) {
       snes_netplay_state_barrier(),desync,local,remote,
       state.players[0].input,state.players[1].input,state.current,state.anchor,
       r[0x1f7a],r[0xd1],r[0xd2],r[0xd3],
-      diagnostic_hash(r,0x20000),diagnostic_hash(&state,sizeof(state)));
+      diagnostic_hash(r,0x20000),diagnostic_hash(&state,sizeof(state)),
+      diagnostic_hash(&state.players[0],sizeof(state.players[0])),
+      diagnostic_hash(&state.players[1],sizeof(state.players[1])),
+      diagnostic_hash(shared,sizeof(state)-sizeof(state.players)),bodies[0],bodies[1]);
   if(count<0) {diagnostic_close(&netplay_file);netplay_file.checked=true;return;}
   netplay_file.bytes+=count;
   if (diagnostic_rows%60==0) fflush(out);
