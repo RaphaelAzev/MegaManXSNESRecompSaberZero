@@ -594,3 +594,25 @@ This capture differs: the partner lands one frame after the scene began.
 Also reported, without trace coverage: in the ship interior (end-of-stage
 ladder tube and the entry port before the boss door), player sprites show on
 the wrong layer or disappear (custom renderer, `new_renderer=1`).
+
+## Update: `$82:D7D7` routing is not the boss-lift cause; canister regression
+
+9d4c006 gated `$82:D7D7`'s interpreter routing to the E-tank elevator slots.
+The owner's retest (`coop-physics-20261004-151358-4079217-1.csv`) still locks at
+the ship lift. Same pattern: the lift reaches state `02 02` at host frame
+10704, Zero's scene-transport frames run, the native frame runs once (10713,
+world tick 45→46), and the world tick never advances again. The owner also hit
+it earlier with X fallen and Zero riding alone (no scene transport, no partner
+retry), on the build that routed every caller. The lift locks with the routine
+both compiled and interpreted, so the routing is not the cause.
+
+The gate itself regressed: with `$82:D7D7` compiled for every other caller,
+weapon shots stop hitting Storm Eagle's destructible flame canisters. So those
+canisters use `$82:D7D7`, and the compiled routine behaves differently from
+the interpreted one for them. The gate is reverted (always interpreted under
+co-op, as in f24c7a8). Worth checking: whether canisters take hits on `main`
+before this work, with co-op on and off. If they don't, the generated
+`bank_82_D7D7` has a translation fault the interpreter avoids.
+
+Next for the lift lock: reproduce solo (co-op off), offline co-op, and on a
+build before this branch's elevator work (`8ce45fd`).
