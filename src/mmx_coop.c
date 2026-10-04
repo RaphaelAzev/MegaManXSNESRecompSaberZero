@@ -281,8 +281,9 @@ bool MmxCoopTransitionActive(void) {
 }
 
 bool MmxCoopEnabled(void) { return enabled; }
+static void lift_reset(void);
 void MmxCoopReset(void) {
-  platform_entry.valid=false;
+  platform_entry.valid=false;lift_reset();
   MmxCoopViewsResetWorld();
   MmxWeaponsCameraQuery(enabled?weapon_view:NULL);
   platform_entry.valid=false;
@@ -331,7 +332,7 @@ bool MmxCoopValidState(const MmxCoopState *s) {
   return s->players[0].character != s->players[1].character;
 }
 void MmxCoopSetState(const MmxCoopState *s) {
-  platform_entry.valid=false;
+  platform_entry.valid=false;lift_reset();
   if (enabled && MmxCoopValidState(s)) {
     state = *s;
     MmxWeaponsPartnerCombat(state.initialized ? &state.players[state.current^1].combat : NULL);
@@ -414,8 +415,10 @@ void MmxCoopInitialize(uint8_t *r) {
   state.enrolled=1;state.stage_pending=2;
   MmxWeaponsPartnerCombat(&partner->combat);
 }
+static void lift_close(void);
 bool MmxCoopFrameTick(uint8_t *r) {
   if (!enabled || !state.initialized) return MmxWeaponsFrameTick(r);
+  lift_close(); /* an elevator query never spans a frame */
   if (g_mmx_coop_trace) {MmxCoopTraceFrameBegin(&state);TRACE(FRAME,0,0,0,NULL);}
   /* The stage-clear weapon demonstration reuses the native player/shot
    * pools. It owns that single scripted actor; projecting either stored
@@ -695,11 +698,83 @@ static void door_hook(CpuState *cpu,uint32_t pc) {
     interp_bridge_pre_opcode_redirect((pc&0xff0000)|state.door_entry);
   } else {MmxCoopSelect(g_ram,state.anchor);state.door_pass=0;}
 }
-/* Observation only: every $82:D7D7 rider-contact query with its D, registers,
- * slot and JSL caller, for the E-tank elevator investigation. Fires only when
- * tools/apply_coop_hooks.py found the routine as a generated entry. */
-static void lift_contact_trace(CpuState *cpu,uint32_t pc) {
-  if(enabled && state.initialized) diagnostic_event(g_ram,cpu,pc,"lift-contact");
+/* Storm Eagle's E-tank elevator (enemy $59) clears .2C and asks $82:D7D7,
+ * once a frame, whether the player stands on it: the query resolves contact
+ * for the projected body ($0BA8) and sets .2C bit 0 for a rider. Only the
+ * current seat was ever asked, so the other player fell through it and passed
+ * through its sides. Ask again for the other living seat, exactly as
+ * platform_hook retries $84:AB81: same entry .2C and registers, the partner
+ * projected, and the two answers OR-ed into .2C so either rider lifts it.
+ * The pass never spans a frame, so its state is host-only. D7D7's RTL is
+ * found at run time: every $6B byte after the entry is hooked, and only the
+ * one executed with the entry's stack pointer completes the pass. */
+static struct {
+  uint8_t pass,first,entry_2c,first_2c,p,db;
+  uint16_t d,s,a,x,y,ra,rx,ry; uint8_t rp,rdb;
+  uint32_t ret; /* JSL return address on the stack at entry */
+} lift;
+static uint32_t lift_stack_ret(const CpuState *cpu) {
+  return cpu->S<0x1ffd ? (uint32_t)(g_ram[cpu->S+1]|g_ram[cpu->S+2]<<8|g_ram[cpu->S+3]<<16) : 0;
+}
+static void lift_rtl_hook(CpuState *cpu,uint32_t pc);
+#ifndef MMX_VARIANT_JP
+#define MMX_VARIANT_JP 0
+#endif
+static void lift_find_rtl(void) {
+  static bool scanned;
+  /* USA addresses: the JP build keeps the single-seat query. */
+  if(MMX_VARIANT_JP || scanned || !g_snes || !g_snes->cart || !g_snes->cart->rom) return;
+  scanned=true;
+  const uint32_t base=(0x02u<<15)|(0xd7d7&0x7fff); /* LoROM $82:D7D7 */
+  for(uint32_t i=1;i<0x400 && base+i<g_snes->cart->romSize;++i)
+    if(g_snes->cart->rom[base+i]==0x6b)
+      interp_bridge_add_pre_opcode_hook(0x820000|((0xd7d7+i)&0xffff),lift_rtl_hook);
+}
+/* Host side, between frames: hook registration never runs inside a hook. */
+void MmxCoopHostFrame(void) { if(enabled) lift_find_rtl(); }
+static bool lift_elevator(unsigned d) {
+  return d>=0xe68 && d<0x1228 && !((d-0xe68)%64) && g_ram[d] && g_ram[d+10]==0x59;
+}
+static void lift_reset(void) { lift.pass=0; }
+static void lift_close(void) {
+  if(lift.pass==2) MmxCoopSelect(g_ram,lift.first);
+  lift.pass=0;
+}
+static void lift_contact_hook(CpuState *cpu,uint32_t pc) {
+  if(!enabled || !state.initialized) return;
+  diagnostic_event(g_ram,cpu,pc,"lift-contact");
+  if(lift.pass || state.menu_owner || state.scene_owner || !lift_elevator(cpu->D) ||
+      state.players[state.current^1].status!=MMX_COOP_ALIVE ||
+      !(state.players[state.current^1].body[0x27]&127)) return;
+  cpu_mirrors_to_p(cpu);
+  lift.pass=1;lift.first=state.current;lift.d=cpu->D;lift.s=cpu->S;
+  lift.a=cpu->A;lift.x=cpu->X;lift.y=cpu->Y;lift.p=cpu->P;lift.db=cpu->DB;
+  lift.entry_2c=g_ram[cpu->D+0x2c];lift.ret=lift_stack_ret(cpu);
+}
+static void lift_rtl_hook(CpuState *cpu,uint32_t pc) {
+  /* Same stack depth, slot and return address: D7D7's own RTL, not another
+   * bank $82 routine returning to a different caller. */
+  if(!lift.pass || cpu->S!=lift.s || cpu->D!=lift.d || lift_stack_ret(cpu)!=lift.ret) return;
+  diagnostic_event(g_ram,cpu,pc,"lift-return");
+  unsigned d=lift.d;
+  if(lift.pass==1) {
+    lift.first_2c=g_ram[d+0x2c];
+    cpu_mirrors_to_p(cpu);
+    lift.ra=cpu->A;lift.rx=cpu->X;lift.ry=cpu->Y;lift.rp=cpu->P;lift.rdb=cpu->DB;
+    MmxCoopSelect(g_ram,lift.first^1);lift.pass=2;
+    g_ram[d+0x2c]=lift.entry_2c;
+    cpu->A=lift.a;cpu->X=lift.x;cpu->Y=lift.y;cpu->DB=lift.db;cpu->P=lift.p;cpu_p_to_mirrors(cpu);
+    interp_bridge_pre_opcode_redirect(0x82d7d7);
+    return;
+  }
+  bool first_rides=lift.first_2c&1, second_rides=g_ram[d+0x2c]&1;
+  g_ram[d+0x2c]=(uint8_t)(lift.first_2c|g_ram[d+0x2c]);
+  MmxCoopSelect(g_ram,lift.first);
+  /* Hand the caller the first seat's answer unless only the partner rides. */
+  if(first_rides || !second_rides) {
+    cpu->A=lift.ra;cpu->X=lift.rx;cpu->Y=lift.ry;cpu->DB=lift.rdb;cpu->P=lift.rp;cpu_p_to_mirrors(cpu);
+  }
+  lift.pass=0;
 }
 static void eagle_lift_hook(CpuState *cpu,uint32_t pc) {
   if(!enabled || !state.initialized || state.menu_owner || state.scene_owner) return;
@@ -1324,7 +1399,7 @@ void MmxCoopRegisterHooks(void) {
   interp_bridge_set_pre_opcode_hook(0x80f47c,dash_effect_hook);
   interp_bridge_set_pre_opcode_hook(0x87c0ae,eagle_lift_hook);
   interp_bridge_set_pre_opcode_hook(0x87c0b4,eagle_lift_hook);
-  interp_bridge_set_pre_opcode_hook(0x82d7d7,lift_contact_trace);
+  interp_bridge_set_pre_opcode_hook(0x82d7d7,lift_contact_hook);
   const unsigned platforms[]={0x84ab81,0x84ac34,0x84ab56,0x84ab80};
   for(unsigned i=0;i<sizeof(platforms)/sizeof(platforms[0]);++i)
     interp_bridge_set_pre_opcode_hook(platforms[i],platform_hook);

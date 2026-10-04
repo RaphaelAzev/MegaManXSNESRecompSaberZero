@@ -420,3 +420,35 @@ each call as `lift-contact` with D, registers, slot and JSL caller. ROM-side:
 find what enemy `$59`'s handler calls to test, carry and push the player, and
 give that call the same second-seat retry with per-seat `.2C` rider bits that
 `platform_hook` gives the items.
+
+## Update: the elevator asks $82:D7D7; second-seat query added (2026-10-04)
+
+`coop-physics-20261004-121627-3985163-1.csv` (host frames 3621..4428), with the
+optional `$82:D7D7` trace active. The elevator's slot (`D = $0E68`, class
+`$59`) calls `$82:D7D7` once per frame from its handler, one call site per
+state, always with X current and no co-op pass open:
+
+| JSL return | elevator state (+1/+2) | frames |
+|---|---|---|
+| `$87:E857` | `02 00` | 1 |
+| `$87:E8A6` | `04 00` (idle) | 37 |
+| `$87:E97D` | `08 04` | 4 |
+| `$87:E9C8` | `0E 04` (waiting at the bottom) | 342 |
+| `$87:E9F9` | `10 04` (rising) | 94 |
+
+`.2C` reads `$80` at every entry: the handler clears the rider bit and asks
+again each frame, as the ship lift does. So no rider state persists across
+frames, and only the current seat was ever asked.
+
+Change in this branch: for class `$59`, when the current seat's `$82:D7D7`
+call reaches its RTL, co-op restores the entry `.2C` and registers, projects
+the other living seat and calls `$82:D7D7` again; at the second RTL it ORs
+both answers into `.2C` (bit 7 preserved), selects the first seat back, and
+returns the first seat's registers unless only the partner rides. The RTL is
+found at run time: each `$6B` byte in the 1 KiB after `$82:D7D7` (LoROM
+`0x157D7`) is hooked, and only the one executed with the entry's stack
+pointer, slot and JSL return address completes the pass. Host-only state; a
+pass left open is closed at the next frame. USA only. Not yet verified
+against the ROM: please confirm `$82:D7D7` resolves contact for `$0BA8` (it
+appears to: X is carried before any other contact pass) and that its RTL lies
+in that window.

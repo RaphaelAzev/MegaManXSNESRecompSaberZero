@@ -89,5 +89,7 @@ bool MmxCoopFindLanding(const uint8_t ram[0x20000],uint16_t *x,uint16_t *y);
  * to a fallen player, and must not become the public join path by itself. */
 bool MmxCoopPlacePartner(uint8_t ram[0x20000], uint16_t x, uint16_t y);
 void MmxCoopRegisterHooks(void);
+/* Host side, before each frame: ROM-dependent hook setup. */
+void MmxCoopHostFrame(void);
 /* End-of-frame hook for --coop-trace; no effect unless tracing. */
 void MmxCoopTraceFrame(const uint8_t ram[0x20000]);
