@@ -92,5 +92,6 @@ void MmxCoopRegisterHooks(void);
 /* Host side, before each frame: ROM-dependent hook setup. */
 void MmxCoopHostFrame(void);
 void MmxCoopLiftCarry(uint8_t *ram);
+void MmxCoopSyncPriority(uint8_t *ram);
 /* End-of-frame hook for --coop-trace; no effect unless tracing. */
 void MmxCoopTraceFrame(const uint8_t ram[0x20000]);
