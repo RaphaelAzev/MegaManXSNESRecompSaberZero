@@ -144,14 +144,14 @@ static const char kPhysicsHeader[]=
     "menu_owner,scene_owner,camera_x,camera_y,freeze_flags,pickup_owners,seat,"
     "character,status,input,x,y,previous_x,previous_y,vx,vy,hp,ground,"
     "terrain_above_feet,solid_above_feet,terrain_feet,solid_feet,body,scratch,"
-    "upgrades,caller,items,regs\n";
+    "upgrades,caller,items,regs,slot\n";
 static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,const char *event) {
   if (!diagnostic_enabled || !enabled || !state.initialized) return;
   FILE *out=diagnostic_ready(&physics_file,"physics",kPhysicsHeader);
   if (!out) return;
   bool frame_end=!strcmp(event,"frame-end");
   bool platform=!strncmp(event,"platform",8);
-  char flags[15],owners[33],scratch[129],items[16*32+1]={0},caller[7]={0},regs[24]={0};
+  char flags[15],owners[33],scratch[129],items[16*32+1]={0},caller[7]={0},regs[24]={0},slot[48*2+1]={0};
   diagnostic_hex(flags,r+0x1f13,7);
   diagnostic_hex(owners,state.pickup_owner,16);
   diagnostic_hex(scratch,r,64);
@@ -161,6 +161,10 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
     snprintf(regs,sizeof(regs),"%04x:%04x:%04x:%02x:%02x",c.A,c.X,c.Y,c.P,c.DB);
   }
   if(frame_end || platform) diagnostic_items(r,items,sizeof(items));
+  /* The contacted item's whole 48-byte slot: a byte the first seat's call
+   * writes and the second seat's call reads shows up between their rows. */
+  if(platform && cpu && cpu->D>=0x1628 && cpu->D<0x1928 && !((cpu->D-0x1628)%48))
+    diagnostic_hex(slot,r+cpu->D,48);
   /* Entry to a long subroutine: the JSL return address names the item code. */
   if(platform && cpu && !strcmp(event,"platform-enter") && cpu->S<0x1ffd)
     snprintf(caller,sizeof(caller),"%06x",
@@ -179,7 +183,7 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
     int count=fprintf(out,
         "%u,%d,%u,%s,%06x,%04x,%04x,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%04x,"
         "%u,%u,%u,%u,%s,%s,%u,%u,%u,%04x,%d,%d,%u,%u,%d,%d,%u,%u,%u,%u,%u,%u,%s,%s,"
-        "%02x,%s,%s,%s\n",
+        "%02x,%s,%s,%s,%s\n",
         sequence,snes_frame_counter,r[0xb9c],event,(unsigned)pc,
         cpu?(unsigned)cpu->D:0,cpu?(unsigned)cpu->S:0,r[0x1f7a],r[0xd1],r[0xd2],r[0xd3],
         state.current,state.anchor,state.controller_pass,state.object_pass,state.contact_pass,
@@ -188,7 +192,7 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
         (int16_t)word(b+0x1a),(int16_t)word(b+0x1c),b[0x27]&127,b[0x2b],
         MmxWeaponsTerrainClass(r,x,y+8),MmxWeaponsTerrainSolid(r,x,y+8,true,NULL),
         MmxWeaponsTerrainClass(r,x,y+16),MmxWeaponsTerrainSolid(r,x,y+16,true,NULL),body,scratch,
-        r[0x1f99],caller,items,regs);
+        r[0x1f99],caller,items,regs,slot);
     if(count<0) {diagnostic_close(&physics_file);physics_file.checked=true;return;}
     physics_file.bytes+=count;
   }

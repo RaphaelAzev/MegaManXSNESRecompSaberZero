@@ -245,3 +245,24 @@ an owned one; it verifies this gate rather than recreating the old world spawn.
 Keep the new `upgrades` and
 `items` diagnostics for a fresh approach if the capsule is still absent with
 the helmet bit clear; do not force a duplicate capsule to appear.
+
+## Update: register fix tested, still failing (2026-10-04)
+
+The owner tested a local Linux build of `main` (`375b31d`: `$13/$14` filter
+plus the register re-entry change). P2 still cannot land on the `$0F` pillars,
+and also walks through their sides: `$84:AB56` side contact fails for the
+second seat just like `$84:AB81` landing, while riding (carry via `.2C`) keeps
+working and everything works once the partner is gone.
+
+Next hypothesis: the first seat's call writes a byte in the item slot (for
+example a "contact handled" flag) that the second seat's re-entry reads and
+then skips its contact test. Only `.2C` is projected per seat today. The
+physics trace now records the contacted item's full 48-byte slot (`slot`
+column) on every platform row, so the first seat's entry/return and the
+second seat's entry/return can be diffed byte by byte. ROM-side, it would
+settle quickly by reading which item fields `$84:AB81/AB56` read and write.
+
+The Linux build previously wrote no session log (stderr only), which is why
+the owner's local run produced no `mmx-*.log`. It now follows the Windows
+policy (`logs/mmx-*.log` beside the executable unless `logging.ini` Console=1
+or `MMX_LOG_CONSOLE=1`).
