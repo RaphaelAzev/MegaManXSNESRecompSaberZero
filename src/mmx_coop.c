@@ -118,18 +118,24 @@ static FILE *diagnostic_ready(DiagnosticFile *t,const char *kind,const char *hea
   if (!t->bytes) t->bytes=fprintf(t->file,"%s",header);
   return t->file;
 }
-/* Every live item slot ($1628 + slot*$30): slot, class (+0A), X (+05), Y (+08),
- * state bytes +00..02 and the rider latch +2C. Platforms are items $0E..$10. */
-static void diagnostic_items(const uint8_t *r,char *out,size_t cap) {
+/* Every live slot of an object pool: slot, class (+0A), X (+05), Y (+08),
+ * state bytes +00..02 and the rider latch +2C. Items ($1628 + slot*$30) hold
+ * the $0E..$10/$13/$14 platforms; enemies ($0E68 + slot*$40) hold scripted
+ * riders such as Storm Eagle's lift ($48). */
+static void diagnostic_pool(const uint8_t *r,unsigned base,unsigned stride,unsigned slots,
+                            char *out,size_t cap) {
   size_t n=0;out[0]=0;
-  for(unsigned i=0;i<16 && n<cap;++i) {
-    const uint8_t *d=r+0x1628+i*48;
+  for(unsigned i=0;i<slots && n<cap;++i) {
+    const uint8_t *d=r+base+i*stride;
     if(!d[0]) continue;
     int w=snprintf(out+n,cap-n,"%s%u:%02x:%04x:%04x:%02x%02x%02x:%02x",n?";":"",
         i,d[10],word(d+5),word(d+8),d[0],d[1],d[2],d[0x2c]);
     if(w<0) break;
     n+=(size_t)w;
   }
+}
+static void diagnostic_items(const uint8_t *r,char *out,size_t cap) {
+  diagnostic_pool(r,0x1628,48,16,out,cap);
 }
 /* Per-byte snprintf dominated the trace cost (body/scratch/items on ~16 rows
  * a frame with Storm Eagle's columns); encode with a table instead. */
@@ -144,14 +150,14 @@ static const char kPhysicsHeader[]=
     "menu_owner,scene_owner,camera_x,camera_y,freeze_flags,pickup_owners,seat,"
     "character,status,input,x,y,previous_x,previous_y,vx,vy,hp,ground,"
     "terrain_above_feet,solid_above_feet,terrain_feet,solid_feet,body,scratch,"
-    "upgrades,caller,items,regs,slot\n";
+    "upgrades,caller,items,regs,slot,enemies\n";
 static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,const char *event) {
   if (!diagnostic_enabled || !enabled || !state.initialized) return;
   FILE *out=diagnostic_ready(&physics_file,"physics",kPhysicsHeader);
   if (!out) return;
   bool frame_end=!strcmp(event,"frame-end");
   bool platform=!strncmp(event,"platform",8);
-  char flags[15],owners[33],scratch[129],items[16*32+1]={0},caller[7]={0},regs[24]={0},slot[48*2+1]={0};
+  char flags[15],owners[33],scratch[129],items[16*32+1]={0},caller[7]={0},regs[24]={0},slot[48*2+1]={0},enemies[15*32+1]={0};
   diagnostic_hex(flags,r+0x1f13,7);
   diagnostic_hex(owners,state.pickup_owner,16);
   diagnostic_hex(scratch,r,64);
@@ -161,6 +167,7 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
     snprintf(regs,sizeof(regs),"%04x:%04x:%04x:%02x:%02x",c.A,c.X,c.Y,c.P,c.DB);
   }
   if(frame_end || platform) diagnostic_items(r,items,sizeof(items));
+  if(frame_end) diagnostic_pool(r,0xe68,64,15,enemies,sizeof(enemies));
   /* The contacted item's whole 48-byte slot: a byte the first seat's call
    * writes and the second seat's call reads shows up between their rows. */
   if(platform && cpu && cpu->D>=0x1628 && cpu->D<0x1928 && !((cpu->D-0x1628)%48))
@@ -183,7 +190,7 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
     int count=fprintf(out,
         "%u,%d,%u,%s,%06x,%04x,%04x,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%04x,"
         "%u,%u,%u,%u,%s,%s,%u,%u,%u,%04x,%d,%d,%u,%u,%d,%d,%u,%u,%u,%u,%u,%u,%s,%s,"
-        "%02x,%s,%s,%s,%s\n",
+        "%02x,%s,%s,%s,%s,%s\n",
         sequence,snes_frame_counter,r[0xb9c],event,(unsigned)pc,
         cpu?(unsigned)cpu->D:0,cpu?(unsigned)cpu->S:0,r[0x1f7a],r[0xd1],r[0xd2],r[0xd3],
         state.current,state.anchor,state.controller_pass,state.object_pass,state.contact_pass,
@@ -192,7 +199,7 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
         (int16_t)word(b+0x1a),(int16_t)word(b+0x1c),b[0x27]&127,b[0x2b],
         MmxWeaponsTerrainClass(r,x,y+8),MmxWeaponsTerrainSolid(r,x,y+8,true,NULL),
         MmxWeaponsTerrainClass(r,x,y+16),MmxWeaponsTerrainSolid(r,x,y+16,true,NULL),body,scratch,
-        r[0x1f99],caller,items,regs,slot);
+        r[0x1f99],caller,items,regs,slot,enemies);
     if(count<0) {diagnostic_close(&physics_file);physics_file.checked=true;return;}
     physics_file.bytes+=count;
   }
