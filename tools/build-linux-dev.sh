@@ -221,13 +221,20 @@ if command -v pkg-config >/dev/null && ! pkg-config --exists gl 2>/dev/null; the
 fi
 
 # -------------------------------------------------------------------- ROM --
-rom_sha() { sha256sum "$1" | awk '{print $1}'; }
+# SHA-256 of the ROM payload. A 512-byte copier header (size 512 past a 1 KiB
+# boundary) is skipped, exactly as the game (rom_image_verify.c) and the
+# recompiler (snes65816.load_rom) skip it.
+rom_sha() {
+  local size; size="$(wc -c <"$1")"
+  if [ $((size % 1024)) -eq 512 ]; then tail -c +513 "$1" | sha256sum | awk '{print $1}'
+  else sha256sum "$1" | awk '{print $1}'; fi
+}
 if [ -n "$ROM_SRC" ]; then
   step "Staging ROM"
   [ -f "$ROM_SRC" ] || die "ROM not found: $ROM_SRC"
   sha="$(rom_sha "$ROM_SRC")"
   [ "$sha" = "$USA_ROM_SHA" ] || die "$ROM_SRC is not the supported Mega Man X (USA) ROM" \
-      "sha256 $sha" "expected $USA_ROM_SHA (headerless USA v1.1)"
+      "sha256 $sha (copier header excluded)" "expected $USA_ROM_SHA (Mega Man X USA v1.1)"
   if [ -e mmx.sfc ] && [ "$(rom_sha mmx.sfc)" != "$USA_ROM_SHA" ]; then
     die "./mmx.sfc exists but is a different file; move it aside first"
   fi
@@ -285,7 +292,9 @@ if [ "$SETUP_HOST" = 0 ]; then
   fi
   if [ "$REGEN" = 1 ]; then
     [ -f mmx.sfc ] || die "--regen needs ./mmx.sfc" "Use --rom /path/to/rom.sfc"
-    [ "$(rom_sha mmx.sfc)" = "$USA_ROM_SHA" ] || die "./mmx.sfc is not the supported USA ROM"
+    sha="$(rom_sha mmx.sfc)"
+    [ "$sha" = "$USA_ROM_SHA" ] || die "./mmx.sfc is not the supported Mega Man X (USA) ROM" \
+        "sha256 $sha (copier header excluded)" "expected $USA_ROM_SHA (Mega Man X USA v1.1)"
     if [ "${SNESRECOMP_ANALYSIS_BACKEND:-native}" = native ] && ! command -v cargo >/dev/null; then
       die "regeneration uses the Rust analyzer, but cargo is not installed" \
           "Install Rust from https://rustup.rs/ or set SNESRECOMP_ANALYSIS_BACKEND=python"
