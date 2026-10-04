@@ -1234,8 +1234,13 @@ static void camera_hook(CpuState *cpu,uint32_t pc) {
   }
   if (!shared_screen() || MmxCoopViewsOnline()) return;
   unsigned axis=((pc&65535)==0xdebf || (pc&65535)==0xdeca) ? 8 : 5;
-  unsigned a=word(state.players[0].body+axis),b=word(state.players[1].body+axis);
-  cpu->A=(uint16_t)((a+b)/2);
+  /* Round the midpoint toward the world actor. Plain (a+b)/2 floors, so
+   * two bodies falling at the same speed one subpixel phase apart (1 px gap
+   * flickering to 0) moved the camera with whichever was higher, and the
+   * other's screen position jumped a pixel every few frames. */
+  int a=(int)word(state.players[state.anchor].body+axis);
+  int b=(int)word(state.players[state.anchor^1].body+axis);
+  cpu->A=(uint16_t)(a+(b-a)/2);
   cpu->_flag_N=(cpu->A&0x8000)!=0;cpu->_flag_Z=cpu->A==0;
   cpu->P=(cpu->P&~0x82)|(cpu->_flag_N?0x80:0)|(cpu->_flag_Z?2:0);
 }
