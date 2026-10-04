@@ -644,3 +644,21 @@ Canisters (owner retest, co-op, both players together): shots still pass
 through them with `$82:D7D7` interpreted again, so 9d4c006 was not their
 cause either. Solo is fine. Open; the physics trace has no shot/enemy-HP
 fields to show it yet.
+
+## Update: lift and canisters confirmed; capsule upgrade during dialogue
+
+The owner confirms the ship lift (after da6ac91) and the flame canisters both
+work now. The canisters were probably another casualty of the interpreted
+door state.
+
+New (`coop-physics-20261004-170832-4134177-1`, offline co-op): X jumps into the
+helmet capsule while it opens (frame 6923, capsule `02 02 → 02 04`, X action
+`$1E`). Dr. Light (`$5C`) appears at 6947 (capsule `02 06`, dialogue). At 6968,
+the frame Zero dash-walks into the capsule (x 4047, capsule 4040), it advances
+to `02 08` and the armor sequence starts under the dialogue. contact_hook
+retried `$84:9B03` body contact for every enemy slot, the capsule included, so
+the partner's touch re-entered it. The co-op design already says capsule
+interaction follows the world actor only.
+
+Change: contact_hook opens no partner pass for a class `$4D` slot. Capsule
+`$84:9B03/9B43` contact rows are now always traced.

@@ -928,8 +928,12 @@ static void slime_hook(CpuState *cpu,uint32_t pc) {
   }
 }
 /* Trace the enemy contact calls while a Storm Eagle elevator part lives. */
+static bool capsule_slot(unsigned d) {
+  return d>=0xe68 && d<0x1228 && !((d-0xe68)%64) && g_ram[d] && g_ram[d+10]==0x4d;
+}
 static bool contact_traced(unsigned d,unsigned entry) {
   if(!diagnostic_enabled) return false;
+  if(capsule_slot(d)) return true;
   for(unsigned i=0;i<15;++i) {
     const uint8_t *e=g_ram+0xe68+i*64;
     if(e[0] && e[10]>=0x58 && e[10]<=0x5a) return true;
@@ -955,6 +959,11 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
   if(state.menu_owner || state.scene_owner ||
       (!state.contact_pass && state.players[state.current^1].status!=MMX_COOP_ALIVE)) return;
   if (at == 0x9b03 || at == 0x9b43) {
+    /* Dr. Light's capsule ($4D) is driven by the world actor alone. Retrying
+     * its body contact for the partner re-entered the capsule mid-dialogue:
+     * Zero walking into it moved it from Light's dialogue (state 6) to the
+     * upgrade (state 8), so the armor sequence played under the text. */
+    if (!state.contact_pass && capsule_slot(cpu->D)) return;
     if (!state.contact_pass) {
       MmxCoopViewsContactPlayer(state.current);
       state.contact_pass = 1; state.contact_entry = (uint16_t)at;

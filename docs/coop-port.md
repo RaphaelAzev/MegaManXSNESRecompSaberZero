@@ -270,6 +270,9 @@ survivor input and menus, snapshot replay, and one-life team restarts.
 
 ## Doors and scene transport
 
+Which player each interaction belongs to (world actor, both players, or
+whoever triggers it) is indexed in `docs/coop-interaction-ownership.md`.
+
 The ordinary door contact routines are `$81:E70D` (right-facing) and
 `$81:EC98` (left-facing). Try the current world actor first, then the other
 living player only after a miss at `$E724` / `$ECC6`. Match the guest stack
