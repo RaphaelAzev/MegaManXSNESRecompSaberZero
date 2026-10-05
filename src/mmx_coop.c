@@ -402,6 +402,16 @@ static void select_world_survivor(uint8_t *r) {
     state.anchor=(uint8_t)other;MmxCoopSelect(r,other);
   }
 }
+/* A collector parked in action $18 by an item that sets neither $1F19 nor
+ * the Heart Tank pause (a Sub Tank) froze only that player; the other kept
+ * moving. Park the other player's update too, while the collector's own
+ * native state runs the fill. */
+static bool partner_parked(const uint8_t *r) {
+  if(!state.initialized || state.menu_owner || state.scene_owner) return false;
+  const MmxCoopPlayer *o=&state.players[state.current^1];
+  return o->status==MMX_COOP_ALIVE && (o->body[0x27]&127) && o->body[2]==0x18 &&
+      r[0xbaa]!=0x18 && r[0xbaa]!=12;
+}
 static bool refill_paused(const uint8_t *r) {
   if(state.menu_owner || state.scene_owner) return false;
   /* The native death controller also sets $1F19 while its countdown runs.
@@ -1504,7 +1514,7 @@ static void controller_hook(CpuState *cpu, uint32_t pc) {
       TRACE_MARK(state.current,CONTROLLER);
       if(state.current!=state.anchor) TRACE_MARK(state.current,NON_ANCHOR);
     }
-    if(state.initialized && refill_paused(g_ram))
+    if(state.initialized && (refill_paused(g_ram) || partner_parked(g_ram)))
       interp_bridge_pre_opcode_redirect(0x81819c);
     return;
   }
