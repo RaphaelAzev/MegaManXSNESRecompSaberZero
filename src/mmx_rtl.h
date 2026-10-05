@@ -9,6 +9,8 @@ void RunOneFrameOfGame(void);
 void MmxSchedulerTick(void);
 /* Native graphics-task checkpoint, shared by interpreted and compiled calls. */
 bool MmxGraphicsShouldYield(const CpuState *cpu);
+/* Match the generated widescreen comparisons when co-op enters the interpreter. */
+void MmxWsCullHook(CpuState *cpu, uint32_t pc);
 
 /* .sav v5 game chunk + post-load fiber rebuild (RtlGameInfo hooks). */
 struct SaveLoadInfo;

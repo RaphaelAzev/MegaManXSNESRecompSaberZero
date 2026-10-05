@@ -18,8 +18,13 @@ typedef struct Raster {
 } Raster;
 typedef struct Piece {
   int16_t x, y; uint16_t attr; uint8_t size, animation;
-  uint8_t tile, palette_bits; uint16_t object;
+  /* Palette occupies bits 1..3; the five spare bits retain charged-shot
+   * pose 0..20 at submission, without changing the capture record size. */
+  uint8_t tile, palette_pose; uint16_t object;
 } Piece;
+static unsigned piece_pose(const Piece *p) {
+  return (p->palette_pose&1)|((p->palette_pose>>3)&30);
+}
 enum { MAX_PIECES = 2048 };
 typedef struct Frame {
   Raster lines[224];
@@ -123,14 +128,15 @@ void MmxRendererReset(void) {
   current_object = 0; observed_lists = false;
 }
 static Piece make_piece(const uint8_t *p, int x, int y, unsigned flip,
-                        unsigned attributes, unsigned base, unsigned animation, unsigned object) {
+                        unsigned attributes, unsigned base, unsigned animation, unsigned object, unsigned pose) {
   int size = p[4] & 0x20 ? 16 : 8;
   x += flip & 0x40 ? -(int8_t)p[1] - size : (int8_t)p[1];
   y += flip & 0x80 ? -(int8_t)p[2] - size : (int8_t)p[2];
   unsigned attr = (((p[4] & 0xce) | attributes) ^ flip) << 8;
   attr |= (p[3] + base) & 255;
+  unsigned retained_pose=(animation==0x0e || animation==0x9e) ? pose&31 : 0;
   return (Piece){(int16_t)x, (int16_t)y, (uint16_t)attr, (uint8_t)size,
-      (uint8_t)animation, p[3], (uint8_t)(p[4] & 14), (uint16_t)object};
+      (uint8_t)animation, p[3], (uint8_t)((p[4]&14)|(retained_pose&1)|((retained_pose&30)<<3)), (uint16_t)object};
 }
 static const uint8_t *sprite_arrangement(unsigned animation, unsigned f) {
   const uint8_t *pointer = rom_at(0x8d8000 + animation * 3, 3);
@@ -152,7 +158,7 @@ static void expand_object(const uint8_t *ram, unsigned object) {
   unsigned base = MmxWidePolicy_CrusherTileBase(ram, (uint16_t)object, ram[object + 0x18]);
   for (unsigned i = 0; i < arrangement[0] && expanded_building_count < MAX_PIECES; ++i)
     expanded_building[expanded_building_count++] = make_piece(arrangement + i * 4, x, y,
-        ram[object + 0x11] & 0x40, ram[object + 0x11] & 0x3f, base, animation, object);
+        ram[object + 0x11] & 0x40, ram[object + 0x11] & 0x3f, base, animation, object, f);
 }
 static bool fortress_sound_actor(unsigned object) {
   /* $88:D359 uses Zero's previous pose while playing the offscreen room
@@ -203,7 +209,7 @@ static unsigned fortress_waiting_pieces(Piece out[128], const Piece *pieces, uns
     unsigned attributes = actor == 2 ? r[0x18396] : actor ? 0x2c : 0x29;
     for (unsigned i = 0; i < a[0] && count < 128; ++i)
       out[count++] = make_piece(a + i * 4, x - (int)camera,
-          y - (int)word(r, 0x1e50), 0, attributes, actor == 2 ? r[0x18296] : 0, animation, 0);
+          y - (int)word(r, 0x1e50), 0, attributes, actor == 2 ? r[0x18296] : 0, animation, 0, pose);
   }
   return count;
 }
@@ -245,7 +251,8 @@ void MmxRendererRecordPiece(const uint8_t ram[0x20000], uint16_t d) {
   int x = (int16_t)word(ram, d), y = (int16_t)word(ram, d + 2);
   unsigned animation = current_object && current_object < 0x1fe0 ? ram[current_object + 0x16] : 255;
   building[building_count++] = make_piece(p, x, y, ram[d + 0xb], ram[d + 0xf],
-                                         ram[d + 0x10], animation, current_object);
+                                         ram[d + 0x10], animation, current_object,
+                                         current_object && current_object<0x1fe0 ? ram[current_object+23]&127 : 0);
 }
 void MmxRendererLatchSprites(void) {
   if ((frame_held || MmxZeroSwapping() || MmxWeaponsTimeActive()) && !building_count) return;
@@ -330,7 +337,7 @@ void MmxRendererBeginFrame(const uint8_t ram[0x20000]) {
       if (d >= 0x1928 && zero_weapons_menu()) { x = word(ram,d + 5); y = word(ram,d + 8); }
       for (unsigned i = 0; i < a[0] && frame.piece_count < MAX_PIECES; ++i)
         frame.pieces[frame.piece_count++] = make_piece(a + i * 4,x,y,ram[d + 17] & 64,
-            ram[d + 17] & 63,ram[d + 24],ram[d + 22],d);
+            ram[d + 17] & 63,ram[d + 24],ram[d + 22],d,ram[d+23]&127);
     }
   }
   frame.expanded_count = latched_stage == ram[0x1f7a] ? expanded_latched_count : 0;
@@ -380,7 +387,7 @@ bool MmxRendererSaveCapture(const char *path) {
   if (!frame.valid || !path) return false;
   FILE *f = fopen(path, "wb");
   if (!f) return false;
-  uint32_t header[] = {0x4d4d5843, frame_coop.initialized ? 15 : 14,
+  uint32_t header[] = {0x4d4d5843, frame_coop.initialized ? 17 : 16,
       sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons) + sizeof(frame_weapon_combat) +
       (frame_coop.initialized ? sizeof(frame_coop) : 0)};
   bool ok = fwrite(header, sizeof(header), 1, f) == 1 && fwrite(&frame, sizeof(frame), 1, f) == 1 &&
@@ -413,7 +420,8 @@ bool MmxRendererLoadCapture(const char *path) {
        (h[1] == 12 && h[2] == sizeof(frame) + MMX_ZERO_HEALTH_STATE_SIZE + sizeof(frame_weapons) + sizeof(frame_weapon_combat)) ||
        (h[1] == 13 && h[2] == sizeof(frame) + MMX_ZERO_HEALTH_STATE_SIZE + sizeof(frame_weapons) + sizeof(frame_weapon_combat) + MMX_COOP_LEGACY_STATE_SIZE) ||
        (h[1] == 14 && h[2] == sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons) + sizeof(frame_weapon_combat)) ||
-       (h[1] == 15 && h[2] == sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons) + sizeof(frame_weapon_combat) + sizeof(frame_coop))) &&
+       ((h[1] == 15 || h[1] == 17) && h[2] == sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons) + sizeof(frame_weapon_combat) + sizeof(frame_coop)) ||
+       (h[1] == 16 && h[2] == sizeof(frame) + sizeof(frame_zero) + sizeof(frame_weapons) + sizeof(frame_weapon_combat))) &&
       fread(&frame, sizeof(frame), 1, f) == 1 &&
       frame.captured == 224 && frame.piece_count <= MAX_PIECES && frame.expanded_count <= MAX_PIECES && frame.valid;
   size_t zero_size = h[1] == 3 ? MMX_ZERO_LEGACY_STATE_SIZE :
@@ -431,7 +439,22 @@ bool MmxRendererLoadCapture(const char *path) {
   if (ok && h[1] >= 9) ok = fread(&frame_weapon_combat,
       h[1]>=12 ? sizeof(frame_weapon_combat) : h[1]==11 ? MMX_WEAPON_COMBAT_DAMAGE_SIZE : MMX_WEAPON_COMBAT_LEGACY_SIZE, 1, f) == 1 &&
       MmxWeaponsValidCombatState(&frame_weapon_combat);
-  if (ok && (h[1] == 13 || h[1] == 15)) {
+  if (ok && h[1]<16) {
+    /* Older captures only kept palette bits. Use their saved pose as the
+     * best available approximation; all new captures retain submission. */
+    for (unsigned list=0;list<2;++list) {
+      Piece *pieces=list ? frame.expanded : frame.pieces;
+      unsigned count=list ? frame.expanded_count : frame.piece_count;
+      for (unsigned i=0;i<count;++i) {
+        Piece *p=&pieces[i];
+        if ((p->animation==0x0e || p->animation==0x9e) && p->object<0x1fe0) {
+          unsigned pose=frame.ram[p->object+23]&31;
+          p->palette_pose=(p->palette_pose&14)|(pose&1)|((pose&30)<<3);
+        }
+      }
+    }
+  }
+  if (ok && (h[1] == 13 || h[1] == 15 || h[1] == 17)) {
     MmxCoopState coop;
     if (h[1] == 13) {
       uint8_t legacy[MMX_COOP_LEGACY_STATE_SIZE];
@@ -573,10 +596,10 @@ static uint16_t background(const Ppu *p, const Raster *r, unsigned layer, int x,
   bool water = frame.ram[0x1f7a] == 1 && (p->screenEnabled[0] & 4) &&
       !(p->screenEnabled[1] & 4) && (p->cgwsel & 2) && (p->cgadsub & 0x44) == 0x44;
   if (stage && layer == 2 && margin && !water) return 0;
-  /* Spark's BG2 mode $0C is the Thunder Slimer actor surface, not the
-   * scrolling level map. The retained map contains its staging tiles;
-   * extending those outside the native arena duplicates dormant bubbles. */
-  if (stage && layer == 1 && margin && frame.ram[0x1f7a] == 6 && frame.ram[0x1e89] == 0x0c) return 0;
+  /* Thunder Slimer's moving BG2 surface is already resident in VRAM.
+   * Draw it through the margins using its live scroll, rather than hiding
+   * it at 4:3 or reconstructing dormant bubbles from the stage map. */
+  bool slime_surface=stage && layer==1 && frame.ram[0x1f7a]==6 && frame.ram[0x1e89]==0x0c;
   int asset_x = -1;
   bool armadillo_lower_shaft = false;
   unsigned bpp = layer == 2 ? 2 : 4, size = PPU_bigTiles(p, layer) ? 16 : 8;
@@ -592,7 +615,7 @@ static uint16_t background(const Ppu *p, const Raster *r, unsigned layer, int x,
     if (icon >= 0) { *private_color = icon; return 0x8001; }
     tile = weapon_menu_tile(tx, ty, tile);
   }
-  if (stage && size == 8 && layer < 2 && (x < 0 || x >= 256 || view_dx || view_dy)) {
+  if (stage && size == 8 && layer < 2 && !slime_surface && (x < 0 || x >= 256 || view_dx || view_dy)) {
     int wx, wy;
     if (layer == 0) {
       wx = MmxDisplay_ExpandStageScroll((uint16_t)word(frame.ram, 0x1e4d), p->hScroll[0]) + view_dx + x;
@@ -889,7 +912,7 @@ static void moved_enemy_row(const MmxWeaponShot *s,const Ppu *p,const Raster *r,
   int sy=(s->y>>8)+(int8_t)frame.ram[d+25]-(int)view_camera(frame.ram,0x1e50);
   for(int i=(int)a[0]-1;i>=0;--i) {
     Piece piece=make_piece(a+i*4,x,sy,frame.ram[d+17]&64,
-        frame.ram[d+17]&63,frame.ram[d+24],group,d);
+        frame.ram[d+17]&63,frame.ram[d+24],group,d,frame.ram[d+23]&127);
     unsigned attr=asset ? (piece.attr&0xf000)|((asset->attributes&15)<<8)|
         (asset->live_tiles?piece.attr&255:0) : piece.attr;
     if(y<piece.y || y>=piece.y+piece.size) continue;
@@ -989,7 +1012,7 @@ static void teleport_actor_row(const uint8_t *ram,const MmxZeroState *zero,const
     const MmxSpriteAsset *a = MmxRenderAssetsTeleportX(pose);
     const uint8_t *layout = a ? sprite_arrangement(0,pose) : NULL;
     if (layout) for (int i = layout[0] - 1; i >= 0; --i) {
-      Piece s = make_piece(layout + i * 4,x,sy,flip,0x22,0,0,0xba8);
+      Piece s = make_piece(layout + i * 4,x,sy,flip,0x22,0,0,0xba8,pose);
       sprite(p,r,s.x,s.y,s.attr,s.size,y,view,objects,false,a,s.tile,object_colors,true,false,false);
     }
   }
@@ -1073,9 +1096,9 @@ static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView 
       }
       body=MmxZeroPose(ram,&z);
     }
-    bool pilot=ram[0xbbe]==0x6b;
+    bool pilot=ram[0xbbe]==0x6a || ram[0xbbe]==0x6b;
     if (pilot) {
-      const uint8_t *a=sprite_arrangement(0x6b,ram[0xbbf]&127);
+      const uint8_t *a=sprite_arrangement(ram[0xbbe],ram[0xbbf]&127);
       if (a && a[0]) {int dx=(int8_t)a[1]+5;x+=(ram[0xbb9]&64)?-dx:dx;sy+=8+(int8_t)a[2]+20;}
       body=MmxZeroMenuPose();blade=charge=NULL;
     }
@@ -1112,7 +1135,7 @@ static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView 
     int x = (int16_t)(word(ram,d+5)-view_camera(ram,0x1e4d));
     int sy = (int16_t)(word(ram,d+8)+(int8_t)ram[d+25]-view_camera(ram,0x1e50));
     for (int j=(int)a[0]-1;j>=0;--j) {
-      Piece s = make_piece(a+j*4,x,sy,ram[d+17]&64,ram[d+17]&63,ram[d+24],group,d);
+      Piece s = make_piece(a+j*4,x,sy,ram[d+17]&64,ram[d+17]&63,ram[d+24],group,d,ram[d+23]&127);
       const MmxSpriteAsset *asset=!zero && weapon_colors && zero_actor(d,group) &&
           (s.attr&0x0e00) ? &weapon_palette : NULL;
       /* Normal Spark and its two wall fragments share original group $47.
@@ -1262,7 +1285,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
     /* Keep current allocations and their live flashes/animation. Repair
      * missing or stale bindings using the ROM resource's own palette. */
     if (a && !hit_flash && (!a->current || (s->attr & 255) != ((s->tile + a->tile_base) & 255) ||
-        ((s->attr >> 8) & 15) != (unsigned)((a->attributes & 15) | s->palette_bits) ||
+        ((s->attr >> 8) & 15) != (unsigned)((a->attributes & 15) | (s->palette_pose&14)) ||
         (s->object == 0xe18 && MmxRenderAssetsRideArmorPalettePending(frame.ram,
             frame.lines[0].palette + 128 + ((s->attr >> 9) & 7) * 16)))) piece_assets[i] = a;
   }
@@ -1370,13 +1393,13 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
           const uint8_t *body = menu_body ? MmxZeroMenuPose() : zero;
           int zx = menu_body ? 128 : (int16_t)(word(frame.ram, 0xbad) - view_camera(frame.ram,0x1e4d));
           int zy = menu_body ? 152 : (int16_t)(word(frame.ram, 0xbb0) - view_camera(frame.ram,0x1e50)) + MmxZeroPoseOffsetY(frame.ram);
-          bool pilot = !menu_body && s.animation==0x6b;
+          bool pilot = !menu_body && (s.animation==0x6a || s.animation==0x6b);
           if(pilot) {
             /* X1 switches to a separate pilot group on boarding. Its pose
              * numbers are not movement poses. Keep its authored entry/walk/
              * punch offsets and expose Zero's original helmet/shoulders over
              * the cockpit. Vanilla X3 Zero has no Ride Armor pilot artwork. */
-            const uint8_t *layout=sprite_arrangement(0x6b,frame.ram[0xbbf]&127);
+            const uint8_t *layout=sprite_arrangement(s.animation,frame.ram[0xbbf]&127);
             if(layout && layout[0]) {
               int dx=(int8_t)layout[1]+5;
               zx+=(frame.ram[0xbb9]&64)?-dx:dx;
@@ -1427,7 +1450,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
           frame.ram[s.object+10]==0x0c && s.animation==0x47 && (s.attr&0x0e00)==0x0600)
         asset=MmxRenderAssetsWeaponX(6,false);
       if(coop_buster) {
-        const MmxSpriteAsset *beam=MmxRenderAssetsChargedBuster(s.animation,frame.ram[s.object+23]&127);
+        const MmxSpriteAsset *beam=MmxRenderAssetsChargedBuster(s.animation,piece_pose(&s));
         if(beam) asset=beam;
       }
       sprite(&p, r, s.x, s.y, attr, s.size, y, view, objects, !center, asset, s.tile, object_colors, true, false, red_ready || red_death);

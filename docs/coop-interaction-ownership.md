@@ -54,6 +54,7 @@ Each player gets the native result. Behaviour is the same for X and Zero.
 | Slimer capture | `contact_hook` (`slime_owner`), `slime_hook` (`$83:A934/A939`) | Whoever the puddle catches owns its pin and escape states. | — |
 | Item platforms `$0E/$0F/$10/$13/$14` | `platform_hook`, `$84:AB81/AB56` (returns `$84:AC34/AB80`) | Top and side contact retried for the partner, with the caller's entry registers. `.2C` rider bits are kept per seat. | — |
 | Storm Eagle E-tank elevator (enemy `$59` top, `$5A` column) | `lift_contact_hook`, `lift_rtl_hook`, `$82:D7D7` | The rider query is retried for the partner and both answers are OR-ed into `.2C`. The handler gets the first seat's registers back. | — |
+| Armored Armadillo minecart (enemy `$2B`) | `lift_contact_hook`, `cart_hook`, `$82:D7D7`, `$88:9821..9867` | Query each player, move the cart once, then apply its native carry code separately to both riders. `.2C/.38` retain per-seat rider bits in WRAM; bit 0 remains the native "any rider" test. | Old single-rider snapshots are imported on first contact. |
 | Pickups (health, energy, Sub Tanks, Heart Tanks, 1-ups) | `pickup_hook`, `$84:9C0E..9D06`, `$00:D2E6..D31B` | Contact retried for the partner. The first seat to touch an item owns it (`pickup_owner`) and receives its effect. | **Review:** Heart Tanks and Sub Tanks are shared progression. Decide whether Zero may collect them, or only X. |
 | Player-terrain and object helpers | `object_hook`, `$00:D2BD..D47F`, `$81:9D67` | The anchor's helper call is replayed for the partner, then the anchor's registers are restored. | — |
 | Dash effects | `dash_effect_hook` (`$81:9C86`, `$80:F478/F47C`) | Each seat's dust and effects belong to that seat. | — |
@@ -74,6 +75,18 @@ Each player gets the native result. Behaviour is the same for X and Zero.
   (`select_world_survivor`). This is why "world actor" can be Zero.
 - Door or ship lift driven by the other seat: that seat (sections 3).
 - Nothing selects the anchor by `character`.
+
+An occupied Ride Armor keeps its pilot as the anchor. The native boarding
+action `$2C` identifies the owner, including in older saves made after a
+partner's return selected the wrong actor. Returning P1 does not take control
+away from a seated P2; either character can pilot. Both native pilot groups
+`$6A/$6B` use the adapted Zero cockpit pose.
+
+During pickup refills, both controllers pause along with native terrain
+collision. Heart Tanks leave `$1F19` clear, so their active upgrade task
+(`$0B`, state `2/6`, with `$1F13/$1F16` paused) is recognized separately.
+This check precedes cutscene detection: an airborne collector's saved action
+must not start partner transport.
 
 ## Making an interaction X-only
 
