@@ -1162,7 +1162,8 @@ static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView 
        * Another seat can replace the shared $6200/$6300 weapon upload. */
       if(d>=0x1228 && ram[d+10]==0x0c && group==0x47 && (s.attr&0x0e00)==0x0600)
         asset=MmxRenderAssetsWeaponX(6,false);
-      if(d>=0x1228 && ((ram[d+10]==3 && group==0x9e) || (ram[d+10]==2 && group==0x0e))) {
+      if(d>=0x1228 && ((ram[d+10]==3 && group==0x9e) ||
+          ((ram[d+10]==1 || ram[d+10]==2) && group==0x0e))) {
         const MmxSpriteAsset *beam=MmxRenderAssetsChargedBuster(group,ram[d+23]&127);
         if(beam) asset=beam;
       }
@@ -1362,7 +1363,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       bool red_death = stage && s.animation == 0x1d && MmxZeroDeathOrbRed(frame.ram,s.object);
       bool coop_buster=stage && frame_coop.initialized && s.object>=0x1228 && s.object<0x1428 &&
           ((frame.ram[s.object+10]==3 && s.animation==0x9e) ||
-           (frame.ram[s.object+10]==2 && s.animation==0x0e));
+           ((frame.ram[s.object+10]==1 || frame.ram[s.object+10]==2) && s.animation==0x0e));
       bool menu_body = s.object == 0x1988 && (s.animation == 0 || s.animation == 0x18);
       bool zero_body = zero && (s.object == 0xba8 || menu_body);
       bool triad_x_body=cast_body && !zero && s.object==0xba8;

@@ -94,24 +94,30 @@ const MmxSpriteAsset *MmxRenderAssetsChargedBuster(unsigned group,unsigned pose)
   /* $83:89E3/$8C70 select pose-DMA tables $85:AAF3/$AB9A for groups $0E/$9E. Native
    * $84:8FCA uploads both rows to $6200/$6300. Each pose has different
    * row lengths; a second player's pose can erase the first shot's bottom. */
-  /* Poses 1 and 6 have no transfer; they reuse the preceding growth pose.
-   * The shared disappearance poses 8..10 retain their native live binding. */
+  /* Empty records retain the preceding upload. Pose 6 of group $0E also
+   * replaces only tile $30 of the lower row: its arrangement still reads
+   * tile $31 from pose 4/5. Start with that row before applying the short
+   * transfer, rather than making the bottom-right eight pixels transparent. */
   unsigned upload_pose=kind ? (pose==1 ? 0 : pose==6 ? 5 : pose) :
       pose<4 ? 0 : (pose==17 || pose==18 || pose==20) ? 12 : pose;
   size_t table=kind ? 0x2ab9a : 0x2aaf3;
-  size_t list=table+word(table+upload_pose*2);
   bool complete=false;
-  for (unsigned n=0;n<32;++n,list+=5) {
-    if (!range(list,5)) return NULL;
-    unsigned count=rom[list]*16;
-    if (!count) {complete=true;break;}
-    int dest=(rom[list+4]&127)*512-0xc000;
-    size_t source=lorom(word(list+1)|(rom[list+3]<<16));
-    if (!range(source,count) || dest<0 || dest+count>sizeof(art->tiles)) return NULL;
-    memcpy(art->tiles+dest,rom+source,count);
-    if (rom[list+4]&128) {complete=true;break;}
+  unsigned first=(!kind && pose==6) ? 4 : upload_pose;
+  for(unsigned pass=0;pass<(first!=upload_pose ? 2u : 1u);++pass) {
+    size_t list=table+word(table+(pass ? upload_pose : first)*2);
+    complete=false;
+    for (unsigned n=0;n<32;++n,list+=5) {
+      if (!range(list,5)) return NULL;
+      unsigned count=rom[list]*16;
+      if (!count) {complete=true;break;}
+      int dest=(rom[list+4]&127)*512-0xc000;
+      size_t source=lorom(word(list+1)|(rom[list+3]<<16));
+      if (!range(source,count) || dest<0 || dest+count>sizeof(art->tiles)) return NULL;
+      memcpy(art->tiles+dest,rom+source,count);
+      if (rom[list+4]&128) {complete=true;break;}
+    }
+    if (!complete) return NULL;
   }
-  if (!complete) return NULL;
   memcpy(art->colors,palette->colors,sizeof(art->colors));
   art->attributes=6;art->live_colors=true;charged_buster_ready[kind][pose]=true;
   return art;

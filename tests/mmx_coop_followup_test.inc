@@ -156,7 +156,7 @@ static unsigned coop_buster_pixels_equal(const uint32_t *a,const uint32_t *b,con
   const uint8_t *rom=g_snes->cart->rom;unsigned checked=0;
   for(unsigned seat=0;seat<2;++seat) for(unsigned slot=0;slot<8;++slot) {
     const uint8_t *q=state->players[seat].shots+slot*64;
-    if(!q[0] || (q[10]!=2 && q[10]!=3)) continue;
+    if(!q[0] || q[10]<1 || q[10]>3) continue;
     const MmxSpriteAsset *art=MmxRenderAssetsChargedBuster(q[22],q[23]&127);
     if(!art) continue;
     size_t directory=0x68000+q[22]*3;
