@@ -50,6 +50,17 @@ uint16_t MmxWidePolicy_BeginWideSpawnPass(MmxWideSpawnCursor *cursor,
 void MmxWidePolicy_EndWideSpawnPass(MmxWideSpawnCursor *cursor,
                                     uint16_t wide_cursor);
 
+/* The widened cursor is only meaningful while a level is being played. A
+ * death restarts the level from its checkpoint within the same stage: the
+ * guest rebuilds its own event-list cursor, so a widened cursor left over from
+ * before the death points past every record between the checkpoint and the
+ * place the player died, and the wide pass (which alone allocates most
+ * kind-3 enemies) never visits them again. Return false in every phase of the
+ * stage scene except play, so the cursor is re-synchronized to the guest's
+ * before the next scan. Derived from guest RAM only: deterministic, and
+ * identical across a state load or a rollback. */
+bool MmxWidePolicy_WideSpawnCursorPersists(const uint8_t ram[0x20000]);
+
 /* Decide which half of the split scan owns a record. Most kind-3 objects are
  * ordinary enemies and belong to the early wide pass; kinds 0-2 retain native
  * timing. A small number of stable stage/object identities override that

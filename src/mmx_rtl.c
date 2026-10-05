@@ -1026,6 +1026,10 @@ void RunOneFrameOfGame(void) {
   MmxCoopSyncPriority(g_ram);
   MmxCoopCapture(g_ram);
   MmxCoopTraceFrame(g_ram);
+  /* Out of play (death, level setup, arrival) the widened spawn cursor is
+   * stale; drop it even when no scan runs before play resumes. */
+  if (!MmxWidePolicy_WideSpawnCursorPersists(g_ram))
+    s_ws_spawn_cursor.valid = false;
   g_first_frame_done = true;
   MmxCoopDiagnosticFrame(g_ram);
 }
@@ -1203,6 +1207,11 @@ static uint16 MmxWsSpawnPreparePasses(uint16 native_anchor,
     s_ws_spawn_cursor.valid = false;
     s_ws_spawn_cursor_stage = stage;
   }
+  /* A checkpoint restart stays in the same stage but rebuilds the guest's
+   * cursor: a widened cursor left from before the death would skip every
+   * record between the checkpoint and the death. */
+  if (!MmxWidePolicy_WideSpawnCursorPersists(g_ram))
+    s_ws_spawn_cursor.valid = false;
 
   s_ws_spawn_pass.native_cursor_before = MmxWsSpawnReadCursor(dpage);
   const uint16 wide_cursor = MmxWidePolicy_BeginWideSpawnPass(

@@ -179,6 +179,42 @@ static void test_spawn_cursors_are_independent(void) {
   assert(cursor.valid);
 }
 
+static void test_spawn_cursor_survives_only_play(void) {
+  /* Launch Octopus, stage 1: after a death the level restarts at the
+   * checkpoint. The widened cursor must not carry its old position into the
+   * restart, or the kind-3 mid-boss ($21, x $111E) past the checkpoint is
+   * never allocated again. */
+  memset(ram, 0, sizeof(ram));
+  ram[0xd1] = 2; ram[0xd2] = 4; ram[0x1f7a] = 1;
+  MmxWideSpawnCursor cursor = {0};
+
+  /* Playing: the cursor advances with the camera and persists. */
+  ram[0xd3] = 4;
+  assert(MmxWidePolicy_WideSpawnCursorPersists(ram));
+  assert(MmxWidePolicy_BeginWideSpawnPass(&cursor, 0x86a0) == 0x86a0);
+  MmxWidePolicy_EndWideSpawnPass(&cursor, 0x86c0); /* past the mid-boss's record */
+  assert(MmxWidePolicy_BeginWideSpawnPass(&cursor, 0x86a8) == 0x86c0);
+
+  /* Death, then the checkpoint restart: setup (0), arrival (2). */
+  const uint8_t phases[] = {6, 0, 2};
+  for (unsigned i = 0; i < sizeof(phases); ++i) {
+    ram[0xd3] = phases[i];
+    assert(!MmxWidePolicy_WideSpawnCursorPersists(ram));
+    if (!MmxWidePolicy_WideSpawnCursorPersists(ram)) cursor.valid = false;
+  }
+
+  /* Back in play, the first scan adopts the guest's rebuilt cursor (the
+   * checkpoint's, well before the mid-boss's record), not the stale one. */
+  ram[0xd3] = 4;
+  assert(MmxWidePolicy_WideSpawnCursorPersists(ram));
+  assert(MmxWidePolicy_BeginWideSpawnPass(&cursor, 0x8640) == 0x8640);
+
+  /* Not a stage at all (a menu, the title): never persists. */
+  ram[0xd1] = 1;
+  assert(!MmxWidePolicy_WideSpawnCursorPersists(ram));
+  assert(!MmxWidePolicy_WideSpawnCursorPersists(NULL));
+}
+
 static void test_streaker_entry_and_recovery(void) {
   memset(ram, 0, sizeof(ram));
   ram[0xd1] = 2; ram[0xd2] = ram[0xd3] = 4;
@@ -316,6 +352,7 @@ int main(void) {
   test_boss_door_stack();
   test_non_door_stack();
   test_spawn_cursors_are_independent();
+  test_spawn_cursor_survives_only_play();
   test_spawn_record_ownership();
   test_streaker_entry_and_recovery();
   test_chain_platform_switches();
