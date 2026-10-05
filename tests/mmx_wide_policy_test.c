@@ -59,8 +59,8 @@ static void test_elevator_presentation(void) {
     assert(!MmxWidePolicy_PresentationCull(ram, 0xf28, (uint16_t)(0x1bf + m), m, true));
     assert(MmxWidePolicy_PresentationCull(ram, 0xf28, (uint16_t)(0x1c0 + m), m, true));
   }
-  ram[0xf32] = 0x3e; /* Adjacent turret family keeps its native controller. */
-  assert(MmxWidePolicy_PresentationCull(ram, 0xf28, distance, 384, true));
+  ram[0xf32] = 0x17; /* Spark's spinner must keep drawing in the wide view. */
+  assert(!MmxWidePolicy_PresentationCull(ram, 0xf28, distance, 384, true));
   ram[0x1632] = 0x3d; /* IDs in another object pool are not the elevator. */
   assert(MmxWidePolicy_PresentationCull(ram, 0x1628, distance, 384, true));
 }
