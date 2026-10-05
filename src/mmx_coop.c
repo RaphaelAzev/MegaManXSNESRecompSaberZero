@@ -1424,6 +1424,7 @@ static bool shot_ghost_wanted(void) {
 }
 static bool lift_elevator(unsigned d);
 static bool capsule_slot(unsigned d);
+static bool platform_item(unsigned d);
 static bool object_ghost_wanted(unsigned d) {
   if(MmxCoopViewsOnline() || state.menu_owner || state.scene_owner || state.contact_pass ||
       state.object_pass || g_ram[0xd3]!=4 || state.current!=state.anchor || !ghost_partner_ready()) return false;
@@ -1431,9 +1432,12 @@ static bool object_ghost_wanted(unsigned d) {
   bool projectile=d>=0x1428 && d<0x1628 && !((d-0x1428)%64);
   if((!enemy && !projectile) || !g_ram[d]) return false;
   unsigned c=g_ram[d+10];
-  /* Objects with their own seat handling: lifts and minecarts,
-   * Dr. Light's capsule, Gulpfer's nearest-player chase, Slimer's puddle. */
-  if(enemy && (lift_elevator(d) || capsule_slot(d) || c==0x1d)) return false;
+  /* Objects with their own seat handling: D7D7 solids and minecarts,
+   * AB81 lifts, Kuwanger's custom elevator and owned laser sensors/turrets,
+   * Dr. Light's capsule, Gulpfer's nearest-player chase, Slimer's puddle.
+   * Their hooks project seats, which a ghost replay deliberately forbids. */
+  if(enemy && (lift_elevator(d) || platform_item(d) || c==0x3d ||
+      c==0x43 || c==0x44 || capsule_slot(d) || c==0x1d)) return false;
   /* Bosses script the player (intros, victory pose); they stay single-seat. */
   if(enemy && MmxWidePolicy_IsBossEncounter((uint8_t)c)) return false;
   if(projectile && c==0x19) return false;
