@@ -671,6 +671,14 @@ static bool teleport_tick(uint8_t *r,MmxCoopPlayer *p) {
   }
   return !z->swap_phase;
 }
+/* Solid terrain somewhere between the body and the level's lowest camera
+ * position: falling off the bottom of the screen there is not a pit. */
+static bool floor_below(const uint8_t *r,const uint8_t *b) {
+  int x=(int)word(b+5),bottom=(int)word(r+0x1e5c)+224+32;
+  for(int y=(int)word(b+8);y<=bottom;y+=8)
+    if(MmxWeaponsTerrainSolid(r,x,y,true,NULL)) return true;
+  return false;
+}
 static bool capsule_slot(unsigned d) {
   return d>=0xe68 && d<0x1228 && !((d-0xe68)%64) && g_ram[d] && g_ram[d+10]==0x4d;
 }
@@ -693,19 +701,32 @@ static bool scene_tick(uint8_t *r) {
   if(!state.scene_owner && state.players[state.anchor^1].status==MMX_COOP_ALIVE &&
       (r[0xbcf]&127) && r[0xbaa]!=12 &&
       (r[0x1f0c] || r[0x1f23] || r[0x1f48] || (r[0xc16] && (r[0x1f31] || r[0x1f3b])))) begin_scene(r);
-  /* Unified view: beam the partner to the world actor once he is left below
-   * the screen (the camera pulled up by a capsule or room lock), and as
-   * soon as a Dr. Light capsule ($4D) exists while he is away from the
-   * world actor: the capsule's camera lock is about to leave him behind. */
-  if(!state.scene_owner && !MmxCoopViewsOnline() && state.players[state.anchor^1].status==MMX_COOP_ALIVE &&
-      (state.players[state.anchor^1].body[0x27]&127)) {
-    const uint8_t *b=state.players[state.anchor^1].body,*a=r+0xba8;
+  /* Unified view only: a player the shared camera leaves below the screen
+   * is beamed out, and returns beside the other once there is a landing.
+   * Over a real pit (no floor down to the level's lowest camera position)
+   * he keeps falling into the native death zone. The partner is also
+   * beamed as soon as an unentered Dr. Light capsule ($4D) exists while he
+   * is away: its camera lock is about to leave him behind. */
+  if(!state.scene_owner && !MmxCoopViewsOnline() && state.players[0].status==MMX_COOP_ALIVE &&
+      state.players[1].status==MMX_COOP_ALIVE && (state.players[0].body[0x27]&127) &&
+      (state.players[1].body[0x27]&127)) {
+    /* MmxCoopFrameTick has just captured the current body: both stored
+     * copies are this frame's. */
+    bool low[2];
+    for(unsigned seat=0;seat<2;++seat) {
+      const uint8_t *b=state.players[seat].body;
+      low[seat]=(int)word(b+8)-32>=(int)word(r+0x1e50)+224 && floor_below(r,b);
+    }
+    const uint8_t *b=state.players[state.anchor^1].body,*a=state.players[state.anchor].body;
     int dx=(int)word(b+5)-(int)word(a+5),dy=(int)word(b+8)-(int)word(a+8);
     bool away=dx<-96 || dx>96 || dy<-64 || dy>64,capsule=false;
     /* Only before it is entered: states 01 00 00 .. 01 02 02. */
     for(unsigned d=0xe68;d<0x1228 && away;d+=64)
       if(capsule_slot(d) && r[d+1]<=2 && r[d+2]<=2) capsule=true;
-    if((int)word(b+8)-32>=(int)word(r+0x1e50)+224 || capsule) begin_scene(r);
+    if(low[state.anchor] && !low[state.anchor^1]) {
+      /* The other player takes over the world before the low one leaves. */
+      state.anchor^=1;MmxCoopSelect(r,state.anchor);begin_scene(r);
+    } else if(low[state.anchor^1] || capsule) begin_scene(r);
   }
   if(!state.scene_owner) return false;
   MmxCoopPlayer *p=&state.players[state.anchor^1];
@@ -1323,6 +1344,12 @@ static void camera_hook(CpuState *cpu,uint32_t pc) {
       ++p->body[0x30];p->body[0x2f]=8;p->body[0x26]=127;
       p->body[2]=p->body[0x6a]=12;p->body[3]=0;p->body[0x27]=128;
     }
+    /* Unified view: the shared camera can leave the world actor below the
+     * screen too. Its native check then uses the same level bound, so only
+     * a real pit kills him; scene_tick beams him out otherwise. */
+    unsigned bound=word(g_ram+0x1e5c)+224;
+    if (!MmxCoopViewsOnline() && state.current==state.anchor && p->status==MMX_COOP_ALIVE &&
+        (p->body[0x27]&127) && word(g_ram)<bound) putword(g_ram,bound);
     return;
   }
   if (!shared_screen() || MmxCoopViewsOnline()) return;
