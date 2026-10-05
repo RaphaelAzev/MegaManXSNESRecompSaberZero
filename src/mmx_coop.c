@@ -1266,11 +1266,16 @@ static uint8_t shot_ghost_lift[sizeof(lift)],shot_ghost_cart[sizeof(cart)];
 static uint8_t shot_ghost_ram[0x20000];
 static void shot_ghost_reset(void) { shot_ghost.pass=0; }
 static bool ghost_active(void) { return shot_ghost.pass==1; }
-/* Position (with subpixels), velocity and the ground/contact flags; object
- * replays also keep the action an object forced (a current's lift). */
+/* Shot replays keep position (with subpixels), velocity and the ground and
+ * contact flags: a seat's shot pass also maintains that seat's own shot
+ * count and firing state, which the other body must not inherit.
+ * Object replays keep every byte the update wrote to the body. Launch
+ * Octopus's current generator ($28) only flags a body it finds in one of its
+ * four $82:D7D7 boxes (.3C, action $08); the player's own movement lifts it.
+ * Contact damage taken during the replay is kept too, and the real update's
+ * contact retry then finds the partner already hit and invulnerable. */
 static bool shot_ghost_field(unsigned i) {
-  return (i>=4 && i<=9) || (i>=0x1a && i<=0x1d) || i==0x2b ||
-      (shot_ghost.kind==GHOST_OBJECT && (i==2 || i==3));
+  return shot_ghost.kind==GHOST_OBJECT || (i>=4 && i<=9) || (i>=0x1a && i<=0x1d) || i==0x2b;
 }
 static bool ghost_partner_ready(void) {
   const MmxCoopPlayer *o=&state.players[state.current^1];
@@ -1303,7 +1308,8 @@ static bool object_ghost_wanted(unsigned d) {
   /* Bosses script the player (intros, victory pose); they stay single-seat. */
   if(enemy && MmxWidePolicy_IsBossEncounter((uint8_t)c)) return false;
   if(projectile && c==0x19) return false;
-  return ghost_near(d,128);
+  /* The current generator's boxes reach about 200 px from its origin. */
+  return ghost_near(d,256);
 }
 static void shot_ghost_begin(CpuState *cpu,unsigned kind,uint32_t resume) {
   cpu_mirrors_to_p(cpu);
