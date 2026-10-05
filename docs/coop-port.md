@@ -943,3 +943,44 @@ below; it is kept as a defensive correction and is not covered by
 `MMX_COOP_STORM_LANDING_TEST`. The physics trace adds a `regs` column and a
 faster hex encoder; the netplay lag analysis is in
 `docs/storm-eagle-collision-handoff.md`.
+
+### Launch Octopus mid-boss missing after a checkpoint restart (2026-10-05)
+
+Report: in co-op the large mid-boss at x `$111E`, y `$0279` in Launch Octopus's
+stage never activated. `coop-physics-20261005-010928-226894-1.csv` (offline,
+Unified; 8,341 host frames over three attempts at the same stretch) shows the
+enemy (class `$21`, slot 0) allocated in the first attempt (host frame 5677,
+camera 4034 scrolling right, P2 not yet joined) and then absent after each
+death: the camera resets to 0,0 at host frames 7099 and 9204, the level
+restarts at the `4032/287` checkpoint, and the enemy pool stays empty through
+every later approach (frames 7200..8300 and 9300..11112). It reappears only
+once, at 8696, when the camera sweeps far right (4568) and scrolls back left
+over its column.
+
+Cause: not co-op. Both of the stage's `$21` records (`$85:8640` x `$0BCE`,
+`$85:86AD` x `$111E`) are kind 3 and `$21` is not in the native-owned list, so
+`MmxWidePolicy_SpawnRecordAllowed` gives them to the early wide pass only, and
+the native pass rejects them. The wide pass keeps its own host cursor
+(`s_ws_spawn_cursor`), which was reset only on a state load or a change of
+stage (`$1F7A`). A death restarts the level from its checkpoint in the *same*
+stage: the guest rebuilds its event-list cursor, the host cursor keeps its old,
+far-advanced value, and every kind-3 record between the checkpoint and the
+place the player died is skipped by the wide pass for good, unless the camera
+later scrolls back over it (the left-scroll scan walks the cursor backward).
+It affects single player too, and any kind-3 enemy past a checkpoint.
+
+Fix: `MmxWidePolicy_WideSpawnCursorPersists` (`$D1/$D2/$D3` = stage, play) is
+false in every phase of the stage scene except play (death 6, setup 0,
+arrival 2, clear 8/10). The widened cursor is dropped then, both at each wide
+scan and at frame end, and re-synchronizes to the guest's cursor on the first
+scan back in play. Boss rooms, doors and scripted scenes run inside phase 4, so
+the cursor still persists across them, which is what keeps a controller the
+wide pass rejected for its native pass. The test is derived from guest RAM
+only, so it is deterministic across state loads and rollback.
+`tests/mmx_wide_policy_test.c` covers the phases and the re-sync.
+
+Not measured: a replay of the fix in the running game (the build compiles
+with the project flags and the policy test passes). To confirm: die to the
+mid-boss in the stage, take the checkpoint, and walk to its room; it should
+spawn on the way in, solo and in co-op. `SNESRECOMP_WS_SPAWN=0` (authentic
+4:3 spawn timing) is the fallback on builds without this change.
