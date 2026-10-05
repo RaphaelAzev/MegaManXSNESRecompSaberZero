@@ -251,6 +251,20 @@ static void coop_graphics_followup_checks(const char *fixture) {
       char suffix[64];snprintf(suffix,sizeof(suffix),"dual-charge-%u",t);
       modern_image(suffix);zero_capture(getenv("MMX_ZERO_TEST_CAPTURE"),suffix);
     }
+    if(t==3) {
+      static uint32_t before[256*224],after[256*224];
+      MmxCoopState isolated=s;
+      memset(isolated.players[s.current^1].shots,0,sizeof(isolated.players[s.current^1].shots));
+      coop_x_graphics_draw(before,&isolated);
+      uint8_t poses[8];
+      for(unsigned slot=0;slot<8;++slot) {
+        unsigned d=0x1228+slot*64;poses[slot]=g_ram[d+23];
+        if(g_ram[d] && (g_ram[d+22]==0x0e || g_ram[d+22]==0x9e)) g_ram[d+23]=12;
+      }
+      coop_x_graphics_draw(after,&isolated);
+      same(before,sizeof(before),after,sizeof(after),"submitted native beam art retains its pose when the projectile advances");
+      for(unsigned slot=0;slot<8;++slot) g_ram[0x1228+slot*64+23]=poses[slot];
+    }
   }
   check(beams>=20 && checked==2 && seats==3,"dual shot test includes both traveling full-charge beams");
   coop_followup_fixture(fixture);

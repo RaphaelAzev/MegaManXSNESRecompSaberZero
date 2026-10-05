@@ -205,11 +205,9 @@ bool MmxWidePolicy_PresentationCull(const uint8_t ram[0x20000], uint16_t object,
   bool traffic = ram[0x1f7a] == 0 && ram[(uint16_t)(object + 10)] == 0x21;
   bool armor = custom && object == 0xe18;
   bool enemy = custom && object >= 0xe68 && object < 0x1228 && (object & 63) == 0x28;
-  /* The grinder and Kuwanger elevator already have widened lifetimes, but
-   * draw through $82:808F's separate horizontal presentation test. The
-   * elevator's boarding test ($87:AF10) and movement remain guest-owned. */
-  bool platform = enemy && (ram[object + 10] == 0x2c || ram[object + 10] == 0x3d);
-  if (!traffic && !armor && !platform) margin = 0;
+  /* Ordinary enemies, including Spark's spinning enemies, also use this
+   * visibility flag to retire themselves. Match their widened lifetime. */
+  if (!traffic && !armor && !enemy) margin = 0;
   return (uint16_t)(distance + margin) >= (uint16_t)(0x1c0 + 2 * margin);
 }
 

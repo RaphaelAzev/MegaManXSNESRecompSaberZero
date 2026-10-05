@@ -2,6 +2,7 @@
 #include "mmx_coop_view.h"
 #include "mmx_renderer.h"
 #include "mmx_coop_trace.h"
+#include "mmx_rtl.h"
 _Static_assert(sizeof(MmxCoopState) == MMX_COOP_LEGACY_STATE_SIZE + 2 * sizeof(MmxZeroModernState),
                "Update the legacy co-op importer when its layout changes");
 #include "cpu_state.h"
@@ -402,11 +403,17 @@ static void select_world_survivor(uint8_t *r) {
   }
 }
 static bool refill_paused(const uint8_t *r) {
-  if(!r[0x1f19] || state.menu_owner || state.scene_owner) return false;
-  for(unsigned seat=0;seat<2;++seat) {
-    const uint8_t *body=seat==state.current ? r+0xba8 : state.players[seat].body;
-    if(state.players[seat].status==MMX_COOP_ALIVE && body[2]==0x18) return true;
-  }
+  if(state.menu_owner || state.scene_owner) return false;
+  /* The native death controller also sets $1F19 while its countdown runs.
+   * It must keep running even though live movement/terrain is paused. */
+  if(r[0xbaa]==12) return false;
+  if(r[0x1f19]) return true;
+  /* $81:EAFB pauses tasks $1F13..18 for a Heart Tank, leaving $1F19
+   * clear. Its saved airborne action/$1F3B can also resemble a cutscene.
+   * Park both actors while the collected tank's native upgrade runs. */
+  if(r[0x1f13] && r[0x1f16])
+    for(unsigned d=0x1628;d<0x1928;d+=48)
+      if(r[d] && r[d+10]==11 && r[d+1]==2 && r[d+2]==6) return true;
   return false;
 }
 void MmxCoopInitialize(uint8_t *r) {
@@ -476,6 +483,20 @@ bool MmxCoopFrameTick(uint8_t *r) {
     state.stage_pending=state.enrolled?2:0;
   }
   MmxCoopCapture(r);
+  /* Boarding stores action $2C in the pilot's own context ($83:8605).
+   * Keep that seat driving the native armor, including old saves made
+   * after a partner return selected the wrong world actor. */
+  if(!state.stage_pending && r[0xd3]==4 && r[0xe18] && (r[0xe22]&0x40)) {
+    unsigned riders=0;
+    for(unsigned seat=0;seat<2;++seat)
+      if(state.players[seat].status==MMX_COOP_ALIVE &&
+          (state.players[seat].body[0x27]&127) && state.players[seat].body[2]==0x2c)
+        riders|=1u<<seat;
+    if(riders==1 || riders==2) {
+      state.anchor=(uint8_t)(riders==2);MmxCoopSelect(r,state.anchor);
+      if(state.current==1) MmxCoopApplyInput(r);
+    }
+  }
   select_world_survivor(r);
   if((r[0xbcf]&127) && !(state.players[state.anchor^1].body[0x27]&127)) {
     /* Repair old co-op saves made after Penguin saw a dead world actor.
@@ -485,19 +506,20 @@ bool MmxCoopFrameTick(uint8_t *r) {
       if(r[d] && r[d+10]==2 && r[d+1]==4 && (r[d+0x27]&127) && r[d+0x30]==1)
         r[d+0x30]=0;
   }
-  /* Simultaneous fatalities must leave only one native death controller
-   * responsible for the life decrement/checkpoint transition. */
+  /* Keep both death animations, with only the world actor responsible for
+   * the life decrement/checkpoint transition. Retiring the other seat here
+   * would cancel its sound/orbs if the survivor dies during its countdown. */
   if(state.players[0].status==MMX_COOP_ALIVE && state.players[1].status==MMX_COOP_ALIVE &&
       !(state.players[0].body[0x27]&127) && !(state.players[1].body[0x27]&127)) {
-    state.players[state.anchor^1].status=MMX_COOP_FALLEN;
+    state.solo_death[state.anchor^1]=1;
     state.solo_death[state.anchor]=0;
   }
-  if (scene_tick(r)) return true;
   /* Retail refills park their collector in action $18 while the item task
    * advances HP/energy. $00:D263 skips terrain collision when $1F19 is set.
    * The other actor must park too; running its motion through that pause
    * lets it fall through the floor. Keep running the native refill task. */
   if(refill_paused(r)) return false;
+  if (scene_tick(r)) return true;
   if (!state.scene_owner && join_tick(r)) return true;
   if (r[0x1f10]>=6) return false;
   unsigned phases[2]={0,0};
@@ -756,6 +778,13 @@ static struct {
   uint16_t carry_d; /* the riding top's slot */
   uint16_t carry_x,carry_y; /* elevator position when the partner boarded */
 } lift;
+/* The cart moves once, then applies $88:9821..9867 to each rider. Native
+ * .2C bit 0 remains "any rider" for its AI; bits 1/2 remember seats for
+ * the next frame's .38 comparison and are serialized in ordinary WRAM. */
+static struct {
+  bool ready;uint8_t pass,first,flags,previous,p,db;
+  uint16_t d,s,a,x,y,ra,rx,ry;uint8_t rp,rdb;
+} cart;
 static uint32_t lift_stack_ret(const CpuState *cpu) {
   return cpu->S<0x1ffd ? (uint32_t)(g_ram[cpu->S+1]|g_ram[cpu->S+2]<<8|g_ram[cpu->S+3]<<16) : 0;
 }
@@ -778,13 +807,13 @@ void MmxCoopHostFrame(void) { if(enabled) lift_find_rtl(); }
 static bool lift_elevator(unsigned d) {
   /* Solid enemies that query $82:D7D7 for the current seat only:
    * Storm Eagle's E-tank elevator top ($59) and its column ($5A, 83 px
-   * below), and Flame Mammoth's scrap blocks dropped onto the conveyor
-   * ($2A, from $87:9C7B/9D89). */
+   * below), Flame Mammoth's scrap blocks dropped onto the conveyor
+   * ($2A, from $87:9C7B/9D89), and Armored Armadillo's minecart ($2B). */
   if(d<0xe68 || d>=0x1228 || (d-0xe68)%64 || !g_ram[d]) return false;
   unsigned c=g_ram[d+10];
-  return c==0x59 || c==0x5a || c==0x2a;
+  return c==0x59 || c==0x5a || c==0x2a || c==0x2b;
 }
-static void lift_reset(void) { lift.pass=0;lift.carry=0; }
+static void lift_reset(void) { lift.pass=0;lift.carry=0;cart.ready=false;cart.pass=0; }
 static void lift_close(void) {
   if(lift.pass==2) MmxCoopSelect(g_ram,lift.first);
   lift.pass=0;
@@ -820,7 +849,18 @@ static void lift_rtl_hook(CpuState *cpu,uint32_t pc) {
     return;
   }
   bool second_rides=g_ram[d+0x2c]&1;
-  g_ram[d+0x2c]=(uint8_t)(lift.first_2c|g_ram[d+0x2c]);
+  uint8_t combined=(uint8_t)(lift.first_2c|g_ram[d+0x2c]);
+  if(g_ram[d+10]==0x2b) {
+    cart.ready=true;cart.pass=0;cart.first=lift.first;cart.d=(uint16_t)d;
+    cart.flags=(combined&~6u)|((lift.first_2c&1)<<(lift.first+1))|
+        ((second_rides?1u:0u)<<((lift.first^1)+1));
+    cart.previous=g_ram[d+0x38];
+    /* Older single-rider saves have no seat bits: the old anchor was the
+     * only rider the native cart had ever queried. */
+    if(!(cart.previous&6) && (cart.previous&1)) cart.previous|=1u<<(lift.first+1);
+    combined=cart.flags;
+  }
+  g_ram[d+0x2c]=combined;
   MmxCoopSelect(g_ram,lift.first);
   /* The handler moves the elevator after the query and carries only the
    * projected body, so it always gets the first seat's answer; a riding
@@ -833,6 +873,31 @@ static void lift_rtl_hook(CpuState *cpu,uint32_t pc) {
     lift.carry_y=(uint16_t)(g_ram[d+8]|g_ram[d+9]<<8);
   }
   lift.pass=0;
+}
+static void cart_project(unsigned seat) {
+  unsigned d=cart.d;
+  g_ram[d+0x2c]=(cart.flags&~7u)|((cart.flags>>(seat+1))&1);
+  g_ram[d+0x38]=(cart.previous&~7u)|((cart.previous>>(seat+1))&1);
+}
+static void cart_hook(CpuState *cpu,uint32_t pc) {
+  if(!enabled || !state.initialized || !cart.ready || cpu->D!=cart.d) return;
+  if((pc&65535)==0x9821) {
+    if(cart.pass) return;
+    cart.pass=1;cart.s=cpu->S;
+    cpu_mirrors_to_p(cpu);cart.a=cpu->A;cart.x=cpu->X;cart.y=cpu->Y;cart.p=cpu->P;cart.db=cpu->DB;
+    cart_project(cart.first);return;
+  }
+  if(!cart.pass || cpu->S!=cart.s) return;
+  if(cart.pass==1) {
+    cpu_mirrors_to_p(cpu);cart.ra=cpu->A;cart.rx=cpu->X;cart.ry=cpu->Y;cart.rp=cpu->P;cart.rdb=cpu->DB;
+    MmxCoopSelect(g_ram,cart.first^1);cart.pass=2;cart_project(cart.first^1);
+    cpu->A=cart.a;cpu->X=cart.x;cpu->Y=cart.y;cpu->P=cart.p;cpu->DB=cart.db;cpu_p_to_mirrors(cpu);
+    interp_bridge_pre_opcode_redirect(0x889821);return;
+  }
+  MmxCoopSelect(g_ram,cart.first);
+  g_ram[cart.d+0x2c]=cart.flags;g_ram[cart.d+0x38]=cart.previous;
+  cpu->A=cart.ra;cpu->X=cart.rx;cpu->Y=cart.ry;cpu->P=cart.rp;cpu->DB=cart.rdb;cpu_p_to_mirrors(cpu);
+  cart.pass=0;cart.ready=false;
 }
 /* Shift the partner who answered the elevator's query by however far the
  * elevator moved after it, so both riders track it in the same frame. Runs at
@@ -902,7 +967,11 @@ static bool join_tick(uint8_t *r) {
     unsigned phase=p->zero.swap_phase;
     if (teleport_tick(r,p)) {
       if(phase==2) p->status=MMX_COOP_ABSENT;
-      else if(!seat) {state.anchor=0;MmxCoopSelect(r,0);}
+      /* The native armor reads its pilot's global body/input. A returning
+       * P1 must not take that projection away from an occupied P2 armor. */
+      else if(!seat && !(r[0xe18] && (r[0xe22]&0x40))) {
+        state.anchor=0;MmxCoopSelect(r,0);
+      }
       state.select_armed=state.select_hold=state.p1_select_armed=state.p1_select_hold=0;
     }
     r[0xb9d]=r[0xba0]=0;return true;
@@ -918,7 +987,10 @@ static bool join_tick(uint8_t *r) {
     if (!(p->input&4)) {*armed=1;*hold=0;}
     if (p->status==MMX_COOP_FALLEN || !living_on_screen(r,seat^1)) {*hold=0;continue;}
     if (p->status==MMX_COOP_ALIVE) {
-      if (!(p->body[0x27]&127) || p->body[2]==12) {*hold=0;continue;}
+      /* An occupied armor still updates through its pilot's projected body.
+       * Do not hide that body or hand control away during a voluntary exit. */
+      if (!(p->body[0x27]&127) || p->body[2]==12 || p->body[2]==0x2c ||
+          (seat==state.anchor && r[0xe18] && (r[0xe22]&0x40))) {*hold=0;continue;}
       if ((p->input&4) && *armed && ++*hold>=90) {
         /* The other seat now drives world scripts and native input. The
          * withdrawn body/inventory remains stored for a voluntary return. */
@@ -1209,19 +1281,23 @@ static bool shared_screen(void) {
       !g_ram[0x1f0c] && !g_ram[0x1f23] && !g_ram[0x1f48];
 }
 static void constrain_player(uint8_t *r) {
-  if(MmxCoopViewsOnline()) {
+  bool independent=MmxCoopViewsOnline();
+  if(independent || shared_screen()) {
     if(state.scene_owner || state.menu_owner || r[0xd3]!=4) return;
-    int x=word(r+0xbad),lo=word(r+0x1e56)+8,hi=word(r+0x1e58)+248;
+    /* Native camera clamping only sees the world actor. Clamp each
+     * controller against the same authored room bounds before averaging.
+     * Treat left-edge underflow as negative, not as a jump to $FFFF. */
+    int x=(int16_t)word(r+0xbad),lo=word(r+0x1e56)+8,hi=word(r+0x1e58)+248;
     if(hi<lo) return;
     int limited=x<lo?lo:x>hi?hi:x;
     if(x!=limited) {putword(r+0xbad,(unsigned)limited);r[0xbac]=0;putword(r+0xbc2,0);}
     /* A partner can reach the authored pit edge while the native camera is
      * still far above it, so E12D's canonical-camera branch may never run. */
-    if((r[0xbcf]&127) && r[0xbaa]!=12 &&
+    if(independent && (r[0xbcf]&127) && r[0xbaa]!=12 &&
         (int16_t)(word(r+0xbb0)-32-word(r+0x1e5c)-224)>=0) {
       ++r[0xbd8];r[0xbd7]=8;r[0xbce]=127;r[0xbaa]=r[0xc12]=12;r[0xbab]=0;r[0xbcf]=128;
     }
-    return;
+    if(independent) return;
   }
   if (!shared_screen()) return;
   const MmxCoopPlayer *other=&state.players[state.current^1];
@@ -1317,7 +1393,7 @@ static void death_hook(CpuState *cpu,uint32_t pc) {
   switch(pc&65535) {
     case 0x8a5c:
       state.solo_death[seat]=state.players[other].status==MMX_COOP_ALIVE &&
-          (state.players[other].body[0x27]&127)!=0;
+          ((state.players[other].body[0x27]&127)!=0 || seat!=state.anchor);
       if(state.solo_death[seat]) memcpy(state.death_flags[seat],g_ram+0x1f13,7);
       break;
     case 0x8ab7:
@@ -1446,7 +1522,9 @@ void MmxCoopTraceFrame(const uint8_t *r) {
 }
 static void view_world_hook(CpuState *cpu,uint32_t pc) {
   if(!MmxCoopViewsOnline() || !enabled || !state.initialized || state.stage_pending ||
-      state.menu_owner || state.scene_owner || g_ram[0xd3]!=4) return;
+      state.menu_owner || state.scene_owner || g_ram[0xd3]!=4) {
+    MmxWsCullHook(cpu,pc);return;
+  }
   unsigned at=pc&65535;
   if(at==0xdcd7) {
     extern void MmxCoopViewsSpawnWorld(CpuState *);
@@ -1511,6 +1589,8 @@ void MmxCoopRegisterHooks(void) {
   interp_bridge_set_pre_opcode_hook(0x87c0ae,eagle_lift_hook);
   interp_bridge_set_pre_opcode_hook(0x87c0b4,eagle_lift_hook);
   interp_bridge_set_pre_opcode_hook(0x82d7d7,lift_contact_hook);
+  interp_bridge_set_pre_opcode_hook(0x889821,cart_hook);
+  interp_bridge_set_pre_opcode_hook(0x889867,cart_hook);
   const unsigned platforms[]={0x84ab81,0x84ac34,0x84ab56,0x84ab80};
   for(unsigned i=0;i<sizeof(platforms)/sizeof(platforms[0]);++i)
     interp_bridge_set_pre_opcode_hook(platforms[i],platform_hook);
