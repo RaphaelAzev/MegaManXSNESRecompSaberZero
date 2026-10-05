@@ -244,7 +244,7 @@ static const char kNetplayHeader[]=
     "slot,host,input_player,transport,ice_failed,remote_lead,input_delay,"
     "published_inputs,active_mask,quiesced,draining,state_barrier,desync_tick,"
     "desync_local,desync_remote,p1_input,p2_input,current,anchor,stage,mode,"
-    "submode,phase,wram_hash,coop_hash\n";
+    "submode,phase,wram_hash,coop_hash,p1_hash,p2_hash,shared_hash,p1_body,p2_body\n";
 static void diagnostic_netplay(const uint8_t *r) {
 #if SNESRECOMP_NET
   if (!diagnostic_enabled || !snes_netplay_active()) return;
@@ -255,9 +255,15 @@ static void diagnostic_netplay(const uint8_t *r) {
   if(snes_netplay_input_desync(&tick,&local,&remote)) snprintf(desync,sizeof(desync),"%u",(unsigned)tick);
   else local=remote=0;
   const char *transport=snes_netplay_transport_name();
+  /* Which part of the co-op state forked: each seat's stored copy (body,
+   * auxiliaries, shots, weapons, combat, Zero state) and everything after
+   * the two seats. The stored bodies are written out whole. */
+  char bodies[2][0x90*2+1];
+  for(unsigned i=0;i<2;++i) diagnostic_hex(bodies[i],state.players[i].body,0x90);
+  const uint8_t *shared=(const uint8_t *)&state+sizeof(state.players);
   int count=fprintf(out,
       "%u,%d,%u,%u,%u,%u,%d,%d,%d,%d,%s,%d,%d,%d,%u,%x,%d,%d,%d,%s,%08x,%08x,"
-      "%04x,%04x,%u,%u,%u,%u,%u,%u,%08x,%08x\n",
+      "%04x,%04x,%u,%u,%u,%u,%u,%u,%08x,%08x,%08x,%08x,%08x,%s,%s\n",
       diagnostic_sequence,snes_frame_counter,r[0xb9c],(unsigned)snes_netplay_sim_tick(),
       (unsigned)snes_netplay_frames_finished(),RtlSpeculativeFrame(),snes_netplay_rollback_active(),
       snes_netplay_local_slot(),snes_netplay_is_host(),snes_netplay_input_player(),
@@ -267,7 +273,10 @@ static void diagnostic_netplay(const uint8_t *r) {
       snes_netplay_state_barrier(),desync,local,remote,
       state.players[0].input,state.players[1].input,state.current,state.anchor,
       r[0x1f7a],r[0xd1],r[0xd2],r[0xd3],
-      diagnostic_hash(r,0x20000),diagnostic_hash(&state,sizeof(state)));
+      diagnostic_hash(r,0x20000),diagnostic_hash(&state,sizeof(state)),
+      diagnostic_hash(&state.players[0],sizeof(state.players[0])),
+      diagnostic_hash(&state.players[1],sizeof(state.players[1])),
+      diagnostic_hash(shared,sizeof(state)-sizeof(state.players)),bodies[0],bodies[1]);
   if(count<0) {diagnostic_close(&netplay_file);netplay_file.checked=true;return;}
   netplay_file.bytes+=count;
   if (diagnostic_rows%60==0) fflush(out);
@@ -392,6 +401,16 @@ static void select_world_survivor(uint8_t *r) {
      * countdown, not only after its orbs have finished spawning. */
     state.anchor=(uint8_t)other;MmxCoopSelect(r,other);
   }
+}
+/* A collector parked in action $18 by an item that sets neither $1F19 nor
+ * the Heart Tank pause (a Sub Tank) froze only that player; the other kept
+ * moving. Park the other player's update too, while the collector's own
+ * native state runs the fill. */
+static bool partner_parked(const uint8_t *r) {
+  if(!state.initialized || state.menu_owner || state.scene_owner) return false;
+  const MmxCoopPlayer *o=&state.players[state.current^1];
+  return o->status==MMX_COOP_ALIVE && (o->body[0x27]&127) && o->body[2]==0x18 &&
+      r[0xbaa]!=0x18 && r[0xbaa]!=12;
 }
 static bool refill_paused(const uint8_t *r) {
   if(state.menu_owner || state.scene_owner) return false;
@@ -567,8 +586,13 @@ static void place_other(uint8_t *r,uint16_t x,uint16_t y,bool preserve) {
   /* Use native player setup fields, but never inherit P1's hurt, charge,
    * movement or weapon counters. Personal inventory survives withdrawal. */
   memcpy(p->body, source->body, sizeof(p->body));
+  /* $0C38..$0C97 are the three armor-part objects. Only the same character
+   * can share them: X returning beside a world-driving Zero (who opened the
+   * boss door) took Zero's slots and lost his helmet/arm/boot sprites. */
+  uint8_t armor[0x60];memcpy(armor,p->character==source->character ? source->auxiliaries :
+      p->auxiliaries,sizeof(armor));
   memset(p->auxiliaries,0,sizeof(p->auxiliaries));memset(p->shots,0,sizeof(p->shots));
-  memcpy(p->auxiliaries,source->auxiliaries,0x60);
+  memcpy(p->auxiliaries,armor,sizeof(armor));
   memset(&p->combat,0,sizeof(p->combat));memset(&p->zero,0,sizeof(p->zero));
   p->zero.active_x=p->character==MMX_COOP_X;
   memset(p->body+0x28,0,sizeof(p->body)-0x28);
@@ -662,6 +686,17 @@ static bool teleport_tick(uint8_t *r,MmxCoopPlayer *p) {
   }
   return !z->swap_phase;
 }
+/* Solid terrain somewhere between the body and the level's lowest camera
+ * position: falling off the bottom of the screen there is not a pit. */
+static bool floor_below(const uint8_t *r,const uint8_t *b) {
+  int x=(int)word(b+5),bottom=(int)word(r+0x1e5c)+224+32;
+  for(int y=(int)word(b+8);y<=bottom;y+=8)
+    if(MmxWeaponsTerrainSolid(r,x,y,true,NULL)) return true;
+  return false;
+}
+static bool capsule_slot(unsigned d) {
+  return d>=0xe68 && d<0x1228 && !((d-0xe68)%64) && g_ram[d] && g_ram[d+10]==0x4d;
+}
 static void begin_scene(uint8_t *r) {
   unsigned other=state.anchor^1;
   if(state.scene_owner || state.players[other].status!=MMX_COOP_ALIVE ||
@@ -681,6 +716,51 @@ static bool scene_tick(uint8_t *r) {
   if(!state.scene_owner && state.players[state.anchor^1].status==MMX_COOP_ALIVE &&
       (r[0xbcf]&127) && r[0xbaa]!=12 &&
       (r[0x1f0c] || r[0x1f23] || r[0x1f48] || (r[0xc16] && (r[0x1f31] || r[0x1f3b])))) begin_scene(r);
+  /* Unified view only: a player the shared camera leaves below the screen
+   * is beamed out, and returns beside the other once there is a landing.
+   * Over a real pit (no floor down to the level's lowest camera position)
+   * he keeps falling into the native death zone. The partner is also
+   * beamed as soon as an unentered Dr. Light capsule ($4D) exists while he
+   * is away: its camera lock is about to leave him behind. */
+  if(!state.scene_owner && !MmxCoopViewsOnline() && state.players[0].status==MMX_COOP_ALIVE &&
+      state.players[1].status==MMX_COOP_ALIVE && (state.players[0].body[0x27]&127) &&
+      (state.players[1].body[0x27]&127)) {
+    /* MmxCoopFrameTick has just captured the current body: both stored
+     * copies are this frame's. */
+    bool low[2];
+    for(unsigned seat=0;seat<2;++seat) {
+      const uint8_t *b=state.players[seat].body;
+      low[seat]=(int)word(b+8)-32>=(int)word(r+0x1e50)+224 && floor_below(r,b);
+    }
+    const uint8_t *b=state.players[state.anchor^1].body,*a=state.players[state.anchor].body;
+    int dx=(int)word(b+5)-(int)word(a+5),dy=(int)word(b+8)-(int)word(a+8);
+    bool away=dx<-96 || dx>96 || dy<-64 || dy>64,capsule=false;
+    /* Only before it is entered: states 01 00 00 .. 01 02 02. */
+    for(unsigned d=0xe68;d<0x1228 && away;d+=64)
+      if(capsule_slot(d) && r[d+1]<=2 && r[d+2]<=2) capsule=true;
+    /* A capsule belongs to X, not to whoever drives the world: X near an
+     * unentered capsule takes over the world, so its native script runs on
+     * him; the capsule rule below then beams Zero over. */
+    unsigned xs=state.players[0].character==MMX_COOP_X ? 0 : 1;
+    if(state.players[xs].character==MMX_COOP_X && xs!=state.anchor) {
+      const uint8_t *xb=state.players[xs].body;
+      for(unsigned d=0xe68;d<0x1228;d+=64)
+        if(capsule_slot(d) && r[d+1]<=2 && r[d+2]<=2) {
+          int cx=(int)word(r+d+5)-(int)word(xb+5),cy=(int)word(r+d+8)-(int)word(xb+8);
+          if(cx>-96 && cx<96 && cy>-96 && cy<96) {
+            state.anchor=(uint8_t)xs;MmxCoopSelect(r,xs);
+            b=state.players[state.anchor^1].body;a=state.players[state.anchor].body;
+            dx=(int)word(b+5)-(int)word(a+5);dy=(int)word(b+8)-(int)word(a+8);
+            away=dx<-96 || dx>96 || dy<-64 || dy>64;capsule=away;
+            break;
+          }
+        }
+    }
+    if(low[state.anchor] && !low[state.anchor^1]) {
+      /* The other player takes over the world before the low one leaves. */
+      state.anchor^=1;MmxCoopSelect(r,state.anchor);begin_scene(r);
+    } else if(low[state.anchor^1] || capsule) begin_scene(r);
+  }
   if(!state.scene_owner) return false;
   MmxCoopPlayer *p=&state.players[state.anchor^1];
   if(p->status!=MMX_COOP_ALIVE) {state.scene_owner=state.scene_phase=0;return false;}
@@ -779,10 +859,13 @@ static void lift_find_rtl(void) {
 /* Host side, between frames: hook registration never runs inside a hook. */
 void MmxCoopHostFrame(void) { if(enabled) lift_find_rtl(); }
 static bool lift_elevator(unsigned d) {
-  /* $59 is the top the players ride; $5A, 83 px below it, is the column
-   * whose sides block them. Both query $82:D7D7 for the current seat. */
-  return d>=0xe68 && d<0x1228 && !((d-0xe68)%64) && g_ram[d] &&
-      (g_ram[d+10]==0x59 || g_ram[d+10]==0x5a || g_ram[d+10]==0x2b);
+  /* Solid enemies that query $82:D7D7 for the current seat only:
+   * Storm Eagle's E-tank elevator top ($59) and its column ($5A, 83 px
+   * below), Flame Mammoth's scrap blocks dropped onto the conveyor
+   * ($2A, from $87:9C7B/9D89), and Armored Armadillo's minecart ($2B). */
+  if(d<0xe68 || d>=0x1228 || (d-0xe68)%64 || !g_ram[d]) return false;
+  unsigned c=g_ram[d+10];
+  return c==0x59 || c==0x5a || c==0x2a || c==0x2b;
 }
 static void lift_reset(void) { lift.pass=0;lift.carry=0;cart.ready=false;cart.pass=0; }
 static void lift_close(void) {
@@ -901,6 +984,16 @@ void MmxCoopSyncPriority(uint8_t *r) {
   const uint8_t *world=state.anchor==state.current ? r+0xba8 : state.players[state.anchor].body;
   uint8_t *body=seat==state.current ? r+0xba8 : state.players[seat].body;
   body[0x11]=(uint8_t)((body[0x11]&~0x30)|(world[0x11]&0x30));
+  /* Ground shock ($36, Flame Mammoth's stomp) tests only the projected world
+   * actor. Its first frame stuns a grounded partner too; the native state
+   * then runs the stun for him as usual. */
+  unsigned action=body[2];
+  if(world[2]==0x36 && world[3]==0 && (body[0x2b]&4) && (body[0x27]&127) &&
+      action!=0x36 && action!=0x0c && action!=0x0e && action!=0x18 && action<0x1e) {
+    /* .85 is the stun's countdown, set by the stomp alongside the action.
+     * Left 0, X's wrapped to 255 and kept him stunned ~288 frames. */
+    body[2]=0x36;body[3]=0;body[0x85]=world[0x85];
+  }
 }
 static void eagle_lift_hook(CpuState *cpu,uint32_t pc) {
   if(!enabled || !state.initialized || state.menu_owner || state.scene_owner) return;
@@ -1014,9 +1107,6 @@ static void slime_hook(CpuState *cpu,uint32_t pc) {
   }
 }
 /* Trace the enemy contact calls while a Storm Eagle elevator part lives. */
-static bool capsule_slot(unsigned d) {
-  return d>=0xe68 && d<0x1228 && !((d-0xe68)%64) && g_ram[d] && g_ram[d+10]==0x4d;
-}
 static bool contact_traced(unsigned d,unsigned entry) {
   if(!diagnostic_enabled) return false;
   if(capsule_slot(d)) return true;
@@ -1288,18 +1378,32 @@ static void camera_hook(CpuState *cpu,uint32_t pc) {
      * sound and orb objects; the shared camera still runs only once. */
     if (!enabled || !state.initialized || state.menu_owner || state.scene_owner || MmxCoopTransitionActive()) return;
     MmxCoopPlayer *p=&state.players[state.anchor^1];
+    /* Below the level's lowest camera position, as online views already
+     * use: the screen bottom only moved because the shared camera was pulled
+     * up (a capsule's camera lock), and scene_tick beams him over. */
     if (p->status==MMX_COOP_ALIVE && (p->body[0x27]&127) &&
-        (int16_t)(word(p->body+8)-32-(MmxCoopViewsOnline()?word(g_ram+0x1e5c)+224:word(g_ram)))>=0) {
+        (int16_t)(word(p->body+8)-32-(word(g_ram+0x1e5c)+224))>=0) {
       TRACE(PIT,pc,state.anchor^1,0,cpu);
       ++p->body[0x30];p->body[0x2f]=8;p->body[0x26]=127;
       p->body[2]=p->body[0x6a]=12;p->body[3]=0;p->body[0x27]=128;
     }
+    /* Unified view: the shared camera can leave the world actor below the
+     * screen too. Its native check then uses the same level bound, so only
+     * a real pit kills him; scene_tick beams him out otherwise. */
+    unsigned bound=word(g_ram+0x1e5c)+224;
+    if (!MmxCoopViewsOnline() && state.current==state.anchor && p->status==MMX_COOP_ALIVE &&
+        (p->body[0x27]&127) && word(g_ram)<bound) putword(g_ram,bound);
     return;
   }
   if (!shared_screen() || MmxCoopViewsOnline()) return;
   unsigned axis=((pc&65535)==0xdebf || (pc&65535)==0xdeca) ? 8 : 5;
-  unsigned a=word(state.players[0].body+axis),b=word(state.players[1].body+axis);
-  cpu->A=(uint16_t)((a+b)/2);
+  /* Round the midpoint toward the world actor. Plain (a+b)/2 floors, so
+   * two bodies falling at the same speed one subpixel phase apart (1 px gap
+   * flickering to 0) moved the camera with whichever was higher, and the
+   * other's screen position jumped a pixel every few frames. */
+  int a=(int)word(state.players[state.anchor].body+axis);
+  int b=(int)word(state.players[state.anchor^1].body+axis);
+  cpu->A=(uint16_t)(a+(b-a)/2);
   cpu->_flag_N=(cpu->A&0x8000)!=0;cpu->_flag_Z=cpu->A==0;
   cpu->P=(cpu->P&~0x82)|(cpu->_flag_N?0x80:0)|(cpu->_flag_Z?2:0);
 }
@@ -1443,7 +1547,7 @@ static void controller_hook(CpuState *cpu, uint32_t pc) {
       TRACE_MARK(state.current,CONTROLLER);
       if(state.current!=state.anchor) TRACE_MARK(state.current,NON_ANCHOR);
     }
-    if(state.initialized && refill_paused(g_ram))
+    if(state.initialized && (refill_paused(g_ram) || partner_parked(g_ram)))
       interp_bridge_pre_opcode_redirect(0x81819c);
     return;
   }

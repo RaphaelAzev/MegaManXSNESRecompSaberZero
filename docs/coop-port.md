@@ -892,7 +892,10 @@ simulated frame records the host sequence (matching the physics rows),
 world/simulation ticks, run-ahead and rollback state, slot/host role,
 transport, remote lead, input delay, published inputs, input-desync report,
 both seats' inputs, scene state, and FNV-1a hashes of WRAM and the co-op
-state. Rollback re-simulates ticks, so the last row per tick is the kept one;
+state. `p1_hash`, `p2_hash` and `shared_hash` split the co-op hash into each
+seat's stored copy and the rest of the state, and `p1_body`/`p2_body` hold
+the two stored bodies, so a fork in co-op state names its seat and byte.
+Rollback re-simulates ticks, so the last row per tick is the kept one;
 the first tick whose hashes differ between the two players' files is where
 the simulations forked. The file is observation only and is not written
 outside netplay.

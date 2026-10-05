@@ -105,6 +105,13 @@ static bool zero_title_menu(void) {
       frame.ram[0xbbe] == 0 && word(frame.ram,0xbad) == 32 &&
       y >= 166 && y <= 198;
 }
+/* X1's buster charge cycles palette 1 in CGRAM itself while its sparkle
+ * objects (class 1, $0C98..$0E17, $82:82ED) are live. The co-op weapon
+ * palette would replace that glow with the plain body colours. */
+static bool x_charging(const uint8_t *ram) {
+  for (unsigned d = 0xc98; d < 0xe18; d += 32) if (ram[d] && ram[d + 10] == 1) return true;
+  return false;
+}
 static bool zero_actor(unsigned object, unsigned animation) {
   return object == 0xba8 || object == 0xc38 || object == 0xc58 || object == 0xc78 ||
       (object == 0x1928 && animation == 0x5f) || (object == 0x1948 && animation == 0x5e) ||
@@ -1124,7 +1131,12 @@ static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView 
       (int16_t)(word(ram,0xbb0)-view_camera(ram,0x1e50)),y,view,objects,colors);
   for (unsigned i=0;i<24;++i) {
     unsigned d = i==0 ? 0xba8 : i<16 ? 0xc38+(i-1)*32 : 0x1228+(i-16)*64;
-    if (d==0xba8 ? !ram[d+1] || !ram[d+14] : !ram[d] || !(ram[d+14]&128)) continue;
+    /* Armor parts ($0C38/$0C58/$0C78) are visible when .0E is nonzero, as
+     * native D56F submits them (expand_queues); bit 7 alone hid a partner X's
+     * helmet, arms and boots whenever Zero drove the world. */
+    bool armor = d>=0xc38 && d<=0xc78;
+    if (d==0xba8 ? !ram[d+1] || !ram[d+14] :
+        !ram[d] || !(armor ? ram[d+14] : ram[d+14]&128)) continue;
     if(d<0xc98 && !ram[0xbb6]) continue; /* Armor follows its owner's Sting blink. */
     if (zero && (d==0xba8 || d<0xc98 || MmxZeroNativeChargeObject(d,ram[d+10]))) continue;
     if (cast && d<0xc98) continue;
@@ -1444,8 +1456,12 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       /* Extended choices have their own original X palette. Their native
        * buster proxy must not show the palette of an unrelated locked X1
        * weapon while navigating the pause screen. Preserve hit flashes. */
+      /* The weapon palette is OBJ palette 1 (CGRAM 144..159, $81:9E8F).
+       * Pieces drawn with another palette (the charge glow, armor parts)
+       * keep live CGRAM: substituting them lost the glow and flattened
+       * the boots. */
       if (frame_zero.active_x && weapon_colors && zero_actor(s.object, s.animation) &&
-          (menu || (attr & 0x0e00))) asset = &x_weapon_palette;
+          (menu || ((attr & 0x0e00) == 0x0200 && !x_charging(frame.ram)))) asset = &x_weapon_palette;
       if(stage && frame_coop.initialized && s.object>=0x1228 && s.object<0x1428 &&
           frame.ram[s.object+10]==0x0c && s.animation==0x47 && (s.attr&0x0e00)==0x0600)
         asset=MmxRenderAssetsWeaponX(6,false);

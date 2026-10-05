@@ -278,6 +278,12 @@ const uint8_t *MmxZeroPose(const uint8_t ram[0x20000], const MmxZeroState *s) {
    * group $66 below owns the subsequent fall, kneeling and dialogue. */
   if (ram[0x1f7a] == 0 && ram[0xbaa] == 0x32 && ram[0xbab] <= 2)
     return poses + (size_t)0x33 * MMX_ZERO_WIDTH * MMX_ZERO_HEIGHT;
+  /* Action $36 is the ground-shock stun (Flame Mammoth's stomp). Its X1
+   * frames $4B/$4C have no X3 movement record, so the native frame index
+   * named an empty pose and Zero vanished for the whole stun. Hold the same
+   * staggered hurt pose. */
+  if (ram[0xbaa] == 0x36)
+    return poses + (size_t)0x33 * MMX_ZERO_WIDTH * MMX_ZERO_HEIGHT;
   /* X1's Vile capture/rescue uses group $66, not the normal body group.
    * Its five poses are kneeling/blinking, then suspended. Use original X3
    * kneeling/hurt art instead of reading these as running/firing sequences. */
@@ -340,16 +346,26 @@ static bool slide_blocked(const uint8_t *r) {
   return MmxZeroActive() && r && terrain_query && r[0xba9] == 2 &&
       (r[0xbd3] & 4) && !r[0x1f0c] && standing_blocked(r);
 }
+/* X1's dash speed ($0375) in the current facing, for a slide with none. */
+static unsigned slide_speed(const uint8_t *r) {
+  return r[0xc11] & 64 ? 0x0375 : 0x10000 - 0x0375;
+}
 bool MmxZeroSlideHold(uint8_t r[0x20000], unsigned pc) {
   if (!slide_blocked(r) || r[0xbaa] != 0x14) return false;
   switch (pc & 0x7fffff) {
     case 0x01898e: {
       /* Releasing dash, a wall ahead or the reverse direction would stand
        * Zero up. Reverse turns the slide around, so dead ends can be left. */
-      unsigned reverse = r[0xc11] & 64 ? 2 : 1;
+      unsigned reverse = r[0xc11] & 64 ? 2 : 1, ahead = reverse ^ 3;
+      unsigned speed = word(r + 0xbc2);
       if (r[0xbdf] & reverse) {
         r[0xc11] ^= 64;
-        putword(r + 0xbc2, (0x10000 - word(r + 0xbc2)) & 0xffff);
+        putword(r + 0xbc2, speed ? (0x10000 - speed) & 0xffff : slide_speed(r));
+      } else if (!speed && (r[0xbdf] & ahead)) {
+        /* Releasing the direction stops X1's dash, and nothing restarted
+         * it, so a stopped slide could only turn back, never continue
+         * (Armored Armadillo's low passage to the Heart Tank). */
+        putword(r + 0xbc2, slide_speed(r));
       }
       return true;
     }
@@ -630,11 +646,16 @@ static bool start_slash(uint8_t *r) {
 void MmxZeroPlayerTick(uint8_t r[0x20000]) {
   if (!MmxZeroActive() || !r) return;
   unsigned action = r[0xbaa];
-  bool playable = r[0xd1] == 2 && r[0xd2] == 4 && r[0xba9] == 2 &&
-      r[0xd3]<10 && (r[0xbcf] & 127) && !r[0x1f0c] && !r[0xbdb] &&
+  bool stage = r[0xd1] == 2 && r[0xd2] == 4 && r[0xba9] == 2 &&
+      r[0xd3]<10 && (r[0xbcf] & 127) && !r[0x1f0c] && !r[0xbdb];
+  bool playable = stage &&
       /* Action $0A is the ordinary four-frame landing recovery, with native
        * fire/charge input still active ($81:8609..865A). */
       (action <= 0x0a || action == 0x10 || action == 0x12 || action == 0x14 || action == 0x20);
+  /* As for X1, a hit ($0E) does not drop a held charge. It neither grows
+   * nor fires during the knockback; the hold/release logic resumes after. */
+  if (!playable && stage && action == 0x0e && state.charge &&
+      !state.combo && !state.burst && !state.slash) return;
   if (!playable) { MmxZeroCancel(r); return; }
   bool held = (r[0xbdf] & 64) != 0, pressed = (r[0xbe3] & 64) != 0;
   if (modern_behavior) {
