@@ -839,6 +839,9 @@ static struct {
   bool ready;uint8_t pass,first,flags,previous,p,db;
   uint16_t d,s,a,x,y,ra,rx,ry;uint8_t rp,rdb;
 } cart;
+static struct {
+  uint8_t pass,first,original,p,db,rp,rdb;uint16_t d,s,a,x,y,ra,rx,ry;
+} elevator_move;
 static uint32_t lift_stack_ret(const CpuState *cpu) {
   return cpu->S<0x1ffd ? (uint32_t)(g_ram[cpu->S+1]|g_ram[cpu->S+2]<<8|g_ram[cpu->S+3]<<16) : 0;
 }
@@ -862,12 +865,16 @@ static bool lift_elevator(unsigned d) {
   /* Solid enemies that query $82:D7D7 for the current seat only:
    * Storm Eagle's E-tank elevator top ($59) and its column ($5A, 83 px
    * below), Flame Mammoth's scrap blocks dropped onto the conveyor
-   * ($2A, from $87:9C7B/9D89), and Armored Armadillo's minecart ($2B). */
+   * ($2A, from $87:9C7B/9D89), Armored Armadillo's minecart ($2B), and
+   * Kuwanger's red moving platforms ($3F). */
   if(d<0xe68 || d>=0x1228 || (d-0xe68)%64 || !g_ram[d]) return false;
   unsigned c=g_ram[d+10];
-  return c==0x59 || c==0x5a || c==0x2a || c==0x2b;
+  return c==0x59 || c==0x5a || c==0x2a || c==0x2b || c==0x3f;
 }
-static void lift_reset(void) { lift.pass=0;lift.carry=0;cart.ready=false;cart.pass=0; }
+static void laser_reset(void);
+static void lift_reset(void) {
+  lift.pass=0;lift.carry=0;cart.ready=false;cart.pass=0;elevator_move.pass=0;laser_reset();
+}
 static void lift_close(void) {
   if(lift.pass==2) MmxCoopSelect(g_ram,lift.first);
   lift.pass=0;
@@ -885,6 +892,130 @@ static void lift_contact_hook(CpuState *cpu,uint32_t pc) {
   lift.pass=1;lift.first=state.current;lift.d=cpu->D;lift.s=cpu->S;
   lift.a=cpu->A;lift.x=cpu->X;lift.y=cpu->Y;lift.p=cpu->P;lift.db=cpu->DB;
   lift.entry_2c=g_ram[cpu->D+0x2c];lift.ret=lift_stack_ret(cpu);
+}
+/* Kuwanger's main elevator uses its own fixed-width top check rather than
+ * $82:D7D7. Replay only that check; its movement and camera script run once. */
+static void kuwanger_lift_hook(CpuState *cpu,uint32_t pc) {
+  unsigned d=cpu->D;
+  if(!enabled || !state.initialized || state.menu_owner || state.scene_owner ||
+      d<0xe68 || d>=0x1228 || (d-0xe68)%64 || !g_ram[d] || g_ram[d+10]!=0x3d) return;
+  if((pc&65535)==0xaf10) {
+    if(lift.pass || state.players[state.current^1].status!=MMX_COOP_ALIVE ||
+        !(state.players[state.current^1].body[0x27]&127)) return;
+    cpu_mirrors_to_p(cpu);
+    lift.pass=1;lift.first=state.current;lift.d=(uint16_t)d;lift.s=cpu->S;
+    lift.a=cpu->A;lift.x=cpu->X;lift.y=cpu->Y;lift.p=cpu->P;lift.db=cpu->DB;
+    lift.entry_2c=g_ram[d+0x2c];g_ram[d+0x3f]=0;return;
+  }
+  if(!lift.pass || cpu->S!=lift.s || d!=lift.d) return;
+  if(lift.pass==1) {
+    if(g_ram[d+0x2c]&4) g_ram[d+0x3f]|=1u<<state.current;
+    lift.first_2c=g_ram[d+0x2c];cpu_mirrors_to_p(cpu);
+    lift.ra=cpu->A;lift.rx=cpu->X;lift.ry=cpu->Y;lift.rp=cpu->P;lift.rdb=cpu->DB;
+    MmxCoopSelect(g_ram,lift.first^1);lift.pass=2;g_ram[d+0x2c]=lift.entry_2c;
+    cpu->A=lift.a;cpu->X=lift.x;cpu->Y=lift.y;cpu->P=lift.p;cpu->DB=lift.db;cpu_p_to_mirrors(cpu);
+    interp_bridge_pre_opcode_redirect(0x87af10);return;
+  }
+  if(g_ram[d+0x2c]&4) g_ram[d+0x3f]|=1u<<state.current;
+  g_ram[d+0x2c]|=lift.first_2c;MmxCoopSelect(g_ram,lift.first);
+  cpu->A=lift.ra;cpu->X=lift.rx;cpu->Y=lift.ry;cpu->P=lift.rp;cpu->DB=lift.rdb;cpu_p_to_mirrors(cpu);
+  lift.pass=0;
+}
+/* .3F records the elevator/red platform's two answers. Apply the native delta only
+ * to those riders, so a partner boarding alone cannot drag the other body. */
+static void kuwanger_carry_hook(CpuState *cpu,uint32_t pc) {
+  unsigned d=cpu->D;
+  if(!enabled || !state.initialized || d<0xe68 || d>=0x1228 || (d-0xe68)%64 ||
+      !g_ram[d] || (g_ram[d+10]!=0x3d && g_ram[d+10]!=0x3f)) return;
+  if((pc&65535)==0xc715) {
+    if(elevator_move.pass) return;
+    unsigned riders=g_ram[d+0x3f]&3;
+    for(unsigned seat=0;seat<2;++seat)
+      if(state.players[seat].status!=MMX_COOP_ALIVE || !(state.players[seat].body[0x27]&127)) riders&=~(1u<<seat);
+    if(!riders) riders=1u<<state.current; /* Original single-rider save/pass. */
+    elevator_move.pass=1;elevator_move.original=state.current;
+    elevator_move.first=(riders&(1u<<state.current)) ? state.current : state.current^1;
+    elevator_move.d=(uint16_t)d;elevator_move.s=cpu->S;
+    cpu_mirrors_to_p(cpu);elevator_move.a=cpu->A;elevator_move.x=cpu->X;elevator_move.y=cpu->Y;
+    elevator_move.p=cpu->P;elevator_move.db=cpu->DB;
+    MmxCoopSelect(g_ram,elevator_move.first);return;
+  }
+  if(!elevator_move.pass || elevator_move.d!=d || elevator_move.s!=cpu->S) return;
+  if(elevator_move.pass==1 && (g_ram[d+0x3f]&(1u<<(elevator_move.first^1))) &&
+      state.players[elevator_move.first^1].status==MMX_COOP_ALIVE &&
+      (state.players[elevator_move.first^1].body[0x27]&127)) {
+    cpu_mirrors_to_p(cpu);elevator_move.ra=cpu->A;elevator_move.rx=cpu->X;elevator_move.ry=cpu->Y;
+    elevator_move.rp=cpu->P;elevator_move.rdb=cpu->DB;
+    MmxCoopSelect(g_ram,elevator_move.first^1);elevator_move.pass=2;
+    cpu->A=elevator_move.a;cpu->X=elevator_move.x;cpu->Y=elevator_move.y;
+    cpu->P=elevator_move.p;cpu->DB=elevator_move.db;cpu_p_to_mirrors(cpu);
+    interp_bridge_pre_opcode_redirect(0x82c715);return;
+  }
+  MmxCoopSelect(g_ram,elevator_move.original);
+  if(elevator_move.pass==2) {
+    cpu->A=elevator_move.ra;cpu->X=elevator_move.rx;cpu->Y=elevator_move.ry;
+    cpu->P=elevator_move.rp;cpu->DB=elevator_move.rdb;cpu_p_to_mirrors(cpu);
+  }
+  elevator_move.pass=0;
+}
+
+/* Laser sensors ($43) test a body directly through $84:9C0E. A successful
+ * contact arms all $44 turrets, whose delayed aim must keep that seat rather
+ * than use whichever body happens to drive the world twenty frames later.
+ * Native $43/$44 code leaves .3F unused; ownership stays in snapshot WRAM. */
+static struct {uint8_t pass,first,p,db,aim_return,sensor_return;uint16_t d,s,a,x,y;} laser;
+static void laser_reset(void) {memset(&laser,0,sizeof(laser));}
+static void laser_contact_hook(CpuState *cpu,uint32_t pc) {
+  unsigned d=cpu->D,at=pc&65535;
+  if(!enabled || !state.initialized || state.menu_owner || state.scene_owner ||
+      d<0xe68 || d>=0x1228 || (d-0xe68)%64 || !g_ram[d] || g_ram[d+10]!=0x43) return;
+  if(at==0x9c0e) {
+    if(laser.pass || cpu->X!=0xba8) return;
+    cpu_mirrors_to_p(cpu);laser.pass=1;laser.first=state.current;laser.d=(uint16_t)d;laser.s=cpu->S;
+    laser.a=cpu->A;laser.x=cpu->X;laser.y=cpu->Y;laser.p=cpu->P;laser.db=cpu->DB;return;
+  }
+  if(!laser.pass || laser.s!=cpu->S || laser.d!=d) return;
+  if(cpu->_flag_C) g_ram[d+0x3f]=(uint8_t)(state.current+1);
+  else if(laser.pass==1 && state.players[laser.first^1].status==MMX_COOP_ALIVE &&
+      (state.players[laser.first^1].body[0x27]&127)) {
+    MmxCoopSelect(g_ram,laser.first^1);laser.pass=2;
+    cpu->A=laser.a;cpu->X=laser.x;cpu->Y=laser.y;cpu->P=laser.p;cpu->DB=laser.db;cpu_p_to_mirrors(cpu);
+    interp_bridge_pre_opcode_redirect(0x849c0e);return;
+  }
+  if(laser.pass==2) {
+    /* Directional sensors also aim an immediate shot after this query.
+     * Keep its tripper projected through that handler, then restore the
+     * original world actor even if the one-shot sensor deletes itself. */
+    if(cpu->_flag_C) laser.sensor_return=(uint8_t)(laser.first+1);
+    else MmxCoopSelect(g_ram,laser.first);
+  }
+  laser.pass=0;
+}
+static void laser_target_hook(CpuState *cpu,uint32_t pc) {
+  if(!enabled || !state.initialized) return;
+  unsigned d=cpu->D,at=pc&65535;
+  if(at==0xb92f && laser.sensor_return && d==laser.d) {
+    MmxCoopSelect(g_ram,laser.sensor_return-1);laser.sensor_return=0;return;
+  }
+  if(d<0xe68 || d>=0x1228 || (d-0xe68)%64 || !g_ram[d]) return;
+  if(at==0xb91c || at==0xba72) {
+    if(!g_ram[d+1]) g_ram[d+0x3f]=0;
+    return;
+  }
+  if(g_ram[d+10]!=0x44) return;
+  if(at==0xba5c) {
+    unsigned sensor=word(g_ram+2);
+    if(sensor>=0xe68 && sensor<0x1228 && !((sensor-0xe68)%64) && g_ram[sensor+10]==0x43)
+      g_ram[d+0x3f]=g_ram[sensor+0x3f];
+  } else if(at==0xbb09) {
+    unsigned owner=g_ram[d+0x3f];
+    if(owner && owner<=2 && state.players[owner-1].status==MMX_COOP_ALIVE &&
+        (state.players[owner-1].body[0x27]&127)) {
+      laser.aim_return=(uint8_t)(state.current+1);MmxCoopSelect(g_ram,owner-1);
+    }
+  } else if(at==0xbb0d && laser.aim_return) {
+    MmxCoopSelect(g_ram,laser.aim_return-1);laser.aim_return=0;
+  }
 }
 static void lift_rtl_hook(CpuState *cpu,uint32_t pc) {
   /* Same stack depth, slot and return address: D7D7's own RTL, not another
@@ -904,6 +1035,9 @@ static void lift_rtl_hook(CpuState *cpu,uint32_t pc) {
   }
   bool second_rides=g_ram[d+0x2c]&1;
   uint8_t combined=(uint8_t)(lift.first_2c|g_ram[d+0x2c]);
+  if(g_ram[d+10]==0x3f)
+    g_ram[d+0x3f]=(uint8_t)(((lift.first_2c&1)?1u<<lift.first:0)|
+        (second_rides?1u<<(lift.first^1):0));
   if(g_ram[d+10]==0x2b) {
     cart.ready=true;cart.pass=0;cart.first=lift.first;cart.d=(uint16_t)d;
     cart.flags=(combined&~6u)|((lift.first_2c&1)<<(lift.first+1))|
@@ -1271,6 +1405,8 @@ static void object_hook(CpuState *cpu, uint32_t pc) {
  * use .2C as a boolean rider latch. (Storm Eagle's E-tank elevator, enemy
  * $59, does not call these helpers; see storm-eagle-collision-handoff.md.) */
 static bool platform_item(unsigned d) {
+  /* Kuwanger's little lift uses the same helpers from an enemy slot. */
+  if(d>=0xe68 && d<0x1228 && !((d-0xe68)%64)) return g_ram[d] && g_ram[d+10]==0x16;
   if(d<0x1628 || d>=0x1928 || (d-0x1628)%48) return false;
   unsigned c=g_ram[d+10];
   return (c>=0x0e && c<=0x10) || c==0x13 || c==0x14;
@@ -1659,6 +1795,13 @@ void MmxCoopRegisterHooks(void) {
   interp_bridge_set_pre_opcode_hook(0x87c0ae,eagle_lift_hook);
   interp_bridge_set_pre_opcode_hook(0x87c0b4,eagle_lift_hook);
   interp_bridge_set_pre_opcode_hook(0x82d7d7,lift_contact_hook);
+  interp_bridge_set_pre_opcode_hook(0x87af10,kuwanger_lift_hook);
+  interp_bridge_set_pre_opcode_hook(0x87af5c,kuwanger_lift_hook);
+  interp_bridge_set_pre_opcode_hook(0x82c715,kuwanger_carry_hook);
+  interp_bridge_set_pre_opcode_hook(0x82c733,kuwanger_carry_hook);
+  const unsigned turrets[]={0x87b91c,0x87b92f,0x87ba72,0x87ba5c,0x87bb09,0x87bb0d};
+  for(unsigned i=0;i<sizeof(turrets)/sizeof(turrets[0]);++i)
+    interp_bridge_set_pre_opcode_hook(turrets[i],laser_target_hook);
   interp_bridge_set_pre_opcode_hook(0x889821,cart_hook);
   interp_bridge_set_pre_opcode_hook(0x889867,cart_hook);
   const unsigned platforms[]={0x84ab81,0x84ac34,0x84ab56,0x84ab80};
@@ -1688,6 +1831,9 @@ void MmxCoopRegisterHooks(void) {
   const unsigned pickups[]={0xd2e6,0xd2ed,0xd308,0xd31b,0x849c0e,0x849c15,0x849c1d,0x849d06};
   for(unsigned i=0;i<sizeof(pickups)/sizeof(pickups[0]);++i)
     interp_bridge_set_pre_opcode_hook(pickups[i],pickup_hook);
+  const unsigned sensors[]={0x849c0e,0x849c15,0x849c1d,0x849d06};
+  for(unsigned i=0;i<sizeof(sensors)/sizeof(sensors[0]);++i)
+    interp_bridge_add_pre_opcode_hook(sensors[i],laser_contact_hook);
   const unsigned doors[]={0x81e70d,0x81e724,0x81e725,0x81ec98,0x81ecc6,0x81ecc7};
   for(unsigned i=0;i<sizeof(doors)/sizeof(doors[0]);++i)
     interp_bridge_set_pre_opcode_hook(doors[i],door_hook);
