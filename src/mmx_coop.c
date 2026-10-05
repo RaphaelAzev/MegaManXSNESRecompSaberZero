@@ -1142,6 +1142,13 @@ void MmxCoopSyncPriority(uint8_t *r) {
      * Left 0, X's wrapped to 255 and kept him stunned ~288 frames. */
     body[2]=0x36;body[3]=0;body[0x85]=world[0x85];
   }
+  /* .27 bit 7 marks a body not yet (or no longer) in play: spawns store
+   * HP|$80 and death stores $80. The world actor's arrival clears it, but a
+   * placed partner kept it for good. Contact damage ignores it; Launch
+   * Octopus's current generator ($28) does not, so it never lifted him. */
+  if((body[0x27]&128) && (body[0x27]&127) && !(world[0x27]&128) && action!=0x0c &&
+      !MmxCoopTransitionActive())
+    body[0x27]&=127;
 }
 static void eagle_lift_hook(CpuState *cpu,uint32_t pc) {
   if(!enabled || !state.initialized || state.menu_owner || state.scene_owner) return;
