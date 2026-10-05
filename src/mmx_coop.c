@@ -293,9 +293,10 @@ bool MmxCoopTransitionActive(void) {
 }
 
 bool MmxCoopEnabled(void) { return enabled; }
+static void shot_ghost_reset(void);
 static void lift_reset(void);
 void MmxCoopReset(void) {
-  platform_entry.valid=false;lift_reset();
+  platform_entry.valid=false;lift_reset();shot_ghost_reset();
   MmxCoopViewsResetWorld();
   MmxWeaponsCameraQuery(enabled?weapon_view:NULL);
   platform_entry.valid=false;
@@ -344,7 +345,7 @@ bool MmxCoopValidState(const MmxCoopState *s) {
   return s->players[0].character != s->players[1].character;
 }
 void MmxCoopSetState(const MmxCoopState *s) {
-  platform_entry.valid=false;lift_reset();
+  platform_entry.valid=false;lift_reset();shot_ghost_reset();
   if (enabled && MmxCoopValidState(s)) {
     state = *s;
     MmxWeaponsPartnerCombat(state.initialized ? &state.players[state.current^1].combat : NULL);
@@ -1228,7 +1229,61 @@ static void pickup_hook(CpuState *cpu,uint32_t pc) {
     interp_bridge_pre_opcode_redirect(0x849c0e);
   } else {TRACE(PICKUP,pc,2,0,cpu);MmxCoopSelect(g_ram,state.anchor);state.pickup_pass=0;}
 }
+/* Player projectiles run once per seat ($00:D3DD..D3F9), with that seat's
+ * own shots and body projected. A native shot that tests its rider against
+ * $0BA8 (charged Shotgun Ice's sled) therefore only ever sees its owner.
+ * Before each seat's loop, replay it once with the other seat's body
+ * projected over the same shots, keep only that body's motion and ground
+ * result, and restore everything else, so each shot still advances once. */
+static struct {
+  uint8_t pass,p,db;uint16_t a,x,y,s,d;
+  uint8_t body[0x90];
+  MmxWeaponCombatState combat;MmxZeroState zero;MmxRendererPieceMark pieces;
+} shot_ghost;
+static uint8_t shot_ghost_ram[0x20000];
+static void shot_ghost_reset(void) { shot_ghost.pass=0; }
+/* Position (with subpixels), velocity and the ground/contact flags. */
+static bool shot_ghost_field(unsigned i) { return (i>=4 && i<=9) || (i>=0x1a && i<=0x1d) || i==0x2b; }
+static bool shot_ghost_wanted(void) {
+  const MmxCoopPlayer *o=&state.players[state.current^1];
+  if(o->status!=MMX_COOP_ALIVE || !(o->body[0x27]&127) || o->body[2]==12 || o->zero.swap_phase) return false;
+  int ox=(int)word(o->body+5),oy=(int)word(o->body+8);
+  /* Native shots only: imported X2/X3 shots carry the port's +3E tag. */
+  for(unsigned d=0x1228;d<0x1428;d+=64) {
+    if(!g_ram[d] || word(g_ram+d+0x3e)==0x5758) continue;
+    int dx=(int)word(g_ram+d+5)-ox,dy=(int)word(g_ram+d+8)-oy;
+    if(dx>=-64 && dx<=64 && dy>=-64 && dy<=64) return true;
+  }
+  return false;
+}
+static void shot_ghost_begin(CpuState *cpu) {
+  cpu_mirrors_to_p(cpu);
+  shot_ghost.a=cpu->A;shot_ghost.x=cpu->X;shot_ghost.y=cpu->Y;shot_ghost.s=cpu->S;
+  shot_ghost.d=cpu->D;shot_ghost.p=cpu->P;shot_ghost.db=cpu->DB;
+  memcpy(shot_ghost_ram,g_ram,sizeof(shot_ghost_ram));
+  shot_ghost.combat=MmxWeaponsGetCombatState();shot_ghost.zero=MmxZeroGetState();
+  shot_ghost.pieces=MmxRendererMarkPieces();
+  memcpy(shot_ghost.body,state.players[state.current^1].body,sizeof(shot_ghost.body));
+  memcpy(g_ram+0xba8,shot_ghost.body,sizeof(shot_ghost.body));
+  shot_ghost.pass=1;
+}
+static void shot_ghost_end(CpuState *cpu,uint32_t pc) {
+  uint8_t result[0x90];memcpy(result,g_ram+0xba8,sizeof(result));
+  memcpy(g_ram,shot_ghost_ram,sizeof(shot_ghost_ram));
+  MmxWeaponsSetCombatState(shot_ghost.combat);MmxZeroSetState(shot_ghost.zero);
+  MmxRendererRewindPieces(shot_ghost.pieces);
+  uint8_t *body=state.players[state.current^1].body;
+  bool moved=false;
+  for(unsigned i=0;i<sizeof(result);++i)
+    if(shot_ghost_field(i) && result[i]!=shot_ghost.body[i]) {body[i]=result[i];moved=true;}
+  if(moved) diagnostic_event(g_ram,cpu,pc,"shot-rider");
+  cpu->A=shot_ghost.a;cpu->X=shot_ghost.x;cpu->Y=shot_ghost.y;cpu->S=shot_ghost.s;
+  cpu->D=shot_ghost.d;cpu->DB=shot_ghost.db;cpu->P=shot_ghost.p;cpu_p_to_mirrors(cpu);
+  shot_ghost.pass=2;
+  interp_bridge_pre_opcode_redirect((pc&0xff0000)|0xd3dd);
+}
 static void object_hook(CpuState *cpu, uint32_t pc) {
+  if ((pc&65535)==0xd3f9 && shot_ghost.pass==1) { shot_ghost_end(cpu,pc); return; }
   if (!enabled || !state.initialized || state.menu_owner || state.scene_owner ||
       g_ram[0xd1]!=2 || g_ram[0xd2]!=4 || g_ram[0xd3]>=10 ||
       state.players[state.anchor^1].status != MMX_COOP_ALIVE) return;
@@ -1244,8 +1299,13 @@ static void object_hook(CpuState *cpu, uint32_t pc) {
       TRACE(OBJECT,pc,4,at,cpu);
       if (at==0x9d67) {TRACE_MARK(state.current,TERRAIN);TRACE_MARK(state.current,NON_ANCHOR);}
     }
+    if (at==0xd3dd && !shot_ghost.pass && state.object_entry==0xd3dd &&
+        ((state.object_pass==1 && state.current==state.anchor) ||
+         (state.object_pass==2 && state.current!=state.anchor)) && shot_ghost_wanted())
+      shot_ghost_begin(cpu);
     return;
   }
+  if (at==0xd3f9 && shot_ghost.pass==2) shot_ghost.pass=0;
   if (state.object_pass == 1) {
     state.object_a = cpu->A; state.object_x = cpu->X; state.object_y = cpu->Y;
     state.object_s = cpu->S; state.object_d = cpu->D; state.object_db = cpu->DB;
