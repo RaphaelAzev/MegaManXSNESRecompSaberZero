@@ -623,7 +623,8 @@ static void spark_effects(void) {
   assert(output[90 * v.width + v.extra + 500] == 0xffffff);
   assert(output[103 * v.width + v.extra + 500] == 0);
   assert(output[90 * v.width + v.extra + 616] == 0);
-  /* Thunder Slimer's BG2 actor tiles must never repeat into the margins. */
+  /* Thunder Slimer's BG2 surface reaches the margins from live VRAM, never
+   * from the stage map's dormant staging tiles. */
   memset(ram + 0xe68, 0, 128); ram[0x1f0a] = 1;
   ppu.cgadsub = 0; ppu.cgram[0] = 0; ppu.cgram[1] = 31;
   ppu.screenEnabled[0] = 2; ppu.bgXsc[1] = 0x50;
@@ -635,8 +636,15 @@ static void spark_effects(void) {
   assert(output[50 * v.width + v.extra - 100] == 0xff0000);
   ram[0x1e89] = 0x0c;
   capture(); assert(MmxRendererDraw(output, v, false));
-  assert(output[50 * v.width + v.extra - 100] == 0);
+  assert(output[50 * v.width + v.extra - 100] == 0xff0000);
   assert(output[50 * v.width + v.extra + 100] == 0xff0000);
+  for (int q = 0; q < 4; ++q) rom_word(q * 2, 0);
+  capture(); assert(MmxRendererDraw(output, v, false));
+  assert(output[50 * v.width + v.extra - 100] == 0xff0000);
+  for (int q = 0; q < 4; ++q) rom_word(q * 2, 1);
+  for (int i = 0; i < 1024; ++i) ppu.vram[0x5000 + i] = 0;
+  capture(); assert(MmxRendererDraw(output, v, false));
+  assert(output[50 * v.width + v.extra - 100] == 0);
 }
 static void airport_panorama_edge(void) {
   memset(&ppu, 0, sizeof(ppu)); memset(ram, 0, sizeof(ram)); memset(rom_bytes, 0, sizeof(rom_bytes));
