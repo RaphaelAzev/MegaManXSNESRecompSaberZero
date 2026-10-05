@@ -649,6 +649,9 @@ static bool teleport_tick(uint8_t *r,MmxCoopPlayer *p) {
   }
   return !z->swap_phase;
 }
+static bool capsule_slot(unsigned d) {
+  return d>=0xe68 && d<0x1228 && !((d-0xe68)%64) && g_ram[d] && g_ram[d+10]==0x4d;
+}
 static void begin_scene(uint8_t *r) {
   unsigned other=state.anchor^1;
   if(state.scene_owner || state.players[other].status!=MMX_COOP_ALIVE ||
@@ -668,12 +671,19 @@ static bool scene_tick(uint8_t *r) {
   if(!state.scene_owner && state.players[state.anchor^1].status==MMX_COOP_ALIVE &&
       (r[0xbcf]&127) && r[0xbaa]!=12 &&
       (r[0x1f0c] || r[0x1f23] || r[0x1f48] || (r[0xc16] && (r[0x1f31] || r[0x1f3b])))) begin_scene(r);
-  /* Unified view: a grounded partner left below the screen (the camera was
-   * pulled up by a capsule or room lock) is beamed to the world actor
-   * rather than waiting off camera or meeting the pit check. */
-  if(!state.scene_owner && !MmxCoopViewsOnline() && state.players[state.anchor^1].status==MMX_COOP_ALIVE) {
-    const uint8_t *b=state.players[state.anchor^1].body;
-    if((b[0x27]&127) && (b[0x2b]&4) && (int)word(b+8)-32>=(int)word(r+0x1e50)+224) begin_scene(r);
+  /* Unified view: beam the partner to the world actor once he is left below
+   * the screen (the camera pulled up by a capsule or room lock), and as
+   * soon as a Dr. Light capsule ($4D) exists while he is away from the
+   * world actor: the capsule's camera lock is about to leave him behind. */
+  if(!state.scene_owner && !MmxCoopViewsOnline() && state.players[state.anchor^1].status==MMX_COOP_ALIVE &&
+      (state.players[state.anchor^1].body[0x27]&127)) {
+    const uint8_t *b=state.players[state.anchor^1].body,*a=r+0xba8;
+    int dx=(int)word(b+5)-(int)word(a+5),dy=(int)word(b+8)-(int)word(a+8);
+    bool away=dx<-96 || dx>96 || dy<-64 || dy>64,capsule=false;
+    /* Only before it is entered: states 01 00 00 .. 01 02 02. */
+    for(unsigned d=0xe68;d<0x1228 && away;d+=64)
+      if(capsule_slot(d) && r[d+1]<=2 && r[d+2]<=2) capsule=true;
+    if((int)word(b+8)-32>=(int)word(r+0x1e50)+224 || capsule) begin_scene(r);
   }
   if(!state.scene_owner) return false;
   MmxCoopPlayer *p=&state.players[state.anchor^1];
@@ -961,9 +971,6 @@ static void slime_hook(CpuState *cpu,uint32_t pc) {
   }
 }
 /* Trace the enemy contact calls while a Storm Eagle elevator part lives. */
-static bool capsule_slot(unsigned d) {
-  return d>=0xe68 && d<0x1228 && !((d-0xe68)%64) && g_ram[d] && g_ram[d+10]==0x4d;
-}
 static bool contact_traced(unsigned d,unsigned entry) {
   if(!diagnostic_enabled) return false;
   if(capsule_slot(d)) return true;
@@ -1231,10 +1238,11 @@ static void camera_hook(CpuState *cpu,uint32_t pc) {
      * sound and orb objects; the shared camera still runs only once. */
     if (!enabled || !state.initialized || state.menu_owner || state.scene_owner || MmxCoopTransitionActive()) return;
     MmxCoopPlayer *p=&state.players[state.anchor^1];
-    /* Standing on ground below the screen is not a pit: the shared camera
-     * was pulled up (a capsule's camera lock). scene_tick beams him over. */
-    if (p->status==MMX_COOP_ALIVE && (p->body[0x27]&127) && !(p->body[0x2b]&4) &&
-        (int16_t)(word(p->body+8)-32-(MmxCoopViewsOnline()?word(g_ram+0x1e5c)+224:word(g_ram)))>=0) {
+    /* Below the level's lowest camera position, as online views already
+     * use: the screen bottom only moved because the shared camera was pulled
+     * up (a capsule's camera lock), and scene_tick beams him over. */
+    if (p->status==MMX_COOP_ALIVE && (p->body[0x27]&127) &&
+        (int16_t)(word(p->body+8)-32-(word(g_ram+0x1e5c)+224))>=0) {
       TRACE(PIT,pc,state.anchor^1,0,cpu);
       ++p->body[0x30];p->body[0x2f]=8;p->body[0x26]=127;
       p->body[2]=p->body[0x6a]=12;p->body[3]=0;p->body[0x27]=128;
