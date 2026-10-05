@@ -586,8 +586,13 @@ static void place_other(uint8_t *r,uint16_t x,uint16_t y,bool preserve) {
   /* Use native player setup fields, but never inherit P1's hurt, charge,
    * movement or weapon counters. Personal inventory survives withdrawal. */
   memcpy(p->body, source->body, sizeof(p->body));
+  /* $0C38..$0C97 are the three armor-part objects. Only the same character
+   * can share them: X returning beside a world-driving Zero (who opened the
+   * boss door) took Zero's slots and lost his helmet/arm/boot sprites. */
+  uint8_t armor[0x60];memcpy(armor,p->character==source->character ? source->auxiliaries :
+      p->auxiliaries,sizeof(armor));
   memset(p->auxiliaries,0,sizeof(p->auxiliaries));memset(p->shots,0,sizeof(p->shots));
-  memcpy(p->auxiliaries,source->auxiliaries,0x60);
+  memcpy(p->auxiliaries,armor,sizeof(armor));
   memset(&p->combat,0,sizeof(p->combat));memset(&p->zero,0,sizeof(p->zero));
   p->zero.active_x=p->character==MMX_COOP_X;
   memset(p->body+0x28,0,sizeof(p->body)-0x28);
@@ -961,6 +966,14 @@ void MmxCoopSyncPriority(uint8_t *r) {
   const uint8_t *world=state.anchor==state.current ? r+0xba8 : state.players[state.anchor].body;
   uint8_t *body=seat==state.current ? r+0xba8 : state.players[seat].body;
   body[0x11]=(uint8_t)((body[0x11]&~0x30)|(world[0x11]&0x30));
+  /* Ground shock ($36, Flame Mammoth's stomp) tests only the projected world
+   * actor. Its first frame stuns a grounded partner too; the native state
+   * then runs the stun for him as usual. */
+  unsigned action=body[2];
+  if(world[2]==0x36 && world[3]==0 && (body[0x2b]&4) && (body[0x27]&127) &&
+      action!=0x36 && action!=0x0c && action!=0x0e && action!=0x18 && action<0x1e) {
+    body[2]=0x36;body[3]=0;
+  }
 }
 static void eagle_lift_hook(CpuState *cpu,uint32_t pc) {
   if(!enabled || !state.initialized || state.menu_owner || state.scene_owner) return;

@@ -42,6 +42,7 @@ The partner never triggers or advances these.
 | Stage death and checkpoint | `death_hook` (`$00:9D9E`, `$00:9AC7`, `$81:8A5C..8B0B`) | A death with a living partner runs the native death pose, but the partner keeps playing (`solo_death`). A whole-team death resets to P1 at the checkpoint. | No change expected. |
 | E-tank elevator carry | `lift_rtl_hook`, `MmxCoopLiftCarry` | The handler carries the projected body; co-op carries the partner by the same distance. | Both ride; not ownership. |
 | Sprite priority (`.11` bits 4-5) | `MmxCoopSyncPriority` (frame end) | Stage sections write the priority to the world actor once (Storm Eagle's ship sets priority 3). The living partner copies the world actor's bits every frame. | No change expected. |
+| Ground-shock stun (action `$36`, Flame Mammoth's stomp) | `MmxCoopSyncPriority` (frame end) | The boss tests only the projected world actor. When the world actor enters `$36`, a grounded, living partner enters it the same frame. | Both seats. |
 
 ## 2. Both players, through a partner retry
 
