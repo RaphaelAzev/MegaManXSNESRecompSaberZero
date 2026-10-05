@@ -1964,15 +1964,37 @@ static bool couch_nearest_target(unsigned d) {
   if(d<0xe68 || d>=0x1228 || (d-0xe68)%64 || !g_ram[d]) return false;
   return g_ram[d+10]==0x1d;
 }
+static bool vile_farewell(unsigned d) {
+  return g_ram[0x1f7a]==9 && d>=0xe68 && d<0x1228 && !((d-0xe68)%64) &&
+      g_ram[d] && g_ram[d+10]==0x66 && g_ram[d+1]==2 && g_ram[d+2]==14;
+}
 static void view_actor_hook(CpuState *cpu,uint32_t pc) {
   if(!enabled || !state.initialized) return;
   unsigned at=pc&65535;
   MmxCoopViewWorldState world=MmxCoopViewsGetWorldState();
   bool returning=at==0xd4f9 || at==0xd522 || at==0xd49c || at==0xd4c5;
+  /* Kneeling story Zero checks $0BAD >= $0BB8 for his farewell. Evaluate
+   * that trigger against playable X even when Zero drives the world. Once
+   * it fires, X owns the dialogue and the partner's usual scene transport.
+   * A dead or beaming X must return before the conversation can begin. */
+  if(at==0xd4f6 && vile_farewell(cpu->D) && g_ram[cpu->D+3]<=2 &&
+      !state.stage_pending && !state.menu_owner && !state.scene_owner && !world.actor_return) {
+    unsigned xs=state.players[0].character==MMX_COOP_X ? 0 : 1;
+    const MmxCoopPlayer *x=&state.players[xs];
+    if(x->character!=MMX_COOP_X || x->status!=MMX_COOP_ALIVE ||
+        !(x->body[0x27]&127) || x->zero.swap_phase) {
+      interp_bridge_pre_opcode_redirect(0x00d4f9);return;
+    }
+    MmxCoopViewsActorReturn(state.current+1);MmxCoopSelect(g_ram,xs);return;
+  }
   if(!MmxCoopViewsOnline() && !(returning ? world.actor_return :
       (at==0xd4f6 || at==0xd515) && couch_nearest_target(cpu->D))) return;
   if(returning) {
     if(world.actor_return) {
+      if(at==0xd4f9 && vile_farewell(cpu->D) && g_ram[cpu->D+3]>=4 &&
+          state.players[state.current].character==MMX_COOP_X) {
+        state.anchor=state.current;MmxCoopViewsActorReturn(0);begin_scene(g_ram);return;
+      }
       if(couch_nearest_target(cpu->D) &&
           (g_ram[cpu->D+0x3b] || g_ram[cpu->D+0x3d]))
         g_ram[cpu->D+0x3f]=(uint8_t)(state.current+1);
