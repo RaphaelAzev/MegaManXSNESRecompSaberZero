@@ -73,7 +73,7 @@ usage() { sed -n '2,/^set -Eeuo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; }
 
 # ------------------------------------------------------------------- args --
 BUILD_TYPE=Release
-BUILD_DIR=build-linux
+BUILD_DIR=build-linux-prod
 TARGETS=()
 ALL=0
 SDL_CHOICE=auto

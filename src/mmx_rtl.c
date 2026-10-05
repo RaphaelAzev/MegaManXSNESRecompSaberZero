@@ -847,6 +847,11 @@ void RunOneFrameOfGame(void) {
   s_graphics_frame_active = g_did_reset;
 #if !MMX_VARIANT_JP
   interp_bridge_set_pre_opcode_hook(0x008121, MmxGraphicsYieldHook);
+  if (!MmxCoopEnabled()) {
+    static const uint32_t culls[] = {0x82807d,0x82809e,0x8280c3,0x838957};
+    for (unsigned i=0;i<sizeof(culls)/sizeof(culls[0]);++i)
+      interp_bridge_set_pre_opcode_hook(culls[i],MmxWsCullHook);
+  }
 #endif
   // First-call reset gate. Was previously `if (*(uint16*)$7F8000 == 0) I_RESET()`,
   // which silently relied on WRAM being zero-initialized at power-on. Real hardware
@@ -1097,6 +1102,19 @@ uint16 MmxWsPresentationCullVerdictX(uint16 dpage, uint16 v) {
   extern uint8_t g_ram[0x20000];
   int m = MmxWsSpawnWide() ? MmxWsMargin() : 0;
   return MmxWidePolicy_PresentationCull(g_ram, dpage, v, m, g_mmx_custom_renderer);
+}
+
+void MmxWsCullHook(CpuState *cpu, uint32_t pc) {
+  if (!MmxWsMargin()) return;
+  unsigned carry;
+  switch (pc & 0x7fffff) {
+    case 0x02807d: carry=MmxWsCullVerdictX(cpu->A);break;
+    case 0x02809e: carry=MmxWsPresentationCullVerdictX(cpu->D,cpu->A);break;
+    case 0x0280c3: carry=MmxWsShotCullVerdictX(cpu->D,cpu->A);break;
+    case 0x038957: carry=MmxWsRideArmorCullVerdictX(cpu->A);break;
+    default:return;
+  }
+  cpu->_flag_C=carry;cpu->P=(cpu->P&~1)|carry;
 }
 
 /* bank_00_D76A rejects a metasprite tile when (screenX + 16) reaches
@@ -1751,6 +1769,21 @@ void MmxWsChrBindNoteCopy(uint16 parentD, uint16 childBase) {
 void MmxWsChrRebindSweep(void) {
   if (!MmxWsChrBindActive()) return;
   extern uint8_t g_ram[0x20000];
+  /* The armored turtle ($5B) caches its normal palette in .35 at
+   * $87:EC59. Wide spawning can initialize it before its section resource
+   * loads, caching zero permanently; $87:EBFE then restores that zero on
+   * every update. Repair only that uninitialized cache when the ROM's
+   * resource palette becomes available. Ordinary hit flashes keep their
+   * nonzero cached palette and are untouched. */
+  unsigned turtle_resource=RomPtr(0x86a5e4)[(0x5b-1)*2+1];
+  uint8_t turtle_palette=g_ram[0x18300+turtle_resource]&14;
+  if(turtle_palette) for(unsigned d=0xe68;d<0x1228;d+=64)
+    if(g_ram[d] && g_ram[d+10]==0x5b && g_ram[d+1]>=2 && !(g_ram[d+0x35]&14)) {
+      g_ram[d+0x35]=turtle_palette;
+      /* A missing allocation also lost the section's ordinary OBJ
+       * priority. Otherwise its now-correct pixels hide behind BG1. */
+      g_ram[d+0x11]=(g_ram[d+0x11]&~14u)|turtle_palette|0x20;
+    }
   uint32_t now = (uint32_t)snes_frame_counter;
   for (int i = 0; i < MMX_WS_CHRBIND_CAP; i++) {
     MmxWsChrBindLatch *l = &s_ws_chrbind_latches[i];
