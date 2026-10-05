@@ -990,7 +990,9 @@ void MmxCoopSyncPriority(uint8_t *r) {
   unsigned action=body[2];
   if(world[2]==0x36 && world[3]==0 && (body[0x2b]&4) && (body[0x27]&127) &&
       action!=0x36 && action!=0x0c && action!=0x0e && action!=0x18 && action<0x1e) {
-    body[2]=0x36;body[3]=0;
+    /* .85 is the stun's countdown, set by the stomp alongside the action.
+     * Left 0, X's wrapped to 255 and kept him stunned ~288 frames. */
+    body[2]=0x36;body[3]=0;body[0x85]=world[0x85];
   }
 }
 static void eagle_lift_hook(CpuState *cpu,uint32_t pc) {
