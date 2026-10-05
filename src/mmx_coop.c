@@ -738,6 +738,24 @@ static bool scene_tick(uint8_t *r) {
     /* Only before it is entered: states 01 00 00 .. 01 02 02. */
     for(unsigned d=0xe68;d<0x1228 && away;d+=64)
       if(capsule_slot(d) && r[d+1]<=2 && r[d+2]<=2) capsule=true;
+    /* A capsule belongs to X, not to whoever drives the world: X near an
+     * unentered capsule takes over the world, so its native script runs on
+     * him; the capsule rule below then beams Zero over. */
+    unsigned xs=state.players[0].character==MMX_COOP_X ? 0 : 1;
+    if(state.players[xs].character==MMX_COOP_X && xs!=state.anchor) {
+      const uint8_t *xb=state.players[xs].body;
+      for(unsigned d=0xe68;d<0x1228;d+=64)
+        if(capsule_slot(d) && r[d+1]<=2 && r[d+2]<=2) {
+          int cx=(int)word(r+d+5)-(int)word(xb+5),cy=(int)word(r+d+8)-(int)word(xb+8);
+          if(cx>-96 && cx<96 && cy>-96 && cy<96) {
+            state.anchor=(uint8_t)xs;MmxCoopSelect(r,xs);
+            b=state.players[state.anchor^1].body;a=state.players[state.anchor].body;
+            dx=(int)word(b+5)-(int)word(a+5);dy=(int)word(b+8)-(int)word(a+8);
+            away=dx<-96 || dx>96 || dy<-64 || dy>64;capsule=away;
+            break;
+          }
+        }
+    }
     if(low[state.anchor] && !low[state.anchor^1]) {
       /* The other player takes over the world before the low one leaves. */
       state.anchor^=1;MmxCoopSelect(r,state.anchor);begin_scene(r);

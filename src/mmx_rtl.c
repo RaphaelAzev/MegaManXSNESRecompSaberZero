@@ -1171,6 +1171,7 @@ static struct {
   uint16 dpage;
   int active;
   int visible_rescan;
+  int capsule_rescan;
 } s_ws_spawn_pass;
 
 static uint16 MmxWsSpawnReadCursor(uint16 dpage) {
@@ -1262,6 +1263,7 @@ int MmxWsSpawnRecordAllowed(uint16 dpage, uint8 type) {
   uint16 rec = MmxWsSpawnReadCursor(dpage);
   uint8 *descriptor = RomPtr(0x850000u | rec);
   const uint8 object_id = descriptor[3];
+  if (s_ws_spawn_pass.capsule_rescan) return kind == 3 && object_id == 0x4d;
   if (s_ws_spawn_pass.visible_rescan)
     return MmxWidePolicy_RescanSpawnRecord(g_ram[0x1f7a], kind, object_id);
   if (!g_mmx_custom_renderer && kind == 3 && object_id == 0x37)
@@ -1303,8 +1305,44 @@ void MmxWsSpawnRunNativePass(CpuState *cpu) {
   s_ws_spawn_pass.active = 0;
 }
 
+/* Co-op, Unified view: the shared camera sits between the two players, so it
+ * may never scroll far enough for the native scan to reach a Dr. Light
+ * capsule beside X (X standing on its ledge above the screen top). Scan for
+ * capsule records ($4D) around X's own body each frame. DCDB keeps its live
+ * and collected flags; an owned upgrade's capsule still removes itself. */
+static void MmxCoopCapsulePass(CpuState *cpu) {
+  extern uint8_t g_ram[0x20000];
+  if (!MmxCoopEnabled() || MmxCoopViewsOnline() || !MmxWidePolicy_IsStageScene(g_ram)) return;
+  MmxCoopState coop = MmxCoopGetState();
+  if (!coop.initialized || coop.menu_owner || coop.scene_owner) return;
+  int seat = -1;
+  for (int i = 0; i < 2; ++i)
+    if (coop.players[i].character == MMX_COOP_X && coop.players[i].status == MMX_COOP_ALIVE) seat = i;
+  if (seat < 0) return;
+  const uint8_t *b = seat == coop.current ? g_ram + 0xba8 : coop.players[seat].body;
+  int x = b[5] | b[6] << 8, y = b[8] | b[9] << 8;
+  CpuState saved = *cpu;
+  uint16 dpage = cpu->D;
+  uint8 scratch[32]; memcpy(scratch, g_ram + dpage, sizeof(scratch));
+  int top = y - 144;
+  if (top < 0) top = 0;
+  g_ram[dpage + 2] = (uint8)top; g_ram[dpage + 3] = (uint8)(top >> 8);
+  g_ram[dpage + 4] = 0x20; g_ram[dpage + 5] = 1; /* DCDB's height, $0120 */
+  s_ws_spawn_pass.active = s_ws_spawn_pass.capsule_rescan = 1;
+  for (int column = (x - 160) & ~31; column <= x + 160; column += 32) {
+    if (column < 0 || column >= 8192) continue;
+    g_ram[dpage] = (uint8)column; g_ram[dpage + 1] = (uint8)(column >> 8);
+    *cpu = saved;
+    (void)cpu_dispatch_call_pc(cpu, 0x00DCDBu, 0x00DC8Fu);
+  }
+  s_ws_spawn_pass.active = s_ws_spawn_pass.capsule_rescan = 0;
+  memcpy(g_ram + dpage, scratch, sizeof(scratch));
+  *cpu = saved;
+}
+
 void MmxWsCollectiblePass(CpuState *cpu) {
   extern uint8_t g_ram[0x20000];
+  MmxCoopCapsulePass(cpu);
   int margin = g_mmx_custom_renderer && MmxWidePolicy_IsStageScene(g_ram) ? MmxWsMargin() : 0;
   if (!margin) return;
   /* DC92 runs even when no camera column changed. This matters on a cold
