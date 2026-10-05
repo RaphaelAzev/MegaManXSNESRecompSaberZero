@@ -1124,7 +1124,12 @@ static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView 
       (int16_t)(word(ram,0xbb0)-view_camera(ram,0x1e50)),y,view,objects,colors);
   for (unsigned i=0;i<24;++i) {
     unsigned d = i==0 ? 0xba8 : i<16 ? 0xc38+(i-1)*32 : 0x1228+(i-16)*64;
-    if (d==0xba8 ? !ram[d+1] || !ram[d+14] : !ram[d] || !(ram[d+14]&128)) continue;
+    /* Armor parts ($0C38/$0C58/$0C78) are visible when .0E is nonzero, as
+     * native D56F submits them (expand_queues); bit 7 alone hid a partner X's
+     * helmet, arms and boots whenever Zero drove the world. */
+    bool armor = d>=0xc38 && d<=0xc78;
+    if (d==0xba8 ? !ram[d+1] || !ram[d+14] :
+        !ram[d] || !(armor ? ram[d+14] : ram[d+14]&128)) continue;
     if(d<0xc98 && !ram[0xbb6]) continue; /* Armor follows its owner's Sting blink. */
     if (zero && (d==0xba8 || d<0xc98 || MmxZeroNativeChargeObject(d,ram[d+10]))) continue;
     if (cast && d<0xc98) continue;
