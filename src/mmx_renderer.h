@@ -31,6 +31,16 @@ void MmxRendererSetRom(const uint8_t *rom, size_t size);
 /* Capture drawing data before native clipping; never modify guest state. */
 void MmxRendererRecordPiece(const uint8_t ram[0x20000], uint16_t scratch);
 void MmxRendererObserveObject(const uint8_t ram[0x20000], uint16_t object);
+/* Co-op replays an object loop speculatively and discards its guest state;
+ * these drop the pieces that replay recorded. */
+typedef struct MmxRendererPieceMark {
+  unsigned building, expanded;
+  uint16_t object;
+  uint8_t stage;
+  bool observed;
+} MmxRendererPieceMark;
+MmxRendererPieceMark MmxRendererMarkPieces(void);
+void MmxRendererRewindPieces(MmxRendererPieceMark mark);
 void MmxRendererLatchSprites(void);
 void MmxRendererBeginFrame(const uint8_t ram[0x20000]);
 void MmxRendererCoopFrame(const MmxCoopState *state);

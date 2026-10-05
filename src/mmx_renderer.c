@@ -246,6 +246,14 @@ void MmxRendererObserveObject(const uint8_t ram[0x20000], uint16_t object) {
   observed_lists = true;
   expand_queues(ram);
 }
+MmxRendererPieceMark MmxRendererMarkPieces(void) {
+  return (MmxRendererPieceMark){building_count,expanded_building_count,current_object,building_stage,observed_lists};
+}
+void MmxRendererRewindPieces(MmxRendererPieceMark mark) {
+  if (mark.building<=building_count) building_count=mark.building;
+  if (mark.expanded<=expanded_building_count) expanded_building_count=mark.expanded;
+  current_object=mark.object;building_stage=mark.stage;observed_lists=mark.observed;
+}
 void MmxRendererRecordPiece(const uint8_t ram[0x20000], uint16_t d) {
   if (!g_mmx_custom_renderer || !ram || d > 0xffe0 || building_count >= MAX_PIECES) return;
   if (building_stage != ram[0x1f7a]) {
