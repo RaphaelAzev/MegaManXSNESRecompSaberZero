@@ -711,6 +711,28 @@ static bool floor_below(const uint8_t *r,const uint8_t *b) {
 static bool capsule_slot(unsigned d) {
   return d>=0xe68 && d<0x1228 && !((d-0xe68)%64) && g_ram[d] && g_ram[d+10]==0x4d;
 }
+/* Sigma 1's armored Vile owns the playable body from the stun/grab through
+ * NPC Zero's rescue. Armored Vile's .1=$04 starts his destruction; the
+ * unarmored $69 intro and body lock then keep the existing scene active. */
+static bool vile_capture(const uint8_t *r) {
+  if(r[0x1f7a]!=9) return false;
+  for(unsigned d=0xe68;d<0x1228;d+=64)
+    if(r[d] && r[d+10]==0x67 && r[d+1]==2 && r[d+2]==0x16) return true;
+  return false;
+}
+static bool vile_script_object(unsigned d) {
+  if(g_ram[0x1f7a]!=9 || !g_ram[d]) return false;
+  if(d>=0xe68 && d<0x1228 && !((d-0xe68)%64)) {
+    unsigned c=g_ram[d+10];
+    return c==0x66 || c==0x64 || (c==0x67 && g_ram[d+1]<4) ||
+        (c==0x69 && g_ram[d+1]<4);
+  }
+  if(d>=0x1428 && d<0x1628 && !((d-0x1428)%64) && g_ram[d+10]==0x16) {
+    for(unsigned v=0xe68;v<0x1228;v+=64)
+      if(g_ram[v] && g_ram[v+10]==0x67 && g_ram[v+1]<4) return true;
+  }
+  return false;
+}
 static void begin_scene(uint8_t *r) {
   unsigned other=state.anchor^1;
   if(state.scene_owner || state.players[other].status!=MMX_COOP_ALIVE ||
@@ -729,7 +751,7 @@ static bool scene_tick(uint8_t *r) {
    * until $87:CE06. $1F3B clears earlier, before that demonstration starts. */
   if(!state.scene_owner && state.players[state.anchor^1].status==MMX_COOP_ALIVE &&
       (r[0xbcf]&127) && r[0xbaa]!=12 &&
-      (r[0x1f0c] || r[0x1f23] || r[0x1f48] || (r[0xc16] && (r[0x1f31] || r[0x1f3b])))) begin_scene(r);
+      (vile_capture(r) || r[0x1f0c] || r[0x1f23] || r[0x1f48] || (r[0xc16] && (r[0x1f31] || r[0x1f3b])))) begin_scene(r);
   /* Unified view only: a player the shared camera leaves below the screen
    * is beamed out, and returns beside the other once there is a landing.
    * Over a real pit (no floor down to the level's lowest camera position)
@@ -786,7 +808,7 @@ static bool scene_tick(uint8_t *r) {
     }
     r[0xb9d]=r[0xba0]=0;return true;
   }
-  if(!r[0x1f0c] && !r[0xc16] && !r[0x1f23] && !r[0x1f13] && !r[0x1f48] && r[0x1f10]<6 && r[0xd3]==4) {
+  if(!vile_capture(r) && !r[0x1f0c] && !r[0xc16] && !r[0x1f23] && !r[0x1f13] && !r[0x1f48] && r[0x1f10]<6 && r[0xd3]==4) {
     uint16_t x,y;
     if(!MmxCoopFindLanding(r,&x,&y)) return false;
     place_other(r,x,y,true);p=&state.players[state.anchor^1];
@@ -1294,7 +1316,8 @@ static void contact_hook(CpuState *cpu,uint32_t pc) {
      * its body contact for the partner re-entered the capsule mid-dialogue:
      * Zero walking into it moved it from Light's dialogue (state 6) to the
      * upgrade (state 8), so the armor sequence played under the text. */
-    if (!state.contact_pass && capsule_slot(cpu->D)) return;
+    if (!state.contact_pass && (capsule_slot(cpu->D) ||
+        (at==0x9b03 && vile_script_object(cpu->D)))) return;
     if (!state.contact_pass) {
       MmxCoopViewsContactPlayer(state.current);
       state.contact_pass = 1; state.contact_entry = (uint16_t)at;
@@ -1453,7 +1476,8 @@ static bool object_ghost_wanted(unsigned d) {
   if(enemy && (lift_elevator(d) || platform_item(d) || c==0x3d ||
       c==0x43 || c==0x44 || capsule_slot(d) || c==0x1d)) return false;
   /* Bosses script the player (intros, victory pose); they stay single-seat. */
-  if(enemy && MmxWidePolicy_IsBossEncounter((uint8_t)c)) return false;
+  if(vile_script_object(d) || (enemy &&
+      (c==0x67 || c==0x69 || MmxWidePolicy_IsBossEncounter((uint8_t)c)))) return false;
   if(projectile && c==0x19) return false;
   /* The current generator's boxes reach about 200 px from its origin. */
   return ghost_near(d,256);
@@ -1959,6 +1983,10 @@ static void view_actor_hook(CpuState *cpu,uint32_t pc) {
   }
   if(state.stage_pending || state.menu_owner || state.scene_owner || g_ram[0xd3]!=4 || world.actor_return) return;
   if(cpu->D<0xe68 || (cpu->D>=0x1228 && cpu->D<0x1428)) return;
+  /* Vile, his restraint projectile and story Zero always use the world
+   * actor, including independent views. Choosing a nearby partner here
+   * would hand the capture back and forth between bodies. */
+  if(vile_script_object(cpu->D)) return;
   MmxCoopCapture(g_ram);
   unsigned nearest=state.anchor;uint64_t best=UINT64_MAX;
   bool fish=couch_nearest_target(cpu->D);
