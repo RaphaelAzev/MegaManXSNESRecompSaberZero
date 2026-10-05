@@ -3,6 +3,7 @@
 #include "mmx_renderer.h"
 #include "mmx_coop_trace.h"
 #include "mmx_rtl.h"
+#include "mmx_wide_policy.h"
 _Static_assert(sizeof(MmxCoopState) == MMX_COOP_LEGACY_STATE_SIZE + 2 * sizeof(MmxZeroModernState),
                "Update the legacy co-op importer when its layout changes");
 #include "cpu_state.h"
@@ -167,8 +168,8 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
   if (!out) return;
   bool frame_end=!strcmp(event,"frame-end");
   bool platform=!strncmp(event,"platform",8) || !strncmp(event,"contact",7) ||
-      !strcmp(event,"lift-contact");
-  char flags[15],owners[33],scratch[129],items[16*39+1]={0},caller[12]={0},regs[24]={0},slot[64*2+1]={0},enemies[15*39+1]={0},shots[12*39+1]={0};
+      !strcmp(event,"lift-contact") || !strcmp(event,"body-moved") || !strcmp(event,"ghost-moved");
+  char flags[15],owners[33],scratch[129],items[16*39+1]={0},caller[12]={0},regs[24]={0},slot[64*2+1]={0},enemies[23*39+3]={0},shots[12*39+1]={0};
   diagnostic_hex(flags,r+0x1f13,7);
   diagnostic_hex(owners,state.pickup_owner,16);
   diagnostic_hex(scratch,r,64);
@@ -187,14 +188,24 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
     const uint8_t *e=r+0xe68+i*64;
     if(e[0] && e[10]>=0x58 && e[10]<=0x5a) elevator=true;
   }
-  if(frame_end || elevator || platform) diagnostic_pool(r,0xe68,64,15,enemies,sizeof(enemies));
+  if(frame_end || elevator || platform) {
+    diagnostic_pool(r,0xe68,64,15,enemies,sizeof(enemies));
+    /* Enemy projectiles and effects ($1428, eight 64-byte slots), after "p". */
+    size_t used=strlen(enemies);
+    if(used+2<sizeof(enemies)) {
+      char *tail=enemies+used;tail[0]='p';
+      diagnostic_pool(r,0x1428,64,8,tail+1,sizeof(enemies)-used-1);
+      if(!tail[1]) tail[0]=0;
+    }
+  }
   /* The current seat's shots ($0C98, twelve 32-byte slots). */
   if(frame_end || platform) diagnostic_pool(r,0xc98,32,12,shots,sizeof(shots));
   /* The contacted item's whole 48-byte slot: a byte the first seat's call
    * writes and the second seat's call reads shows up between their rows. */
   if(platform && cpu && cpu->D>=0x1628 && cpu->D<0x1928 && !((cpu->D-0x1628)%48))
     diagnostic_hex(slot,r+cpu->D,48);
-  else if(platform && cpu && cpu->D>=0xe68 && cpu->D<0x1228 && !((cpu->D-0xe68)%64))
+  else if(platform && cpu && ((cpu->D>=0xe68 && cpu->D<0x1228 && !((cpu->D-0xe68)%64)) ||
+      (cpu->D>=0x1428 && cpu->D<0x1628 && !((cpu->D-0x1428)%64))))
     diagnostic_hex(slot,r+cpu->D,64);
   /* Entry to a long subroutine: the JSL return address names the item code. */
   if(platform && cpu && (!strcmp(event,"platform-enter") || !strcmp(event,"lift-contact")) &&
@@ -352,8 +363,10 @@ void MmxCoopSetState(const MmxCoopState *s) {
   }
   else MmxCoopReset();
 }
+static bool ghost_active(void);
 void MmxCoopCapture(uint8_t *r) {
-  if (!enabled || !state.initialized || !r) return;
+  /* A ghost replay projects the other seat's body without selecting it. */
+  if (!enabled || !state.initialized || !r || ghost_active()) return;
   MmxCoopPlayer *p = &state.players[state.current];
   memcpy(p->body, r + 0xba8, sizeof(p->body));
   memcpy(p->auxiliaries, r + 0xc38, sizeof(p->auxiliaries));
@@ -369,7 +382,7 @@ void MmxCoopCapture(uint8_t *r) {
   p->shot_command = r[0x1f0d]; p->hud_state = r[0x1f12];
 }
 bool MmxCoopSelect(uint8_t *r, unsigned player) {
-  if (!enabled || !state.initialized || !r || player > 1) return false;
+  if (!enabled || !state.initialized || !r || player > 1 || ghost_active()) return false;
   if (player == state.current) return true;
   TRACE(SELECT,0,state.current,player,NULL);
   diagnostic_event(r,NULL,0,"select-before");
@@ -1229,40 +1242,79 @@ static void pickup_hook(CpuState *cpu,uint32_t pc) {
     interp_bridge_pre_opcode_redirect(0x849c0e);
   } else {TRACE(PICKUP,pc,2,0,cpu);MmxCoopSelect(g_ram,state.anchor);state.pickup_pass=0;}
 }
-/* Player projectiles run once per seat ($00:D3DD..D3F9), with that seat's
- * own shots and body projected. A native shot that tests its rider against
- * $0BA8 (charged Shotgun Ice's sled) therefore only ever sees its owner.
- * Before each seat's loop, replay it once with the other seat's body
- * projected over the same shots, keep only that body's motion and ground
- * result, and restore everything else, so each shot still advances once. */
+/* Ghost replays. Native code that acts on the body it finds in $0BA8 only
+ * ever sees the seat that is projected while it runs:
+ * - player projectiles run once per seat ($00:D3DD..D3F9) with that seat's
+ *   shots and body, so charged Shotgun Ice's sled only carried its owner;
+ * - enemies and enemy projectiles run once ($00:D4EA, $00:D48D) with the
+ *   world actor projected, so Launch Octopus's upward currents only lifted
+ *   the world actor.
+ * Before such a run, replay it once with the other seat's body projected,
+ * keep only that body's motion result, and restore everything else (WRAM,
+ * weapon combat, Zero and co-op state, renderer pieces), so every object
+ * still advances once. Couch co-op only for objects: online views already
+ * project the nearest player for AI. */
+enum { GHOST_SHOTS=1, GHOST_OBJECT };
 static struct {
-  uint8_t pass,p,db;uint16_t a,x,y,s,d;
+  uint8_t pass,kind,p,db;uint16_t a,x,y,s,d;uint32_t resume;
   uint8_t body[0x90];
   MmxWeaponCombatState combat;MmxZeroState zero;MmxRendererPieceMark pieces;
+  MmxCoopViewWorldState world;
 } shot_ghost;
+static MmxCoopState shot_ghost_state;
+static uint8_t shot_ghost_lift[sizeof(lift)],shot_ghost_cart[sizeof(cart)];
 static uint8_t shot_ghost_ram[0x20000];
 static void shot_ghost_reset(void) { shot_ghost.pass=0; }
-/* Position (with subpixels), velocity and the ground/contact flags. */
-static bool shot_ghost_field(unsigned i) { return (i>=4 && i<=9) || (i>=0x1a && i<=0x1d) || i==0x2b; }
-static bool shot_ghost_wanted(void) {
+static bool ghost_active(void) { return shot_ghost.pass==1; }
+/* Position (with subpixels), velocity and the ground/contact flags; object
+ * replays also keep the action an object forced (a current's lift). */
+static bool shot_ghost_field(unsigned i) {
+  return (i>=4 && i<=9) || (i>=0x1a && i<=0x1d) || i==0x2b ||
+      (shot_ghost.kind==GHOST_OBJECT && (i==2 || i==3));
+}
+static bool ghost_partner_ready(void) {
   const MmxCoopPlayer *o=&state.players[state.current^1];
-  if(o->status!=MMX_COOP_ALIVE || !(o->body[0x27]&127) || o->body[2]==12 || o->zero.swap_phase) return false;
-  int ox=(int)word(o->body+5),oy=(int)word(o->body+8);
+  return o->status==MMX_COOP_ALIVE && (o->body[0x27]&127) && o->body[2]!=12 && !o->zero.swap_phase;
+}
+static bool ghost_near(unsigned d,int range) {
+  const MmxCoopPlayer *o=&state.players[state.current^1];
+  int dx=(int)word(g_ram+d+5)-(int)word(o->body+5),dy=(int)word(g_ram+d+8)-(int)word(o->body+8);
+  return dx>=-range && dx<=range && dy>=-range && dy<=range;
+}
+static bool shot_ghost_wanted(void) {
+  if(!ghost_partner_ready()) return false;
   /* Native shots only: imported X2/X3 shots carry the port's +3E tag. */
-  for(unsigned d=0x1228;d<0x1428;d+=64) {
-    if(!g_ram[d] || word(g_ram+d+0x3e)==0x5758) continue;
-    int dx=(int)word(g_ram+d+5)-ox,dy=(int)word(g_ram+d+8)-oy;
-    if(dx>=-64 && dx<=64 && dy>=-64 && dy<=64) return true;
-  }
+  for(unsigned d=0x1228;d<0x1428;d+=64)
+    if(g_ram[d] && word(g_ram+d+0x3e)!=0x5758 && ghost_near(d,64)) return true;
   return false;
 }
-static void shot_ghost_begin(CpuState *cpu) {
+static bool lift_elevator(unsigned d);
+static bool capsule_slot(unsigned d);
+static bool object_ghost_wanted(unsigned d) {
+  if(MmxCoopViewsOnline() || state.menu_owner || state.scene_owner || state.contact_pass ||
+      state.object_pass || g_ram[0xd3]!=4 || state.current!=state.anchor || !ghost_partner_ready()) return false;
+  bool enemy=d>=0xe68 && d<0x1228 && !((d-0xe68)%64);
+  bool projectile=d>=0x1428 && d<0x1628 && !((d-0x1428)%64);
+  if((!enemy && !projectile) || !g_ram[d]) return false;
+  unsigned c=g_ram[d+10];
+  /* Objects with their own seat handling: lifts and minecarts,
+   * Dr. Light's capsule, Gulpfer's nearest-player chase, Slimer's puddle. */
+  if(enemy && (lift_elevator(d) || capsule_slot(d) || c==0x1d)) return false;
+  /* Bosses script the player (intros, victory pose); they stay single-seat. */
+  if(enemy && MmxWidePolicy_IsBossEncounter((uint8_t)c)) return false;
+  if(projectile && c==0x19) return false;
+  return ghost_near(d,128);
+}
+static void shot_ghost_begin(CpuState *cpu,unsigned kind,uint32_t resume) {
   cpu_mirrors_to_p(cpu);
   shot_ghost.a=cpu->A;shot_ghost.x=cpu->X;shot_ghost.y=cpu->Y;shot_ghost.s=cpu->S;
   shot_ghost.d=cpu->D;shot_ghost.p=cpu->P;shot_ghost.db=cpu->DB;
+  shot_ghost.kind=(uint8_t)kind;shot_ghost.resume=resume;
   memcpy(shot_ghost_ram,g_ram,sizeof(shot_ghost_ram));
   shot_ghost.combat=MmxWeaponsGetCombatState();shot_ghost.zero=MmxZeroGetState();
-  shot_ghost.pieces=MmxRendererMarkPieces();
+  shot_ghost.pieces=MmxRendererMarkPieces();shot_ghost.world=MmxCoopViewsGetWorldState();
+  shot_ghost_state=state;
+  memcpy(shot_ghost_lift,&lift,sizeof(lift));memcpy(shot_ghost_cart,&cart,sizeof(cart));
   memcpy(shot_ghost.body,state.players[state.current^1].body,sizeof(shot_ghost.body));
   memcpy(g_ram+0xba8,shot_ghost.body,sizeof(shot_ghost.body));
   shot_ghost.pass=1;
@@ -1271,19 +1323,46 @@ static void shot_ghost_end(CpuState *cpu,uint32_t pc) {
   uint8_t result[0x90];memcpy(result,g_ram+0xba8,sizeof(result));
   memcpy(g_ram,shot_ghost_ram,sizeof(shot_ghost_ram));
   MmxWeaponsSetCombatState(shot_ghost.combat);MmxZeroSetState(shot_ghost.zero);
-  MmxRendererRewindPieces(shot_ghost.pieces);
+  MmxRendererRewindPieces(shot_ghost.pieces);MmxCoopViewsSetWorldState(&shot_ghost.world);
+  state=shot_ghost_state;
+  memcpy(&lift,shot_ghost_lift,sizeof(lift));memcpy(&cart,shot_ghost_cart,sizeof(cart));
   uint8_t *body=state.players[state.current^1].body;
   bool moved=false;
   for(unsigned i=0;i<sizeof(result);++i)
     if(shot_ghost_field(i) && result[i]!=shot_ghost.body[i]) {body[i]=result[i];moved=true;}
-  if(moved) diagnostic_event(g_ram,cpu,pc,"shot-rider");
   cpu->A=shot_ghost.a;cpu->X=shot_ghost.x;cpu->Y=shot_ghost.y;cpu->S=shot_ghost.s;
   cpu->D=shot_ghost.d;cpu->DB=shot_ghost.db;cpu->P=shot_ghost.p;cpu_p_to_mirrors(cpu);
+  if(moved) diagnostic_event(g_ram,cpu,pc,shot_ghost.kind==GHOST_SHOTS ? "shot-rider" : "ghost-moved");
   shot_ghost.pass=2;
-  interp_bridge_pre_opcode_redirect((pc&0xff0000)|0xd3dd);
+  interp_bridge_pre_opcode_redirect(shot_ghost.resume);
+}
+/* Per-object ghost and attribution at the enemy ($00:D4F6 -> D4F9) and enemy
+ * projectile ($00:D499 -> D49C) update calls. A "body-moved" trace row names
+ * any object whose update moved the projected body. */
+static struct { uint16_t d,x,y; bool armed; } object_watch;
+static void object_ghost_hook(CpuState *cpu,uint32_t pc) {
+  if(!enabled || !state.initialized) return;
+  unsigned at=pc&65535;
+  bool call=at==0xd4f6 || at==0xd499;
+  if(call) {
+    if(shot_ghost.pass==2 && shot_ghost.kind==GHOST_OBJECT) shot_ghost.pass=0;
+    else if(!shot_ghost.pass && object_ghost_wanted(cpu->D)) {
+      shot_ghost_begin(cpu,GHOST_OBJECT,pc&0xffffff);return;
+    }
+    if(!shot_ghost.pass) {
+      object_watch.armed=true;object_watch.d=(uint16_t)cpu->D;
+      object_watch.x=(uint16_t)word(g_ram+0xbad);object_watch.y=(uint16_t)word(g_ram+0xbb0);
+    }
+    return;
+  }
+  if(shot_ghost.pass==1 && shot_ghost.kind==GHOST_OBJECT) { shot_ghost_end(cpu,pc);return; }
+  if(object_watch.armed && cpu->D==object_watch.d &&
+      (word(g_ram+0xbad)!=object_watch.x || word(g_ram+0xbb0)!=object_watch.y))
+    diagnostic_event(g_ram,cpu,pc,"body-moved");
+  object_watch.armed=false;
 }
 static void object_hook(CpuState *cpu, uint32_t pc) {
-  if ((pc&65535)==0xd3f9 && shot_ghost.pass==1) { shot_ghost_end(cpu,pc); return; }
+  if ((pc&65535)==0xd3f9 && shot_ghost.pass==1 && shot_ghost.kind==GHOST_SHOTS) { shot_ghost_end(cpu,pc); return; }
   if (!enabled || !state.initialized || state.menu_owner || state.scene_owner ||
       g_ram[0xd1]!=2 || g_ram[0xd2]!=4 || g_ram[0xd3]>=10 ||
       state.players[state.anchor^1].status != MMX_COOP_ALIVE) return;
@@ -1302,10 +1381,10 @@ static void object_hook(CpuState *cpu, uint32_t pc) {
     if (at==0xd3dd && !shot_ghost.pass && state.object_entry==0xd3dd &&
         ((state.object_pass==1 && state.current==state.anchor) ||
          (state.object_pass==2 && state.current!=state.anchor)) && shot_ghost_wanted())
-      shot_ghost_begin(cpu);
+      shot_ghost_begin(cpu,GHOST_SHOTS,(pc&0xff0000)|0xd3dd);
     return;
   }
-  if (at==0xd3f9 && shot_ghost.pass==2) shot_ghost.pass=0;
+  if (at==0xd3f9 && shot_ghost.pass==2 && shot_ghost.kind==GHOST_SHOTS) shot_ghost.pass=0;
   if (state.object_pass == 1) {
     state.object_a = cpu->A; state.object_x = cpu->X; state.object_y = cpu->Y;
     state.object_s = cpu->S; state.object_d = cpu->D; state.object_db = cpu->DB;
@@ -1721,6 +1800,9 @@ void MmxCoopRegisterHooks(void) {
   const unsigned actors[]={0xd4f6,0xd4f9,0xd515,0xd522,0xd499,0xd49c,0xd4b8,0xd4c5};
   for(unsigned i=0;i<sizeof(actors)/sizeof(actors[0]);++i)
     interp_bridge_set_pre_opcode_hook(actors[i],view_actor_hook);
+  const unsigned ghosts[]={0xd4f6,0xd4f9,0xd499,0xd49c};
+  for(unsigned i=0;i<sizeof(ghosts)/sizeof(ghosts[0]);++i)
+    interp_bridge_add_pre_opcode_hook(ghosts[i],object_ghost_hook);
   const unsigned views[]={0x00dcd7,0x00dd2d,0x82807d,0x82809e,0x8280c3,0x838957};
   for(unsigned i=0;i<sizeof(views)/sizeof(views[0]);++i)
     interp_bridge_set_pre_opcode_hook(views[i],view_world_hook);
