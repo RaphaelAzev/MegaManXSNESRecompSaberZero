@@ -105,6 +105,13 @@ static bool zero_title_menu(void) {
       frame.ram[0xbbe] == 0 && word(frame.ram,0xbad) == 32 &&
       y >= 166 && y <= 198;
 }
+/* X1's buster charge cycles palette 1 in CGRAM itself while its sparkle
+ * objects (class 1, $0C98..$0E17, $82:82ED) are live. The co-op weapon
+ * palette would replace that glow with the plain body colours. */
+static bool x_charging(const uint8_t *ram) {
+  for (unsigned d = 0xc98; d < 0xe18; d += 32) if (ram[d] && ram[d + 10] == 1) return true;
+  return false;
+}
 static bool zero_actor(unsigned object, unsigned animation) {
   return object == 0xba8 || object == 0xc38 || object == 0xc58 || object == 0xc78 ||
       (object == 0x1928 && animation == 0x5f) || (object == 0x1948 && animation == 0x5e) ||
@@ -1454,7 +1461,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
        * keep live CGRAM: substituting them lost the glow and flattened
        * the boots. */
       if (frame_zero.active_x && weapon_colors && zero_actor(s.object, s.animation) &&
-          (menu || (attr & 0x0e00) == 0x0200)) asset = &x_weapon_palette;
+          (menu || ((attr & 0x0e00) == 0x0200 && !x_charging(frame.ram)))) asset = &x_weapon_palette;
       if(stage && frame_coop.initialized && s.object>=0x1228 && s.object<0x1428 &&
           frame.ram[s.object+10]==0x0c && s.animation==0x47 && (s.attr&0x0e00)==0x0600)
         asset=MmxRenderAssetsWeaponX(6,false);
