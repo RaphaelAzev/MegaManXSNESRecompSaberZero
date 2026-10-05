@@ -1043,6 +1043,7 @@ static void coop_slime_checks(const char *fixture,uint8_t *start,uint8_t *expect
 #include "mmx_coop_views_test.inc"
 #include "mmx_coop_owner_wide_test.inc"
 #include "mmx_coop_death_armor_test.inc"
+#include "mmx_coop_kuwanger_test.inc"
 static void coop_checks(const char *assets, const char *fixture,
                         uint8_t *start, uint8_t *expected, uint8_t *actual, size_t cap) {
   check(assets && fixture, "co-op check requires private source assets and a grounded fixture");
@@ -1050,6 +1051,7 @@ static void coop_checks(const char *assets, const char *fixture,
   MmxZeroRegisterHooks(); MmxCoopRegisterHooks();
   const char *x2=getenv("MMX_COOP_X2_ASSETS"),*x3=getenv("MMX_COOP_X3_ASSETS");
   if (x2 && x3) check(MmxWeaponsLoadPage(x2,1) && MmxWeaponsLoadPage(x3,2),"private original weapon source packs load");
+  if(getenv("MMX_COOP_KUWANGER_TEST")) {coop_kuwanger_checks(getenv("MMX_COOP_KUWANGER_TEST"));return;}
   if(getenv("MMX_COOP_DEATH_ARMOR_TEST")) {
     coop_armor_withdraw_checks(getenv("MMX_COOP_DEATH_ARMOR_TEST"));
     if(!getenv("MMX_COOP_ARMOR_ONLY")) coop_team_pit_checks(getenv("MMX_COOP_DEATH_ARMOR_TEST"));
