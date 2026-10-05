@@ -354,8 +354,11 @@ bool MmxZeroSlideHold(uint8_t r[0x20000], unsigned pc) {
        * Zero up. Reverse turns the slide around, so dead ends can be left. */
       unsigned reverse = r[0xc11] & 64 ? 2 : 1;
       if (r[0xbdf] & reverse) {
+        /* Set the dash speed in the new facing rather than negating the
+         * current one: after the slide meets a wall it is already 0, and
+         * Zero turned in place forever under a ceiling too low to stand. */
         r[0xc11] ^= 64;
-        putword(r + 0xbc2, (0x10000 - word(r + 0xbc2)) & 0xffff);
+        putword(r + 0xbc2, r[0xc11] & 64 ? 0x0375 : 0x10000 - 0x0375);
       }
       return true;
     }
