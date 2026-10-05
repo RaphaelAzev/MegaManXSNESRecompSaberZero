@@ -402,6 +402,16 @@ static void select_world_survivor(uint8_t *r) {
     state.anchor=(uint8_t)other;MmxCoopSelect(r,other);
   }
 }
+/* A collector parked in action $18 by an item that sets neither $1F19 nor
+ * the Heart Tank pause (a Sub Tank) froze only that player; the other kept
+ * moving. Park the other player's update too, while the collector's own
+ * native state runs the fill. */
+static bool partner_parked(const uint8_t *r) {
+  if(!state.initialized || state.menu_owner || state.scene_owner) return false;
+  const MmxCoopPlayer *o=&state.players[state.current^1];
+  return o->status==MMX_COOP_ALIVE && (o->body[0x27]&127) && o->body[2]==0x18 &&
+      r[0xbaa]!=0x18 && r[0xbaa]!=12;
+}
 static bool refill_paused(const uint8_t *r) {
   if(state.menu_owner || state.scene_owner) return false;
   /* The native death controller also sets $1F19 while its countdown runs.
@@ -576,8 +586,13 @@ static void place_other(uint8_t *r,uint16_t x,uint16_t y,bool preserve) {
   /* Use native player setup fields, but never inherit P1's hurt, charge,
    * movement or weapon counters. Personal inventory survives withdrawal. */
   memcpy(p->body, source->body, sizeof(p->body));
+  /* $0C38..$0C97 are the three armor-part objects. Only the same character
+   * can share them: X returning beside a world-driving Zero (who opened the
+   * boss door) took Zero's slots and lost his helmet/arm/boot sprites. */
+  uint8_t armor[0x60];memcpy(armor,p->character==source->character ? source->auxiliaries :
+      p->auxiliaries,sizeof(armor));
   memset(p->auxiliaries,0,sizeof(p->auxiliaries));memset(p->shots,0,sizeof(p->shots));
-  memcpy(p->auxiliaries,source->auxiliaries,0x60);
+  memcpy(p->auxiliaries,armor,sizeof(armor));
   memset(&p->combat,0,sizeof(p->combat));memset(&p->zero,0,sizeof(p->zero));
   p->zero.active_x=p->character==MMX_COOP_X;
   memset(p->body+0x28,0,sizeof(p->body)-0x28);
@@ -723,6 +738,24 @@ static bool scene_tick(uint8_t *r) {
     /* Only before it is entered: states 01 00 00 .. 01 02 02. */
     for(unsigned d=0xe68;d<0x1228 && away;d+=64)
       if(capsule_slot(d) && r[d+1]<=2 && r[d+2]<=2) capsule=true;
+    /* A capsule belongs to X, not to whoever drives the world: X near an
+     * unentered capsule takes over the world, so its native script runs on
+     * him; the capsule rule below then beams Zero over. */
+    unsigned xs=state.players[0].character==MMX_COOP_X ? 0 : 1;
+    if(state.players[xs].character==MMX_COOP_X && xs!=state.anchor) {
+      const uint8_t *xb=state.players[xs].body;
+      for(unsigned d=0xe68;d<0x1228;d+=64)
+        if(capsule_slot(d) && r[d+1]<=2 && r[d+2]<=2) {
+          int cx=(int)word(r+d+5)-(int)word(xb+5),cy=(int)word(r+d+8)-(int)word(xb+8);
+          if(cx>-96 && cx<96 && cy>-96 && cy<96) {
+            state.anchor=(uint8_t)xs;MmxCoopSelect(r,xs);
+            b=state.players[state.anchor^1].body;a=state.players[state.anchor].body;
+            dx=(int)word(b+5)-(int)word(a+5);dy=(int)word(b+8)-(int)word(a+8);
+            away=dx<-96 || dx>96 || dy<-64 || dy>64;capsule=away;
+            break;
+          }
+        }
+    }
     if(low[state.anchor] && !low[state.anchor^1]) {
       /* The other player takes over the world before the low one leaves. */
       state.anchor^=1;MmxCoopSelect(r,state.anchor);begin_scene(r);
@@ -951,6 +984,14 @@ void MmxCoopSyncPriority(uint8_t *r) {
   const uint8_t *world=state.anchor==state.current ? r+0xba8 : state.players[state.anchor].body;
   uint8_t *body=seat==state.current ? r+0xba8 : state.players[seat].body;
   body[0x11]=(uint8_t)((body[0x11]&~0x30)|(world[0x11]&0x30));
+  /* Ground shock ($36, Flame Mammoth's stomp) tests only the projected world
+   * actor. Its first frame stuns a grounded partner too; the native state
+   * then runs the stun for him as usual. */
+  unsigned action=body[2];
+  if(world[2]==0x36 && world[3]==0 && (body[0x2b]&4) && (body[0x27]&127) &&
+      action!=0x36 && action!=0x0c && action!=0x0e && action!=0x18 && action<0x1e) {
+    body[2]=0x36;body[3]=0;
+  }
 }
 static void eagle_lift_hook(CpuState *cpu,uint32_t pc) {
   if(!enabled || !state.initialized || state.menu_owner || state.scene_owner) return;
@@ -1504,7 +1545,7 @@ static void controller_hook(CpuState *cpu, uint32_t pc) {
       TRACE_MARK(state.current,CONTROLLER);
       if(state.current!=state.anchor) TRACE_MARK(state.current,NON_ANCHOR);
     }
-    if(state.initialized && refill_paused(g_ram))
+    if(state.initialized && (refill_paused(g_ram) || partner_parked(g_ram)))
       interp_bridge_pre_opcode_redirect(0x81819c);
     return;
   }
