@@ -138,8 +138,8 @@ static void diagnostic_pool(const uint8_t *r,unsigned base,unsigned stride,unsig
   for(unsigned i=0;i<slots && n<cap;++i) {
     const uint8_t *d=r+base+i*stride;
     if(!d[0]) continue;
-    int w=snprintf(out+n,cap-n,"%s%u:%02x:%04x:%04x:%02x%02x%02x:%02x:%02x",n?";":"",
-        i,d[10],word(d+5),word(d+8),d[0],d[1],d[2],d[0x2c],d[0x27]);
+    int w=snprintf(out+n,cap-n,"%s%u:%02x:%04x:%04x:%02x%02x%02x:%02x:%02x:%02x",n?";":"",
+        i,d[10],word(d+5),word(d+8),d[0],d[1],d[2],d[0x2c],d[0x27],d[0x0e]);
     if(w<0) break;
     n+=(size_t)w;
   }
@@ -168,7 +168,7 @@ static void diagnostic_event(const uint8_t *r,const CpuState *cpu,uint32_t pc,co
   bool frame_end=!strcmp(event,"frame-end");
   bool platform=!strncmp(event,"platform",8) || !strncmp(event,"contact",7) ||
       !strcmp(event,"lift-contact");
-  char flags[15],owners[33],scratch[129],items[16*36+1]={0},caller[12]={0},regs[24]={0},slot[64*2+1]={0},enemies[15*36+1]={0},shots[12*36+1]={0};
+  char flags[15],owners[33],scratch[129],items[16*39+1]={0},caller[12]={0},regs[24]={0},slot[64*2+1]={0},enemies[15*39+1]={0},shots[12*39+1]={0};
   diagnostic_hex(flags,r+0x1f13,7);
   diagnostic_hex(owners,state.pickup_owner,16);
   diagnostic_hex(scratch,r,64);
@@ -1681,11 +1681,22 @@ static void view_world_hook(CpuState *cpu,uint32_t pc) {
   if(at==0x80c3) interp_bridge_pre_opcode_redirect(outside?0x8280d4:0x8280d9);
   if(at==0x8957) interp_bridge_pre_opcode_redirect(0x838966);
 }
+/* Couch co-op runs enemy AI against the projected world actor. Enemies that
+ * act on the body they chase also need the nearest player there: Launch
+ * Octopus's Gulpfer ($1D) homes in on and swallows $0BA8, so it never went
+ * for P2. The enemy loops ($00:D4EA/D507) are always interpreted. */
+static bool couch_nearest_target(unsigned d) {
+  if(d<0xe68 || d>=0x1228 || (d-0xe68)%64 || !g_ram[d]) return false;
+  return g_ram[d+10]==0x1d;
+}
 static void view_actor_hook(CpuState *cpu,uint32_t pc) {
-  if(!MmxCoopViewsOnline() || !enabled || !state.initialized) return;
+  if(!enabled || !state.initialized) return;
   unsigned at=pc&65535;
   MmxCoopViewWorldState world=MmxCoopViewsGetWorldState();
-  if(at==0xd4f9 || at==0xd522 || at==0xd49c || at==0xd4c5) {
+  bool returning=at==0xd4f9 || at==0xd522 || at==0xd49c || at==0xd4c5;
+  if(!MmxCoopViewsOnline() && !(returning ? world.actor_return :
+      (at==0xd4f6 || at==0xd515) && couch_nearest_target(cpu->D))) return;
+  if(returning) {
     if(world.actor_return) {
       MmxCoopSelect(g_ram,world.actor_return-1);MmxCoopViewsActorReturn(0);
       select_world_survivor(g_ram);
