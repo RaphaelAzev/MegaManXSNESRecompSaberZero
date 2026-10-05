@@ -1421,8 +1421,12 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       /* Extended choices have their own original X palette. Their native
        * buster proxy must not show the palette of an unrelated locked X1
        * weapon while navigating the pause screen. Preserve hit flashes. */
+      /* The weapon palette is OBJ palette 1 (CGRAM 144..159, $81:9E8F).
+       * Pieces drawn with another palette (the charge glow, armor parts)
+       * keep live CGRAM: substituting them lost the glow and flattened
+       * the boots. */
       if (frame_zero.active_x && weapon_colors && zero_actor(s.object, s.animation) &&
-          (menu || (attr & 0x0e00))) asset = &x_weapon_palette;
+          (menu || (attr & 0x0e00) == 0x0200)) asset = &x_weapon_palette;
       if(stage && frame_coop.initialized && s.object>=0x1228 && s.object<0x1428 &&
           frame.ram[s.object+10]==0x0c && s.animation==0x47 && (s.attr&0x0e00)==0x0600)
         asset=MmxRenderAssetsWeaponX(6,false);

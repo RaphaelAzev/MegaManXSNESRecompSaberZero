@@ -668,6 +668,13 @@ static bool scene_tick(uint8_t *r) {
   if(!state.scene_owner && state.players[state.anchor^1].status==MMX_COOP_ALIVE &&
       (r[0xbcf]&127) && r[0xbaa]!=12 &&
       (r[0x1f0c] || r[0x1f23] || r[0x1f48] || (r[0xc16] && (r[0x1f31] || r[0x1f3b])))) begin_scene(r);
+  /* Unified view: a grounded partner left below the screen (the camera was
+   * pulled up by a capsule or room lock) is beamed to the world actor
+   * rather than waiting off camera or meeting the pit check. */
+  if(!state.scene_owner && !MmxCoopViewsOnline() && state.players[state.anchor^1].status==MMX_COOP_ALIVE) {
+    const uint8_t *b=state.players[state.anchor^1].body;
+    if((b[0x27]&127) && (b[0x2b]&4) && (int)word(b+8)-32>=(int)word(r+0x1e50)+224) begin_scene(r);
+  }
   if(!state.scene_owner) return false;
   MmxCoopPlayer *p=&state.players[state.anchor^1];
   if(p->status!=MMX_COOP_ALIVE) {state.scene_owner=state.scene_phase=0;return false;}
@@ -1224,7 +1231,9 @@ static void camera_hook(CpuState *cpu,uint32_t pc) {
      * sound and orb objects; the shared camera still runs only once. */
     if (!enabled || !state.initialized || state.menu_owner || state.scene_owner || MmxCoopTransitionActive()) return;
     MmxCoopPlayer *p=&state.players[state.anchor^1];
-    if (p->status==MMX_COOP_ALIVE && (p->body[0x27]&127) &&
+    /* Standing on ground below the screen is not a pit: the shared camera
+     * was pulled up (a capsule's camera lock). scene_tick beams him over. */
+    if (p->status==MMX_COOP_ALIVE && (p->body[0x27]&127) && !(p->body[0x2b]&4) &&
         (int16_t)(word(p->body+8)-32-(MmxCoopViewsOnline()?word(g_ram+0x1e5c)+224:word(g_ram)))>=0) {
       TRACE(PIT,pc,state.anchor^1,0,cpu);
       ++p->body[0x30];p->body[0x2f]=8;p->body[0x26]=127;
