@@ -17,6 +17,14 @@ bool MmxWidePolicy_IsStageScene(const uint8_t ram[0x20000]) {
       !((ram[0x1f10] == 6 || ram[0x1f10] == 8) && (ram[0xc3] & 0x80));
 }
 
+bool MmxWidePolicy_WideSpawnCursorPersists(const uint8_t ram[0x20000]) {
+  /* $D1/$D2 are the game mode (2/4: a stage) and $D3 its phase: 0 level
+   * setup, 2 arrival, 4 play, 6 death, 8 and 10 clear/exit. Boss rooms, doors
+   * and scripted scenes all run inside phase 4, so the cursor still persists
+   * across them, which is what keeps a rejected controller for its native
+   * pass. */
+  return ram && ram[0xd1] == 2 && ram[0xd2] == 4 && ram[0xd3] == 4;
+}
 bool MmxWidePolicy_IsCollectible(uint8_t object_id) {
   /* Health/weapon-energy pickups, Sub Tanks, and Heart Tanks. Other kind-0
    * records include vehicles and mechanisms and retain native timing. */
