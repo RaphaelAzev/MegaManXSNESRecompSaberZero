@@ -81,12 +81,17 @@ action `$2C` identifies the owner, including in older saves made after a
 partner's return selected the wrong actor. Returning P1 does not take control
 away from a seated P2; either character can pilot. Both native pilot groups
 `$6A/$6B` use the adapted Zero cockpit pose.
+Holding SELECT cannot voluntarily withdraw an armor pilot. The other player
+can still withdraw normally while their living partner remains on screen.
 
 During pickup refills, both controllers pause along with native terrain
 collision. Heart Tanks leave `$1F19` clear, so their active upgrade task
 (`$0B`, state `2/6`, with `$1F13/$1F16` paused) is recognized separately.
 This check precedes cutscene detection: an airborne collector's saved action
 must not start partner transport.
+The death controller also sets `$1F19`, but its countdown is allowed to run.
+Overlapping fatalities keep both characters' death sounds and orbs; only the
+anchor runs the native life decrement and checkpoint restart.
 
 ## Making an interaction X-only
 

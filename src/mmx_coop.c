@@ -395,6 +395,9 @@ static void select_world_survivor(uint8_t *r) {
 }
 static bool refill_paused(const uint8_t *r) {
   if(state.menu_owner || state.scene_owner) return false;
+  /* The native death controller also sets $1F19 while its countdown runs.
+   * It must keep running even though live movement/terrain is paused. */
+  if(r[0xbaa]==12) return false;
   if(r[0x1f19]) return true;
   /* $81:EAFB pauses tasks $1F13..18 for a Heart Tank, leaving $1F19
    * clear. Its saved airborne action/$1F3B can also resemble a cutscene.
@@ -494,11 +497,12 @@ bool MmxCoopFrameTick(uint8_t *r) {
       if(r[d] && r[d+10]==2 && r[d+1]==4 && (r[d+0x27]&127) && r[d+0x30]==1)
         r[d+0x30]=0;
   }
-  /* Simultaneous fatalities must leave only one native death controller
-   * responsible for the life decrement/checkpoint transition. */
+  /* Keep both death animations, with only the world actor responsible for
+   * the life decrement/checkpoint transition. Retiring the other seat here
+   * would cancel its sound/orbs if the survivor dies during its countdown. */
   if(state.players[0].status==MMX_COOP_ALIVE && state.players[1].status==MMX_COOP_ALIVE &&
       !(state.players[0].body[0x27]&127) && !(state.players[1].body[0x27]&127)) {
-    state.players[state.anchor^1].status=MMX_COOP_FALLEN;
+    state.solo_death[state.anchor^1]=1;
     state.solo_death[state.anchor]=0;
   }
   /* Retail refills park their collector in action $18 while the item task
@@ -954,7 +958,10 @@ static bool join_tick(uint8_t *r) {
     if (!(p->input&4)) {*armed=1;*hold=0;}
     if (p->status==MMX_COOP_FALLEN || !living_on_screen(r,seat^1)) {*hold=0;continue;}
     if (p->status==MMX_COOP_ALIVE) {
-      if (!(p->body[0x27]&127) || p->body[2]==12) {*hold=0;continue;}
+      /* An occupied armor still updates through its pilot's projected body.
+       * Do not hide that body or hand control away during a voluntary exit. */
+      if (!(p->body[0x27]&127) || p->body[2]==12 || p->body[2]==0x2c ||
+          (seat==state.anchor && r[0xe18] && (r[0xe22]&0x40))) {*hold=0;continue;}
       if ((p->input&4) && *armed && ++*hold>=90) {
         /* The other seat now drives world scripts and native input. The
          * withdrawn body/inventory remains stored for a voluntary return. */
@@ -1352,7 +1359,7 @@ static void death_hook(CpuState *cpu,uint32_t pc) {
   switch(pc&65535) {
     case 0x8a5c:
       state.solo_death[seat]=state.players[other].status==MMX_COOP_ALIVE &&
-          (state.players[other].body[0x27]&127)!=0;
+          ((state.players[other].body[0x27]&127)!=0 || seat!=state.anchor);
       if(state.solo_death[seat]) memcpy(state.death_flags[seat],g_ram+0x1f13,7);
       break;
     case 0x8ab7:
