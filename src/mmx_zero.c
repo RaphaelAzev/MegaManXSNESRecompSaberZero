@@ -346,21 +346,26 @@ static bool slide_blocked(const uint8_t *r) {
   return MmxZeroActive() && r && terrain_query && r[0xba9] == 2 &&
       (r[0xbd3] & 4) && !r[0x1f0c] && standing_blocked(r);
 }
+/* X1's dash speed ($0375) in the current facing, for a slide with none. */
+static unsigned slide_speed(const uint8_t *r) {
+  return r[0xc11] & 64 ? 0x0375 : 0x10000 - 0x0375;
+}
 bool MmxZeroSlideHold(uint8_t r[0x20000], unsigned pc) {
   if (!slide_blocked(r) || r[0xbaa] != 0x14) return false;
   switch (pc & 0x7fffff) {
     case 0x01898e: {
       /* Releasing dash, a wall ahead or the reverse direction would stand
        * Zero up. Reverse turns the slide around, so dead ends can be left. */
-      unsigned reverse = r[0xc11] & 64 ? 2 : 1;
+      unsigned reverse = r[0xc11] & 64 ? 2 : 1, ahead = reverse ^ 3;
+      unsigned speed = word(r + 0xbc2);
       if (r[0xbdf] & reverse) {
-        /* A slide that met a wall has no speed left to negate; Zero turned
-         * in place forever under a ceiling too low to stand. Give it the
-         * dash speed ($0375) in the new facing. */
-        unsigned speed = word(r + 0xbc2);
         r[0xc11] ^= 64;
-        putword(r + 0xbc2, speed ? (0x10000 - speed) & 0xffff :
-            (r[0xc11] & 64 ? 0x0375 : 0x10000 - 0x0375));
+        putword(r + 0xbc2, speed ? (0x10000 - speed) & 0xffff : slide_speed(r));
+      } else if (!speed && (r[0xbdf] & ahead)) {
+        /* Releasing the direction stops X1's dash, and nothing restarted
+         * it, so a stopped slide could only turn back, never continue
+         * (Armored Armadillo's low passage to the Heart Tank). */
+        putword(r + 0xbc2, slide_speed(r));
       }
       return true;
     }

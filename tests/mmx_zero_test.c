@@ -144,6 +144,12 @@ int main(void) {
   ram[0xbc2] = ram[0xbc3] = 0; ram[0xbdf] = 2;
   assert(MmxZeroSlideHold(ram,0x81898e) && ram[0xc11] == 0 &&
       ram[0xbc2] == 0x8b && ram[0xbc3] == 0xfc);
+  /* A slide stopped by releasing the direction continues when it is held again. */
+  ram[0xbc2] = ram[0xbc3] = 0; ram[0xbdf] = 2;
+  assert(MmxZeroSlideHold(ram,0x81898e) && ram[0xc11] == 0 &&
+      ram[0xbc2] == 0x8b && ram[0xbc3] == 0xfc);
+  ram[0xbc2] = ram[0xbc3] = 0; ram[0xbdf] = 0;
+  assert(MmxZeroSlideHold(ram,0x81898e) && !ram[0xbc2] && !ram[0xbc3]);
   ram[0xbc2] = 0x80; ram[0xbc3] = 0xfc;
   ram[0xbdf] = 0;
   ram[0xbd3] = 0; assert(!MmxZeroSlideHold(ram,0x81898e)); ram[0xbd3] = 4;
