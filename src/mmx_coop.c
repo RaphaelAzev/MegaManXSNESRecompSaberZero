@@ -1395,7 +1395,7 @@ static void pickup_hook(CpuState *cpu,uint32_t pc) {
  * weapon combat, Zero and co-op state, renderer pieces), so every object
  * still advances once. Couch co-op only for objects: online views already
  * project the nearest player for AI. */
-enum { GHOST_SHOTS=1, GHOST_OBJECT };
+enum { GHOST_SHOTS=1, GHOST_OBJECT, GHOST_CURRENT };
 static struct {
   uint8_t pass,kind,p,db;uint16_t a,x,y,s,d;uint32_t resume;
   uint8_t body[0x90];
@@ -1414,9 +1414,11 @@ static bool ghost_active(void) { return shot_ghost.pass==1; }
  * Octopus's current generator ($28) only flags a body it finds in one of its
  * four $82:D7D7 boxes (.3C, action $08); the player's own movement lifts it.
  * Contact damage taken during the replay is kept too, and the real update's
- * contact retry then finds the partner already hit and invulnerable. */
+ * contact retry then finds the partner already hit and invulnerable.
+ * Shot riders also need BD4 (.2C), not just last frame's BD3 (.2B): the
+ * native landing controller consumes that flag on the following frame. */
 static bool shot_ghost_field(unsigned i) {
-  return shot_ghost.kind==GHOST_OBJECT || (i>=4 && i<=9) || (i>=0x1a && i<=0x1d) || i==0x2b;
+  return shot_ghost.kind!=GHOST_SHOTS || (i>=4 && i<=9) || (i>=0x1a && i<=0x1d) || i==0x2b || i==0x2c;
 }
 static bool ghost_partner_ready(void) {
   const MmxCoopPlayer *o=&state.players[state.current^1];
@@ -1511,6 +1513,23 @@ static void object_ghost_hook(CpuState *cpu,uint32_t pc) {
       (word(g_ram+0xbad)!=object_watch.x || word(g_ram+0xbb0)!=object_watch.y))
     diagnostic_event(g_ram,cpu,pc,"body-moved");
   object_watch.armed=false;
+}
+/* Launch Octopus's vortex is effect $16, not the enemy current generator.
+ * Its native update ($81:F493) clears/sets BE4 and moves only BA8. Replay
+ * the effect for the other living body, retaining its contact and motion,
+ * while the vortex animation, timer and bubbles advance only once. */
+static void current_ghost_hook(CpuState *cpu,uint32_t pc) {
+  if(!enabled || !state.initialized) return;
+  if((pc&65535)==0xd35c) {
+    if(shot_ghost.pass==1 && shot_ghost.kind==GHOST_CURRENT) shot_ghost_end(cpu,pc);
+    return;
+  }
+  if(shot_ghost.pass==2 && shot_ghost.kind==GHOST_CURRENT) {shot_ghost.pass=0;return;}
+  if(shot_ghost.pass || state.menu_owner || state.scene_owner || state.stage_pending ||
+      state.current!=state.anchor || g_ram[0xd3]!=4 || !ghost_partner_ready() ||
+      cpu->D<0x1928 || cpu->D>=0x1d08 || (cpu->D-0x1928)%32 ||
+      !g_ram[cpu->D] || g_ram[cpu->D+10]!=0x16) return;
+  shot_ghost_begin(cpu,GHOST_CURRENT,pc&0xffffff);
 }
 static void object_hook(CpuState *cpu, uint32_t pc) {
   if ((pc&65535)==0xd3f9 && shot_ghost.pass==1 && shot_ghost.kind==GHOST_SHOTS) { shot_ghost_end(cpu,pc); return; }
@@ -1930,6 +1949,9 @@ static void view_actor_hook(CpuState *cpu,uint32_t pc) {
       (at==0xd4f6 || at==0xd515) && couch_nearest_target(cpu->D))) return;
   if(returning) {
     if(world.actor_return) {
+      if(couch_nearest_target(cpu->D) &&
+          (g_ram[cpu->D+0x3b] || g_ram[cpu->D+0x3d]))
+        g_ram[cpu->D+0x3f]=(uint8_t)(state.current+1);
       MmxCoopSelect(g_ram,world.actor_return-1);MmxCoopViewsActorReturn(0);
       select_world_survivor(g_ram);
     }
@@ -1939,10 +1961,26 @@ static void view_actor_hook(CpuState *cpu,uint32_t pc) {
   if(cpu->D<0xe68 || (cpu->D>=0x1228 && cpu->D<0x1428)) return;
   MmxCoopCapture(g_ram);
   unsigned nearest=state.anchor;uint64_t best=UINT64_MAX;
+  bool fish=couch_nearest_target(cpu->D);
+  unsigned owner=fish ? g_ram[cpu->D+0x3f] : 0;
+  bool captured=fish && (g_ram[cpu->D+0x3b] || g_ram[cpu->D+0x3d]);
+  /* Gulpfer's hold/escape/death states act on the body it swallowed, even
+   * when another player moves closer. .3F is unused by its native routine
+   * and travels with the enemy in snapshots and rollback. */
+  if(captured && owner>=1 && owner<=2) {
+    MmxCoopViewsActorReturn(state.current+1);MmxCoopSelect(g_ram,owner-1);return;
+  }
+  if(fish && !captured) g_ram[cpu->D+0x3f]=0;
   int ex=word(g_ram+cpu->D+5),ey=word(g_ram+cpu->D+8);
   for(unsigned seat=0;seat<2;++seat) {
     const MmxCoopPlayer *p=&state.players[seat];
     if(p->status!=MMX_COOP_ALIVE || !(p->body[0x27]&127) || p->body[2]==12 || p->zero.swap_phase) continue;
+    /* A free fish must not chase a body hidden/parked inside another fish.
+     * The native eligibility test would then refuse every swallow attempt. */
+    if(fish && !captured && (!p->body[14] || p->body[0x30])) continue;
+    /* Older snapshots have no .3F owner yet. Recover it from the body
+     * the native capture parked, rather than a nearby uncaptured partner. */
+    if(captured && !owner && p->body[14] && !p->body[0x30]) continue;
     int64_t dx=(int)word(p->body+5)-ex,dy=(int)word(p->body+8)-ey;
     uint64_t distance=(uint64_t)(dx*dx+dy*dy);
     if(distance<best) {best=distance;nearest=seat;}
@@ -1956,6 +1994,8 @@ void MmxCoopRegisterHooks(void) {
   const unsigned ghosts[]={0xd4f6,0xd4f9,0xd499,0xd49c};
   for(unsigned i=0;i<sizeof(ghosts)/sizeof(ghosts[0]);++i)
     interp_bridge_add_pre_opcode_hook(ghosts[i],object_ghost_hook);
+  interp_bridge_add_pre_opcode_hook(0x00d359,current_ghost_hook);
+  interp_bridge_add_pre_opcode_hook(0x00d35c,current_ghost_hook);
   const unsigned views[]={0x00dcd7,0x00dd2d,0x82807d,0x82809e,0x8280c3,0x838957};
   for(unsigned i=0;i<sizeof(views)/sizeof(views[0]);++i)
     interp_bridge_set_pre_opcode_hook(views[i],view_world_hook);

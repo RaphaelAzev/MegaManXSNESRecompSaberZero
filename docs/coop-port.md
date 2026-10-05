@@ -984,3 +984,35 @@ with the project flags and the policy test passes). To confirm: die to the
 mid-boss in the stage, take the checkpoint, and walk to its room; it should
 spawn on the way in, solo and in co-op. `SNESRECOMP_WS_SPAWN=0` (authentic
 4:3 spawn timing) is the fallback on builds without this change.
+
+### Launch Octopus player interactions
+
+Gulpfer (`$1D`, `$82:A341`) chooses the nearest eligible living player while
+free. A player already hidden or frozen inside another fish is ineligible.
+During capture, hold, escape and death, the fish retains its victim in the
+native-unused `.3F` byte (seat plus one). This keeps release and motion tied
+to the captured body even as the other player approaches. Older snapshots
+without `.3F` recover ownership from the parked body. This applies in unified
+and independent camera modes and survives ordinary snapshots and rollback.
+
+The tall water vortex is effect `$16` (`$81:F493`), separate from enemy `$28`'s
+upward currents. Its `$00:D359..D35C` update receives a speculative second
+body pass, keeping that body's contact, action and motion while restoring
+world state. The real pass advances animation, timers and bubbles once.
+Shotgun Ice sled replays now keep BD4 as well as BD3: dropping its newly
+written landing flag let the partner ride with a falling animation.
+
+Charged-buster CHR isolation covers native projectile kinds `$01/$02/$03`.
+Kind `$01` was omitted from the earlier renderer repair. Group `$0E` pose 6
+retains tile `$31` from pose 4/5 because its short bottom-row DMA replaces
+only tile `$30`; the isolated ROM asset must retain that same tile.
+
+`MMX_COOP_OCTOPUS_TEST=<private-directory>` runs focused ROM checks using
+`save3.sav` (fish) and `save6.sav` (vortex). It covers both character assignments,
+returned players, separate captures and release, both world actors, vortex
+entry/exit, standing and riding the ice sled, simultaneous native charged
+busters, the retained ROM tile, and deterministic snapshot replay. Set
+`MMX_COOP_ONLINE_FIXTURE=1` to exercise the fish and vortex in independent
+camera paths without opening sockets or a lobby. Synthetic projectile
+placement uses the unified view; independent views can cull that imposed
+ice-sled fixture before landing. Fixtures and source ROM assets remain private.
