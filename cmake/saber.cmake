@@ -3,6 +3,7 @@ set(_saber_assets_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_assets
 set(_saber_wave_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_wave.c")
 set(_saber_wave_assets_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_wave_assets.c")
 set(_saber_sfx_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_sfx.c")
+set(_saber_input_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_input.c")
 set(_saber_sfx_converter_source "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/mmx_saber_sfx_convert.c")
 set(_saber_sfx_codec_source "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/mmx_saber_sfx_codec.c")
 set(_saber_sfx_codec_header "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/mmx_saber_sfx_codec.h")
@@ -139,6 +140,13 @@ endif()
 
 if(BUILD_TESTING)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/tmp")
+
+    add_executable(mmx_saber_input_test
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/saber/mmx_saber_input_test.c"
+        "${_saber_input_source}")
+    target_include_directories(mmx_saber_input_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/saber")
+    add_test(NAME mmx_saber_input COMMAND mmx_saber_input_test)
 
     add_executable(mmx_saber_sfx_test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/saber/mmx_saber_sfx_test.c"
