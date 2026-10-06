@@ -8,6 +8,7 @@
 #include "saber/mmx_saber_sfx.h"
 #include "saber/mmx_saber_wave.h"
 #include "saber/mmx_saber_wave_assets.h"
+#include "saber/mmx_saber_combo.h"
 #include "saber/mmx_saber_frame.h"
 #include "saber/mmx_saber_render.h"
 #include "mmx_renderer.h"
@@ -135,6 +136,23 @@ static int saber_sfx_volume(void) {
   if (parsed < 0) parsed = 0;
   if (parsed > 200) parsed = 200;
   return (int)parsed;
+}
+
+static unsigned saber_finisher_window_frames(void) {
+  char value[32] = {0};
+  char *end = NULL;
+  long parsed;
+  if (!snes_mod_runtime_feature_option_value_c(
+          "megaman-x.character.saber-zero", "saber-zero",
+          "finisher_window_frames", value, sizeof(value)) || !value[0])
+    return MMX_SABER_DEFAULT_FINISHER_WINDOW;
+  parsed = strtol(value, &end, 10);
+  if (end == value || *end != '\0')
+    return MMX_SABER_DEFAULT_FINISHER_WINDOW;
+  if (parsed < 0) return 0;
+  if (parsed > MMX_SABER_MAX_FINISHER_WINDOW)
+    return MMX_SABER_MAX_FINISHER_WINDOW;
+  return (unsigned)parsed;
 }
 
 static int resolve_saber_rom(char path[4096]) {
@@ -289,6 +307,7 @@ static void activate(void) {
   MmxSaberSfxSetHost(&kSaberSfxHost);
   MmxSaberSfxSetWarningCallback(saber_sfx_warning, NULL);
   MmxSaberSfxSetVolume(saber_sfx_volume());
+  MmxSaberComboSetWindowFrames(saber_finisher_window_frames());
   release_saber_assets();
   if (!resolve_saber_rom(rom) || !prepare_zero(path, rom)) {
     saber_activation_failed();

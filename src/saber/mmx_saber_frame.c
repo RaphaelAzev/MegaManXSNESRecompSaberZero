@@ -1,6 +1,7 @@
 #include "mmx_saber_frame.h"
 
 #include "mmx_saber_attack.h"
+#include "mmx_saber_combo.h"
 #include "mmx_saber_input.h"
 
 static bool release_pending;
@@ -21,6 +22,7 @@ static void state_reset(uint8_t *ram) {
     MmxSaberAttackResetRam(ram);
   else
     MmxSaberAttackReset();
+  MmxSaberComboReset(ram);
   MmxSaberAttackResetCueCount();
   release_pending = false;
   previous_y = false;
@@ -117,21 +119,26 @@ static bool zero_dead_or_reset(const uint8_t *ram) {
 
 static void player_end(uint8_t *ram) {
   if (!ram) {
+    MmxSaberComboCancel(NULL);
     MmxSaberAttackExit(NULL, MMX_SABER_ATTACK_EXIT_CONTEXT);
     return;
   }
   if (zero_dead_or_reset(ram)) {
+    MmxSaberComboCancel(ram);
     MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_DEATH);
     return;
   }
   if (ram[0xbaa] == 0x0e) {
+    MmxSaberComboCancel(ram);
     MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_HURT);
     return;
   }
   if (!zero_frame_context(ram)) {
+    MmxSaberComboCancel(ram);
     MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
     return;
   }
+  MmxSaberComboPlayerEnd(ram);
   MmxSaberAttackPlayerEnd(ram);
 }
 
@@ -146,6 +153,7 @@ static void pre_player(uint8_t *ram) {
   if (!zero_frame_context(ram)) {
     /* This also handles an exchange to X, title/menu frames, and an upstream
      * Zero lifecycle transition. Do not touch any native input byte. */
+    MmxSaberComboCancel(ram);
     MmxSaberAttackResetRam(ram);
     release_pending = false;
     previous_y = ram && (ram[0x00ac] & 0x40) != 0;
@@ -156,6 +164,9 @@ static void pre_player(uint8_t *ram) {
   saber = MmxSaberAttackPadState(release_pending);
   pre_native_saber = saber;
   MmxSaberAttackObservePreNative(ram);
+  const bool finisher_claimed = MmxSaberComboPrePlayer(
+      ram, (physical.buttons & MMX_SABER_PAD_Y) != 0 &&
+          !(physical.prev_buttons & MMX_SABER_PAD_Y));
   /* A Saber-only frame must not create a buster charge. Once X is held, its
    * release edge, or an existing latch, the buster path remains available so
    * charge can continue through the slash and CR1 can fire after recovery. */
@@ -172,6 +183,7 @@ static void pre_player(uint8_t *ram) {
    * only then compute/write the native pad.  saber_pressed is phase-independent,
    * so the pad written for this frame already reflects a newly started slash. */
   out = MmxSaberComputePad(physical, read_native_pad(ram), saber, zero);
+  if (finisher_claimed) out.saber_pressed = false;
   if (zero.hurt)
     MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_HURT);
   else if (zero.dead_or_reset)
@@ -216,6 +228,7 @@ static const MmxZeroExtension extension = {
     .pre_player = pre_player,
     .player_end = player_end,
     .legacy_intent = legacy_intent,
+    .legacy_slash_request = MmxSaberComboLegacySlashRequest,
     .charge_cap = charge_cap,
     .weapon_tick = MmxSaberAttackWeaponTick,
     .damage = MmxSaberAttackDamage,

@@ -4,6 +4,7 @@ set(_saber_wave_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_wave.c")
 set(_saber_wave_assets_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_wave_assets.c")
 set(_saber_sfx_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_sfx.c")
 set(_saber_input_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_input.c")
+set(_saber_combo_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_combo.c")
 set(_saber_attack_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_attack.c")
 set(_saber_frame_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_frame.c")
 set(_saber_render_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_render.c")
@@ -87,6 +88,7 @@ if(TARGET MegaManXSNESRecomp)
         "${_saber_plugin_source}" "${_saber_assets_source}"
         "${_saber_wave_source}" "${_saber_wave_assets_source}"
         "${_saber_sfx_source}" "${_saber_input_source}"
+        "${_saber_combo_source}"
         "${_saber_attack_source}"
         "${_saber_frame_source}" "${_saber_render_source}")
     if(TARGET saber_asset_caches)
@@ -102,6 +104,7 @@ if(MMX_STATE_TESTS AND TARGET mmx_state_tests)
         "${_saber_plugin_source}" "${_saber_assets_source}"
         "${_saber_wave_source}" "${_saber_wave_assets_source}"
         "${_saber_sfx_source}" "${_saber_input_source}"
+        "${_saber_combo_source}"
         "${_saber_attack_source}"
         "${_saber_frame_source}" "${_saber_render_source}")
     if(TARGET saber_asset_caches)
@@ -134,6 +137,7 @@ if(MMX_STATE_TESTS AND TARGET mmx_state_tests)
         "${_saber_plugin_source}" "${_saber_assets_source}"
         "${_saber_wave_source}" "${_saber_wave_assets_source}"
         "${_saber_sfx_source}" "${_saber_input_source}"
+        "${_saber_combo_source}"
         "${_saber_attack_source}"
         "${_saber_frame_source}" "${_saber_render_source}")
     foreach(_property INCLUDE_DIRECTORIES COMPILE_DEFINITIONS COMPILE_OPTIONS LINK_LIBRARIES LINK_OPTIONS)

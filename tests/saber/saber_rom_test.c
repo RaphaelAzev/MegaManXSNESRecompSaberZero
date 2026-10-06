@@ -10,6 +10,7 @@
 #include "mmx_weapons.h"
 #include "saber/mmx_saber_assets.h"
 #include "saber/mmx_saber_attack.h"
+#include "saber/mmx_saber_combo.h"
 #include "saber/mmx_saber_frame.h"
 #include "saber/mmx_saber_plugin.h"
 #include "saber/mmx_saber_sfx.h"
@@ -3512,6 +3513,256 @@ static void activate_zero(const char *x1_rom, const char *x3_rom,
   check(readable_file(assets), "isolated X3 Zero asset cache exists");
 }
 
+static unsigned saber_finisher_slot_with_tag(unsigned tag) {
+  for (unsigned d = 0x1228; d < 0x1428; d += 64)
+    if (read_ram_word(g_ram, d + 0x3e) == tag) return d;
+  return 0;
+}
+
+static unsigned saber_finisher_wave_slot(void) {
+  for (unsigned d = 0x1228; d < 0x1428; d += 64) {
+    const unsigned tag = read_ram_word(g_ram, d + 0x3e);
+    if ((tag & MMX_SABER_WAVE_TAG_FAMILY_MASK) ==
+            MMX_SABER_WAVE_TAG_FAMILY && !g_ram[d] && g_ram[d + 1] == 0x80)
+      return d;
+  }
+  return 0;
+}
+
+static unsigned saber_finisher_free_slots(void) {
+  unsigned free_count = 0;
+  for (unsigned d = 0x1228; d < 0x1428; d += 64)
+    free_count += read_ram_word(g_ram, d) == 0;
+  return free_count;
+}
+
+static void saber_finisher_fill_free_slots(void) {
+  for (unsigned d = 0x1228; d < 0x1428; d += 64) {
+    if (read_ram_word(g_ram, d) != 0) continue;
+    g_ram[d] = 1;
+    g_ram[d + 1] = 2;
+    g_ram[d + 10] = 3;
+  }
+}
+
+static void saber_finisher_window_setup(const char *fixture) {
+  bool opened = false;
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  release_charge_button(150, SNES_PAD_X);
+  check(MmxZeroGetState().combo == 1,
+        "finisher setup stores the capped tier-8 first burst");
+  for (unsigned i = 0; i < 240 &&
+       (MmxZeroGetState().burst || MmxZeroGetState().shot_mask ||
+        g_ram[0xc25]); ++i)
+    frame(0);
+  check(MmxZeroGetState().combo == 1,
+        "finisher setup retires burst 1 while retaining the combo step");
+  frame(SNES_PAD_X);
+  check(MmxZeroGetState().burst == 2,
+        "finisher setup starts the X3 second burst from a fresh X edge");
+  if (MmxSaberComboWindowTicks()) opened = true;
+  for (unsigned i = 0; i < 120 && !opened; ++i) {
+    frame(0);
+    opened = MmxSaberComboWindowTicks() != 0;
+  }
+  check(opened, "finisher setup observes a window after a live second shot");
+}
+
+static void saber_finisher_accept_checks(const char *fixture) {
+  uint8_t buster_live_before[8] = {0};
+  bool buster_survived = false;
+  unsigned cue_count;
+
+  saber_finisher_window_setup(fixture);
+  check(MmxSaberComboWindowTicks() == MMX_SABER_DEFAULT_FINISHER_WINDOW,
+        "default finisher window is 27 frames on the second-shot frame");
+  for (unsigned i = 0; i < 8; ++i) {
+    const unsigned d = 0x1228 + i * 64;
+    buster_live_before[i] = (unsigned char)(g_ram[d] &&
+        g_ram[d + 10] == SABER_TIER_8_RELEASE_CLASS &&
+        read_ram_word(g_ram, d + 0x3e) != 0x5a53);
+  }
+  cue_count = MmxSaberComboFinisherCueCount();
+  frame(SNES_PAD_Y);
+  for (unsigned i = 0; i < 8; ++i) {
+    const unsigned d = 0x1228 + i * 64;
+    buster_survived |= buster_live_before[i] && g_ram[d] &&
+        g_ram[d + 10] == SABER_TIER_8_RELEASE_CLASS;
+  }
+  const unsigned slash_slot = saber_finisher_slot_with_tag(0x5a53);
+  const unsigned wave_slot = saber_finisher_wave_slot();
+  check(MmxZeroGetState().slash == 1 && slash_slot && wave_slot &&
+            slash_slot != wave_slot,
+        "Y in the finisher window publishes $5A53 and a distinct inactive $5600 slot");
+  check(g_ram[wave_slot] == 0 && g_ram[wave_slot + 1] == 0x80 &&
+            (read_ram_word(g_ram, wave_slot + 0x3e) & 0xff) != 0,
+        "the reserved wave slot is inactive with a nonzero generation");
+  check(MmxSaberAttackSnapshotGet().phase == SABER_PHASE_IDLE,
+        "the window Y claim does not start a donor ground slash");
+  check(buster_survived, "the flying second buster shot remains untouched");
+  check(MmxSaberComboFinisherCueCount() == cue_count + 1 &&
+            MmxSaberSfxLastClip() == MMX_SABER_SFX_CLIP_SABER_3,
+        "accepted upstream slash plays exactly one saber_3 finisher cue");
+}
+
+static void saber_finisher_timing_checks(const char *fixture) {
+  saber_finisher_window_setup(fixture);
+  for (unsigned i = 0; i < MMX_SABER_DEFAULT_FINISHER_WINDOW - 1; ++i)
+    frame(0);
+  check(MmxSaberComboWindowTicks() == 1,
+        "the first eligible pre-player frame counts down to remaining 1");
+  frame(SNES_PAD_Y);
+  check(MmxZeroGetState().slash == 1 &&
+            MmxSaberComboFinisherCueCount() == 1,
+        "Y at remaining 1 still starts the upstream finisher");
+
+  saber_finisher_window_setup(fixture);
+  idle(MMX_SABER_DEFAULT_FINISHER_WINDOW);
+  check(MmxSaberComboWindowTicks() == 0,
+        "the inclusive finisher window expires after its final no-input frame");
+  frame(SNES_PAD_Y);
+  check(!MmxZeroGetState().slash &&
+            MmxSaberAttackSnapshotGet().kind == SABER_KIND_GROUND1 &&
+            MmxSaberAttackSnapshotGet().phase == SABER_PHASE_STARTUP,
+        "Y one frame after expiry becomes the normal donor ground slash");
+}
+
+static void saber_finisher_option_checks(const char *fixture) {
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, "megaman-x.character.saber-zero",
+            "saber-zero", "finisher_window_frames", "60"),
+        "test catalog sets finisher_window_frames through feature_set_option");
+  printf("reference: finisher_window_frames=60 set through the copied catalog "
+         "feature_set_option API before plugin activation\n");
+  snes_mod_runtime_activate_plugins_c();
+  check(MmxSaberEnabled(), "option-60 reactivation keeps Saber enabled");
+  saber_finisher_window_setup(fixture);
+  check(MmxSaberComboWindowTicks() == 60,
+        "finisher_window_frames option opens a 60-frame window");
+}
+
+static void saber_finisher_atomic_checks(const char *fixture) {
+  unsigned keep;
+
+  saber_finisher_window_setup(fixture);
+  keep = 0;
+  for (unsigned d = 0x1228; d < 0x1428; d += 64) {
+    if (read_ram_word(g_ram, d) == 0) {
+      keep = d;
+      break;
+    }
+  }
+  check(keep && saber_finisher_free_slots() >= 2,
+        "atomic reservation probe finds at least two free slots before fill");
+  saber_finisher_fill_free_slots();
+  check(saber_finisher_free_slots() == 0,
+        "atomic reservation probe can fill the projectile pool");
+  g_ram[keep] = 0;
+  g_ram[keep + 1] = 0;
+  check(saber_finisher_free_slots() == 1,
+        "atomic reservation probe leaves exactly one free projectile slot");
+  frame(SNES_PAD_Y);
+  check(!MmxZeroGetState().slash && !saber_finisher_wave_slot() &&
+            !MmxSaberComboReservedSlot() &&
+            MmxSaberAttackSnapshotGet().phase == SABER_PHASE_IDLE,
+        "one free projectile slot makes the finisher claim atomic and inert");
+}
+
+static void saber_finisher_gate_checks(const char *fixture) {
+  unsigned char previous[8] = {0};
+  unsigned buster_births;
+  unsigned special_births;
+
+  saber_finisher_window_setup(fixture);
+  frame(SNES_PAD_Y);
+  check(MmxZeroGetState().slash == 1,
+        "gate probe starts from an accepted upstream finisher");
+  shot_presence(0, previous);
+  frame(SNES_PAD_X);
+  buster_births = new_projectiles(0, previous);
+  frame(0);
+  check(buster_births == 0,
+        "a buster X tap fires nothing while the upstream finisher is active");
+
+  g_ram[0xbdb] = 4; /* Fire Wave. */
+  g_ram[0x1f89] = 0;
+  g_ram[0x1f8a] = 0xdc;
+  memset(previous, 0, sizeof(previous));
+  shot_presence(8, previous);
+  frame(SNES_PAD_X);
+  special_births = new_projectiles(8, previous);
+  check(special_births == 0,
+        "a Fire Wave X tap fires nothing while the upstream finisher is active");
+}
+
+static void saber_finisher_no_emission_checks(const char *fixture) {
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  release_charge_button(150, SNES_PAD_X);
+  for (unsigned i = 0; i < 240 && MmxZeroGetState().burst; ++i)
+    frame(0);
+  check(MmxZeroGetState().combo == 1 && !MmxSaberComboWindowTicks(),
+        "single X3 burst has no finisher window");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  release_charge_button(150, SNES_PAD_X);
+  for (unsigned i = 0; i < 240 && MmxZeroGetState().burst; ++i)
+    frame(0);
+  saber_finisher_fill_free_slots();
+  check(saber_finisher_free_slots() == 0,
+        "no-emission probe fills the pool before the second-burst request");
+  frame(SNES_PAD_X);
+  check(MmxZeroGetState().burst != 2 && !MmxSaberComboWindowTicks(),
+        "a full pool prevents the second burst from opening a window");
+
+  /* Start burst 2 with one free slot, then keep it full through the emission
+   * phase. This exercises the actual burst-2/no-new-live-bit path. */
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  release_charge_button(150, SNES_PAD_X);
+  for (unsigned i = 0; i < 240 && MmxZeroGetState().burst; ++i)
+    frame(0);
+  saber_finisher_fill_free_slots();
+  unsigned keep = 0;
+  for (unsigned d = 0x1228; d < 0x1428; d += 64) {
+    if (read_ram_word(g_ram, d) != 0) continue;
+    keep = d;
+    break;
+  }
+  check(keep == 0, "no-emission setup initially has a full native pool");
+  /* The save reload above leaves all slots free after burst 1. Make exactly
+   * one slot free for the second-burst request, then refill after it starts. */
+  g_ram[0x1228] = 0;
+  g_ram[0x1229] = 0;
+  for (unsigned d = 0x1228 + 64; d < 0x1428; d += 64) {
+    g_ram[d] = 1;
+    g_ram[d + 1] = 2;
+    g_ram[d + 10] = 3;
+  }
+  frame(SNES_PAD_X);
+  check(MmxZeroGetState().burst == 2,
+        "no-emission probe starts burst 2 while one slot is free");
+  for (unsigned i = 0; i < 60 && !MmxSaberComboWindowTicks(); ++i) {
+    saber_finisher_fill_free_slots();
+    frame(0);
+  }
+  check(!MmxSaberComboWindowTicks(),
+        "burst 2 with no newly live emitted slot does not open a window");
+}
+
+static void saber_finisher_checks(const char *fixture) {
+  saber_finisher_accept_checks(fixture);
+  saber_finisher_timing_checks(fixture);
+  saber_finisher_option_checks(fixture);
+  saber_finisher_atomic_checks(fixture);
+  saber_finisher_gate_checks(fixture);
+  saber_finisher_no_emission_checks(fixture);
+  puts("ok: saber-finisher");
+}
+
 static void zero_hook_parity_checks(const char *fixture) {
   check(!MmxSaberEnabled(), "zero-hook-parity runs with Saber disabled");
   zero_extension_checks(fixture);
@@ -3799,6 +4050,7 @@ int main(int argc, char **argv) {
   g_spc_player->initialize(g_spc_player);
 
   const bool saber_package = only && !strcmp(only, "saber-package");
+  const bool saber_finisher = only && !strcmp(only, "saber-finisher");
   const bool zero_extension = only && !strcmp(only, "zero-extension");
   const bool saber_input = only && !strcmp(only, "saber-input");
   const bool saber_ground_1 = only && !strcmp(only, "saber-ground-1");
@@ -3820,7 +4072,7 @@ int main(int argc, char **argv) {
       saber_input || saber_ground_1 || saber_ground_combo ||
       saber_air || saber_wall || saber_dash || saber_land || saber_ground_lifecycle ||
       saber_ground_hit || saber_cancel || saber_lifecycle_load ||
-      saber_render_snapshot || saber_buster_rules;
+      saber_render_snapshot || saber_buster_rules || saber_finisher;
   SpecialCounts upstream_specials = {0};
   if (saber_input || saber_buster_rules) {
     activate_zero(argv[1], x3_rom, assets, false, false);
@@ -3874,6 +4126,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-buster-rules runs with the Saber package enabled");
     saber_buster_rule_checks(fixture, fixture_dir);
+  } else if (saber_finisher) {
+    check(MmxSaberEnabled(),
+          "saber-finisher runs with the Saber package enabled");
+    saber_finisher_checks(fixture);
   } else if (saber_ground_hit) {
     check(MmxSaberEnabled(),
           "saber-ground-hit runs with the Saber package enabled");
@@ -3930,6 +4186,7 @@ int main(int argc, char **argv) {
         strcmp(only, "x3-post-charge") && strcmp(only, "x1-native") &&
         strcmp(only, "x3-zero-specials") &&
       strcmp(only, "saber-package") && strcmp(only, "saber-input") &&
+      strcmp(only, "saber-finisher") &&
       strcmp(only, "saber-ground-1") &&
       strcmp(only, "saber-ground-combo") &&
       strcmp(only, "saber-air") &&
