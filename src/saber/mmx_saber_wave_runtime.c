@@ -10,7 +10,15 @@ enum {
   MMX_SABER_WAVE_SLOT_END = 0x1428,
   MMX_SABER_WAVE_STAGE = 0x1f7a,
   MMX_SABER_WAVE_CAMERA = 0x1e4d,
-  MMX_SABER_WAVE_COUNT = 0x0bdd
+  MMX_SABER_WAVE_COUNT = 0x0bdd,
+  /* The native contact bridge writes the projectile's $30..$3A response
+   * bytes after the damage callback. Keep the two guards used by the old
+   * target-live check in the otherwise unused tail before the native $3e tag;
+   * the original ABI bytes remain the native response record. */
+  MMX_SABER_WAVE_ID_MARKER = 0x3b,
+  MMX_SABER_WAVE_ID_KIND = 0x3c,
+  MMX_SABER_WAVE_ID_STAGE = 0x3d,
+  MMX_SABER_WAVE_ID_MARKER_VALUE = 0xa5
 };
 
 typedef struct MmxSaberWaveCollision {
@@ -52,6 +60,29 @@ static bool tagged(const uint8_t *ram, unsigned slot) {
 
 static bool live(const uint8_t *ram, unsigned slot) {
   return tagged(ram, slot) && ram[slot] != 0;
+}
+
+static bool target_slot_valid(unsigned enemy) {
+  return enemy >= 0xe68 && enemy < 0x1228 &&
+      (enemy & (MMX_SABER_WAVE_SLOT_BYTES - 1)) == 0x28;
+}
+
+static bool identity_recorded(const uint8_t *ram, unsigned slot) {
+  return live(ram, slot) &&
+      ram[slot + MMX_SABER_WAVE_ID_MARKER] ==
+          MMX_SABER_WAVE_ID_MARKER_VALUE;
+}
+
+static uint8_t target_kind(const uint8_t *ram, unsigned slot) {
+  return identity_recorded(ram, slot) ?
+      ram[slot + MMX_SABER_WAVE_ID_KIND] :
+      ram[slot + MMX_SABER_WAVE_SLOT_TARGET_KIND];
+}
+
+static uint8_t target_stage(const uint8_t *ram, unsigned slot) {
+  return identity_recorded(ram, slot) ?
+      ram[slot + MMX_SABER_WAVE_ID_STAGE] :
+      ram[slot + MMX_SABER_WAVE_SLOT_STAGE];
 }
 
 static bool free_slot(const uint8_t *ram, unsigned slot) {
@@ -195,10 +226,10 @@ void MmxSaberWaveRuntimeObserveStage(uint8_t *ram) {
   if (!target) return;
   for (unsigned slot = MMX_SABER_WAVE_SLOT_FIRST;
        slot < MMX_SABER_WAVE_SLOT_END; slot += MMX_SABER_WAVE_SLOT_BYTES)
-    if (tagged(target, slot) &&
-        target[slot + MMX_SABER_WAVE_SLOT_STAGE] !=
-            target[MMX_SABER_WAVE_STAGE])
-      retire_slot(target, slot);
+    if (tagged(target, slot)) {
+      if (target_stage(target, slot) != target[MMX_SABER_WAVE_STAGE])
+        retire_slot(target, slot);
+    }
 }
 
 void MmxSaberWaveRuntimeRetireAll(uint8_t *ram) {
@@ -218,17 +249,46 @@ bool MmxSaberWaveRuntimeOwns(const uint8_t *ram, unsigned slot) {
   return live(ram, slot);
 }
 
+bool MmxSaberWaveRuntimeActive(const uint8_t *ram) {
+  const uint8_t *target = ram ? ram : runtime_ram;
+  if (!target) return false;
+  for (unsigned slot = MMX_SABER_WAVE_SLOT_FIRST;
+       slot < MMX_SABER_WAVE_SLOT_END; slot += MMX_SABER_WAVE_SLOT_BYTES)
+    if (live(target, slot)) return true;
+  return false;
+}
+
+static bool target_live(const uint8_t *ram, unsigned slot) {
+  unsigned enemy;
+  if (!live(ram, slot) ||
+      ram[slot + MMX_SABER_WAVE_SLOT_STATE] !=
+          MMX_SABER_WAVE_SLOT_STATE_CUTTING)
+    return false;
+  enemy = word(ram + slot + MMX_SABER_WAVE_SLOT_TARGET);
+  return target_slot_valid(enemy) && ram[enemy] &&
+      ram[enemy + 10] == target_kind(ram, slot);
+}
+
+static bool collision_due(const uint8_t *ram, unsigned slot) {
+  return live(ram, slot) &&
+      word(ram + slot + 0x20) == MMX_SABER_WAVE_COLLISION_POINTER;
+}
+
 unsigned MmxSaberWaveRuntimeWeaponTick(uint8_t *ram, unsigned slot,
                                        unsigned value) {
   uint8_t age;
+  uint8_t wave_state;
   uint8_t *target = target_ram(ram);
   (void)value;
   if (!target || !live(target, slot)) return value;
   if (!collision.ready ||
-      target[slot + MMX_SABER_WAVE_SLOT_STAGE] !=
-          target[MMX_SABER_WAVE_STAGE] ||
-      target[slot + MMX_SABER_WAVE_SLOT_STATE] !=
-          MMX_SABER_WAVE_SLOT_STATE_TRAVEL) {
+      target_stage(target, slot) != target[MMX_SABER_WAVE_STAGE]) {
+    retire_slot(target, slot);
+    return 0;
+  }
+  wave_state = target[slot + MMX_SABER_WAVE_SLOT_STATE];
+  if (wave_state != MMX_SABER_WAVE_SLOT_STATE_TRAVEL &&
+      wave_state != MMX_SABER_WAVE_SLOT_STATE_CUTTING) {
     retire_slot(target, slot);
     return 0;
   }
@@ -240,6 +300,31 @@ unsigned MmxSaberWaveRuntimeWeaponTick(uint8_t *ram, unsigned slot,
   if (target[slot + MMX_SABER_WAVE_SLOT_BIRTH]) {
     target[slot + MMX_SABER_WAVE_SLOT_BIRTH] = 0;
     if (offscreen(target, slot)) retire_slot(target, slot);
+    return 0;
+  }
+  if (wave_state == MMX_SABER_WAVE_SLOT_STATE_CUTTING) {
+    unsigned enemy;
+    uint8_t countdown;
+    if (target[slot + MMX_SABER_WAVE_SLOT_PULSES] >=
+            MMX_SABER_WAVE_MAX_PULSES ||
+        !target_live(target, slot)) {
+      retire_slot(target, slot);
+      return 0;
+    }
+    enemy = word(target + slot + MMX_SABER_WAVE_SLOT_TARGET);
+    putword(target + slot + 5, word(target + enemy + 5));
+    putword(target + slot + 8, word(target + enemy + 8));
+    ++age;
+    target[slot + MMX_SABER_WAVE_SLOT_AGE] = age;
+    if (age >= MMX_SABER_WAVE_LIFETIME) {
+      retire_slot(target, slot);
+      return 0;
+    }
+    countdown = target[slot + MMX_SABER_WAVE_SLOT_COUNTDOWN];
+    if (countdown) --countdown;
+    target[slot + MMX_SABER_WAVE_SLOT_COUNTDOWN] = countdown;
+    putword(target + slot + 0x20,
+            countdown ? 0 : MMX_SABER_WAVE_COLLISION_POINTER);
     return 0;
   }
   {
@@ -260,16 +345,96 @@ unsigned MmxSaberWaveRuntimeWeaponTick(uint8_t *ram, unsigned slot,
 
 unsigned MmxSaberWaveRuntimeDamage(uint8_t *ram, unsigned enemy,
                                    unsigned slot, unsigned value) {
-  (void)enemy;
-  if (!MmxSaberWaveRuntimeOwns(ram, slot)) return value;
-  /* No damage yet: the next wave unit replaces this harmless pass-through. */
-  return 0;
+  uint8_t *target = target_ram(ram);
+  uint8_t wave_state;
+  uint8_t pulses;
+  unsigned target_enemy;
+  if (!target || !live(target, slot)) return value;
+  if (value & 128) {
+    /* Old src/mmx_saber.c:2450-2452 retires on reflection/special response. */
+    retire_slot(target, slot);
+    return value;
+  }
+  if (!collision.ready ||
+      target_stage(target, slot) != target[MMX_SABER_WAVE_STAGE]) {
+    retire_slot(target, slot);
+    return value;
+  }
+  wave_state = target[slot + MMX_SABER_WAVE_SLOT_STATE];
+  if (wave_state != MMX_SABER_WAVE_SLOT_STATE_TRAVEL &&
+      wave_state != MMX_SABER_WAVE_SLOT_STATE_CUTTING) {
+    retire_slot(target, slot);
+    return value;
+  }
+  if (!target_slot_valid(enemy) || !value) {
+    /* Native immunity is deliberately a no-op: the wave keeps travelling. */
+    return value;
+  }
+  if (wave_state == MMX_SABER_WAVE_SLOT_STATE_TRAVEL) {
+    if (!target[enemy]) return value;
+    putword(target + slot + MMX_SABER_WAVE_SLOT_TARGET, enemy);
+    target[slot + MMX_SABER_WAVE_SLOT_STATE] =
+        MMX_SABER_WAVE_SLOT_STATE_CUTTING;
+    target[slot + MMX_SABER_WAVE_SLOT_PULSES] = 1;
+    target[slot + MMX_SABER_WAVE_SLOT_COUNTDOWN] =
+        MMX_SABER_WAVE_PULSE_FRAMES;
+    target[slot + MMX_SABER_WAVE_SLOT_TARGET_KIND] = target[enemy + 10];
+    target[slot + MMX_SABER_WAVE_SLOT_TARGET_STATE] = target[enemy + 1];
+    target[slot + MMX_SABER_WAVE_SLOT_STAGE] = target[MMX_SABER_WAVE_STAGE];
+    target[slot + MMX_SABER_WAVE_SLOT_TARGET_SUBSTATE] = target[enemy + 2];
+    target[slot + MMX_SABER_WAVE_SLOT_TARGET_FLAGS] = target[enemy + 3];
+    target[slot + MMX_SABER_WAVE_ID_KIND] = target[enemy + 10];
+    target[slot + MMX_SABER_WAVE_ID_STAGE] = target[MMX_SABER_WAVE_STAGE];
+    target[slot + MMX_SABER_WAVE_ID_MARKER] =
+        MMX_SABER_WAVE_ID_MARKER_VALUE;
+    putword(target + slot + 0x20, 0);
+    return MMX_SABER_WAVE_DAMAGE;
+  }
+  if (target[slot + MMX_SABER_WAVE_SLOT_STATE] !=
+      MMX_SABER_WAVE_SLOT_STATE_CUTTING) {
+    retire_slot(target, slot);
+    return value;
+  }
+  target_enemy = word(target + slot + MMX_SABER_WAVE_SLOT_TARGET);
+  if (enemy != target_enemy) return 0;
+  if (!target_live(target, slot)) {
+    retire_slot(target, slot);
+    return 0;
+  }
+  if (!collision_due(target, slot)) return 0;
+  pulses = target[slot + MMX_SABER_WAVE_SLOT_PULSES];
+  if (!pulses || pulses >= MMX_SABER_WAVE_MAX_PULSES) {
+    retire_slot(target, slot);
+    return 0;
+  }
+  ++pulses;
+  target[slot + MMX_SABER_WAVE_SLOT_PULSES] = pulses;
+  if (pulses >= MMX_SABER_WAVE_MAX_PULSES) {
+    /* Retire after returning the third native override. */
+    retire_slot(target, slot);
+  } else {
+    target[slot + MMX_SABER_WAVE_SLOT_COUNTDOWN] =
+        MMX_SABER_WAVE_PULSE_FRAMES;
+    putword(target + slot + 0x20, 0);
+  }
+  return MMX_SABER_WAVE_DAMAGE;
 }
 
 unsigned MmxSaberWaveRuntimeHitbox(const uint8_t *ram, unsigned enemy,
                                    unsigned slot, unsigned value) {
-  (void)enemy;
-  if (MmxSaberWaveRuntimeOwns(ram, slot)) return 0;
+  uint8_t wave_state;
+  if (!MmxSaberWaveRuntimeOwns(ram, slot)) return value;
+  if (target_stage(ram, slot) != ram[MMX_SABER_WAVE_STAGE])
+    return 0;
+  wave_state = ram[slot + MMX_SABER_WAVE_SLOT_STATE];
+  if (wave_state != MMX_SABER_WAVE_SLOT_STATE_TRAVEL &&
+      wave_state != MMX_SABER_WAVE_SLOT_STATE_CUTTING)
+    return 0;
+  if (!collision_due(ram, slot)) return 0;
+  if (wave_state == MMX_SABER_WAVE_SLOT_STATE_CUTTING) {
+    if (enemy != word(ram + slot + MMX_SABER_WAVE_SLOT_TARGET) ||
+        !target_live(ram, slot)) return 0;
+  }
   return value;
 }
 

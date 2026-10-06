@@ -995,7 +995,8 @@ uint8_t MmxSaberAttackFacing(void) {
 }
 
 MmxSaberPadSaber MmxSaberAttackPadState(bool release_pending) {
-  return (MmxSaberPadSaber){state.phase, state.kind, false,
+  return (MmxSaberPadSaber){state.phase, state.kind,
+                            false,
                             MmxZeroGetState().slash != 0,
                             release_pending};
 }

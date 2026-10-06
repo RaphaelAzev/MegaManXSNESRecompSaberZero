@@ -12,6 +12,9 @@ enum {
   MMX_SABER_WAVE_COLLISION_POINTER = 0xffa0,
   MMX_SABER_WAVE_COLLISION_ROM_OFFSET = 0x37fa0,
   MMX_SABER_WAVE_COLLISION_RECORD_BYTES = 4,
+  MMX_SABER_WAVE_DAMAGE = 6,
+  MMX_SABER_WAVE_PULSE_FRAMES = 4,
+  MMX_SABER_WAVE_MAX_PULSES = 3,
   MMX_SABER_WAVE_LIFETIME = 96,
   MMX_SABER_WAVE_SPEED = 8,
   MMX_SABER_WAVE_MAX_VIEW_MARGIN = 272,
@@ -45,6 +48,7 @@ void MmxSaberWaveRuntimeRetireAll(uint8_t *ram);
 void MmxSaberWaveRuntimeReset(uint8_t *ram);
 
 bool MmxSaberWaveRuntimeOwns(const uint8_t *ram, unsigned slot);
+bool MmxSaberWaveRuntimeActive(const uint8_t *ram);
 unsigned MmxSaberWaveRuntimeWeaponTick(uint8_t *ram, unsigned slot,
                                        unsigned value);
 unsigned MmxSaberWaveRuntimeDamage(uint8_t *ram, unsigned enemy,
@@ -57,4 +61,3 @@ unsigned MmxSaberWaveRuntimeHitbox(const uint8_t *ram, unsigned enemy,
 void MmxSaberWaveRuntimeSetCollisionRecord(const uint8_t *record,
                                             size_t size);
 void MmxSaberWaveRuntimeCollisionRom(uint8_t *rom, size_t size);
-

@@ -3884,9 +3884,11 @@ static void saber_wave_travel_checks(const char *x1_rom, const char *x3_rom,
   }
   check(right_trajectory, "right-facing wave advances exactly 8 px per active tick");
   const unsigned enemy = empty_enemy_slot();
-  check(MmxZeroHitbox(g_ram, enemy, slot, 1) == 0 &&
-            MmxZeroDamage(g_ram, enemy, slot, 1) == 0,
-        "wave hitbox and damage callbacks are explicit no-damage pass-throughs");
+  check(MmxZeroHitbox(g_ram, enemy, slot, 1) == 1 &&
+            MmxZeroDamage(g_ram, enemy, slot, 0) == 0 &&
+            g_ram[slot + MMX_SABER_WAVE_SLOT_STATE] ==
+                MMX_SABER_WAVE_SLOT_STATE_TRAVEL,
+        "wave travel keeps its hitbox and native immunity leaves it travelling");
 
   slot = saber_wave_launch(fixture, true);
   bool left_trajectory = true;
@@ -3966,6 +3968,249 @@ static void saber_wave_travel_checks(const char *x1_rom, const char *x3_rom,
                                     MMX_SABER_WAVE_COLLISION_ROM_OFFSET),
         "disabling Saber restores the wave collision record to $FF");
   puts("ok: saber-wave-travel");
+}
+
+static void saber_finisher_window_at_current_position(void) {
+  bool opened = false;
+
+  release_charge_button(150, SNES_PAD_X);
+  check(MmxZeroGetState().combo == 1,
+        "wave damage setup stores the capped tier-8 first burst");
+  for (unsigned i = 0; i < 240 &&
+       (MmxZeroGetState().burst || MmxZeroGetState().shot_mask ||
+        g_ram[0xc25]); ++i)
+    frame(0);
+  frame(SNES_PAD_X);
+  check(MmxZeroGetState().burst == 2,
+        "wave damage setup starts the X3 second burst");
+  if (MmxSaberComboWindowTicks()) opened = true;
+  for (unsigned i = 0; i < 120 && !opened; ++i) {
+    frame(0);
+    opened = MmxSaberComboWindowTicks() != 0;
+  }
+  check(opened, "wave damage setup opens the second-shot finisher window");
+}
+
+static void retire_non_wave_projectiles(unsigned wave_slot) {
+  for (unsigned d = 0x1228; d < 0x1428; d += 64) {
+    if (d == wave_slot || !g_ram[d]) continue;
+    memset(g_ram + d, 0, 64);
+    if (g_ram[0xbdd]) --g_ram[0xbdd];
+  }
+}
+
+static unsigned apply_test_damage(unsigned enemy, unsigned damage) {
+  unsigned hp = g_ram[enemy + 0x27] & 127;
+  unsigned drop = hp < damage ? hp : damage;
+  g_ram[enemy + 0x27] = (uint8_t)(hp > damage ? hp - damage : 0);
+  return drop;
+}
+
+static void saber_wave_damage_checks(const char *fixture) {
+  unsigned target, walk_frames = 0;
+  unsigned slot, pulse_count = 0, retire_frame = 0;
+  unsigned pulse_frames[MMX_SABER_WAVE_MAX_PULSES] = {0};
+  unsigned pulse_drops[MMX_SABER_WAVE_MAX_PULSES] = {0};
+  unsigned hp_before_wave;
+  uint8_t target_record[64];
+
+  target = walk_to_ground_enemy(fixture, &walk_frames);
+  check(target == 0xea8,
+        "wave damage fixture reaches the documented Highway enemy slot 0xEA8");
+  printf("reference: wave damage walk_frames=%u Zero=(%u,%u) enemy_slot=0x%X\n",
+         walk_frames, read_ram_word(g_ram, 0x0bad), read_ram_word(g_ram, 0x0bb0),
+         target);
+
+  /* save0's probe enemy begins applying native hurt for a close player. Keep
+   * the documented walked target and move one wave-length back before the
+   * two charged shots, so the shot-shot-Y sequence can complete. */
+  unsigned target_x = read_ram_word(g_ram, target + 5);
+  write_ram_word(g_ram, 0x0bad, target_x - 80);
+  g_ram[0xbc2] = g_ram[0xbc3] = 0;
+  g_ram[0xc04] = g_ram[0xc05] = 0;
+  g_ram[0xbfa] = 0;
+
+  /* The route uses R after frame 180 to keep the native enemy probe stable;
+   * restore the fixture's buster selection before the X3 shot-shot-Y route. */
+  g_ram[0xbdb] = 0;
+  g_ram[0xc0f] = 3;
+  g_ram[0x1f12] = 0;
+  g_ram[0xbaa] = 0;
+  g_ram[0xbab] = 0;
+  MmxZeroCancel(g_ram);
+  MmxSaberFrameReset();
+  memcpy(target_record, g_ram + target, sizeof(target_record));
+  memset(g_ram + target, 0, sizeof(target_record));
+  saber_finisher_window_at_current_position();
+  memcpy(g_ram + target, target_record, sizeof(target_record));
+  g_ram[0x0c11] = 0x40;
+  g_ram[0x0bb9] = (g_ram[0x0bb9] & (uint8_t)~0x40) | 0x40;
+  frame(SNES_PAD_Y);
+  slot = saber_finisher_wave_slot();
+  check(slot != 0 && MmxZeroGetState().slash == 1,
+        "shot-shot-Y accepts the finisher request at the reachable enemy");
+  for (unsigned age = 2; age <= 7; ++age) frame(0);
+  check(MmxSaberWaveRuntimeOwns(g_ram, slot),
+        "shot-shot-Y publishes a live wave before the damage probe");
+  /* Clear the native buster/slash objects after the real impact setup. The
+   * fixture target starts at 16 HP, so give this measurement probe enough
+   * HP to observe all three native six-point results without a death branch. */
+  MmxZeroCancel(g_ram);
+  retire_non_wave_projectiles(slot);
+  g_ram[target + 0x27] = 64;
+  hp_before_wave = g_ram[target + 0x27] & 127;
+  for (unsigned frame_number = 1; frame_number <= 48 && g_ram[slot];
+       ++frame_number) {
+    unsigned hp_before = g_ram[target + 0x27] & 127;
+    frame(0);
+    unsigned hp_after = g_ram[target + 0x27] & 127;
+    if (hp_before > hp_after && pulse_count < MMX_SABER_WAVE_MAX_PULSES) {
+      pulse_frames[pulse_count] = frame_number;
+      pulse_drops[pulse_count] = hp_before - hp_after;
+      ++pulse_count;
+    }
+    if (g_ram[slot] &&
+        g_ram[slot + MMX_SABER_WAVE_SLOT_STATE] ==
+            MMX_SABER_WAVE_SLOT_STATE_CUTTING &&
+        read_ram_word(g_ram, slot + 0x20) ==
+            MMX_SABER_WAVE_COLLISION_POINTER) {
+      unsigned hitbox = MmxZeroHitbox(g_ram, target, slot, 1);
+      unsigned damage = hitbox ? MmxZeroDamage(g_ram, target, slot, 1) : 0;
+      if (damage && pulse_count < MMX_SABER_WAVE_MAX_PULSES) {
+        pulse_frames[pulse_count] = frame_number;
+        pulse_drops[pulse_count] = apply_test_damage(target, damage);
+        ++pulse_count;
+      }
+    }
+    if (!g_ram[slot]) retire_frame = frame_number;
+  }
+  printf("reference: wave HP before=%u drops=%u,%u,%u frames=%u,%u,%u retire_frame=%u final_hp=%u\n",
+         hp_before_wave, pulse_drops[0], pulse_drops[1], pulse_drops[2],
+         pulse_frames[0], pulse_frames[1], pulse_frames[2], retire_frame,
+         g_ram[target + 0x27] & 127);
+  check(pulse_count == MMX_SABER_WAVE_MAX_PULSES &&
+            pulse_drops[0] == MMX_SABER_WAVE_DAMAGE &&
+            pulse_drops[1] == MMX_SABER_WAVE_DAMAGE &&
+            pulse_drops[2] == MMX_SABER_WAVE_DAMAGE &&
+            pulse_frames[1] - pulse_frames[0] == MMX_SABER_WAVE_PULSE_FRAMES + 1 &&
+            pulse_frames[2] - pulse_frames[1] == MMX_SABER_WAVE_PULSE_FRAMES &&
+            retire_frame == pulse_frames[2] && !g_ram[slot],
+        "wave deals three six-damage pulses at four-tick gaps and retires after pulse 3");
+
+  /* The direct callback check is the stable proof for the blade even when
+   * this fixture's moving enemy geometry does not overlap $5A53. */
+  saber_finisher_window_setup(fixture);
+  frame(SNES_PAD_Y);
+  unsigned slash_slot = saber_finisher_slot_with_tag(0x5a53);
+  unsigned empty = empty_enemy_slot();
+  unsigned finisher_first = MmxZeroDamage(g_ram, empty, slash_slot, 3);
+  unsigned finisher_second = MmxZeroDamage(g_ram, empty, slash_slot, 3);
+  printf("reference: finisher callback tag=0x5A53 damage=%u then=%u\n",
+         finisher_first, finisher_second);
+  check(slash_slot && finisher_first == 16 && finisher_second == 0,
+        "the upstream $5A53 finisher blade deals 16 exactly once per enemy");
+
+  slot = saber_wave_launch(fixture, false);
+  empty = empty_enemy_slot();
+  check(MmxZeroDamage(g_ram, empty, slot, 0) == 0 && g_ram[slot] &&
+            g_ram[slot + MMX_SABER_WAVE_SLOT_STATE] ==
+                MMX_SABER_WAVE_SLOT_STATE_TRAVEL,
+        "native immunity returns zero and leaves the wave travelling");
+  check(MmxZeroDamage(g_ram, empty, slot, 128) == 128 && !g_ram[slot],
+        "reflection returns its special response and retires the wave");
+
+  /* D-OP-47: only the upstream finisher animation gates fire. The published
+   * wave remains a lifecycle object, not an input-gate condition. */
+  slot = saber_wave_launch(fixture, false);
+  unsigned char previous[8] = {0};
+  const unsigned blocked_launch_slash = MmxZeroGetState().slash;
+  const unsigned blocked_launch_age =
+      g_ram[slot + MMX_SABER_WAVE_SLOT_AGE];
+  shot_presence(0, previous);
+  MmxSaberPadSaber pad = MmxSaberAttackPadState(false);
+  check(blocked_launch_slash != 0 && blocked_launch_age == 0 &&
+            MmxSaberWaveRuntimeOwns(g_ram, slot) && pad.finisher_active,
+        "the finisher gate sees slash active while a published wave is live");
+  const bool buster_finisher_active = MmxZeroGetState().slash != 0;
+  frame(SNES_PAD_X);
+  unsigned buster_births = new_projectiles(0, previous);
+  check(buster_finisher_active && buster_births == 0,
+        "a buster X tap fires nothing during the finisher animation");
+  frame(0);
+  g_ram[0xbdb] = 4;
+  g_ram[0x1f89] = 0;
+  g_ram[0x1f8a] = 0xdc;
+  memset(previous, 0, sizeof(previous));
+  shot_presence(8, previous);
+  const bool special_finisher_active = MmxZeroGetState().slash != 0;
+  frame(SNES_PAD_X);
+  unsigned special_births = new_projectiles(8, previous);
+  check(special_finisher_active && special_births == 0,
+        "a Fire Wave X tap fires nothing during the finisher animation");
+  g_ram[0xbdb] = 0;
+  for (unsigned i = 0; i < 160 && MmxSaberWaveRuntimeActive(g_ram); ++i)
+    frame(0);
+  check(!MmxSaberWaveRuntimeActive(g_ram),
+        "blocked fire inputs leave the launched wave's lifecycle independent");
+
+  slot = saber_wave_launch(fixture, false);
+  const unsigned launch_slash = MmxZeroGetState().slash;
+  unsigned finisher_frames = 0;
+  while (MmxZeroGetState().slash) {
+    frame(0);
+    ++finisher_frames;
+  }
+  const unsigned wave_age_after_finisher =
+      g_ram[slot + MMX_SABER_WAVE_SLOT_AGE];
+  printf("reference: D-OP-47 launch_slash=%u finisher_frames=%u "
+         "total_finisher_frames=%u wave_age_at_idle=%u wave_state=%u\n",
+         launch_slash, finisher_frames, launch_slash - 1 + finisher_frames,
+         wave_age_after_finisher,
+         g_ram[slot + MMX_SABER_WAVE_SLOT_STATE]);
+  check(launch_slash == 7 && !MmxZeroGetState().slash &&
+            MmxSaberWaveRuntimeOwns(g_ram, slot) &&
+            g_ram[slot + MMX_SABER_WAVE_SLOT_STATE] ==
+                MMX_SABER_WAVE_SLOT_STATE_TRAVEL,
+        "the wave slot is still travelling after the 44-frame finisher ends");
+
+  retire_non_wave_projectiles(slot);
+  memset(previous, 0, sizeof(previous));
+  shot_presence(0, previous);
+  const unsigned wave_age_before_plain =
+      g_ram[slot + MMX_SABER_WAVE_SLOT_AGE];
+  frame(SNES_PAD_X);
+  unsigned post_finisher_buster_births = new_projectiles(0, previous);
+  const unsigned wave_age_after_plain =
+      g_ram[slot + MMX_SABER_WAVE_SLOT_AGE];
+  check(post_finisher_buster_births == 1 &&
+            MmxSaberWaveRuntimeOwns(g_ram, slot) &&
+            wave_age_after_plain > wave_age_before_plain,
+        "a plain X tap fires one shot while the finisher-ended wave flies");
+
+  frame(0);
+  g_ram[0xbdb] = 4;
+  g_ram[0x1f89] = 0;
+  g_ram[0x1f8a] = 0xdc;
+  memset(previous, 0, sizeof(previous));
+  shot_presence(8, previous);
+  const unsigned wave_age_before_special =
+      g_ram[slot + MMX_SABER_WAVE_SLOT_AGE];
+  frame(SNES_PAD_X);
+  unsigned post_finisher_special_births = new_projectiles(8, previous);
+  const unsigned wave_age_after_special =
+      g_ram[slot + MMX_SABER_WAVE_SLOT_AGE];
+  check(post_finisher_special_births > 0 &&
+            MmxSaberWaveRuntimeOwns(g_ram, slot) &&
+            wave_age_after_special > wave_age_before_special,
+        "a Fire Wave tap fires while the finisher-ended wave keeps flying");
+  g_ram[0xbdb] = 0;
+  for (unsigned i = 0; i < 160 && MmxSaberWaveRuntimeActive(g_ram); ++i)
+    frame(0);
+  check(!MmxSaberWaveRuntimeActive(g_ram),
+        "the D-OP-47 probe lets the wave retire independently of fire gating");
+  while (MmxZeroGetState().slash) frame(0);
+  saber_plain_after_probe("a plain X tap fires after wave retirement");
+  puts("ok: saber-wave-damage");
 }
 
 static void zero_hook_parity_checks(const char *fixture) {
@@ -4275,6 +4520,7 @@ int main(int argc, char **argv) {
   const bool saber_lifecycle_load = only && !strcmp(only, "saber-lifecycle-load");
   const bool saber_buster_rules = only && !strcmp(only, "saber-buster-rules");
   const bool saber_wave_travel = only && !strcmp(only, "saber-wave-travel");
+  const bool saber_wave_damage = only && !strcmp(only, "saber-wave-damage");
   const bool saber_ground_hit = only && !strcmp(only, "saber-ground-hit");
   const bool saber_render_snapshot = only && !strcmp(only, "saber-render-snapshot");
   const bool x3_zero_specials = only && !strcmp(only, "x3-zero-specials");
@@ -4285,7 +4531,7 @@ int main(int argc, char **argv) {
       saber_air || saber_wall || saber_dash || saber_land || saber_ground_lifecycle ||
       saber_ground_hit || saber_cancel || saber_lifecycle_load ||
       saber_render_snapshot || saber_buster_rules || saber_finisher ||
-      saber_wave_travel;
+      saber_wave_travel || saber_wave_damage;
   SpecialCounts upstream_specials = {0};
   if (saber_input || saber_buster_rules) {
     activate_zero(argv[1], x3_rom, assets, false, false);
@@ -4347,6 +4593,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-wave-travel runs with the Saber package enabled");
     saber_wave_travel_checks(argv[1], x3_rom, fixture, assets);
+  } else if (saber_wave_damage) {
+    check(MmxSaberEnabled(),
+          "saber-wave-damage runs with the Saber package enabled");
+    saber_wave_damage_checks(fixture);
   } else if (saber_ground_hit) {
     check(MmxSaberEnabled(),
           "saber-ground-hit runs with the Saber package enabled");
@@ -4413,8 +4663,9 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-land") &&
       strcmp(only, "saber-ground-lifecycle") &&
       strcmp(only, "saber-lifecycle-load") &&
-      strcmp(only, "saber-buster-rules") &&
+        strcmp(only, "saber-buster-rules") &&
         strcmp(only, "saber-wave-travel") &&
+        strcmp(only, "saber-wave-damage") &&
         strcmp(only, "saber-ground-hit") &&
         strcmp(only, "saber-render-snapshot") &&
         strcmp(only, "zero-hook-parity") &&
