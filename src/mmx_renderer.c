@@ -1242,6 +1242,26 @@ static void coop_hud_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView view
     }
   }
 }
+static void player_overlay_plane_row(
+    const MmxRenderPlayerOverlayPlane *plane, const uint16_t *palette,
+    unsigned palette_count, int y, int zx, int zy, bool mirror, unsigned z,
+    MmxRenderView view, uint16_t *objects, int *object_colors) {
+  if (!plane || !plane->pixels || !plane->width || !plane->height ||
+      !palette || !palette_count) return;
+  int row = y - zy + 64 - plane->origin_y;
+  if (row < 0 || row >= plane->height) return;
+  for (int col = 0; col < plane->width; ++col) {
+    unsigned pixel = plane->pixels[row * plane->width + col];
+    int canvas_col = plane->origin_x + col;
+    int dx;
+    if (!pixel || pixel >= palette_count) continue;
+    dx = zx + (mirror ? 63 - canvas_col : canvas_col - 64) + view.extra;
+    if (dx >= 0 && dx < view.width) {
+      objects[dx] = (uint16_t)(z | (pixel & 15));
+      object_colors[dx] = palette[pixel];
+    }
+  }
+}
 bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
   if (!out || !frame.valid || view.width < 256 || view.width > MMX_RENDER_MAX_WIDTH ||
       view.extra != (view.width - 256) / 2 || (view.width & 1)) return false;
@@ -1445,8 +1465,26 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
             }
             body=MmxZeroMenuPose();
           }
+          bool player_overlay = !menu_body && !pilot && frame_player_overlay.active;
+          if (player_overlay) {
+            unsigned z = ((((s.attr >> 12) & 3) * 4 + 2) << 12) | 0x680;
+            if (frame_player_overlay.blade_layer == 1)
+              player_overlay_plane_row(&frame_player_overlay.blade,
+                  frame_player_overlay.palette, frame_player_overlay.palette_count,
+                  y, zx, zy, frame_player_overlay.facing_left, z, view,
+                  objects, object_colors);
+            player_overlay_plane_row(&frame_player_overlay.body,
+                frame_player_overlay.palette, frame_player_overlay.palette_count,
+                y, zx, zy, frame_player_overlay.facing_left, z, view,
+                objects, object_colors);
+            if (frame_player_overlay.blade_layer == 2)
+              player_overlay_plane_row(&frame_player_overlay.blade,
+                  frame_player_overlay.palette, frame_player_overlay.palette_count,
+                  y, zx, zy, frame_player_overlay.facing_left, z, view,
+                  objects, object_colors);
+          }
           int row = y - zy + 64;
-          if (row >= 0 && row < MMX_ZERO_HEIGHT && (!pilot || (row>=44 && row<64))) {
+          if (!player_overlay && row >= 0 && row < MMX_ZERO_HEIGHT && (!pilot || (row>=44 && row<64))) {
             const uint16_t *colors = MmxZeroColors();
             unsigned z = ((((s.attr >> 12) & 3) * 4 + 2) << 12) | 0x680;
             for (int col = 0; col < MMX_ZERO_WIDTH; ++col) {

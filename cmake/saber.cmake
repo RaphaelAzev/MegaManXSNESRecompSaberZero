@@ -242,6 +242,39 @@ if(BUILD_TESTING)
         add_dependencies(mmx_saber_render_test saber_asset_caches)
     endif()
 
+    add_executable(mmx_saber_renderer_draw_test
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/saber/mmx_saber_renderer_draw_test.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/mmx_renderer.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/mmx_render_assets.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/mmx_display.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/mmx_wide_policy.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/mmx_zero.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/mmx_weapons.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/mmx_weapon_combat.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/mmx_coop_view.c"
+        "${_saber_assets_source}"
+        "${SNESRECOMP_ROOT}/runner/src/sha256.c")
+    target_include_directories(mmx_saber_renderer_draw_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/saber"
+        "${SNESRECOMP_ROOT}/runner/src")
+    target_compile_definitions(mmx_saber_renderer_draw_test PRIVATE
+        MMX_SABER_RENDER_CACHE_DIR="${_saber_cache_dir}"
+        MMX_SABER_DRAW_ZERO_PATH="${CMAKE_CURRENT_BINARY_DIR}/tmp/saber-render-draw-zero.bin")
+    add_test(NAME mmx_saber_renderer_draw COMMAND mmx_saber_renderer_draw_test)
+    set_tests_properties(mmx_saber_renderer_draw PROPERTIES SKIP_RETURN_CODE 77)
+    if(MSVC)
+        target_compile_options(mmx_saber_renderer_draw_test PRIVATE /UNDEBUG)
+    else()
+        target_compile_options(mmx_saber_renderer_draw_test PRIVATE -UNDEBUG)
+    endif()
+    if(NOT WIN32)
+        target_link_libraries(mmx_saber_renderer_draw_test PRIVATE m)
+    endif()
+    if(TARGET saber_asset_caches)
+        add_dependencies(mmx_saber_renderer_draw_test saber_asset_caches)
+    endif()
+
     add_executable(mmx_saber_wave_test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/saber/mmx_saber_wave_test.c"
         "${_saber_wave_source}" "${_saber_wave_assets_source}"
