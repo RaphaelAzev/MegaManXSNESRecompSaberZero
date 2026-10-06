@@ -1,5 +1,7 @@
 set(_saber_plugin_source "${CMAKE_CURRENT_SOURCE_DIR}/src/mods/mmx_saber_plugin.c")
 set(_saber_assets_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_assets.c")
+set(_saber_wave_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_wave.c")
+set(_saber_wave_assets_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_wave_assets.c")
 set(_saber_converter "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/convert_saber_zero.py")
 set(_saber_manifest "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/saber_zero_manifest.json")
 set(_ride_manifest "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/ride_zero_manifest.json")
@@ -7,6 +9,7 @@ set(_saber_source_dir "${CMAKE_CURRENT_SOURCE_DIR}/SaberSprites")
 set(_saber_cache_dir "${CMAKE_CURRENT_BINARY_DIR}/cache/mmx-source")
 set(_saber_cache "${_saber_cache_dir}/saber-v1.bin")
 set(_ride_cache "${_saber_cache_dir}/ride-zero-v1.bin")
+set(_saber_wave_test_cache_dir "${_saber_cache_dir}")
 
 # The donor sheets are deliberately private and ignored. When they are
 # present, build the same deterministic v1 caches as the old branch beside
@@ -41,7 +44,8 @@ endif()
 
 if(TARGET MegaManXSNESRecomp)
     target_sources(MegaManXSNESRecomp PRIVATE
-        "${_saber_plugin_source}" "${_saber_assets_source}")
+        "${_saber_plugin_source}" "${_saber_assets_source}"
+        "${_saber_wave_source}" "${_saber_wave_assets_source}")
     if(TARGET saber_asset_caches)
         add_dependencies(MegaManXSNESRecomp saber_asset_caches)
     endif()
@@ -49,7 +53,8 @@ endif()
 
 if(MMX_STATE_TESTS AND TARGET mmx_state_tests)
     target_sources(mmx_state_tests PRIVATE
-        "${_saber_plugin_source}" "${_saber_assets_source}")
+        "${_saber_plugin_source}" "${_saber_assets_source}"
+        "${_saber_wave_source}" "${_saber_wave_assets_source}")
     if(TARGET saber_asset_caches)
         add_dependencies(mmx_state_tests saber_asset_caches)
     endif()
@@ -60,11 +65,16 @@ if(MMX_STATE_TESTS AND TARGET mmx_state_tests)
         src/mods/mmx_saber_plugin.c
         "${_saber_plugin_source}"
         src/saber/mmx_saber_assets.c
-        "${_saber_assets_source}")
+        "${_saber_assets_source}"
+        src/saber/mmx_saber_wave.c
+        "${_saber_wave_source}"
+        src/saber/mmx_saber_wave_assets.c
+        "${_saber_wave_assets_source}")
 
     add_executable(mmx_saber_rom_tests
         tests/saber/saber_rom_test.c ${_saber_sources}
-        "${_saber_plugin_source}" "${_saber_assets_source}")
+        "${_saber_plugin_source}" "${_saber_assets_source}"
+        "${_saber_wave_source}" "${_saber_wave_assets_source}")
     foreach(_property INCLUDE_DIRECTORIES COMPILE_DEFINITIONS COMPILE_OPTIONS LINK_LIBRARIES LINK_OPTIONS)
         get_target_property(_value mmx_state_tests ${_property})
         if(_value)
@@ -101,5 +111,19 @@ if(BUILD_TESTING)
         add_dependencies(mmx_saber_check saber_asset_caches)
         add_dependencies(mmx_saber_assets_test saber_asset_caches)
     endif()
+
+    add_executable(mmx_saber_wave_test
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/saber/mmx_saber_wave_test.c"
+        "${_saber_wave_source}" "${_saber_wave_assets_source}"
+        "${SNESRECOMP_ROOT}/runner/src/sha256.c")
+    target_include_directories(mmx_saber_wave_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/saber"
+        "${SNESRECOMP_ROOT}/runner/src")
+    target_compile_definitions(mmx_saber_wave_test PRIVATE
+        MMX_SABER_WAVE_TEST_CACHE_DIR="${_saber_wave_test_cache_dir}")
+    add_test(NAME mmx_saber_wave COMMAND mmx_saber_wave_test)
+    set_tests_properties(mmx_saber_wave PROPERTIES
+        SKIP_RETURN_CODE 77
+        ENVIRONMENT "MMX_SABER_X3_ROM=${CMAKE_CURRENT_SOURCE_DIR}/Mega Man X3 (USA).sfc")
 
 endif()

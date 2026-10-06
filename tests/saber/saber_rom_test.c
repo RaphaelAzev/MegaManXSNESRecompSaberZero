@@ -551,8 +551,9 @@ static void activate_zero(const char *x1_rom, const char *x3_rom,
         expect_saber_assets ? "Saber package enables the Saber plugin" :
                               "missing Saber assets leave the Saber plugin disabled");
   if (saber_package && expect_saber_assets)
-    check(MmxSaberAssetsLoaded() && MmxSaberRideAssetsLoaded(),
-          "Saber loader reports both private caches loaded");
+    check(MmxSaberAssetsLoaded() && MmxSaberRideAssetsLoaded() &&
+              MmxSaberWaveLoaded(),
+          "Saber loader reports private sprite and wave caches loaded");
   check(readable_file(assets), "isolated X3 Zero asset cache exists");
 }
 
@@ -563,8 +564,8 @@ static void saber_assets_checks(const char *x1_rom, const char *x3_rom,
 
   activate_zero(x1_rom, x3_rom, assets, true, true);
   check(MmxSaberAssetsLoaded() && MmxSaberRideAssetsLoaded() &&
-            MmxSaberEnabled(),
-        "Saber asset activation enables both caches");
+            MmxSaberWaveLoaded() && MmxSaberEnabled(),
+        "Saber asset activation enables sprite and wave caches");
 
   check(set_test_env("MMX_SABER_TEST_CACHE", empty_cache) == 0,
         "Saber test redirects to the empty cache");
@@ -574,7 +575,7 @@ static void saber_assets_checks(const char *x1_rom, const char *x3_rom,
   check(MmxZeroEnabled() && MmxZeroActive() && !MmxZeroModern(),
         "X3 Zero remains active when Saber caches are missing");
   check(!MmxSaberEnabled() && !MmxSaberAssetsLoaded() &&
-            !MmxSaberRideAssetsLoaded(),
+            !MmxSaberRideAssetsLoaded() && !MmxSaberWaveLoaded(),
         "missing Saber caches leave Saber disabled");
   x3_plain_checks(fixture);
   puts("ok: saber-assets");

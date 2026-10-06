@@ -9,6 +9,7 @@ extern "C" {
 bool MmxSaberEnabled(void);
 bool MmxSaberAssetsLoaded(void);
 bool MmxSaberRideAssetsLoaded(void);
+bool MmxSaberWaveLoaded(void);
 
 #ifdef __cplusplus
 }
