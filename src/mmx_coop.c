@@ -1471,10 +1471,10 @@ static bool object_ghost_wanted(unsigned d) {
   unsigned c=g_ram[d+10];
   /* Objects with their own seat handling: D7D7 solids and minecarts,
    * AB81 lifts, Kuwanger's custom elevator and owned laser sensors/turrets,
-   * Dr. Light's capsule, Gulpfer's nearest-player chase, Slimer's puddle.
+   * bounce-pad riders, Dr. Light's capsule, Gulpfer's chase, Slimer's puddle.
    * Their hooks project seats, which a ghost replay deliberately forbids. */
   if(enemy && (lift_elevator(d) || platform_item(d) || c==0x3d ||
-      c==0x43 || c==0x44 || capsule_slot(d) || c==0x1d)) return false;
+      c==0x40 || c==0x43 || c==0x44 || capsule_slot(d) || c==0x1d)) return false;
   /* Bosses script the player (intros, victory pose); they stay single-seat. */
   if(vile_script_object(d) || (enemy &&
       (c==0x67 || c==0x69 || MmxWidePolicy_IsBossEncounter((uint8_t)c)))) return false;
@@ -1959,10 +1959,12 @@ static void view_world_hook(CpuState *cpu,uint32_t pc) {
 /* Couch co-op runs enemy AI against the projected world actor. Enemies that
  * act on the body they chase also need the nearest player there: Launch
  * Octopus's Gulpfer ($1D) homes in on and swallows $0BA8, so it never went
- * for P2. The enemy loops ($00:D4EA/D507) are always interpreted. */
+ * for P2. Sigma's bounce pad ($40) likewise activates and carries that body;
+ * a discarded ghost activation never advances its bounce for the partner.
+ * The enemy loops ($00:D4EA/D507) are always interpreted. */
 static bool couch_nearest_target(unsigned d) {
   if(d<0xe68 || d>=0x1228 || (d-0xe68)%64 || !g_ram[d]) return false;
-  return g_ram[d+10]==0x1d;
+  return g_ram[d+10]==0x1d || g_ram[d+10]==0x40;
 }
 static bool vile_farewell(unsigned d) {
   return g_ram[0x1f7a]==9 && d>=0xe68 && d<0x1228 && !((d-0xe68)%64) &&
@@ -1996,8 +1998,10 @@ static void view_actor_hook(CpuState *cpu,uint32_t pc) {
         state.anchor=state.current;MmxCoopViewsActorReturn(0);begin_scene(g_ram);return;
       }
       if(couch_nearest_target(cpu->D) &&
-          (g_ram[cpu->D+0x3b] || g_ram[cpu->D+0x3d]))
+          g_ram[cpu->D+10]==0x1d && (g_ram[cpu->D+0x3b] || g_ram[cpu->D+0x3d]))
         g_ram[cpu->D+0x3f]=(uint8_t)(state.current+1);
+      if(couch_nearest_target(cpu->D) && g_ram[cpu->D+10]==0x40)
+        g_ram[cpu->D+0x3f]=g_ram[cpu->D+1]==4 ? (uint8_t)(state.current+1) : 0;
       MmxCoopSelect(g_ram,world.actor_return-1);MmxCoopViewsActorReturn(0);
       select_world_survivor(g_ram);
     }
@@ -2011,14 +2015,22 @@ static void view_actor_hook(CpuState *cpu,uint32_t pc) {
   if(vile_script_object(cpu->D)) return;
   MmxCoopCapture(g_ram);
   unsigned nearest=state.anchor;uint64_t best=UINT64_MAX;
-  bool fish=couch_nearest_target(cpu->D);
-  unsigned owner=fish ? g_ram[cpu->D+0x3f] : 0;
-  bool captured=fish && (g_ram[cpu->D+0x3b] || g_ram[cpu->D+0x3d]);
-  /* Gulpfer's hold/escape/death states act on the body it swallowed, even
-   * when another player moves closer. .3F is unused by its native routine
-   * and travels with the enemy in snapshots and rollback. */
+  bool fish=couch_nearest_target(cpu->D) && g_ram[cpu->D+10]==0x1d;
+  bool pad=couch_nearest_target(cpu->D) && g_ram[cpu->D+10]==0x40;
+  unsigned owner=fish || pad ? g_ram[cpu->D+0x3f] : 0;
+  bool captured=(fish && (g_ram[cpu->D+0x3b] || g_ram[cpu->D+0x3d])) ||
+      (pad && g_ram[cpu->D+1]==4);
+  /* Gulpfer keeps the body it swallowed; a rising bounce pad keeps its
+   * rider even when the partner moves closer. Both native routines leave
+   * .3F unused, so ownership travels with snapshots and rollback. */
   if(captured && owner>=1 && owner<=2) {
-    MmxCoopViewsActorReturn(state.current+1);MmxCoopSelect(g_ram,owner-1);return;
+    const MmxCoopPlayer *p=&state.players[owner-1];
+    if(!pad || (p->status==MMX_COOP_ALIVE && (p->body[0x27]&127) && !p->zero.swap_phase)) {
+      MmxCoopViewsActorReturn(state.current+1);MmxCoopSelect(g_ram,owner-1);return;
+    }
+    /* A retired rider cannot keep dragging the projected survivor. The
+     * pad's idle animation re-arms its ordinary contact query. */
+    g_ram[cpu->D+1]=2;g_ram[cpu->D+0x3f]=0;captured=false;
   }
   if(fish && !captured) g_ram[cpu->D+0x3f]=0;
   int ex=word(g_ram+cpu->D+5),ey=word(g_ram+cpu->D+8);
