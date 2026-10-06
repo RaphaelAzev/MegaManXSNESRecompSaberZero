@@ -70,6 +70,7 @@ enum {
   OLD_SABER_AIR_ACTIVE = 8,
   OLD_SABER_AIR_RECOVERY = 6,
   OLD_SABER_AIR_TOTAL = 18,
+  OLD_SABER_LAND_TOTAL = 18,
 };
 
 static const char *const kMmxRomDigest =
@@ -1573,8 +1574,172 @@ static void saber_air_checks(const char *fixture) {
   snapshot = MmxSaberAttackSnapshotGet();
   check(snapshot.phase == SABER_PHASE_IDLE && snapshot.kind == SABER_KIND_NONE &&
             tagged_projectiles() == 0,
-        "air slash landing/natural cleanup uses the central exit without SaberLand");
+        "air slash landing/natural cleanup reaches idle after SaberLand");
   puts("ok: saber-air");
+}
+
+static bool saber_test_grounded(void) {
+  return (g_ram[0xbd3] & 4) || (g_ram[0xbd4] & 4);
+}
+
+static void saber_land_checks(const char *fixture) {
+  const MmxSaberAttack *land =
+      MmxSaberAttackRecord(SABER_KIND_SABER_LAND, 0);
+  MmxSaberAttackSnapshot snapshot;
+  unsigned land_starts = 0;
+  unsigned landing_frame = 0;
+  unsigned cue_at_landing = 0;
+  bool saw_air = false;
+  bool saw_landing_edge = false;
+  bool air_replayed = false;
+  bool land_projectile = false;
+  bool no_land_cue = true;
+
+  printf("reference: old SaberLand record total=%u, visual-only, old "
+         "src/mmx_saber.c:382-398; old starts only from AIR landing at "
+         "src/mmx_saber.c:2183-2198 and 2288-2306\n",
+         OLD_SABER_LAND_TOTAL);
+  check(land && land->visual_animation == 7 &&
+            land->total_ticks == OLD_SABER_LAND_TOTAL &&
+            land->active_ticks == 0 && land->recovery_ticks == 0 &&
+            land->bounds_segments == NULL && land->bounds_segment_count == 0 &&
+            land->damage == 0 && land->bounds_pointer == 0,
+        "SaberLand is anim 7 for the old 18 ticks with no hitbox or damage");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  for (unsigned frame_number = 1; frame_number <= 120; ++frame_number) {
+    const bool was_grounded = saber_test_grounded();
+    const MmxSaberAttackSnapshot before = MmxSaberAttackSnapshotGet();
+    unsigned input = frame_number <= 20 ? SNES_PAD_B : 0;
+    if (frame_number == 3) input |= SNES_PAD_Y;
+    frame(input);
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (before.kind == SABER_KIND_AIR) saw_air = true;
+    if (!was_grounded && saber_test_grounded()) saw_landing_edge = true;
+    if (snapshot.kind == SABER_KIND_AIR && snapshot.anim_id == 4 &&
+        saw_landing_edge)
+      air_replayed = true;
+    if (snapshot.kind == SABER_KIND_SABER_LAND && snapshot.tick == 0) {
+      ++land_starts;
+      if (!landing_frame) landing_frame = frame_number;
+      check(saw_air && saw_landing_edge,
+            "air slash landing claims SaberLand on the grounded edge");
+      cue_at_landing = MmxSaberAttackCueCount();
+    }
+    if (snapshot.kind == SABER_KIND_SABER_LAND && tagged_projectiles() != 0)
+      land_projectile = true;
+    if (landing_frame && MmxSaberAttackCueCount() != cue_at_landing)
+      no_land_cue = false;
+    if (landing_frame && frame_number > landing_frame &&
+        snapshot.kind == SABER_KIND_AIR)
+      air_replayed = true;
+    if (landing_frame && frame_number > landing_frame + OLD_SABER_LAND_TOTAL + 4)
+      break;
+  }
+  check(land_starts == 1 && landing_frame != 0,
+        "one and only one SaberLand starts on the air-slash landing edge");
+  check(!air_replayed,
+        "air animation 4 never replays after the landing owner starts");
+  check(!land_projectile && tagged_projectiles() == 0,
+        "SaberLand owns no tagged projectile slot");
+  check(cue_at_landing == 1 && no_land_cue,
+        "SaberLand emits no cue beyond the air slash cue");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  bool land_y_claimed = false;
+  for (unsigned frame_number = 1; frame_number <= 120; ++frame_number) {
+    unsigned input = frame_number <= 20 ? SNES_PAD_B : 0;
+    if (frame_number == 3) input |= SNES_PAD_Y;
+    frame(input);
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (snapshot.kind == SABER_KIND_SABER_LAND && snapshot.tick == 0) {
+      frame(SNES_PAD_Y);
+      snapshot = MmxSaberAttackSnapshotGet();
+      land_y_claimed = snapshot.kind == SABER_KIND_GROUND1 &&
+          snapshot.tick == 0 && tagged_projectiles() == 0 &&
+          MmxSaberAttackCueCount() == 2;
+      break;
+    }
+  }
+  check(land_y_claimed,
+        "Y during SaberLand cancels it and starts ground slash 1 per the donor");
+
+  /* D2: the donor has no plain-jump landing call. save0's native landing
+   * action is also outside the playable context, so this remains zero. */
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  unsigned plain_landing_starts = 0;
+  bool plain_landing_edge = false;
+  for (unsigned frame_number = 1; frame_number <= 120; ++frame_number) {
+    const bool was_grounded = saber_test_grounded();
+    frame(frame_number <= 20 ? SNES_PAD_B : 0);
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (!was_grounded && saber_test_grounded()) plain_landing_edge = true;
+    if (snapshot.kind == SABER_KIND_SABER_LAND && snapshot.tick == 0)
+      ++plain_landing_starts;
+    if (plain_landing_edge) break;
+  }
+  check(plain_landing_edge && plain_landing_starts == 0,
+        "plain jump follows the old rule and does not start SaberLand");
+
+  /* D4/D5c: keep a held X charge through the air-owner landing and ensure no
+   * native buster shot is born while X remains held. */
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  hold_charge_button(30, SNES_PAD_X);
+  const unsigned charge_before_jump = MmxZeroGetState().charge;
+  unsigned charge_before_landing = charge_before_jump;
+  unsigned charge_at_landing = 0;
+  bool charge_never_decreased = true;
+  bool shot_fired = false;
+  bool charge_landing_seen = false;
+  for (unsigned frame_number = 1; frame_number <= 120; ++frame_number) {
+    const unsigned previous_charge = MmxZeroGetState().charge;
+    unsigned input = frame_number <= 20 ? SNES_PAD_B | SNES_PAD_X : SNES_PAD_X;
+    if (frame_number == 3) input |= SNES_PAD_Y;
+    frame(input);
+    if (MmxZeroGetState().charge < previous_charge)
+      charge_never_decreased = false;
+    if (native_projectiles() != 0) shot_fired = true;
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (snapshot.kind == SABER_KIND_SABER_LAND && snapshot.tick == 0 &&
+        !charge_landing_seen) {
+      charge_landing_seen = true;
+      charge_at_landing = MmxZeroGetState().charge;
+      charge_before_landing = previous_charge;
+    }
+    if (charge_landing_seen && snapshot.phase == SABER_PHASE_IDLE) break;
+  }
+  check(charge_landing_seen && charge_at_landing >= charge_before_landing &&
+            charge_at_landing >= charge_before_jump && charge_never_decreased,
+        "held X charge never decreases across SaberLand");
+  check(!shot_fired, "held X during SaberLand never fires a native shot");
+
+  /* D5d: repeat the same AIR-owner landing twice; each edge gets one visual. */
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  unsigned consecutive_land_starts = 0;
+  for (unsigned jump = 0; jump < 2; ++jump) {
+    bool landed = false;
+    for (unsigned frame_number = 1; frame_number <= 120; ++frame_number) {
+      unsigned input = frame_number <= 20 ? SNES_PAD_B : 0;
+      if (frame_number == 3) input |= SNES_PAD_Y;
+      frame(input);
+      snapshot = MmxSaberAttackSnapshotGet();
+      if (snapshot.kind == SABER_KIND_SABER_LAND && snapshot.tick == 0) {
+        ++consecutive_land_starts;
+        landed = true;
+        break;
+      }
+    }
+    check(landed, "each consecutive air-slash jump reaches its landing visual");
+    idle(OLD_SABER_LAND_TOTAL + 8);
+  }
+  check(consecutive_land_starts == 2,
+        "two consecutive air-slash jumps produce one SaberLand per landing");
+  puts("ok: saber-land");
 }
 
 static void saber_special_checks(const char *fixture,
@@ -1936,12 +2101,13 @@ int main(int argc, char **argv) {
   const bool saber_ground_1 = only && !strcmp(only, "saber-ground-1");
   const bool saber_ground_combo = only && !strcmp(only, "saber-ground-combo");
   const bool saber_air = only && !strcmp(only, "saber-air");
+  const bool saber_land = only && !strcmp(only, "saber-land");
   const bool saber_ground_lifecycle = only && !strcmp(only, "saber-ground-lifecycle");
   const bool saber_ground_hit = only && !strcmp(only, "saber-ground-hit");
   const bool x3_zero_specials = only && !strcmp(only, "x3-zero-specials");
   const bool saber_enabled_group = saber_package || zero_extension ||
       saber_input || saber_ground_1 || saber_ground_combo ||
-      saber_air || saber_ground_lifecycle || saber_ground_hit;
+      saber_air || saber_land || saber_ground_lifecycle || saber_ground_hit;
   SpecialCounts upstream_specials = {0};
   if (saber_input) {
     activate_zero(argv[1], x3_rom, assets, false, false);
@@ -1964,6 +2130,9 @@ int main(int argc, char **argv) {
   } else if (saber_air) {
     check(MmxSaberEnabled(), "saber-air runs with the Saber package enabled");
     saber_air_checks(fixture);
+  } else if (saber_land) {
+    check(MmxSaberEnabled(), "saber-land runs with the Saber package enabled");
+    saber_land_checks(fixture);
   } else if (saber_ground_lifecycle) {
     check(MmxSaberEnabled(),
           "saber-ground-lifecycle runs with the Saber package enabled");
@@ -2018,6 +2187,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-ground-1") &&
       strcmp(only, "saber-ground-combo") &&
       strcmp(only, "saber-air") &&
+      strcmp(only, "saber-land") &&
       strcmp(only, "saber-ground-lifecycle") &&
         strcmp(only, "saber-ground-hit") &&
         strcmp(only, "zero-extension") &&

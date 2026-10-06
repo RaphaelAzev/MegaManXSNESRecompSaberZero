@@ -192,6 +192,9 @@ typedef struct MmxSaberAttackState {
   uint8_t projectile_swing_id;
   uint8_t cue;
   bool cue_pending;
+  bool previous_grounded;
+  bool previous_grounded_valid;
+  bool air_landing_eligible;
 } MmxSaberAttackState;
 
 static MmxSaberAttackState state;
@@ -535,10 +538,12 @@ void MmxSaberAttackResetCueCount(void) {
 
 void MmxSaberAttackExit(uint8_t *ram, MmxSaberAttackExitReason reason) {
   uint8_t *target = ram ? ram : runtime_ram;
-  (void)reason;
+  const bool preserve_air_landing =
+      state.kind == SABER_KIND_AIR && reason == MMX_SABER_ATTACK_EXIT_NATURAL;
   if (target) runtime_ram = target;
   retire_all_tagged(target);
   clear_attack();
+  if (!preserve_air_landing) state.air_landing_eligible = false;
 }
 
 static void start_attack(const MmxSaberAttack *attack, uint8_t facing) {
@@ -557,7 +562,19 @@ static void start_attack(const MmxSaberAttack *attack, uint8_t facing) {
   state.hit_slots = 0;
   state.cue = attack_cue(attack);
   state.cue_pending = state.cue < MMX_SABER_SFX_ATTACK_COUNT;
+  if (attack->kind == SABER_KIND_AIR)
+    state.air_landing_eligible = true;
+  else
+    state.air_landing_eligible = false;
   update_animation();
+}
+
+static bool start_land_visual(uint8_t facing) {
+  const MmxSaberAttack *attack =
+      MmxSaberAttackRecord(SABER_KIND_SABER_LAND, 0);
+  if (!attack || state.phase != SABER_PHASE_IDLE) return false;
+  start_attack(attack, facing);
+  return true;
 }
 
 void MmxSaberAttackStep(bool saber_pressed, bool grounded, bool playable,
@@ -584,6 +601,17 @@ void MmxSaberAttackStep(bool saber_pressed, bool grounded, bool playable,
     clear_attack();
     return;
   }
+
+  /* The old landing visual has no combo priority: a Y edge cancels it and,
+   * while still grounded, immediately claims ordinary ground slash 1. */
+  if (attack->kind == SABER_KIND_SABER_LAND && saber_pressed) {
+    MmxSaberAttackExit(runtime_ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
+    if (grounded)
+      start_attack(MmxSaberAttackRecord(SABER_KIND_GROUND1, 0),
+                   facing_for_direction(horizontal_direction, native_facing));
+    return;
+  }
+
   ++state.tick;
   if (state.tick >= attack->total_ticks) {
     MmxSaberAttackExit(runtime_ram, MMX_SABER_ATTACK_EXIT_NATURAL);
@@ -712,14 +740,39 @@ static void emit_pending_cue(void) {
 }
 
 void MmxSaberAttackPlayerEnd(uint8_t *ram) {
+  bool grounded;
+  bool landed;
+  bool start_land = false;
+  uint8_t landing_facing = 0;
+
   if (ram) runtime_ram = ram;
-  if (!ram || state.phase == SABER_PHASE_IDLE)
-    return;
-  if (state.kind == SABER_KIND_AIR && player_grounded(ram)) {
+  if (!ram) return;
+
+  grounded = player_grounded(ram);
+  landed = state.previous_grounded_valid && !state.previous_grounded && grounded;
+  if (state.previous_grounded && !grounded && state.kind != SABER_KIND_AIR)
+    state.air_landing_eligible = false;
+  state.previous_grounded = grounded;
+  state.previous_grounded_valid = true;
+
+  /* The grounded edge is observed here, after native movement, so this is
+   * the sole landing owner.  An idle Saber can still claim the visual after
+   * an AIR owner naturally completed during the same airtime; ground/dash/
+   * wall owners remain untouched below. */
+  if (landed && state.phase == SABER_PHASE_IDLE && state.air_landing_eligible) {
+    landing_facing = (uint8_t)(ram[0x0c11] & 0x40);
+    start_land = true;
+  } else if (landed && state.kind == SABER_KIND_AIR) {
+    landing_facing = state.facing;
     emit_pending_cue();
     MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_LANDING);
+    start_land = true;
+  }
+  if (start_land) {
+    (void)start_land_visual(landing_facing);
     return;
   }
+
   emit_pending_cue();
 }
 
