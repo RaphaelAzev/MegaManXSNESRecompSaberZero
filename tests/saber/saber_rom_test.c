@@ -6,6 +6,7 @@
 #include MMX_GAME_MAIN
 #include "mmx_zero.h"
 #include "mmx_weapons.h"
+#include "saber/mmx_saber_plugin.h"
 #include "mod_runtime.h"
 #include "recomp_launcher.h"
 #include "snes/interp_bridge.h"
@@ -355,34 +356,53 @@ static void native_x1_checks(const char *fixture) {
   puts("ok: x1-native-weapons");
 }
 
+static const RecompLauncherCModProvider *g_mod_provider;
+
 static void activate_zero(const char *x1_rom, const char *x3_rom,
-                          const char *assets) {
+                          const char *assets, bool saber_package) {
   const char *root = getenv("MMX_COOP_LAUNCHER_ROOT");
-  check(root && root[0], "Saber runner supplies an isolated mod catalog");
-  check(readable_file(x1_rom), "X1 ROM exists");
-  check(readable_file(x3_rom), "X3 ROM exists");
-  check(readable_file(getenv("MMX_ZERO_TEST_FIXTURE")), "save0.sav exists");
-  check(snes_mod_runtime_initialize_c(root, "megaman-x-us", kMmxRomDigest),
-        "Saber catalog initializes");
-  const RecompLauncherCModProvider *provider = snes_mod_runtime_launcher_provider_c();
-  check(provider && provider->feature_enable && provider->feature_set_option &&
-            provider->feature_resource_set_path && provider->commit,
-        "Saber catalog exposes the feature/resource provider");
-  check(provider->feature_enable(provider->ctx, "megaman-x.character.zero", "zero", 1),
-        "upstream Zero package enables");
-  check(provider->feature_set_option(provider->ctx, "megaman-x.character.zero", "zero",
-                                     "start", "zero"),
-        "upstream Zero package starts as Zero");
-  check(provider->feature_set_option(provider->ctx, "megaman-x.character.zero", "zero",
-                                     "behavior", "x3"),
-        "upstream Zero package selects behavior=x3");
-  check(provider->feature_resource_set_path(provider->ctx, "megaman-x.character.zero", "zero",
-                                            "x3-rom", x3_rom),
-        "upstream Zero package selects the X3 ROM");
-  check(provider->commit(provider->ctx, x1_rom), "upstream Zero package commits for the X1 ROM");
+  const char *package = saber_package ? "megaman-x.character.saber-zero"
+                                      : "megaman-x.character.zero";
+  const char *feature = saber_package ? "saber-zero" : "zero";
+  if (!g_mod_provider) {
+    check(root && root[0], "Saber runner supplies an isolated mod catalog");
+    check(readable_file(x1_rom), "X1 ROM exists");
+    check(readable_file(x3_rom), "X3 ROM exists");
+    check(readable_file(getenv("MMX_ZERO_TEST_FIXTURE")), "save0.sav exists");
+    check(snes_mod_runtime_initialize_c(root, "megaman-x-us", kMmxRomDigest),
+          "Saber catalog initializes");
+    g_mod_provider = snes_mod_runtime_launcher_provider_c();
+    check(g_mod_provider && g_mod_provider->feature_enable &&
+              g_mod_provider->feature_set_option &&
+              g_mod_provider->feature_resource_set_path && g_mod_provider->commit,
+          "Saber catalog exposes the feature/resource provider");
+  }
+  check(g_mod_provider->feature_enable(g_mod_provider->ctx, package, feature, 1),
+        saber_package ? "Saber package enables" : "upstream Zero package enables");
+  check(g_mod_provider->feature_set_option(g_mod_provider->ctx, package, feature,
+                                           "start", "zero"),
+        saber_package ? "Saber package starts as Zero" :
+                        "upstream Zero package starts as Zero");
+  if (!saber_package) {
+    check(g_mod_provider->feature_set_option(g_mod_provider->ctx,
+                                             "megaman-x.character.zero", "zero",
+                                             "behavior", "x3"),
+          "upstream Zero package selects behavior=x3");
+  }
+  check(g_mod_provider->feature_resource_set_path(g_mod_provider->ctx, package, feature,
+                                                  "x3-rom", x3_rom),
+        saber_package ? "Saber package selects the X3 ROM" :
+                        "upstream Zero package selects the X3 ROM");
+  check(g_mod_provider->commit(g_mod_provider->ctx, x1_rom),
+        saber_package ? "Saber package commits for the X1 ROM" :
+                        "upstream Zero package commits for the X1 ROM");
   snes_mod_runtime_activate_plugins_c();
   check(MmxZeroEnabled() && MmxZeroActive() && !MmxZeroModern(),
-        "upstream Zero package activates the legacy X3 controller");
+        saber_package ? "Saber package activates the legacy X3 controller" :
+                        "upstream Zero package activates the legacy X3 controller");
+  check(saber_package ? MmxSaberEnabled() : !MmxSaberEnabled(),
+        saber_package ? "Saber package enables the Saber plugin" :
+                        "upstream Zero package leaves the Saber plugin disabled");
   check(readable_file(assets), "isolated X3 Zero asset cache exists");
 }
 
@@ -391,6 +411,7 @@ int main(int argc, char **argv) {
   const char *fixture = getenv("MMX_ZERO_TEST_FIXTURE");
   const char *x3_rom = getenv("MMX_COOP_X3_ROM");
   const char *assets = getenv("MMX_ZERO_TEST_ASSETS");
+  const char *only = getenv("MMX_SABER_TEST_ONLY");
   check(fixture && fixture[0], "MMX_ZERO_TEST_FIXTURE supplied");
   check(x3_rom && x3_rom[0], "MMX_COOP_X3_ROM supplied");
   check(assets && assets[0], "MMX_ZERO_TEST_ASSETS supplied");
@@ -447,19 +468,33 @@ int main(int argc, char **argv) {
   check(g_spc_player != NULL, "SPC player initializes");
   g_spc_player->initialize(g_spc_player);
 
-  activate_zero(argv[1], x3_rom, assets);
-  const char *only = getenv("MMX_SABER_TEST_ONLY");
-  if (!only || !strcmp(only, "x3-plain")) x3_plain_checks(fixture);
-  if (!only || !strcmp(only, "x3-charge")) x3_charge_checks(fixture);
-  if (!only || !strcmp(only, "x3-hurt")) x3_hurt_checks(fixture);
-  if (!only || !strcmp(only, "x3-jump")) x3_jump_checks(fixture);
-  if (!only || !strcmp(only, "x3-post-charge")) x3_post_charge_checks(fixture);
-  if (!only || !strcmp(only, "x1-native")) native_x1_checks(fixture);
-  if (only && strcmp(only, "x3-plain") && strcmp(only, "x3-charge") &&
-      strcmp(only, "x3-hurt") && strcmp(only, "x3-jump") &&
-      strcmp(only, "x3-post-charge") && strcmp(only, "x1-native")) {
-    fprintf(stderr, "FAIL: unknown MMX_SABER_TEST_ONLY group: %s\n", only);
-    return 1;
+  const bool saber_package = only && !strcmp(only, "saber-package");
+  activate_zero(argv[1], x3_rom, assets, saber_package);
+  if (saber_package) {
+    check(MmxSaberEnabled(), "saber-package reports the Saber plugin enabled");
+    x3_plain_checks(fixture);
+    x3_charge_checks(fixture);
+    puts("ok: saber-package");
+  } else {
+    if (!only || !strcmp(only, "x3-plain")) x3_plain_checks(fixture);
+    if (!only || !strcmp(only, "x3-charge")) x3_charge_checks(fixture);
+    if (!only || !strcmp(only, "x3-hurt")) x3_hurt_checks(fixture);
+    if (!only || !strcmp(only, "x3-jump")) x3_jump_checks(fixture);
+    if (!only || !strcmp(only, "x3-post-charge")) x3_post_charge_checks(fixture);
+    if (!only || !strcmp(only, "x1-native")) native_x1_checks(fixture);
+    if (!only) {
+      activate_zero(argv[1], x3_rom, assets, true);
+      check(MmxSaberEnabled(), "default run enables the Saber package group");
+      x3_plain_checks(fixture);
+      x3_charge_checks(fixture);
+      puts("ok: saber-package");
+    }
+    if (only && strcmp(only, "x3-plain") && strcmp(only, "x3-charge") &&
+        strcmp(only, "x3-hurt") && strcmp(only, "x3-jump") &&
+        strcmp(only, "x3-post-charge") && strcmp(only, "x1-native")) {
+      fprintf(stderr, "FAIL: unknown MMX_SABER_TEST_ONLY group: %s\n", only);
+      return 1;
+    }
   }
   puts("SABER ROM CHECKS PASSED");
   return 0;

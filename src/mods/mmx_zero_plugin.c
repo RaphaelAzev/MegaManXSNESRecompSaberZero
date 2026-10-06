@@ -207,6 +207,9 @@ static void activate(void) {
   /* Co-op claims this existing plugin as its character-mode exclusion key.
    * Its dedicated activation below owns preparation in that mode. */
   if(snes_mod_runtime_feature_enabled_c("megaman-x.coop","coop")) return;
+  /* Saber Zero claims this existing plugin as its character-mode exclusion key.
+   * Its dedicated activation below owns preparation in that mode. */
+  if(snes_mod_runtime_feature_enabled_c("megaman-x.character.saber-zero","saber-zero")) return;
   char path[4096],start[16]={0},behavior[16]={0};
   if (!prepare("megaman-x.character.zero","zero",3,1,path)) return;
   snes_mod_runtime_feature_option_value_c("megaman-x.character.zero","zero","start",start,sizeof(start));
