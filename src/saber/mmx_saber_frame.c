@@ -152,7 +152,8 @@ static void pre_player(uint8_t *ram) {
   MmxSaberPadZero zero;
   MmxSaberPhysicalPad physical;
 
-  MmxSaberWaveRuntimeObserveStage(ram);
+  if (MmxSaberWaveRuntimeObserveStage(ram))
+    MmxSaberComboCancel(ram);
   clear_frame_state();
   if (!zero_frame_context(ram)) {
     /* This also handles an exchange to X, title/menu frames, and an upstream

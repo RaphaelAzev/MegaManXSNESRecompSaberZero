@@ -30,6 +30,8 @@ typedef struct MmxSaberWaveCollision {
 
 static uint8_t *runtime_ram;
 static uint8_t next_generation;
+static uint8_t observed_stage;
+static bool observed_stage_valid;
 static uint8_t collision_record[MMX_SABER_WAVE_COLLISION_RECORD_BYTES];
 static bool collision_record_valid;
 static MmxSaberWaveCollision collision;
@@ -221,15 +223,23 @@ bool MmxSaberWaveRuntimePublish(uint8_t *ram, unsigned slot) {
   return true;
 }
 
-void MmxSaberWaveRuntimeObserveStage(uint8_t *ram) {
+bool MmxSaberWaveRuntimeObserveStage(uint8_t *ram) {
   uint8_t *target = target_ram(ram);
-  if (!target) return;
+  bool changed = false;
+  if (!target) return false;
+  if (observed_stage_valid && observed_stage != target[MMX_SABER_WAVE_STAGE])
+    changed = true;
+  observed_stage = target[MMX_SABER_WAVE_STAGE];
+  observed_stage_valid = true;
   for (unsigned slot = MMX_SABER_WAVE_SLOT_FIRST;
        slot < MMX_SABER_WAVE_SLOT_END; slot += MMX_SABER_WAVE_SLOT_BYTES)
     if (tagged(target, slot)) {
-      if (target_stage(target, slot) != target[MMX_SABER_WAVE_STAGE])
+      if (target_stage(target, slot) != target[MMX_SABER_WAVE_STAGE]) {
         retire_slot(target, slot);
+        changed = true;
+      }
     }
+  return changed;
 }
 
 void MmxSaberWaveRuntimeRetireAll(uint8_t *ram) {
@@ -242,6 +252,7 @@ void MmxSaberWaveRuntimeRetireAll(uint8_t *ram) {
 
 void MmxSaberWaveRuntimeReset(uint8_t *ram) {
   MmxSaberWaveRuntimeRetireAll(ram);
+  observed_stage_valid = false;
   collision_reset();
 }
 
@@ -464,11 +475,10 @@ void MmxSaberWaveRuntimeCollisionRom(uint8_t *rom, size_t size) {
   if (collision.installed) {
     if (memcmp(rom + MMX_SABER_WAVE_COLLISION_ROM_OFFSET,
                collision.bytes, sizeof(collision.bytes)) == 0) {
-      if (MmxZeroActive()) {
-        collision.ready = true;
-      } else {
-        collision_reset();
-      }
+      /* A launched wave is world-owned. Keep its collision record valid while
+       * Zero is offscreen during exchange; lifecycle reset/disable owns the
+       * explicit restoration path. */
+      collision.ready = true;
       return;
     }
     /* A third party changed the record. Never overwrite unknown bytes. */

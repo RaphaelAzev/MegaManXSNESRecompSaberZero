@@ -3779,6 +3779,12 @@ static unsigned saber_wave_live_count(void) {
   return count;
 }
 
+static bool saber_wave_finisher_empty(void) {
+  return !MmxSaberWaveRuntimeActive(g_ram) &&
+      !saber_finisher_wave_slot() && !MmxSaberComboReservedSlot() &&
+      !MmxSaberComboWindowTicks();
+}
+
 static void saber_wave_keep_onscreen(unsigned slot) {
   const int x = (int16_t)read_ram_word(g_ram, slot + 5);
   write_ram_word(g_ram, 0x1e4d, (uint16_t)(x - 128));
@@ -3968,6 +3974,199 @@ static void saber_wave_travel_checks(const char *x1_rom, const char *x3_rom,
                                     MMX_SABER_WAVE_COLLISION_ROM_OFFSET),
         "disabling Saber restores the wave collision record to $FF");
   puts("ok: saber-wave-travel");
+}
+
+static void saber_wave_lifecycle_checks(const char *x1_rom, const char *x3_rom,
+                                        const char *fixture,
+                                        const char *assets) {
+  unsigned slot;
+
+  /* D4a: a hurt is a pending-finisher cancellation, not a launched-wave
+   * lifecycle boundary. Keep the wave near the camera while native hurt runs
+   * so movement is observable without depending on an enemy. */
+  slot = saber_wave_launch(fixture, false);
+  const unsigned hurt_age = g_ram[slot + MMX_SABER_WAVE_SLOT_AGE];
+  const int hurt_x = (int16_t)read_ram_word(g_ram, slot + 5);
+  bool hurt_moved = false;
+  g_ram[0xbaa] = 0x0e;
+  g_ram[0xbab] = 0;
+  for (unsigned i = 0; i < 24 && MmxSaberWaveRuntimeOwns(g_ram, slot); ++i) {
+    saber_wave_keep_onscreen(slot);
+    frame(0);
+    if (g_ram[slot] &&
+        (g_ram[slot + MMX_SABER_WAVE_SLOT_AGE] > hurt_age ||
+         (int16_t)read_ram_word(g_ram, slot + 5) != hurt_x))
+      hurt_moved = true;
+  }
+  check(MmxSaberWaveRuntimeOwns(g_ram, slot) && hurt_moved,
+        "hurt preserves a launched wave and the wave keeps moving");
+
+  /* The same injected hurt, before Y, must revoke only the unlaunched
+   * reservation/window. */
+  saber_finisher_window_setup(fixture);
+  check(MmxSaberComboWindowTicks() != 0 && !MmxSaberComboReservedSlot(),
+        "hurt-window probe starts with only an unlaunched finisher window");
+  g_ram[0xbaa] = 0x0e;
+  g_ram[0xbab] = 0;
+  frame(0);
+  check(!MmxSaberComboWindowTicks() && !MmxSaberComboReservedSlot() &&
+            !saber_finisher_wave_slot(),
+        "hurt before Y closes the finisher window without a reservation");
+
+  /* D4b: this ROM harness has no direct paused scheduler pump. Its approved
+   * pause model is to stop calling frames; no wave callback can tick there. */
+  printf("reference: pause method=no frame ticks in the ROM harness\n");
+  slot = saber_wave_launch(fixture, false);
+  const unsigned paused_age = g_ram[slot + MMX_SABER_WAVE_SLOT_AGE];
+  const int paused_x = (int16_t)read_ram_word(g_ram, slot + 5);
+  for (unsigned i = 0; i < 30; ++i)
+    if (!MmxSaberWaveRuntimeOwns(g_ram, slot) ||
+        g_ram[slot + MMX_SABER_WAVE_SLOT_AGE] != paused_age ||
+        (int16_t)read_ram_word(g_ram, slot + 5) != paused_x)
+      break;
+  check(MmxSaberWaveRuntimeOwns(g_ram, slot) &&
+            g_ram[slot + MMX_SABER_WAVE_SLOT_AGE] == paused_age &&
+            (int16_t)read_ram_word(g_ram, slot + 5) == paused_x,
+        "no scheduler ticks freeze wave age and position during pause");
+  bool resumed = false;
+  for (unsigned i = 0; i < 4 && MmxSaberWaveRuntimeOwns(g_ram, slot); ++i) {
+    saber_wave_keep_onscreen(slot);
+    frame(0);
+    resumed |= g_ram[slot] &&
+        (g_ram[slot + MMX_SABER_WAVE_SLOT_AGE] > paused_age ||
+         (int16_t)read_ram_word(g_ram, slot + 5) != paused_x);
+  }
+  check(MmxSaberWaveRuntimeOwns(g_ram, slot) && resumed,
+        "wave travel resumes after the paused no-tick interval");
+
+  /* D4c: exchange clears the pending finisher context, but the world-owned
+   * wave remains active after X becomes the playable character. */
+  slot = saber_wave_launch(fixture, false);
+  for (unsigned i = 0; i < 60 && MmxZeroGetState().slash; ++i) {
+    saber_wave_keep_onscreen(slot);
+    frame(0);
+  }
+  check(!MmxZeroGetState().slash && MmxSaberWaveRuntimeOwns(g_ram, slot),
+        "launched wave survives finisher recovery before exchange");
+  frame(SNES_PAD_SELECT);
+  check(MmxZeroSwapping(), "Select starts the native X/Zero exchange");
+  const unsigned exchange_age = g_ram[slot + MMX_SABER_WAVE_SLOT_AGE];
+  const int exchange_x = (int16_t)read_ram_word(g_ram, slot + 5);
+  bool exchange_moved = false;
+  bool reached_x = !MmxZeroActive();
+  for (unsigned i = 0; i < 80 && MmxZeroSwapping(); ++i) {
+    saber_wave_keep_onscreen(slot);
+    frame(0);
+    if (g_ram[slot] &&
+        (g_ram[slot + MMX_SABER_WAVE_SLOT_AGE] > exchange_age ||
+         (int16_t)read_ram_word(g_ram, slot + 5) != exchange_x))
+      exchange_moved = true;
+    reached_x |= !MmxZeroActive();
+  }
+  check(reached_x && !MmxZeroActive() && MmxSaberWaveRuntimeOwns(g_ram, slot) &&
+            exchange_moved,
+        "exchange to X preserves a launched wave and X frames move it");
+
+  /* D4d: both locked death indicators use the same player-end lifecycle
+   * branch; HP zero is set explicitly alongside the native death action. */
+  load_fixture(fixture);
+  slot = saber_wave_launch(fixture, false);
+  g_ram[0xbcf] = 0;
+  g_ram[0xbaa] = 0x0c;
+  g_ram[0xbab] = 0;
+  frame(0);
+  check(saber_wave_finisher_empty(),
+        "HP zero/death retires every launched wave and pending finisher state");
+
+  /* D4e/D2: call the exact respawn seam used by hook $00:9DCA while a wave is
+   * still present. This isolates the required upstream extension reset from
+   * the already-tested death branch. */
+  load_fixture(fixture);
+  slot = saber_wave_launch(fixture, false);
+  g_ram[0xbcf] = 0;
+  MmxZeroHealthRespawn(g_ram);
+  check(saber_wave_finisher_empty(),
+        "respawn calls the extension reset and removes wave/reservation state");
+
+  /* D4f: exercise the stage observer directly, as allowed for a fixture whose
+   * stage does not change during this short route. */
+  load_fixture(fixture);
+  slot = saber_wave_launch(fixture, false);
+  g_ram[0x1f7a] ^= 1;
+  MmxSaberWaveRuntimeObserveStage(g_ram);
+  check(saber_wave_finisher_empty(),
+        "stage-id change retires the wave immediately without a weapon tick");
+
+  saber_finisher_window_setup(fixture);
+  g_ram[0x1f7a] ^= 1;
+  frame(0);
+  check(!MmxSaberComboWindowTicks() && !MmxSaberComboReservedSlot(),
+        "stage-id change also cancels an unlaunched finisher window");
+
+  /* D4g reset: the Saber-owned reset callback clears the world slot and the
+   * wave collision record while preserving no pending combo state. */
+  load_fixture(fixture);
+  slot = saber_wave_launch(fixture, false);
+  MmxSaberFrameReset();
+  check(saber_wave_finisher_empty() &&
+            saber_wave_record_empty(g_snes->cart->rom +
+                                    MMX_SABER_WAVE_COLLISION_ROM_OFFSET),
+        "Saber reset retires waves, reservations, window, and $37FA0 ownership");
+
+  /* Save-state load: save a live guest wave, advance away from it, then load
+   * the same snapshot. state_reset must erase the restored non-serialized
+   * Saber tail, including the guest wave slot. */
+  load_fixture(fixture);
+  slot = saber_wave_launch(fixture, false);
+  const size_t snapshot_capacity = RtlSaveSnapshotToMemory(NULL, 0);
+  uint8_t *snapshot = malloc(snapshot_capacity);
+  check(snapshot_capacity != 0 && snapshot != NULL,
+        "wave lifecycle allocates a save-state snapshot buffer");
+  const size_t snapshot_size = RtlSaveSnapshotToMemory(snapshot,
+                                                        snapshot_capacity);
+  check(snapshot_size != 0 && MmxSaberWaveRuntimeOwns(g_ram, slot),
+        "wave lifecycle saves a mid-flight wave snapshot");
+  saber_wave_keep_onscreen(slot);
+  frame(0);
+  check(RtlLoadSnapshotFromMemory(snapshot, snapshot_size),
+        "mid-flight wave save-state loads through the existing state path");
+  check(saber_wave_finisher_empty(),
+        "save-state load state_reset removes the restored wave and reservation");
+  free(snapshot);
+
+  /* The rewind ring uses the same RtlLoadSnapshotFromMemory path. Configure a
+   * small private ring so this remains a real rewind, not a direct reset. */
+  load_fixture(fixture);
+  slot = saber_wave_launch(fixture, false);
+  check(set_test_env("SNESRECOMP_REWIND", "1") == 0,
+        "wave lifecycle enables the rewind harness path");
+  snes_rewind_shutdown();
+  snes_rewind_set_defaults(1, 4, 1);
+  snes_rewind_configure();
+  for (unsigned i = 0; i < 5; ++i) {
+    saber_wave_keep_onscreen(slot);
+    frame(0);
+    snes_rewind_note_frame();
+  }
+  check(snes_rewind_open(), "rewind opens with several live-wave snapshots");
+  snes_rewind_step(-1);
+  snes_rewind_commit();
+  check(saber_wave_finisher_empty(),
+        "rewind load invokes state_reset and removes the live wave");
+  snes_rewind_shutdown();
+
+  /* Plugin disable/reset must retire the guest slots before sidecars and
+   * providers are released, and must restore the owned collision bytes. */
+  load_fixture(fixture);
+  slot = saber_wave_launch(fixture, false);
+  activate_zero(x1_rom, x3_rom, assets, false, false);
+  check(!MmxSaberEnabled() && saber_wave_finisher_empty() &&
+            saber_wave_record_empty(g_snes->cart->rom +
+                                    MMX_SABER_WAVE_COLLISION_ROM_OFFSET),
+        "plugin disable retires waves and restores $37FA0 to $FF");
+  activate_zero(x1_rom, x3_rom, assets, true, true);
+
+  puts("ok: saber-wave-lifecycle");
 }
 
 static void saber_finisher_window_at_current_position(void) {
@@ -4521,6 +4720,7 @@ int main(int argc, char **argv) {
   const bool saber_buster_rules = only && !strcmp(only, "saber-buster-rules");
   const bool saber_wave_travel = only && !strcmp(only, "saber-wave-travel");
   const bool saber_wave_damage = only && !strcmp(only, "saber-wave-damage");
+  const bool saber_wave_lifecycle = only && !strcmp(only, "saber-wave-lifecycle");
   const bool saber_ground_hit = only && !strcmp(only, "saber-ground-hit");
   const bool saber_render_snapshot = only && !strcmp(only, "saber-render-snapshot");
   const bool x3_zero_specials = only && !strcmp(only, "x3-zero-specials");
@@ -4531,7 +4731,7 @@ int main(int argc, char **argv) {
       saber_air || saber_wall || saber_dash || saber_land || saber_ground_lifecycle ||
       saber_ground_hit || saber_cancel || saber_lifecycle_load ||
       saber_render_snapshot || saber_buster_rules || saber_finisher ||
-      saber_wave_travel || saber_wave_damage;
+      saber_wave_travel || saber_wave_damage || saber_wave_lifecycle;
   SpecialCounts upstream_specials = {0};
   if (saber_input || saber_buster_rules) {
     activate_zero(argv[1], x3_rom, assets, false, false);
@@ -4597,6 +4797,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-wave-damage runs with the Saber package enabled");
     saber_wave_damage_checks(fixture);
+  } else if (saber_wave_lifecycle) {
+    check(MmxSaberEnabled(),
+          "saber-wave-lifecycle runs with the Saber package enabled");
+    saber_wave_lifecycle_checks(argv[1], x3_rom, fixture, assets);
   } else if (saber_ground_hit) {
     check(MmxSaberEnabled(),
           "saber-ground-hit runs with the Saber package enabled");
@@ -4666,6 +4870,7 @@ int main(int argc, char **argv) {
         strcmp(only, "saber-buster-rules") &&
         strcmp(only, "saber-wave-travel") &&
         strcmp(only, "saber-wave-damage") &&
+        strcmp(only, "saber-wave-lifecycle") &&
         strcmp(only, "saber-ground-hit") &&
         strcmp(only, "saber-render-snapshot") &&
         strcmp(only, "zero-hook-parity") &&

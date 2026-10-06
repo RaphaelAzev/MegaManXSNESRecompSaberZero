@@ -41,9 +41,10 @@ bool MmxSaberWaveRuntimeReserve(uint8_t *ram, unsigned *slot);
 bool MmxSaberWaveRuntimeReleaseReservation(uint8_t *ram, unsigned slot);
 bool MmxSaberWaveRuntimePublish(uint8_t *ram, unsigned slot);
 
-/* Called from the frame bridge so stage changes retire waves even on a frame
- * where the native weapon loop does not visit the projectile pool. */
-void MmxSaberWaveRuntimeObserveStage(uint8_t *ram);
+/* Called from the frame bridge so a stage change cancels pending combo state
+ * and retires waves even when the native weapon loop skips the projectile
+ * pool. Returns true when the observed stage changed or a slot disagreed. */
+bool MmxSaberWaveRuntimeObserveStage(uint8_t *ram);
 void MmxSaberWaveRuntimeRetireAll(uint8_t *ram);
 void MmxSaberWaveRuntimeReset(uint8_t *ram);
 

@@ -105,6 +105,7 @@ void MmxZeroHealthSync(const uint8_t r[0x20000]) {
 }
 void MmxZeroHealthRespawn(const uint8_t r[0x20000]) {
   if (!poses || !r || r[0x1f9a] < 16 || r[0x1f9a] > 32) return;
+  if (extension && extension->state_reset) extension->state_reset((uint8_t *)r);
   /* Called at the original stage/checkpoint HP initialization, not whenever
    * a pool happens to reach zero. Death and life loss remain native. */
   state.hp_valid = 1; state.hp_max = r[0x1f9a];
