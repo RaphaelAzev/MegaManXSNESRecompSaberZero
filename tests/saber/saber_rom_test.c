@@ -4,6 +4,7 @@
 #define MMX_DESKTOP_ENTRY MmxDesktopMain
 #include "desktop/host_main.c"
 #include MMX_GAME_MAIN
+#include <stdint.h>
 #include "mmx_zero.h"
 #include "mmx_weapons.h"
 #include "saber/mmx_saber_attack.h"
@@ -197,6 +198,159 @@ static void release_charge(unsigned frames) {
 
 static unsigned read_ram_word(const uint8_t *ram, unsigned offset) {
   return ram[offset] | (unsigned)ram[offset + 1] << 8;
+}
+
+enum {
+  FIXTURE_REPLAY_FRAMES = 120,
+  FIXTURE_WRAM_HASH_BYTES = 0x2000,
+};
+
+typedef struct {
+  const char *name;
+  unsigned stage;
+  unsigned scene;
+  unsigned x;
+  unsigned y;
+  unsigned hp;
+  unsigned expected_stage;
+  const char *expected_stage_name;
+} FixtureReference;
+
+/* These are identity oracles captured from the converted private fixtures in
+ * the upstream Zero path. Keep each fixture's values named at the definition
+ * site so a fixture replacement cannot silently change the reference set. */
+static const FixtureReference kReferenceArmadilloFight = {
+  "armadillo-fight.sav", 0x03, 0x04, 0x141B, 0x0A9F, 18, 0x03,
+  "Armored Armadillo",
+};
+static const FixtureReference kReferenceArmadilloRoom = {
+  "armadillo-room.sav", 0x03, 0x04, 0x1380, 0x0A6F, 18, 0x03,
+  "Armored Armadillo",
+};
+static const FixtureReference kReferenceLogPlatform = {
+  "log-platform.sav", 0x08, 0x04, 0x01E0, 0x0450, 8, 0x00, "Highway",
+};
+static const FixtureReference kReferenceMammothFight = {
+  "mammoth-fight.sav", 0x04, 0x04, 0x1ED5, 0x02AF, 11, 0x04,
+  "Flame Mammoth",
+};
+static const FixtureReference kReferenceMammothRoom = {
+  "mammoth-room.sav", 0x04, 0x04, 0x1E2E, 0x02AF, 11, 0x04,
+  "Flame Mammoth",
+};
+static const FixtureReference kReferenceMammothStun = {
+  "mammoth-stun.sav", 0x04, 0x04, 0x1F3A, 0x02A0, 4, 0x04,
+  "Flame Mammoth",
+};
+static const FixtureReference kReferencePenguinFight = {
+  "penguin-fight.sav", 0x08, 0x04, 0x1E1B, 0x01AF, 16, 0x08,
+  "Chill Penguin",
+};
+static const FixtureReference kReferencePenguinRoom = {
+  "penguin-room.sav", 0x08, 0x04, 0x1D61, 0x018F, 16, 0x08,
+  "Chill Penguin",
+};
+static const FixtureReference kReferenceRideArmor = {
+  "ride-armor.sav", 0x08, 0x04, 0x1212, 0x038E, 14, 0x00, "Highway",
+};
+
+static const FixtureReference *const kFixtureReferences[] = {
+  &kReferenceArmadilloFight,
+  &kReferenceArmadilloRoom,
+  &kReferenceLogPlatform,
+  &kReferenceMammothFight,
+  &kReferenceMammothRoom,
+  &kReferenceMammothStun,
+  &kReferencePenguinFight,
+  &kReferencePenguinRoom,
+  &kReferenceRideArmor,
+};
+
+static uint64_t fixture_wram_hash(void) {
+  uint64_t hash = UINT64_C(1469598103934665603);
+  for (unsigned i = 0; i < FIXTURE_WRAM_HASH_BYTES; ++i) {
+    hash ^= g_ram[i];
+    hash *= UINT64_C(1099511628211);
+  }
+  return hash;
+}
+
+static void fixture_replay(const char *path, uint64_t hashes[FIXTURE_REPLAY_FRAMES],
+                           const char *label) {
+  char message[256];
+  int written = snprintf(message, sizeof(message), "%s fresh load succeeds", label);
+  check(written >= 0 && written < (int)sizeof(message),
+        "fixture fresh-load message fits");
+  check(RtlLoadSnapshot(path), message);
+  for (unsigned frame_number = 0; frame_number < FIXTURE_REPLAY_FRAMES;
+       ++frame_number) {
+    frame(0);
+    hashes[frame_number] = fixture_wram_hash();
+  }
+}
+
+static void fixture_checks(const char *fixture_dir) {
+  char path[4096];
+  char message[256];
+  for (unsigned i = 0; i < sizeof(kFixtureReferences) / sizeof(kFixtureReferences[0]); ++i) {
+    const FixtureReference *reference = kFixtureReferences[i];
+    int written = snprintf(path, sizeof(path), "%s/%s", fixture_dir, reference->name);
+    check(written >= 0 && written < (int)sizeof(path),
+          "fixture path fits the test buffer");
+    written = snprintf(message, sizeof(message), "%s exists", reference->name);
+    check(written >= 0 && written < (int)sizeof(message),
+          "fixture existence message fits");
+    check(readable_file(path), message);
+    written = snprintf(message, sizeof(message), "%s loads", reference->name);
+    check(written >= 0 && written < (int)sizeof(message),
+          "fixture load message fits");
+    check(RtlLoadSnapshot(path), message);
+    check(!MmxSaberEnabled() && MmxZeroActive() && !MmxZeroModern(),
+          "fixture identity uses upstream Zero with Saber disabled");
+
+    const unsigned stage = g_ram[0x1f7a];
+    const unsigned scene = g_ram[0x00d3];
+    const unsigned x = read_ram_word(g_ram, 0x0bad);
+    const unsigned y = read_ram_word(g_ram, 0x0bb0);
+    const unsigned hp = g_ram[0x0bcf] & 0x7f;
+    printf("reference: %s stage=0x%02X scene=0x%02X x=0x%04X y=0x%04X hp=%u\n",
+           reference->name, reference->stage, reference->scene, reference->x,
+           reference->y, reference->hp);
+    check(stage == reference->stage && scene == reference->scene &&
+              x == reference->x && y == reference->y && hp == reference->hp,
+          snprintf(message, sizeof(message), "%s identity matches reference",
+                   reference->name) < (int)sizeof(message) ? message :
+              "fixture identity message fits");
+    if (stage == reference->expected_stage) {
+      printf("mapping: %s -> stage 0x%02X (%s)\n", reference->name, stage,
+             reference->expected_stage_name);
+    } else {
+      printf("mapping: %s -> stage 0x%02X (name suggests %s stage 0x%02X; "
+             "mismatch reported, fixture not changed)\n", reference->name, stage,
+             reference->expected_stage_name, reference->expected_stage);
+    }
+
+    uint64_t first[FIXTURE_REPLAY_FRAMES];
+    uint64_t second[FIXTURE_REPLAY_FRAMES];
+    fixture_replay(path, first, reference->name);
+    fixture_replay(path, second, reference->name);
+    unsigned mismatch = FIXTURE_REPLAY_FRAMES;
+    for (unsigned frame_number = 0; frame_number < FIXTURE_REPLAY_FRAMES;
+         ++frame_number) {
+      if (first[frame_number] != second[frame_number]) {
+        mismatch = frame_number;
+        break;
+      }
+    }
+    check(mismatch == FIXTURE_REPLAY_FRAMES,
+          snprintf(message, sizeof(message), "%s has identical per-frame hashes "
+                   "for %u neutral frames (WRAM $0000-$1FFF)", reference->name,
+                   FIXTURE_REPLAY_FRAMES) < (int)sizeof(message) ? message :
+              "fixture replay message fits");
+    if (mismatch != FIXTURE_REPLAY_FRAMES)
+      printf("replay: %s first mismatch at frame %u\n", reference->name, mismatch);
+  }
+  puts("ok: fixture identity and replay checks");
 }
 
 static struct {
@@ -2039,9 +2193,12 @@ int main(int argc, char **argv) {
   const char *x3_rom = getenv("MMX_COOP_X3_ROM");
   const char *assets = getenv("MMX_ZERO_TEST_ASSETS");
   const char *only = getenv("MMX_SABER_TEST_ONLY");
+  const char *fixture_dir = getenv("MMX_SABER_FIXTURE_DIR");
   check(fixture && fixture[0], "MMX_ZERO_TEST_FIXTURE supplied");
   check(x3_rom && x3_rom[0], "MMX_COOP_X3_ROM supplied");
   check(assets && assets[0], "MMX_ZERO_TEST_ASSETS supplied");
+  if (only && !strcmp(only, "fixtures"))
+    check(fixture_dir && fixture_dir[0], "MMX_SABER_FIXTURE_DIR supplied");
 
   SDL_SetMainReady();
   check(snesrecomp_sdl_init(SDL_INIT_EVENTS), "SDL initializes");
@@ -2105,6 +2262,7 @@ int main(int argc, char **argv) {
   const bool saber_ground_lifecycle = only && !strcmp(only, "saber-ground-lifecycle");
   const bool saber_ground_hit = only && !strcmp(only, "saber-ground-hit");
   const bool x3_zero_specials = only && !strcmp(only, "x3-zero-specials");
+  const bool fixtures = only && !strcmp(only, "fixtures");
   const bool saber_enabled_group = saber_package || zero_extension ||
       saber_input || saber_ground_1 || saber_ground_combo ||
       saber_air || saber_land || saber_ground_lifecycle || saber_ground_hit;
@@ -2143,6 +2301,9 @@ int main(int argc, char **argv) {
     saber_ground_hit_checks(fixture);
   } else if (x3_zero_specials) {
     upstream_specials = x3_zero_specials_checks(fixture);
+  } else if (fixtures) {
+    check(!MmxSaberEnabled(), "fixtures run with Saber disabled");
+    fixture_checks(fixture_dir);
   } else if (zero_extension) {
     check(MmxSaberEnabled(), "zero-extension runs with the Saber package enabled");
     zero_extension_checks(fixture);
@@ -2191,7 +2352,8 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-ground-lifecycle") &&
         strcmp(only, "saber-ground-hit") &&
         strcmp(only, "zero-extension") &&
-        strcmp(only, "saber-assets")) {
+        strcmp(only, "saber-assets") &&
+        strcmp(only, "fixtures")) {
       fprintf(stderr, "FAIL: unknown MMX_SABER_TEST_ONLY group: %s\n", only);
       return 1;
     }

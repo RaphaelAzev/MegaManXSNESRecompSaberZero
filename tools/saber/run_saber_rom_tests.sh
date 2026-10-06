@@ -15,9 +15,34 @@ tmp_dir="$build_dir/tmp"
 exe="$build_dir/mmx_saber_rom_tests.exe"
 catalog_source="$build_dir/mods/preloaded"
 cache_source="$build_dir/cache"
+private_fixture_dir="$repo_root/_private/saves"
+fixture_dir="$build_dir/saves"
+prepare_fixtures="$repo_root/tools/saber/prepare_fixtures.sh"
 x1_rom="${1:-$repo_root/mmx.sfc}"
 x3_rom="${MMX_COOP_X3_ROM:-$repo_root/Mega Man X3 (USA).sfc}"
 fixture="${MMX_ZERO_TEST_FIXTURE:-$build_dir/saves/save0.sav}"
+
+if [[ ! -d "$private_fixture_dir" ]]; then
+  printf 'FAIL: private fixture directory is missing: %s\n' "$private_fixture_dir" >&2
+  exit 2
+fi
+shopt -s nullglob
+private_fixtures=("$private_fixture_dir"/*.sav)
+if [[ ${#private_fixtures[@]} -eq 0 ]]; then
+  printf 'FAIL: no private .sav fixtures found in: %s\n' "$private_fixture_dir" >&2
+  exit 2
+fi
+prepare_needed=0
+for private_fixture in "${private_fixtures[@]}"; do
+  working_fixture="$fixture_dir/$(basename "$private_fixture")"
+  if [[ ! -f "$working_fixture" || "$private_fixture" -nt "$working_fixture" ]]; then
+    prepare_needed=1
+    break
+  fi
+done
+if [[ "$prepare_needed" == 1 ]]; then
+  bash "$prepare_fixtures"
+fi
 
 if [[ $# -gt 1 ]]; then
   printf 'usage: %s [X1_ROM]\n' "$0" >&2
@@ -27,7 +52,7 @@ fi
 # asked by name. A full run executes the default pass plus every named group,
 # each in its own isolated catalog/cache copy. Add new groups to this list.
 named_groups=(saber-assets saber-input saber-ground-1 saber-ground-combo saber-air saber-land saber-ground-hit
-  saber-ground-lifecycle zero-extension saber-package x3-zero-specials)
+  saber-ground-lifecycle zero-extension saber-package x3-zero-specials fixtures)
 if [[ -z "${MMX_SABER_TEST_ONLY:-}" && -z "${MMX_SABER_RUNNER_PASS:-}" ]]; then
   failed=()
   MMX_SABER_RUNNER_PASS=1 bash "${BASH_SOURCE[0]}" "$@" || failed+=(default)
@@ -88,6 +113,7 @@ set +e
     MMX_COOP_LAUNCHER_ROOT="$catalog_copy" \
     MMX_COOP_X3_ROM="$x3_rom" \
     MMX_ZERO_TEST_FIXTURE="$fixture" \
+    MMX_SABER_FIXTURE_DIR="$fixture_dir" \
     MMX_ZERO_TEST_ASSETS="$asset_path" \
     MMX_SABER_TEST_CACHE="$run_dir/cache" \
     MMX_SABER_EMPTY_CACHE="$empty_cache" \
@@ -96,6 +122,12 @@ set +e
 ) 2>&1 | tee "$log_path"
 test_exit="${PIPESTATUS[0]}"
 set -e
+
+if [[ "$test_exit" == 0 ]] && [[ "${MMX_SABER_TEST_ONLY:-}" == fixtures ]] &&
+    grep -Eiq 'bad game chunk|Save (read error|file .* bad magic/version)' "$log_path"; then
+  printf 'FAIL: fixture load reported a bad game chunk or save read error\n'
+  test_exit=1
+fi
 
 if [[ "$test_exit" == 0 ]] && grep -q 'SABER ROM CHECKS PASSED' "$log_path"; then
   printf 'PASS: Saber ROM checks\n'
