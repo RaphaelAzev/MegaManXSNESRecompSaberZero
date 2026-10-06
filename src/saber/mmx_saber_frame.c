@@ -96,7 +96,7 @@ static void pre_player(uint8_t *ram) {
   if (!zero_frame_context(ram)) {
     /* This also handles an exchange to X, title/menu frames, and an upstream
      * Zero lifecycle transition. Do not touch any native input byte. */
-    MmxSaberAttackReset();
+    MmxSaberAttackResetRam(ram);
     release_pending = false;
     previous_y = ram && (ram[0x00ac] & 0x40) != 0;
     return;
@@ -123,6 +123,7 @@ static void pre_player(uint8_t *ram) {
   MmxSaberAttackStep(out.saber_pressed, zero.grounded,
                      !zero.hurt && !zero.dead_or_reset, ram[0x0c11],
                      native_horizontal_direction(ram));
+  MmxSaberAttackRuntimeTick(ram);
   saber = MmxSaberAttackPadState(release_pending);
   out = MmxSaberComputePad(physical, read_native_pad(ram), saber, zero);
   publish_ground_swing(ram, saber);
@@ -148,6 +149,10 @@ static bool legacy_intent(const uint8_t *ram, MmxZeroLegacyIntent *intent) {
 static const MmxZeroExtension extension = {
     .pre_player = pre_player,
     .legacy_intent = legacy_intent,
+    .weapon_tick = MmxSaberAttackWeaponTick,
+    .damage = MmxSaberAttackDamage,
+    .hitbox = MmxSaberAttackHitbox,
+    .collision_rom = MmxSaberAttackCollisionRom,
 };
 
 const MmxZeroExtension *MmxSaberFrameExtension(void) {

@@ -334,6 +334,8 @@ void MmxZeroSetCollisionRom(uint8_t *rom, size_t size) {
     memcpy(rom + 0x33b38, MmxZeroActive() ? dash : old_dash, 10);
     memcpy(rom + 0x37fb0, MmxZeroActive() ? saber_bounds : empty, 40);
   }
+  if (extension && extension->collision_rom)
+    extension->collision_rom(rom, size);
 }
 /* Zero's standing box is eight pixels taller than X's, so a passage X walks
  * through only fits Zero's dash. As in the later games' slide, Zero stays in

@@ -9,6 +9,8 @@
 enum {
   MMX_SABER_NO_WINDOW = 0xff,
   MMX_SABER_MAX_ACTIVE_SEGMENTS = 4,
+  MMX_SABER_PROJECTILE_TAG_FAMILY = 0x5300,
+  MMX_SABER_PROJECTILE_TAG_FAMILY_MASK = 0xff00,
   MMX_SABER_ATTACK_BOUNDS_POINTER = 0xffd8,
   MMX_SABER_SLASH2_BOUNDS_POINTER = 0xffe8,
   MMX_SABER_FINISHER_BOUNDS_POINTER = 0xfff4,
@@ -65,6 +67,7 @@ MmxSaberPadPhase MmxSaberAttackPhaseForTick(const MmxSaberAttack *attack,
                                             uint8_t tick);
 
 void MmxSaberAttackReset(void);
+void MmxSaberAttackResetRam(uint8_t *ram);
 
 /* Advance one pre-player frame.  A press is the physical Y edge; it is not
  * derived from the current attack phase, so a held Y cannot create another
@@ -81,3 +84,15 @@ MmxSaberPadSaber MmxSaberAttackPadState(bool release_pending);
 MmxSaberAttackSnapshot MmxSaberAttackSnapshotGet(void);
 /* Alias kept concise for callers that treat the snapshot as the query API. */
 MmxSaberAttackSnapshot MmxSaberAttackGetSnapshot(void);
+
+/* Native projectile/collision bridge owned entirely by Saber. */
+void MmxSaberAttackRuntimeTick(uint8_t *ram);
+void MmxSaberAttackCollisionRom(uint8_t *rom, size_t size);
+unsigned MmxSaberAttackWeaponTick(uint8_t *ram, unsigned projectile,
+                                  unsigned value);
+unsigned MmxSaberAttackDamage(uint8_t *ram, unsigned enemy,
+                              unsigned projectile, unsigned value);
+unsigned MmxSaberAttackHitbox(const uint8_t *ram, unsigned enemy,
+                              unsigned projectile, unsigned value);
+uint16_t MmxSaberAttackHitSlots(void);
+unsigned MmxSaberAttackCollisionWarningCount(void);

@@ -125,6 +125,27 @@ static unsigned all_projectiles(void) {
   return count;
 }
 
+static bool saber_tagged_projectile(unsigned d) {
+  return g_ram[d] &&
+      ((((unsigned)g_ram[d + 0x3e] | (unsigned)g_ram[d + 0x3f] << 8) &
+          MMX_SABER_PROJECTILE_TAG_FAMILY_MASK) ==
+              MMX_SABER_PROJECTILE_TAG_FAMILY);
+}
+
+static unsigned native_projectiles(void) {
+  unsigned count = 0;
+  for (unsigned d = 0x1228; d < 0x1428; d += 64)
+    count += g_ram[d] && !saber_tagged_projectile(d);
+  return count;
+}
+
+static unsigned tagged_projectiles(void) {
+  unsigned count = 0;
+  for (unsigned d = 0x1228; d < 0x1428; d += 64)
+    count += saber_tagged_projectile(d);
+  return count;
+}
+
 static void shot_presence(unsigned kind, unsigned char present[8]) {
   for (unsigned i = 0; i < 8; ++i) {
     unsigned d = 0x1228 + i * 64;
@@ -237,12 +258,15 @@ static void zero_extension_checks(const char *fixture) {
   static const MmxZeroExtension hooks = {
     .pre_player = zero_extension_pre_player,
     .player_end = zero_extension_player_end,
+    .collision_rom = NULL,
   };
   static const MmxZeroExtension intent_hooks = {
     .legacy_intent = zero_extension_intent_override,
+    .collision_rom = NULL,
   };
   static const MmxZeroExtension reject_hooks = {
     .legacy_intent = zero_extension_intent_reject,
+    .collision_rom = NULL,
   };
 
   load_fixture(fixture);
@@ -667,14 +691,14 @@ static SpecialCounts x3_zero_specials_checks(const char *fixture) {
 static void saber_y_checks(const char *fixture) {
   load_fixture(fixture);
   for (unsigned i = 0; i < 200; ++i) frame(SNES_PAD_Y);
-  check(MmxZeroGetState().charge == 0 && all_projectiles() == 0,
+  check(MmxZeroGetState().charge == 0 && native_projectiles() == 0,
         "physical Y hold never charges or fires Zero's buster");
   frame(0);
   for (unsigned tap = 0; tap < 3; ++tap) {
     frame(SNES_PAD_Y);
     frame(0);
     idle(20);
-    check(MmxZeroGetState().charge == 0 && all_projectiles() == 0,
+    check(MmxZeroGetState().charge == 0 && native_projectiles() == 0,
           "physical Y taps never fire a Zero shot");
   }
   puts("ok: saber-input-y-blocked");
@@ -773,19 +797,19 @@ static void saber_ground_1_checks(const char *fixture) {
   for (unsigned i = 0; i < 6; ++i) {
     frame(SNES_PAD_X);
     snapshot = MmxSaberAttackSnapshotGet();
-    if (snapshot.phase != SABER_PHASE_IDLE && all_projectiles())
+    if (snapshot.phase != SABER_PHASE_IDLE && native_projectiles())
       shot_before_idle = true;
   }
   charge_before_release = MmxZeroGetState().charge;
   frame(0);
   snapshot = MmxSaberAttackSnapshotGet();
-  if (snapshot.phase == SABER_PHASE_IDLE || all_projectiles())
+  if (snapshot.phase == SABER_PHASE_IDLE || native_projectiles())
     shot_before_idle = true;
   for (unsigned i = 0; i < OLD_SABER_GROUND1_TOTAL + 5; ++i) {
     bool live;
     frame(0);
     snapshot = MmxSaberAttackSnapshotGet();
-    live = all_projectiles() != 0;
+    live = native_projectiles() != 0;
     if (snapshot.phase != SABER_PHASE_IDLE &&
         MmxZeroGetState().charge < charge_before_release)
       charge_not_lost = false;
@@ -1050,6 +1074,231 @@ static void saber_ground_combo_checks(const char *fixture) {
   check(position_ok && velocity_ok,
         "ground combo holds position and writes zero VX on every swing frame");
   puts("ok: saber-ground-combo");
+}
+
+static const uint8_t kOldSaberGroundBounds[40] = {
+    7, 232, 11, 14, 29, 241, 18, 23, 37, 253, 16, 11, 37, 0, 16, 8,
+    24, 251, 14, 13, 13, 251, 42, 13, 235, 251, 18, 13,
+    248, 240, 18, 19, 30, 240, 36, 24, 39, 245, 29, 19};
+
+static const uint8_t kOldSaberAirBounds[40] = {
+    17, 240, 16, 13, 15, 249, 30, 20, 14, 253, 42, 24, 244, 250, 18, 12,
+    31, 246, 33, 19, 22, 0, 23, 15, 14, 1, 16, 12, 25, 255, 36, 9,
+    46, 254, 29, 10, 14, 245, 24, 4};
+
+static unsigned abs_difference(unsigned a, unsigned b) {
+  return a > b ? a - b : b - a;
+}
+
+static unsigned reachable_ground_enemy(void) {
+  const unsigned zero_x = read_ram_word(g_ram, 0x0bad);
+  const unsigned zero_y = read_ram_word(g_ram, 0x0bb0);
+  unsigned best = 0;
+  unsigned best_distance = 0xffff;
+  for (unsigned d = 0xe68; d < 0x1228; d += 64) {
+    unsigned enemy_x, enemy_y, distance;
+    if (!g_ram[d] || !g_ram[d + 14] || (g_ram[d + 0x27] & 127) <= 3 ||
+        g_ram[d + 0x28] >= 6)
+      continue;
+    enemy_x = read_ram_word(g_ram, d + 5);
+    enemy_y = read_ram_word(g_ram, d + 8);
+    if (enemy_x < zero_x || enemy_x - zero_x > 48 ||
+        abs_difference(enemy_y, zero_y) > 48)
+      continue;
+    distance = (enemy_x - zero_x) + abs_difference(enemy_y, zero_y);
+    if (distance < best_distance) {
+      best = d;
+      best_distance = distance;
+    }
+  }
+  return best;
+}
+
+static unsigned walk_to_ground_enemy(const char *fixture,
+                                     unsigned *walk_frames) {
+  unsigned target = 0;
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  for (unsigned i = 0; i < 300 && !target; ++i) {
+    frame(i < 180 ? SNES_PAD_RIGHT : SNES_PAD_RIGHT | SNES_PAD_R);
+    target = reachable_ground_enemy();
+    if (target && walk_frames) *walk_frames = i + 1;
+  }
+  return target;
+}
+
+static unsigned saber_record_pointer(const MmxSaberAttackSnapshot *snapshot) {
+  const MmxSaberAttack *attack;
+  if (!snapshot) return 0;
+  attack = MmxSaberAttackRecord(snapshot->kind, snapshot->index);
+  if (!attack) return 0;
+  for (unsigned i = 0; i < attack->bounds_segment_count; ++i) {
+    const MmxSaberBoundsSegment *segment = attack->bounds_segments + i;
+    if (snapshot->tick >= segment->first_tick &&
+        snapshot->tick <= segment->last_tick)
+      return attack->bounds_pointer + i * 4;
+  }
+  return 0;
+}
+
+static unsigned saber_active_slot(void) {
+  unsigned slot = 0;
+  for (unsigned d = 0x1228; d < 0x1428; d += 64)
+    if (saber_tagged_projectile(d)) {
+      if (slot) return 0;
+      slot = d;
+    }
+  return slot;
+}
+
+static void saber_ground_hit_checks(const char *fixture) {
+  uint8_t saved_ground[40];
+  unsigned target, walk_frames = 0, slot, bit, initial_hp;
+  unsigned damage, contacts, first_contact_frame;
+  uint16_t mask_on_contact = 0;
+  bool startup_empty, active_ok, release_ok, mask_ok;
+  uint16_t active_slot_x = 0;
+  MmxSaberAttackSnapshot snapshot;
+
+  target = walk_to_ground_enemy(fixture, &walk_frames);
+  check(target != 0, "Highway walk reaches an ordinary ground-slash target");
+  printf("reference: Highway ground-hit walk_frames=%u Zero=(%u,%u) "
+         "enemy_slot=0x%X enemy=(%u,%u)\n",
+         walk_frames, read_ram_word(g_ram, 0x0bad), read_ram_word(g_ram, 0x0bb0),
+         target, read_ram_word(g_ram, target + 5), read_ram_word(g_ram, target + 8));
+
+  frame(0);
+  check(!memcmp(g_snes->cart->rom + 0x37fd8, kOldSaberGroundBounds, 40) &&
+            !memcmp(g_snes->cart->rom + 0x37f40, kOldSaberAirBounds, 40),
+        "Saber collision windows equal the old ground and air rectangles");
+
+  initial_hp = g_ram[target + 0x27] & 127;
+  bit = 1u << ((target - 0xe68) / 64);
+  startup_empty = true;
+  active_ok = true;
+  release_ok = true;
+  mask_ok = false;
+  damage = 0;
+  contacts = 0;
+  first_contact_frame = 0;
+
+  frame(SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  if (tagged_projectiles() != 0) startup_empty = false;
+  for (unsigned i = 1; i < 45 && snapshot.phase != SABER_PHASE_IDLE; ++i) {
+    unsigned hp_before = g_ram[target + 0x27] & 127;
+    frame(0);
+    snapshot = MmxSaberAttackSnapshotGet();
+    slot = saber_active_slot();
+    if (snapshot.phase == SABER_PHASE_STARTUP && tagged_projectiles() != 0)
+      startup_empty = false;
+    if (snapshot.phase == SABER_PHASE_ACTIVE) {
+      unsigned hp_after = g_ram[target + 0x27] & 127;
+      if (slot == 0 || tagged_projectiles() != 1 ||
+          read_ram_word(g_ram, slot + 5) != read_ram_word(g_ram, 0x0bad) ||
+          read_ram_word(g_ram, slot + 8) != read_ram_word(g_ram, 0x0bb0) ||
+          read_ram_word(g_ram, slot + 0x20) != saber_record_pointer(&snapshot))
+        active_ok = false;
+      else if (!active_slot_x)
+        active_slot_x = read_ram_word(g_ram, slot + 5);
+      if (hp_after < hp_before) {
+        unsigned delta = hp_before - hp_after;
+        ++contacts;
+        damage += delta;
+        if (!first_contact_frame) first_contact_frame = i;
+        if (delta != 3 || damage != 3) active_ok = false;
+        mask_on_contact = MmxSaberAttackHitSlots();
+        if (mask_on_contact & bit) mask_ok = true;
+      }
+    } else if (snapshot.phase == SABER_PHASE_RECOVERY && active_slot_x) {
+      if (tagged_projectiles() != 0) release_ok = false;
+    }
+  }
+  check(startup_empty && active_ok && release_ok && contacts == 1 &&
+            damage == 3 && (g_ram[target + 0x27] & 127) == initial_hp - 3,
+        "ground slash 1 creates one anchored tagged slot and deals 3 once");
+  check(mask_ok, "ground slash 1 sets the Saber enemy mask bit");
+  printf("reference: ground-hit slash1 first_contact_frame=%u "
+         "damage=%u mask=0x%X\n", first_contact_frame, damage,
+         mask_on_contact);
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  target = walk_to_ground_enemy(fixture, &walk_frames);
+  check(target != 0, "Highway combo route retains an ordinary target");
+  initial_hp = g_ram[target + 0x27] & 127;
+  bit = 1u << ((target - 0xe68) / 64);
+  damage = 0;
+  contacts = 0;
+  bool first_seen = false;
+  bool second_mask = false;
+  frame(SNES_PAD_Y);
+  for (unsigned i = 1; i <= 29; ++i) {
+    unsigned hp_before = g_ram[target + 0x27] & 127;
+    frame(i == 29 ? SNES_PAD_Y : 0);
+    snapshot = MmxSaberAttackSnapshotGet();
+    unsigned hp_after = g_ram[target + 0x27] & 127;
+    if (hp_after < hp_before) {
+      unsigned delta = hp_before - hp_after;
+      ++contacts;
+      damage += delta;
+      if (delta == 3) {
+        if (!first_seen) first_seen = (MmxSaberAttackHitSlots() & bit) != 0;
+        else second_mask = (MmxSaberAttackHitSlots() & bit) != 0;
+      }
+    }
+  }
+  check(snapshot.kind == SABER_KIND_GROUND2 &&
+            snapshot.phase == SABER_PHASE_ACTIVE && tagged_projectiles() == 1,
+        "ground slash 2 is accepted at the combo window with one new slot");
+  for (unsigned i = 0; i < 32 && snapshot.phase != SABER_PHASE_IDLE; ++i) {
+    unsigned hp_before = g_ram[target + 0x27] & 127;
+    frame(0);
+    snapshot = MmxSaberAttackSnapshotGet();
+    unsigned hp_after = g_ram[target + 0x27] & 127;
+    if (hp_after < hp_before) {
+      unsigned delta = hp_before - hp_after;
+      ++contacts;
+      damage += delta;
+      if (delta == 3 && contacts == 2)
+        second_mask = (MmxSaberAttackHitSlots() & bit) != 0;
+    }
+  }
+  check(first_seen && contacts == 2 && damage == 6 && second_mask &&
+            (g_ram[target + 0x27] & 127) == initial_hp - 6,
+        "ground slash 2 can hit the same enemy again for 3 with a fresh mask");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(0);
+  memcpy(saved_ground, g_snes->cart->rom + 0x37fd8, sizeof(saved_ground));
+  unsigned warning_before = MmxSaberAttackCollisionWarningCount();
+  g_snes->cart->rom[0x37fd8] ^= 1;
+  MmxSaberAttackCollisionRom(g_snes->cart->rom, g_snes->cart->romSize);
+  MmxSaberAttackCollisionRom(g_snes->cart->rom, g_snes->cart->romSize);
+  check(MmxSaberAttackCollisionWarningCount() == warning_before + 1,
+        "foreign collision data logs once and fails closed");
+  target = walk_to_ground_enemy(fixture, &walk_frames);
+  check(target != 0, "foreign-window route reaches an ordinary target");
+  frame(SNES_PAD_Y);
+  bool foreign_animation = false;
+  bool foreign_no_hitbox = true;
+  for (unsigned i = 0; i < 18; ++i) {
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (snapshot.phase != SABER_PHASE_IDLE) foreign_animation = true;
+    slot = saber_active_slot();
+    if (snapshot.phase == SABER_PHASE_ACTIVE &&
+        (slot == 0 || read_ram_word(g_ram, slot + 0x20) != 0))
+      foreign_no_hitbox = false;
+    frame(0);
+  }
+  check(foreign_animation && foreign_no_hitbox,
+        "foreign collision data leaves slashes animating with no hitbox");
+  memcpy(g_snes->cart->rom + 0x37fd8, saved_ground, sizeof(saved_ground));
+  MmxSaberAttackCollisionRom(g_snes->cart->rom, g_snes->cart->romSize);
+  check(!memcmp(g_snes->cart->rom + 0x37fd8, kOldSaberGroundBounds, 40),
+        "restored collision window is owned and idempotent");
+  puts("ok: saber-ground-hit");
 }
 
 static void saber_special_checks(const char *fixture,
@@ -1410,9 +1659,10 @@ int main(int argc, char **argv) {
   const bool saber_input = only && !strcmp(only, "saber-input");
   const bool saber_ground_1 = only && !strcmp(only, "saber-ground-1");
   const bool saber_ground_combo = only && !strcmp(only, "saber-ground-combo");
+  const bool saber_ground_hit = only && !strcmp(only, "saber-ground-hit");
   const bool x3_zero_specials = only && !strcmp(only, "x3-zero-specials");
   const bool saber_enabled_group = saber_package || zero_extension ||
-      saber_input || saber_ground_1 || saber_ground_combo;
+      saber_input || saber_ground_1 || saber_ground_combo || saber_ground_hit;
   SpecialCounts upstream_specials = {0};
   if (saber_input) {
     activate_zero(argv[1], x3_rom, assets, false, false);
@@ -1432,6 +1682,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-ground-combo runs with the Saber package enabled");
     saber_ground_combo_checks(fixture);
+  } else if (saber_ground_hit) {
+    check(MmxSaberEnabled(),
+          "saber-ground-hit runs with the Saber package enabled");
+    saber_ground_hit_checks(fixture);
   } else if (x3_zero_specials) {
     upstream_specials = x3_zero_specials_checks(fixture);
   } else if (zero_extension) {
@@ -1475,7 +1729,8 @@ int main(int argc, char **argv) {
         strcmp(only, "x3-zero-specials") &&
       strcmp(only, "saber-package") && strcmp(only, "saber-input") &&
       strcmp(only, "saber-ground-1") &&
-        strcmp(only, "saber-ground-combo") &&
+      strcmp(only, "saber-ground-combo") &&
+        strcmp(only, "saber-ground-hit") &&
         strcmp(only, "zero-extension") &&
         strcmp(only, "saber-assets")) {
       fprintf(stderr, "FAIL: unknown MMX_SABER_TEST_ONLY group: %s\n", only);

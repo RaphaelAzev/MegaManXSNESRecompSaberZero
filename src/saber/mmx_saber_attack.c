@@ -1,5 +1,6 @@
 #include "mmx_saber_attack.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /* The native records are center offset, center offset, and half-extents.
@@ -183,12 +184,91 @@ typedef struct MmxSaberAttackState {
   uint8_t swing_id;
   uint8_t anim_id;
   uint8_t anim_step;
+  uint16_t projectile;
+  uint16_t hit_slots;
+  uint8_t projectile_tag_generation;
+  uint8_t projectile_swing_id;
 } MmxSaberAttackState;
 
 static MmxSaberAttackState state;
+static uint8_t projectile_generation;
+static uint8_t *runtime_ram;
+
+typedef struct MmxSaberCollisionWindow {
+  uint8_t *rom;
+  uint8_t bytes[40];
+  size_t offset;
+  const char *name;
+  bool installed;
+  bool ready;
+  bool warned;
+} MmxSaberCollisionWindow;
+
+static MmxSaberCollisionWindow ground_collision = {
+    NULL, {0}, 0x37fd8, "$37FD8", false, false, false};
+static MmxSaberCollisionWindow air_collision = {
+    NULL, {0}, 0x37f40, "$37F40", false, false, false};
+static unsigned collision_warnings;
 
 static const MmxSaberAttack *state_attack(void) {
   return MmxSaberAttackRecord(state.kind, state.index);
+}
+
+static unsigned word(const uint8_t *p) {
+  return p[0] | ((unsigned)p[1] << 8);
+}
+
+static void putword(uint8_t *p, unsigned value) {
+  p[0] = (uint8_t)value;
+  p[1] = (uint8_t)(value >> 8);
+}
+
+static bool projectile_slot_valid(unsigned d) {
+  return d >= 0x1228 && d < 0x1428 && (d & 63) == 0x28;
+}
+
+static bool enemy_slot_valid(unsigned d) {
+  return d >= 0xe68 && d < 0x1228 && (d & 63) == 0x28;
+}
+
+static bool saber_tag_family(unsigned tag) {
+  return (tag & MMX_SABER_PROJECTILE_TAG_FAMILY_MASK) ==
+      MMX_SABER_PROJECTILE_TAG_FAMILY;
+}
+
+static bool current_projectile_tagged(const uint8_t *ram, unsigned d) {
+  return ram && projectile_slot_valid(d) && ram[d] &&
+      d == state.projectile && state.projectile_tag_generation != 0 &&
+      word(ram + d + 0x3e) ==
+          (MMX_SABER_PROJECTILE_TAG_FAMILY |
+           state.projectile_tag_generation);
+}
+
+static bool saber_projectile_owned(const uint8_t *ram, unsigned d) {
+  return current_projectile_tagged(ram, d) && state.phase == SABER_PHASE_ACTIVE;
+}
+
+static void retire_projectile_slot(uint8_t *ram, unsigned d) {
+  bool live;
+  if (!ram || !projectile_slot_valid(d)) return;
+  live = ram[d] != 0;
+  memset(ram + d, 0, 64);
+  if (live && ram[0xbdd]) --ram[0xbdd];
+}
+
+static void retire_all_tagged(uint8_t *ram) {
+  if (!ram) return;
+  for (unsigned d = 0x1228; d < 0x1428; d += 64)
+    if (saber_tag_family(word(ram + d + 0x3e))) retire_projectile_slot(ram, d);
+}
+
+static void release_current_projectile(uint8_t *ram) {
+  if (ram && current_projectile_tagged(ram, state.projectile))
+    retire_projectile_slot(ram, state.projectile);
+  state.projectile = 0;
+  state.projectile_tag_generation = 0;
+  state.projectile_swing_id = 0;
+  state.hit_slots = 0;
 }
 
 static bool tick_in_window(uint8_t tick, uint8_t open, uint8_t close) {
@@ -238,6 +318,145 @@ static void clear_attack(void) {
   state.facing = 0;
   state.anim_id = 0;
   state.anim_step = 0;
+  state.hit_slots = 0;
+}
+
+static const MmxSaberBoundsSegment *bounds_segment(
+    const MmxSaberAttack *attack, uint8_t tick, unsigned *index) {
+  if (!attack || !attack->bounds_segments) return NULL;
+  for (unsigned i = 0; i < attack->bounds_segment_count &&
+                       i < MMX_SABER_MAX_ACTIVE_SEGMENTS; ++i) {
+    const MmxSaberBoundsSegment *segment = attack->bounds_segments + i;
+    if (tick >= segment->first_tick && tick <= segment->last_tick) {
+      if (index) *index = i;
+      return segment;
+    }
+  }
+  return NULL;
+}
+
+static uint16_t bounds_pointer(const MmxSaberAttack *attack, uint8_t tick) {
+  unsigned index = 0;
+  if (bounds_segment(attack, tick, &index))
+    return (uint16_t)(attack->bounds_pointer + index * 4);
+  return attack ? attack->bounds_pointer : MMX_SABER_ATTACK_BOUNDS_POINTER;
+}
+
+static void bounds_records_for_window(uint8_t out[40], uint16_t window_pointer) {
+  memset(out, 255, 40);
+  for (size_t attack_index = 0;
+       attack_index < sizeof(kSaberAttacks) / sizeof(kSaberAttacks[0]);
+       ++attack_index) {
+    const MmxSaberAttack *attack = kSaberAttacks + attack_index;
+    if (attack->bounds_pointer < window_pointer ||
+        attack->bounds_pointer >= window_pointer + 40) continue;
+    unsigned record = (attack->bounds_pointer - window_pointer) / 4;
+    for (unsigned segment_index = 0;
+         segment_index < attack->bounds_segment_count &&
+             segment_index < MMX_SABER_MAX_ACTIVE_SEGMENTS; ++segment_index) {
+      const MmxSaberBoundsSegment *segment =
+          attack->bounds_segments + segment_index;
+      if (record + segment_index >= 10) continue;
+      unsigned offset = (record + segment_index) * 4;
+      out[offset] = (uint8_t)segment->bounds_x;
+      out[offset + 1] = (uint8_t)segment->bounds_y;
+      out[offset + 2] = segment->bounds_half_width;
+      out[offset + 3] = segment->bounds_half_height;
+    }
+  }
+}
+
+static bool air_collision_attack(const MmxSaberAttack *attack) {
+  return attack && (attack->kind == SABER_KIND_AIR ||
+                    attack->kind == SABER_KIND_WALL ||
+                    attack->kind == SABER_KIND_DASH);
+}
+
+static bool collision_ready(const MmxSaberAttack *attack) {
+  return air_collision_attack(attack) ? air_collision.ready :
+      (attack && attack->bounds_segments && ground_collision.ready);
+}
+
+static void collision_window_update(MmxSaberCollisionWindow *window,
+                                    uint8_t *rom, size_t size,
+                                    const uint8_t expected[40]) {
+  uint8_t empty[40];
+  if (!window || !expected) return;
+  memset(empty, 255, sizeof(empty));
+  window->ready = false;
+
+  if (window->installed &&
+      (window->rom != rom || !rom || size < window->offset + 40)) {
+    if (window->rom &&
+        !memcmp(window->rom + window->offset, window->bytes, sizeof(window->bytes)))
+      memcpy(window->rom + window->offset, empty, sizeof(empty));
+    else if (!window->warned) {
+      fprintf(stderr,
+          "MMX Saber: collision window %s was modified; attacks disabled\n",
+          window->name);
+      window->warned = true;
+      ++collision_warnings;
+    }
+    window->installed = false;
+    window->rom = NULL;
+  }
+  if (!rom || size < window->offset + 40) return;
+
+  if (window->installed) {
+    if (!memcmp(rom + window->offset, window->bytes, sizeof(window->bytes))) {
+      if (MmxZeroActive()) {
+        window->ready = true;
+      } else {
+        memcpy(rom + window->offset, empty, sizeof(empty));
+        window->installed = false;
+        window->rom = NULL;
+        window->warned = false;
+      }
+      return;
+    }
+    window->installed = false;
+    window->rom = NULL;
+    if (!memcmp(rom + window->offset, empty, sizeof(empty))) {
+      window->warned = false;
+    } else {
+      if (!window->warned) {
+        fprintf(stderr,
+            "MMX Saber: collision window %s was modified; attacks disabled\n",
+            window->name);
+        window->warned = true;
+        ++collision_warnings;
+      }
+      return;
+    }
+  }
+
+  if (!MmxZeroActive()) return;
+  if (!memcmp(rom + window->offset, expected, sizeof(window->bytes))) {
+    memcpy(window->bytes, expected, sizeof(window->bytes));
+  } else if (!memcmp(rom + window->offset, empty, sizeof(empty))) {
+    memcpy(rom + window->offset, expected, sizeof(window->bytes));
+    memcpy(window->bytes, expected, sizeof(window->bytes));
+  } else {
+    if (!window->warned) {
+      fprintf(stderr,
+          "MMX Saber: collision window %s is not ours; attacks disabled\n",
+          window->name);
+      window->warned = true;
+      ++collision_warnings;
+    }
+    return;
+  }
+  window->rom = rom;
+  window->installed = true;
+  window->ready = true;
+}
+
+void MmxSaberAttackCollisionRom(uint8_t *rom, size_t size) {
+  uint8_t ground[40], air[40];
+  bounds_records_for_window(ground, MMX_SABER_ATTACK_BOUNDS_POINTER);
+  bounds_records_for_window(air, MMX_SABER_AIR_BOUNDS_POINTER);
+  collision_window_update(&ground_collision, rom, size, ground);
+  collision_window_update(&air_collision, rom, size, air);
 }
 
 const MmxSaberAttack *MmxSaberAttackRecord(MmxSaberPadKind kind,
@@ -269,8 +488,14 @@ MmxSaberPadPhase MmxSaberAttackPhaseForTick(const MmxSaberAttack *attack,
 }
 
 void MmxSaberAttackReset(void) {
+  retire_all_tagged(runtime_ram);
   memset(&state, 0, sizeof(state));
   state.phase = SABER_PHASE_IDLE;
+}
+
+void MmxSaberAttackResetRam(uint8_t *ram) {
+  runtime_ram = ram;
+  MmxSaberAttackReset();
 }
 
 static void start_attack(const MmxSaberAttack *attack, uint8_t facing) {
@@ -352,6 +577,77 @@ void MmxSaberAttackStep(bool saber_pressed, bool grounded, bool playable,
   update_animation();
 }
 
+static uint8_t next_projectile_generation(void) {
+  if (++projectile_generation == 0) ++projectile_generation;
+  return projectile_generation;
+}
+
+static uint8_t projectile_facing(const MmxSaberAttack *attack) {
+  bool mirror = (state.facing != 0) ^ (attack && attack->facing_xor != 0);
+  return mirror ? 0x40 : 0;
+}
+
+static void anchor_projectile(uint8_t *ram, unsigned d,
+                              const MmxSaberAttack *attack) {
+  putword(ram + d + 5, word(ram + 0x0bad));
+  putword(ram + d + 8, word(ram + 0x0bb0));
+  ram[d + 0x11] = projectile_facing(attack);
+  putword(ram + d + 0x20,
+          collision_ready(attack) ? bounds_pointer(attack, state.tick) : 0);
+  ram[d + 0x30] = 0;
+}
+
+static unsigned free_projectile(const uint8_t *ram) {
+  for (unsigned d = 0x1228; d < 0x1428; d += 64)
+    if (!word(ram + d)) return d;
+  return 0;
+}
+
+static bool allocate_projectile(uint8_t *ram, const MmxSaberAttack *attack) {
+  unsigned d = free_projectile(ram);
+  uint8_t generation;
+  if (!d) return false;
+  generation = next_projectile_generation();
+  memset(ram + d, 0, 64);
+  ram[d] = 1;
+  ram[d + 1] = 2;
+  ram[d + 10] = 3;
+  ram[d + 0x11] = projectile_facing(attack);
+  putword(ram + d + 0x3e,
+          MMX_SABER_PROJECTILE_TAG_FAMILY | generation);
+  state.projectile = (uint16_t)d;
+  state.projectile_tag_generation = generation;
+  state.projectile_swing_id = state.swing_id;
+  state.hit_slots = 0;
+  ++ram[0x0bdd];
+  anchor_projectile(ram, d, attack);
+  return true;
+}
+
+void MmxSaberAttackRuntimeTick(uint8_t *ram) {
+  const MmxSaberAttack *attack;
+  runtime_ram = ram;
+  if (!ram) return;
+  attack = state_attack();
+  if (state.phase != SABER_PHASE_ACTIVE || !attack ||
+      !attack->bounds_segments) {
+    if (state.projectile) release_current_projectile(ram);
+    return;
+  }
+  if (state.projectile && state.projectile_swing_id != state.swing_id)
+    release_current_projectile(ram);
+  if (!state.projectile && !allocate_projectile(ram, attack)) {
+    clear_attack();
+    return;
+  }
+  if (!saber_projectile_owned(ram, state.projectile)) {
+    release_current_projectile(ram);
+    clear_attack();
+    return;
+  }
+  anchor_projectile(ram, state.projectile, attack);
+}
+
 uint8_t MmxSaberAttackFacing(void) {
   return state.facing & 0x40;
 }
@@ -368,4 +664,49 @@ MmxSaberAttackSnapshot MmxSaberAttackSnapshotGet(void) {
 
 MmxSaberAttackSnapshot MmxSaberAttackGetSnapshot(void) {
   return MmxSaberAttackSnapshotGet();
+}
+
+unsigned MmxSaberAttackWeaponTick(uint8_t *ram, unsigned projectile,
+                                  unsigned value) {
+  if (!ram || !projectile_slot_valid(projectile) || !ram[projectile] ||
+      !saber_tag_family(word(ram + projectile + 0x3e)))
+    return value;
+  if (saber_projectile_owned(ram, projectile)) return 0;
+  retire_projectile_slot(ram, projectile);
+  if (projectile == state.projectile) {
+    state.projectile = 0;
+    state.projectile_tag_generation = 0;
+    state.projectile_swing_id = 0;
+    state.hit_slots = 0;
+    if (state.phase == SABER_PHASE_ACTIVE) clear_attack();
+  }
+  return 0;
+}
+
+unsigned MmxSaberAttackDamage(uint8_t *ram, unsigned enemy,
+                              unsigned projectile, unsigned value) {
+  unsigned bit;
+  if (!saber_projectile_owned(ram, projectile) || !enemy_slot_valid(enemy) ||
+      !value || (value & 128))
+    return value;
+  bit = 1u << ((enemy - 0xe68) / 64);
+  if (state.hit_slots & bit) return 0;
+  state.hit_slots |= (uint16_t)bit;
+  return 3;
+}
+
+unsigned MmxSaberAttackHitbox(const uint8_t *ram, unsigned enemy,
+                              unsigned projectile, unsigned value) {
+  if (saber_projectile_owned(ram, projectile) && enemy_slot_valid(enemy) &&
+      (state.hit_slots & (1u << ((enemy - 0xe68) / 64))))
+    return 0;
+  return value;
+}
+
+uint16_t MmxSaberAttackHitSlots(void) {
+  return state.hit_slots;
+}
+
+unsigned MmxSaberAttackCollisionWarningCount(void) {
+  return collision_warnings;
 }
