@@ -64,7 +64,8 @@ typedef enum MmxSaberAttackExitReason {
   MMX_SABER_ATTACK_EXIT_HURT,
   MMX_SABER_ATTACK_EXIT_DEATH,
   MMX_SABER_ATTACK_EXIT_CONTEXT,
-  MMX_SABER_ATTACK_EXIT_PROJECTILE
+  MMX_SABER_ATTACK_EXIT_PROJECTILE,
+  MMX_SABER_ATTACK_EXIT_LANDING
 } MmxSaberAttackExitReason;
 
 const MmxSaberAttack *MmxSaberAttackRecord(MmxSaberPadKind kind,

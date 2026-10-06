@@ -26,7 +26,7 @@ fi
 # Some groups (saber-assets, the Saber input/attack groups) only run when
 # asked by name. A full run executes the default pass plus every named group,
 # each in its own isolated catalog/cache copy. Add new groups to this list.
-named_groups=(saber-assets saber-input saber-ground-1 saber-ground-combo saber-ground-hit
+named_groups=(saber-assets saber-input saber-ground-1 saber-ground-combo saber-air saber-ground-hit
   saber-ground-lifecycle zero-extension saber-package x3-zero-specials)
 if [[ -z "${MMX_SABER_TEST_ONLY:-}" && -z "${MMX_SABER_RUNNER_PASS:-}" ]]; then
   failed=()

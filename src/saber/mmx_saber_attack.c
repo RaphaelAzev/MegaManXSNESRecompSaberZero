@@ -572,8 +572,9 @@ void MmxSaberAttackStep(bool saber_pressed, bool grounded, bool playable,
   }
 
   if (state.phase == SABER_PHASE_IDLE) {
-    if (saber_pressed && grounded)
-      start_attack(MmxSaberAttackRecord(SABER_KIND_GROUND1, 0),
+    if (saber_pressed)
+      start_attack(MmxSaberAttackRecord(
+                       grounded ? SABER_KIND_GROUND1 : SABER_KIND_AIR, 0),
                    facing_for_direction(horizontal_direction, native_facing));
     return;
   }
@@ -694,11 +695,13 @@ void MmxSaberAttackRuntimeTick(uint8_t *ram) {
   anchor_projectile(ram, state.projectile, attack);
 }
 
-void MmxSaberAttackPlayerEnd(uint8_t *ram) {
+static bool player_grounded(const uint8_t *ram) {
+  return ram && ((ram[0x0bd3] & 4) || (ram[0x0bd4] & 4));
+}
+
+static void emit_pending_cue(void) {
   const MmxSaberAttack *attack;
-  if (ram) runtime_ram = ram;
-  if (!ram || state.phase == SABER_PHASE_IDLE || !state.cue_pending)
-    return;
+  if (!state.cue_pending) return;
   attack = state_attack();
   state.cue_pending = false;
   if (!attack || attack->kind == SABER_KIND_SABER_LAND ||
@@ -706,6 +709,18 @@ void MmxSaberAttackPlayerEnd(uint8_t *ram) {
     return;
   MmxSaberSfxPlayForAttack((MmxSaberSfxAttackCue)state.cue);
   ++cue_count;
+}
+
+void MmxSaberAttackPlayerEnd(uint8_t *ram) {
+  if (ram) runtime_ram = ram;
+  if (!ram || state.phase == SABER_PHASE_IDLE)
+    return;
+  if (state.kind == SABER_KIND_AIR && player_grounded(ram)) {
+    emit_pending_cue();
+    MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_LANDING);
+    return;
+  }
+  emit_pending_cue();
 }
 
 uint8_t MmxSaberAttackFacing(void) {

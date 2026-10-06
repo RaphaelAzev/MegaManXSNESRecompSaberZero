@@ -64,6 +64,12 @@ enum {
   OLD_SABER_GROUND3_ACTIVE = 14,
   OLD_SABER_GROUND3_RECOVERY = 25,
   OLD_SABER_GROUND3_TOTAL = 39,
+  /* Air record copied from oldsaber/saber-zero-variant:
+   * src/mmx_saber.c:322-339. */
+  OLD_SABER_AIR_STARTUP = 4,
+  OLD_SABER_AIR_ACTIVE = 8,
+  OLD_SABER_AIR_RECOVERY = 6,
+  OLD_SABER_AIR_TOTAL = 18,
 };
 
 static const char *const kMmxRomDigest =
@@ -1404,6 +1410,173 @@ static void saber_ground_hit_checks(const char *fixture) {
   puts("ok: saber-ground-hit");
 }
 
+static MmxSaberPadPhase old_air_phase(unsigned tick) {
+  return tick < OLD_SABER_AIR_STARTUP ? SABER_PHASE_STARTUP :
+      tick < OLD_SABER_AIR_STARTUP + OLD_SABER_AIR_ACTIVE ?
+          SABER_PHASE_ACTIVE : SABER_PHASE_RECOVERY;
+}
+
+static unsigned record_jump_arc(const char *fixture, bool slash,
+                                bool short_hop, unsigned y[96]) {
+  bool airborne = false;
+  unsigned count = 0;
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  for (unsigned frame_number = 1; frame_number < 96; ++frame_number) {
+    unsigned input = short_hop ?
+        (frame_number < 6 ? SNES_PAD_B : 0) :
+        (frame_number <= 20 ? SNES_PAD_B : 0);
+    bool grounded;
+    if (slash && frame_number == 3) input |= SNES_PAD_Y;
+    frame(input);
+    y[count++] = read_ram_word(g_ram, 0x0bb0);
+    grounded = (g_ram[0xbd3] & 4) || (g_ram[0xbd4] & 4);
+    if (!grounded)
+      airborne = true;
+    else if (airborne)
+      return count;
+  }
+  return 0;
+}
+
+static unsigned empty_enemy_slot(void) {
+  for (unsigned d = 0xe68; d < 0x1228; d += 64)
+    if (!g_ram[d]) return d;
+  return 0xe68;
+}
+
+static void saber_air_checks(const char *fixture) {
+  const MmxSaberAttack *air = MmxSaberAttackRecord(SABER_KIND_AIR, 0);
+  unsigned reference[96], slash[96], short_reference[96], short_slash[96];
+  unsigned reference_count, slash_count, short_reference_count, short_slash_count;
+  MmxSaberAttackSnapshot snapshot;
+  bool phase_ok = true;
+  bool startup_empty = true;
+  bool active_ok = true;
+  bool press_during_ok = false;
+  bool first_end = false;
+  bool second_start = false;
+  unsigned starts = 0;
+  bool was_active = false;
+  unsigned slot = 0;
+  unsigned direct_enemy = 0;
+  bool direct_damage_ok = false;
+
+  printf("reference: old Saber air timing startup=%u active=%u recovery=%u "
+         "total=%u (oldsaber src/mmx_saber.c:322-339)\n",
+         OLD_SABER_AIR_STARTUP, OLD_SABER_AIR_ACTIVE,
+         OLD_SABER_AIR_RECOVERY, OLD_SABER_AIR_TOTAL);
+  check(air && air->visual_animation == 4 &&
+            air->startup_ticks == OLD_SABER_AIR_STARTUP &&
+            air->active_ticks == OLD_SABER_AIR_ACTIVE &&
+            air->recovery_ticks == OLD_SABER_AIR_RECOVERY &&
+            air->total_ticks == OLD_SABER_AIR_TOTAL && air->damage == 3 &&
+            air->bounds_pointer == MMX_SABER_AIR_BOUNDS_POINTER,
+        "air record publishes animation 4, old timing, $FF40, and damage 3");
+
+  reference_count = record_jump_arc(fixture, false, false, reference);
+  slash_count = record_jump_arc(fixture, true, false, slash);
+  short_reference_count = record_jump_arc(fixture, false, true, short_reference);
+  short_slash_count = record_jump_arc(fixture, true, true, short_slash);
+  check(reference_count != 0 && slash_count == reference_count &&
+            !memcmp(reference, slash, reference_count * sizeof(reference[0])),
+        "early air slash with B held preserves the complete native jump arc");
+  check(short_reference_count != 0 &&
+            short_slash_count == short_reference_count &&
+            !memcmp(short_reference, short_slash,
+                    short_reference_count * sizeof(short_reference[0])),
+        "air slash preserves the native short-hop B-release cutoff");
+  printf("reference: native air arc frames=%u short-hop frames=%u\n",
+         reference_count, short_reference_count);
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  for (unsigned frame_number = 1; frame_number <= 20; ++frame_number) {
+    const unsigned input = frame_number <= 20 ?
+        (SNES_PAD_B | (frame_number == 3 ? SNES_PAD_Y : 0)) : 0;
+    frame(input);
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (frame_number < 3) {
+      if (snapshot.phase != SABER_PHASE_IDLE)
+        phase_ok = false;
+    } else {
+      const unsigned tick = frame_number - 3;
+      if (snapshot.kind != SABER_KIND_AIR || snapshot.index != 0 ||
+          snapshot.anim_id != 4 || snapshot.tick != tick ||
+          snapshot.phase != old_air_phase(tick))
+        phase_ok = false;
+    }
+  }
+  check(phase_ok && MmxSaberAttackCueCount() == 1 &&
+            MmxSaberSfxLastClip() == MMX_SABER_SFX_CLIP_SABER_1,
+        "air slash publishes animation 4 through the old startup/active/recovery phases and cues saber_1");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  for (unsigned frame_number = 1; frame_number <= 20; ++frame_number) {
+    frame(frame_number <= 20 ?
+        (SNES_PAD_B | (frame_number == 3 ? SNES_PAD_Y : 0)) : 0);
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (snapshot.phase == SABER_PHASE_STARTUP && tagged_projectiles() != 0)
+      startup_empty = false;
+    if (snapshot.phase == SABER_PHASE_ACTIVE) {
+      unsigned expected_pointer = saber_record_pointer(&snapshot);
+      slot = saber_active_slot();
+      if (slot == 0 || tagged_projectiles() != 1 || expected_pointer == 0 ||
+          read_ram_word(g_ram, slot + 0x20) != expected_pointer)
+        active_ok = false;
+      else if (!direct_enemy) {
+        direct_enemy = empty_enemy_slot();
+        direct_damage_ok = direct_enemy != 0 &&
+            MmxSaberAttackDamage(g_ram, direct_enemy, slot, 1) == 3 &&
+            MmxSaberAttackDamage(g_ram, direct_enemy, slot, 1) == 0 &&
+            (MmxSaberAttackHitSlots() &
+             (uint16_t)(1u << ((direct_enemy - 0xe68) / 64)));
+      }
+    }
+  }
+  check(!memcmp(g_snes->cart->rom + 0x37f40, kOldSaberAirBounds, 40),
+        "air slash keeps the old $37F40 collision records installed");
+  check(startup_empty && active_ok,
+        "air ACTIVE owns one tagged slot anchored to its old air collision record");
+  check(direct_damage_ok,
+        "air collision damage is 3 once per enemy per swing (direct fallback)");
+  puts("reference: airborne enemy contact is not required by this fixture; the air-hit fallback asserts the live tagged slot, $FF40 record, and damage callback");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  for (unsigned frame_number = 1; frame_number <= 22; ++frame_number) {
+    unsigned input = SNES_PAD_B;
+    if (frame_number == 3 || frame_number == 5 || frame_number == 22)
+      input |= SNES_PAD_Y;
+    frame(input);
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (!was_active && snapshot.phase != SABER_PHASE_IDLE) ++starts;
+    if (frame_number == 5)
+      press_during_ok = snapshot.kind == SABER_KIND_AIR &&
+          snapshot.tick == 2 && MmxSaberAttackCueCount() == 1;
+    if (frame_number == 21)
+      first_end = snapshot.phase == SABER_PHASE_IDLE &&
+          snapshot.kind == SABER_KIND_NONE;
+    if (frame_number == 22)
+      second_start = snapshot.kind == SABER_KIND_AIR &&
+          snapshot.anim_id == 4 && snapshot.tick == 0;
+    was_active = snapshot.phase != SABER_PHASE_IDLE;
+  }
+  check(press_during_ok,
+        "a Y press during an air slash does not restart or cue another swing");
+  check(first_end && second_start && starts == 2 &&
+            MmxSaberAttackCueCount() == 2,
+        "a second airborne Y press after completion starts a second air slash and cue in one jump");
+  idle(40);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.phase == SABER_PHASE_IDLE && snapshot.kind == SABER_KIND_NONE &&
+            tagged_projectiles() == 0,
+        "air slash landing/natural cleanup uses the central exit without SaberLand");
+  puts("ok: saber-air");
+}
+
 static void saber_special_checks(const char *fixture,
                                  const SpecialCounts *upstream) {
   SpecialCounts saber = measure_specials(fixture, SNES_PAD_X);
@@ -1762,12 +1935,13 @@ int main(int argc, char **argv) {
   const bool saber_input = only && !strcmp(only, "saber-input");
   const bool saber_ground_1 = only && !strcmp(only, "saber-ground-1");
   const bool saber_ground_combo = only && !strcmp(only, "saber-ground-combo");
+  const bool saber_air = only && !strcmp(only, "saber-air");
   const bool saber_ground_lifecycle = only && !strcmp(only, "saber-ground-lifecycle");
   const bool saber_ground_hit = only && !strcmp(only, "saber-ground-hit");
   const bool x3_zero_specials = only && !strcmp(only, "x3-zero-specials");
   const bool saber_enabled_group = saber_package || zero_extension ||
       saber_input || saber_ground_1 || saber_ground_combo ||
-      saber_ground_lifecycle || saber_ground_hit;
+      saber_air || saber_ground_lifecycle || saber_ground_hit;
   SpecialCounts upstream_specials = {0};
   if (saber_input) {
     activate_zero(argv[1], x3_rom, assets, false, false);
@@ -1787,6 +1961,9 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-ground-combo runs with the Saber package enabled");
     saber_ground_combo_checks(fixture);
+  } else if (saber_air) {
+    check(MmxSaberEnabled(), "saber-air runs with the Saber package enabled");
+    saber_air_checks(fixture);
   } else if (saber_ground_lifecycle) {
     check(MmxSaberEnabled(),
           "saber-ground-lifecycle runs with the Saber package enabled");
@@ -1840,6 +2017,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-package") && strcmp(only, "saber-input") &&
       strcmp(only, "saber-ground-1") &&
       strcmp(only, "saber-ground-combo") &&
+      strcmp(only, "saber-air") &&
       strcmp(only, "saber-ground-lifecycle") &&
         strcmp(only, "saber-ground-hit") &&
         strcmp(only, "zero-extension") &&
