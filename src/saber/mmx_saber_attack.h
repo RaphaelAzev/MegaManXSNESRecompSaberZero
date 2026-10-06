@@ -68,9 +68,14 @@ void MmxSaberAttackReset(void);
 
 /* Advance one pre-player frame.  A press is the physical Y edge; it is not
  * derived from the current attack phase, so a held Y cannot create another
- * start.  Native-facing is the current $0C11/$0BB9 facing convention. */
+ * start.  Native-facing is the current $0C11/$0BB9 facing convention;
+ * horizontal_direction uses native direction bits (right=1, left=2). */
 void MmxSaberAttackStep(bool saber_pressed, bool grounded, bool playable,
-                        uint8_t native_facing);
+                        uint8_t native_facing,
+                        uint8_t horizontal_direction);
+
+/* Locked facing for the currently published ground swing. */
+uint8_t MmxSaberAttackFacing(void);
 
 MmxSaberPadSaber MmxSaberAttackPadState(bool release_pending);
 MmxSaberAttackSnapshot MmxSaberAttackSnapshotGet(void);

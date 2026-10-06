@@ -52,6 +52,34 @@ static void write_native_pad(uint8_t *ram, MmxSaberNativePad native) {
   ram[0x0be3] = native.action_pressed;
 }
 
+static uint8_t native_horizontal_direction(const uint8_t *ram) {
+  return ram ? (uint8_t)(ram[0x0bdf] & MMX_SABER_NATIVE_HORIZONTAL_BITS) : 0;
+}
+
+static bool ground_swing(MmxSaberPadSaber saber) {
+  return saber.phase != SABER_PHASE_IDLE &&
+      (saber.kind == SABER_KIND_GROUND1 ||
+       saber.kind == SABER_KIND_GROUND2 ||
+       saber.kind == SABER_KIND_GROUND3);
+}
+
+static void publish_ground_swing(uint8_t *ram, MmxSaberPadSaber saber) {
+  uint8_t facing;
+  if (!ram || !ground_swing(saber)) return;
+
+  /* The old pre-player ground suppression wrote the native 16-bit VX word;
+   * horizontal pad bits remain owned by the input computation. */
+  ram[0x0bc2] = 0;
+  ram[0x0bc3] = 0;
+
+  /* $0C11/$0BB9 are the locked facing convention.  The attack module only
+   * changes this lock when a swing is accepted, so held direction cannot turn
+   * Zero in the middle of a swing. */
+  facing = MmxSaberAttackFacing();
+  ram[0x0c11] = facing;
+  ram[0x0bb9] = (ram[0x0bb9] & (uint8_t)~0x40) | facing;
+}
+
 static bool zero_dead_or_reset(const uint8_t *ram) {
   /* The old branch treated native death/reset actions and an empty HP byte as
    * lifecycle cancellation, rather than as a fire/charge input frame. */
@@ -93,10 +121,11 @@ static void pre_player(uint8_t *ram) {
    * so the pad written for this frame already reflects a newly started slash. */
   out = MmxSaberComputePad(physical, read_native_pad(ram), saber, zero);
   MmxSaberAttackStep(out.saber_pressed, zero.grounded,
-                     !zero.hurt && !zero.dead_or_reset,
-                     ram[0x0c11]);
+                     !zero.hurt && !zero.dead_or_reset, ram[0x0c11],
+                     native_horizontal_direction(ram));
   saber = MmxSaberAttackPadState(release_pending);
   out = MmxSaberComputePad(physical, read_native_pad(ram), saber, zero);
+  publish_ground_swing(ram, saber);
 
   /* The computed view is the sole input write for this frame. There is no
    * restore step: the native player and the legacy callback consume it. */

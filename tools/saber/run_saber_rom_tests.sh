@@ -23,21 +23,24 @@ if [[ $# -gt 1 ]]; then
   printf 'usage: %s [X1_ROM]\n' "$0" >&2
   exit 2
 fi
-# saber-assets deletes cache files and reactivates plugins, so the test binary
-# only runs it when asked by name. A full run executes it in a second,
-# separately isolated pass.
+# Some groups (saber-assets, the Saber input/attack groups) only run when
+# asked by name. A full run executes the default pass plus every named group,
+# each in its own isolated catalog/cache copy. Add new groups to this list.
+named_groups=(saber-assets saber-input saber-ground-1 saber-ground-combo
+  zero-extension saber-package x3-zero-specials)
 if [[ -z "${MMX_SABER_TEST_ONLY:-}" && -z "${MMX_SABER_RUNNER_PASS:-}" ]]; then
-  MMX_SABER_RUNNER_PASS=1 bash "${BASH_SOURCE[0]}" "$@"
-  main_exit=$?
-  MMX_SABER_RUNNER_PASS=1 MMX_SABER_TEST_ONLY=saber-assets \
-    bash "${BASH_SOURCE[0]}" "$@"
-  assets_exit=$?
-  if [[ "$main_exit" == 0 && "$assets_exit" == 0 ]]; then
-    printf 'PASS: all Saber ROM passes\n'
+  failed=()
+  MMX_SABER_RUNNER_PASS=1 bash "${BASH_SOURCE[0]}" "$@" || failed+=(default)
+  for group in "${named_groups[@]}"; do
+    MMX_SABER_RUNNER_PASS=1 MMX_SABER_TEST_ONLY="$group" \
+      bash "${BASH_SOURCE[0]}" "$@" || failed+=("$group")
+  done
+  if [[ ${#failed[@]} -eq 0 ]]; then
+    printf 'PASS: all Saber ROM passes (default + %s named groups)\n' \
+      "${#named_groups[@]}"
     exit 0
   fi
-  printf 'FAIL: Saber ROM passes (main=%s saber-assets=%s)\n' \
-    "$main_exit" "$assets_exit"
+  printf 'FAIL: Saber ROM passes failed: %s\n' "${failed[*]}"
   exit 1
 fi
 if [[ ! -x "$exe" ]]; then

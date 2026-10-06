@@ -191,6 +191,30 @@ static const MmxSaberAttack *state_attack(void) {
   return MmxSaberAttackRecord(state.kind, state.index);
 }
 
+static bool tick_in_window(uint8_t tick, uint8_t open, uint8_t close) {
+  return open != MMX_SABER_NO_WINDOW && close != MMX_SABER_NO_WINDOW &&
+      tick >= open && tick <= close;
+}
+
+static uint8_t facing_for_direction(uint8_t direction, uint8_t fallback) {
+  direction &= MMX_SABER_NATIVE_HORIZONTAL_BITS;
+  /* Native input maps right to action bit 0 and left to action bit 1.  The
+   * renderer/native facing convention is $40 for right, so a single held
+   * direction can replace the lock while both/neither preserve it. */
+  if (direction == 1) return 0x40;
+  if (direction == 2) return 0;
+  return fallback & 0x40;
+}
+
+static const MmxSaberAttack *next_ground_attack(
+    const MmxSaberAttack *attack) {
+  if (!attack || attack->next_index == MMX_SABER_NO_WINDOW)
+    return NULL;
+  return MmxSaberAttackRecord(
+      (MmxSaberPadKind)(SABER_KIND_GROUND1 + attack->next_index),
+      attack->next_index);
+}
+
 static uint8_t animation_step_for_tick(uint8_t animation, uint8_t tick) {
   /* The donor sidecar uses two ticks per step for animations 1, 2, 4, 5, 6,
    * and 7. Animation 3's final three steps are three ticks each. Keeping the
@@ -256,7 +280,7 @@ static void start_attack(const MmxSaberAttack *attack, uint8_t facing) {
   if (!swing_id) swing_id = 1;
   state.kind = attack->kind;
   state.index = attack->index;
-  state.phase = SABER_PHASE_STARTUP;
+  state.phase = MmxSaberAttackPhaseForTick(attack, 0);
   state.tick = 0;
   state.buffer_slot = 0;
   state.facing = facing & 0x40;
@@ -266,7 +290,8 @@ static void start_attack(const MmxSaberAttack *attack, uint8_t facing) {
 }
 
 void MmxSaberAttackStep(bool saber_pressed, bool grounded, bool playable,
-                        uint8_t native_facing) {
+                        uint8_t native_facing,
+                        uint8_t horizontal_direction) {
   const MmxSaberAttack *attack;
 
   if (!playable) {
@@ -277,7 +302,7 @@ void MmxSaberAttackStep(bool saber_pressed, bool grounded, bool playable,
   if (state.phase == SABER_PHASE_IDLE) {
     if (saber_pressed && grounded)
       start_attack(MmxSaberAttackRecord(SABER_KIND_GROUND1, 0),
-                   native_facing);
+                   facing_for_direction(horizontal_direction, native_facing));
     return;
   }
 
@@ -291,8 +316,44 @@ void MmxSaberAttackStep(bool saber_pressed, bool grounded, bool playable,
     clear_attack();
     return;
   }
+
+  if (attack->kind == SABER_KIND_GROUND1 ||
+      attack->kind == SABER_KIND_GROUND2) {
+    if (saber_pressed && tick_in_window(state.tick,
+                                        attack->chain_open_tick,
+                                        attack->chain_close_tick)) {
+      const MmxSaberAttack *next = next_ground_attack(attack);
+      if (next) {
+        start_attack(next,
+                     facing_for_direction(horizontal_direction, state.facing));
+        return;
+      }
+    }
+
+    if (saber_pressed && !state.buffer_slot &&
+        tick_in_window(state.tick, attack->buffer_open_tick,
+                       attack->buffer_close_tick))
+      /* The old state has exactly one pending entry. */
+      state.buffer_slot = 1;
+
+    if (state.buffer_slot && state.tick == attack->chain_open_tick) {
+      const MmxSaberAttack *next = next_ground_attack(attack);
+      /* Facing is sampled at acceptance, not when the early edge was queued. */
+      state.buffer_slot = 0;
+      if (next) {
+        start_attack(next,
+                     facing_for_direction(horizontal_direction, state.facing));
+        return;
+      }
+    }
+  }
+
   state.phase = MmxSaberAttackPhaseForTick(attack, state.tick);
   update_animation();
+}
+
+uint8_t MmxSaberAttackFacing(void) {
+  return state.facing & 0x40;
 }
 
 MmxSaberPadSaber MmxSaberAttackPadState(bool release_pending) {

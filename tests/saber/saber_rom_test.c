@@ -40,12 +40,30 @@ enum {
   /* X1's native command-6 charged buster path publishes class 2. */
   SABER_X1_CHARGED_RELEASE_CLASS = 2,
   /* Independent oracle copied from oldsaber/saber-zero-variant:
-   * src/mmx_saber.c:266-268. Keep these literals separate from the new table
+   * src/mmx_saber.c:266-273. Keep these literals separate from the new table
    * so a timing-table mutation cannot make the test pass. */
   OLD_SABER_GROUND1_STARTUP = 4,
   OLD_SABER_GROUND1_ACTIVE = 8,
   OLD_SABER_GROUND1_RECOVERY = 18,
   OLD_SABER_GROUND1_TOTAL = 30,
+  /* Combo windows and phase lengths copied from the old table, not from
+   * src/saber/mmx_saber_attack.c: oldsaber src/mmx_saber.c:260-319. */
+  OLD_SABER_GROUND1_CHAIN_OPEN = 12,
+  OLD_SABER_GROUND1_CHAIN_CLOSE = 29,
+  OLD_SABER_GROUND1_BUFFER_OPEN = 4,
+  OLD_SABER_GROUND1_BUFFER_CLOSE = 11,
+  OLD_SABER_GROUND2_STARTUP = 0,
+  OLD_SABER_GROUND2_ACTIVE = 12,
+  OLD_SABER_GROUND2_RECOVERY = 18,
+  OLD_SABER_GROUND2_TOTAL = 30,
+  OLD_SABER_GROUND2_CHAIN_OPEN = 12,
+  OLD_SABER_GROUND2_CHAIN_CLOSE = 29,
+  OLD_SABER_GROUND2_BUFFER_OPEN = 0,
+  OLD_SABER_GROUND2_BUFFER_CLOSE = 11,
+  OLD_SABER_GROUND3_STARTUP = 0,
+  OLD_SABER_GROUND3_ACTIVE = 14,
+  OLD_SABER_GROUND3_RECOVERY = 25,
+  OLD_SABER_GROUND3_TOTAL = 39,
 };
 
 static const char *const kMmxRomDigest =
@@ -783,6 +801,257 @@ static void saber_ground_1_checks(const char *fixture) {
   puts("ok: saber-ground-1");
 }
 
+static MmxSaberPadPhase old_ground_phase(unsigned startup, unsigned active,
+                                         unsigned tick) {
+  return tick < startup ? SABER_PHASE_STARTUP :
+      tick < startup + active ? SABER_PHASE_ACTIVE : SABER_PHASE_RECOVERY;
+}
+
+static bool ground_snapshot_matches(const MmxSaberAttackSnapshot *snapshot,
+                                    unsigned index, unsigned animation,
+                                    unsigned startup, unsigned active,
+                                    unsigned tick) {
+  const MmxSaberPadPhase phase = old_ground_phase(startup, active, tick);
+  return snapshot->kind == (MmxSaberPadKind)(SABER_KIND_GROUND1 + index) &&
+      snapshot->index == index && snapshot->anim_id == animation &&
+      snapshot->tick == tick && snapshot->phase == phase;
+}
+
+static void saber_ground_combo_checks(const char *fixture) {
+  MmxSaberAttackSnapshot snapshot;
+  bool phase_ok = true;
+  bool buffer_ok = true;
+  bool held_ok = true;
+  bool boundary_ok = true;
+  bool facing_ok = true;
+  bool position_ok = true;
+  bool velocity_ok = true;
+  bool saw_ground3 = false;
+  uint16_t running_x;
+  uint16_t stopped_x;
+
+  printf("reference: old Saber combo windows g1 chain=%u..%u buffer=%u..%u; "
+         "g2 chain=%u..%u buffer=%u..%u "
+         "(oldsaber src/mmx_saber.c:260-319)\n",
+         OLD_SABER_GROUND1_CHAIN_OPEN, OLD_SABER_GROUND1_CHAIN_CLOSE,
+         OLD_SABER_GROUND1_BUFFER_OPEN, OLD_SABER_GROUND1_BUFFER_CLOSE,
+         OLD_SABER_GROUND2_CHAIN_OPEN, OLD_SABER_GROUND2_CHAIN_CLOSE,
+         OLD_SABER_GROUND2_BUFFER_OPEN, OLD_SABER_GROUND2_BUFFER_CLOSE);
+
+  /* Separate Y edges at the inclusive chain-window endpoint publish all
+   * three records. Validate the phase oracle independently for every visible
+   * tick, including the recovery portions before each accepted edge. */
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  phase_ok = ground_snapshot_matches(&snapshot, 0, 1,
+                                     OLD_SABER_GROUND1_STARTUP,
+                                     OLD_SABER_GROUND1_ACTIVE, 0);
+  for (unsigned tick = 1; tick < OLD_SABER_GROUND1_CHAIN_CLOSE; ++tick) {
+    frame(0);
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (!ground_snapshot_matches(&snapshot, 0, 1,
+                                 OLD_SABER_GROUND1_STARTUP,
+                                 OLD_SABER_GROUND1_ACTIVE, tick))
+      phase_ok = false;
+  }
+  frame(SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  if (!ground_snapshot_matches(&snapshot, 1, 2,
+                               OLD_SABER_GROUND2_STARTUP,
+                               OLD_SABER_GROUND2_ACTIVE, 0))
+    phase_ok = false;
+  for (unsigned tick = 1; tick < OLD_SABER_GROUND2_CHAIN_CLOSE; ++tick) {
+    frame(0);
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (!ground_snapshot_matches(&snapshot, 1, 2,
+                                 OLD_SABER_GROUND2_STARTUP,
+                                 OLD_SABER_GROUND2_ACTIVE, tick))
+      phase_ok = false;
+  }
+  frame(SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  if (!ground_snapshot_matches(&snapshot, 2, 3,
+                               OLD_SABER_GROUND3_STARTUP,
+                               OLD_SABER_GROUND3_ACTIVE, 0))
+    phase_ok = false;
+  for (unsigned tick = 1; tick < OLD_SABER_GROUND3_TOTAL; ++tick) {
+    frame(0);
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (!ground_snapshot_matches(&snapshot, 2, 3,
+                                 OLD_SABER_GROUND3_STARTUP,
+                                 OLD_SABER_GROUND3_ACTIVE, tick))
+      phase_ok = false;
+  }
+  frame(0);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(phase_ok && snapshot.phase == SABER_PHASE_IDLE,
+        "separate Y taps chain ground animations 1, 2, 3 with old phases");
+
+  /* One early edge is held until the first chain-open tick, while a second
+   * early edge cannot create a second queued entry. */
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(SNES_PAD_Y);
+  for (unsigned tick = 1; tick < OLD_SABER_GROUND1_BUFFER_OPEN; ++tick)
+    frame(0);
+  frame(SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  if (!ground_snapshot_matches(&snapshot, 0, 1,
+                               OLD_SABER_GROUND1_STARTUP,
+                               OLD_SABER_GROUND1_ACTIVE,
+                               OLD_SABER_GROUND1_BUFFER_OPEN))
+    buffer_ok = false;
+  for (unsigned tick = OLD_SABER_GROUND1_BUFFER_OPEN + 1;
+       tick < OLD_SABER_GROUND1_CHAIN_OPEN; ++tick)
+    frame(0);
+  frame(0);
+  snapshot = MmxSaberAttackSnapshotGet();
+  if (!ground_snapshot_matches(&snapshot, 1, 2,
+                               OLD_SABER_GROUND2_STARTUP,
+                               OLD_SABER_GROUND2_ACTIVE, 0))
+    buffer_ok = false;
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(SNES_PAD_Y);
+  for (unsigned tick = 1; tick < OLD_SABER_GROUND1_BUFFER_OPEN; ++tick)
+    frame(0);
+  frame(SNES_PAD_Y);
+  frame(0);
+  frame(SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  if (!ground_snapshot_matches(&snapshot, 0, 1,
+                               OLD_SABER_GROUND1_STARTUP,
+                               OLD_SABER_GROUND1_ACTIVE,
+                               OLD_SABER_GROUND1_BUFFER_OPEN + 2))
+    buffer_ok = false;
+  for (unsigned tick = OLD_SABER_GROUND1_BUFFER_OPEN + 3;
+       tick < OLD_SABER_GROUND1_CHAIN_OPEN; ++tick)
+    frame(0);
+  frame(0);
+  snapshot = MmxSaberAttackSnapshotGet();
+  if (!ground_snapshot_matches(&snapshot, 1, 2,
+                               OLD_SABER_GROUND2_STARTUP,
+                               OLD_SABER_GROUND2_ACTIVE, 0))
+    buffer_ok = false;
+  for (unsigned tick = 1; tick < OLD_SABER_GROUND2_TOTAL; ++tick) {
+    frame(0);
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (snapshot.kind == SABER_KIND_GROUND3) saw_ground3 = true;
+  }
+  frame(0);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(buffer_ok && !saw_ground3 && snapshot.phase == SABER_PHASE_IDLE,
+        "one early Y edge buffers at most one combo entry");
+
+  /* A held Y is one physical edge, even when the chain windows pass. */
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  for (unsigned tick = 0; tick < OLD_SABER_GROUND1_TOTAL + 2; ++tick) {
+    frame(SNES_PAD_Y);
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (snapshot.kind != SABER_KIND_NONE && snapshot.kind != SABER_KIND_GROUND1)
+      held_ok = false;
+  }
+  check(held_ok && snapshot.phase == SABER_PHASE_IDLE,
+        "holding Y never chains beyond ground slash 1");
+
+  /* A press on the frame after chain-close is rejected while the swing is
+   * completing; a later edge after the idle frame starts slash 1. */
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(SNES_PAD_Y);
+  for (unsigned tick = 1; tick < OLD_SABER_GROUND1_TOTAL; ++tick)
+    frame(0);
+  frame(SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  if (snapshot.phase != SABER_PHASE_IDLE)
+    boundary_ok = false;
+  frame(0);
+  frame(SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  if (!ground_snapshot_matches(&snapshot, 0, 1,
+                               OLD_SABER_GROUND1_STARTUP,
+                               OLD_SABER_GROUND1_ACTIVE, 0))
+    boundary_ok = false;
+  check(boundary_ok, "out-of-window Y is ignored until the post-IDLE press");
+
+  /* Direction is locked on the first frame of the accepted next swing. */
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(SNES_PAD_Y | SNES_PAD_RIGHT);
+  if (g_ram[0x0c11] != 0x40 || !(g_ram[0x0bb9] & 0x40))
+    facing_ok = false;
+  for (unsigned tick = 1; tick < OLD_SABER_GROUND1_CHAIN_OPEN; ++tick) {
+    frame(SNES_PAD_LEFT);
+    if (g_ram[0x0c11] != 0x40 || !(g_ram[0x0bb9] & 0x40))
+      facing_ok = false;
+  }
+  frame(SNES_PAD_Y | SNES_PAD_LEFT);
+  snapshot = MmxSaberAttackSnapshotGet();
+  if (!ground_snapshot_matches(&snapshot, 1, 2,
+                               OLD_SABER_GROUND2_STARTUP,
+                               OLD_SABER_GROUND2_ACTIVE, 0) ||
+      g_ram[0x0c11] != 0 || (g_ram[0x0bb9] & 0x40))
+    facing_ok = false;
+  check(facing_ok,
+        "held direction turns only when the next ground swing is accepted");
+
+  /* Preserve the old pre-player VX stop through all three accepted swings. */
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  uint16_t initial_x = (uint16_t)read_ram_word(g_ram, 0x0bad);
+  for (unsigned tick = 0; tick < 12; ++tick)
+    frame(SNES_PAD_RIGHT);
+  running_x = (uint16_t)read_ram_word(g_ram, 0x0bad);
+  check(running_x != initial_x, "right input establishes horizontal movement");
+  frame(SNES_PAD_Y | SNES_PAD_RIGHT);
+  stopped_x = (uint16_t)read_ram_word(g_ram, 0x0bad);
+  if (stopped_x != running_x || g_ram[0x0bc2] != 0 || g_ram[0x0bc3] != 0)
+    velocity_ok = false;
+  for (unsigned tick = 1; tick < OLD_SABER_GROUND1_CHAIN_CLOSE; ++tick) {
+    frame(SNES_PAD_RIGHT);
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (snapshot.phase != SABER_PHASE_IDLE) {
+      if (read_ram_word(g_ram, 0x0bad) != stopped_x) position_ok = false;
+      if (g_ram[0x0bc2] != 0 || g_ram[0x0bc3] != 0) velocity_ok = false;
+    }
+  }
+  frame(SNES_PAD_Y | SNES_PAD_RIGHT);
+  snapshot = MmxSaberAttackSnapshotGet();
+  if (snapshot.kind != SABER_KIND_GROUND2 ||
+      read_ram_word(g_ram, 0x0bad) != stopped_x ||
+      g_ram[0x0bc2] != 0 || g_ram[0x0bc3] != 0)
+    velocity_ok = false;
+  for (unsigned tick = 1; tick < OLD_SABER_GROUND2_CHAIN_CLOSE; ++tick) {
+    frame(SNES_PAD_RIGHT);
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (snapshot.phase != SABER_PHASE_IDLE) {
+      if (read_ram_word(g_ram, 0x0bad) != stopped_x) position_ok = false;
+      if (g_ram[0x0bc2] != 0 || g_ram[0x0bc3] != 0) velocity_ok = false;
+    }
+  }
+  frame(SNES_PAD_Y | SNES_PAD_RIGHT);
+  snapshot = MmxSaberAttackSnapshotGet();
+  if (snapshot.kind != SABER_KIND_GROUND3 ||
+      read_ram_word(g_ram, 0x0bad) != stopped_x ||
+      g_ram[0x0bc2] != 0 || g_ram[0x0bc3] != 0)
+    velocity_ok = false;
+  for (unsigned tick = 1; tick < OLD_SABER_GROUND3_TOTAL; ++tick) {
+    frame(SNES_PAD_RIGHT);
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (snapshot.phase != SABER_PHASE_IDLE) {
+      if (read_ram_word(g_ram, 0x0bad) != stopped_x) position_ok = false;
+      if (g_ram[0x0bc2] != 0 || g_ram[0x0bc3] != 0) velocity_ok = false;
+    }
+  }
+  check(position_ok && velocity_ok,
+        "ground combo holds position and writes zero VX on every swing frame");
+  puts("ok: saber-ground-combo");
+}
+
 static void saber_special_checks(const char *fixture,
                                  const SpecialCounts *upstream) {
   SpecialCounts saber = measure_specials(fixture, SNES_PAD_X);
@@ -1140,9 +1409,10 @@ int main(int argc, char **argv) {
   const bool zero_extension = only && !strcmp(only, "zero-extension");
   const bool saber_input = only && !strcmp(only, "saber-input");
   const bool saber_ground_1 = only && !strcmp(only, "saber-ground-1");
+  const bool saber_ground_combo = only && !strcmp(only, "saber-ground-combo");
   const bool x3_zero_specials = only && !strcmp(only, "x3-zero-specials");
   const bool saber_enabled_group = saber_package || zero_extension ||
-      saber_input || saber_ground_1;
+      saber_input || saber_ground_1 || saber_ground_combo;
   SpecialCounts upstream_specials = {0};
   if (saber_input) {
     activate_zero(argv[1], x3_rom, assets, false, false);
@@ -1158,6 +1428,10 @@ int main(int argc, char **argv) {
   } else if (saber_ground_1) {
     check(MmxSaberEnabled(), "saber-ground-1 runs with the Saber package enabled");
     saber_ground_1_checks(fixture);
+  } else if (saber_ground_combo) {
+    check(MmxSaberEnabled(),
+          "saber-ground-combo runs with the Saber package enabled");
+    saber_ground_combo_checks(fixture);
   } else if (x3_zero_specials) {
     upstream_specials = x3_zero_specials_checks(fixture);
   } else if (zero_extension) {
@@ -1199,8 +1473,9 @@ int main(int argc, char **argv) {
         strcmp(only, "x3-hurt") && strcmp(only, "x3-jump") &&
         strcmp(only, "x3-post-charge") && strcmp(only, "x1-native") &&
         strcmp(only, "x3-zero-specials") &&
-        strcmp(only, "saber-package") && strcmp(only, "saber-input") &&
-        strcmp(only, "saber-ground-1") &&
+      strcmp(only, "saber-package") && strcmp(only, "saber-input") &&
+      strcmp(only, "saber-ground-1") &&
+        strcmp(only, "saber-ground-combo") &&
         strcmp(only, "zero-extension") &&
         strcmp(only, "saber-assets")) {
       fprintf(stderr, "FAIL: unknown MMX_SABER_TEST_ONLY group: %s\n", only);
