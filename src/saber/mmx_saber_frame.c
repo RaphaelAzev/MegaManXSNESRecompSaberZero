@@ -1,5 +1,6 @@
 #include "mmx_saber_frame.h"
 
+#include "mmx_saber_attack.h"
 #include "mmx_saber_input.h"
 
 static bool release_pending;
@@ -67,19 +68,34 @@ static void pre_player(uint8_t *ram) {
   if (!zero_frame_context(ram)) {
     /* This also handles an exchange to X, title/menu frames, and an upstream
      * Zero lifecycle transition. Do not touch any native input byte. */
+    MmxSaberAttackReset();
     release_pending = false;
-    previous_y = false;
+    previous_y = ram && (ram[0x00ac] & 0x40) != 0;
     return;
   }
 
   physical = read_physical_pad(ram);
-  saber = (MmxSaberPadSaber){SABER_PHASE_IDLE, SABER_KIND_NONE, false, false,
-                             release_pending};
+  saber = MmxSaberAttackPadState(release_pending);
+  /* A Saber-only frame must not create a buster charge. Once X is held, its
+   * release edge, or an existing latch, the buster path remains available so
+   * charge can continue through the slash and CR1 can fire after recovery. */
+  const bool x_charge_owned =
+      (physical.buttons & MMX_SABER_PAD_X) != 0 ||
+      (physical.prev_buttons & MMX_SABER_PAD_X) != 0 || release_pending;
   zero = (MmxSaberPadZero){
-      ram[0x0bdb] == 0,
+      (ram[0x0bdb] == 0) && x_charge_owned,
       ram[0x0baa] == 0x0e,
       zero_dead_or_reset(ram),
       (ram[0x0bd3] & 4) || (ram[0x0bd4] & 4)};
+
+  /* Classify the physical edge first, advance the Saber owner second, and
+   * only then compute/write the native pad.  saber_pressed is phase-independent,
+   * so the pad written for this frame already reflects a newly started slash. */
+  out = MmxSaberComputePad(physical, read_native_pad(ram), saber, zero);
+  MmxSaberAttackStep(out.saber_pressed, zero.grounded,
+                     !zero.hurt && !zero.dead_or_reset,
+                     ram[0x0c11]);
+  saber = MmxSaberAttackPadState(release_pending);
   out = MmxSaberComputePad(physical, read_native_pad(ram), saber, zero);
 
   /* The computed view is the sole input write for this frame. There is no
@@ -110,6 +126,7 @@ const MmxZeroExtension *MmxSaberFrameExtension(void) {
 }
 
 void MmxSaberFrameReset(void) {
+  MmxSaberAttackReset();
   release_pending = false;
   previous_y = false;
   clear_frame_state();

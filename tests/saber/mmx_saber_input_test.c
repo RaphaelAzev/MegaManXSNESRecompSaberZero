@@ -200,7 +200,7 @@ static void check_exhaustive_properties(void) {
   unsigned release_transitions = 0;
 
   for (int phase = SABER_PHASE_IDLE; phase <= SABER_PHASE_RECOVERY; ++phase)
-    for (int kind = SABER_KIND_NONE; kind <= SABER_KIND_DASH; ++kind)
+    for (int kind = SABER_KIND_NONE; kind <= SABER_KIND_SABER_LAND; ++kind)
       for (int wave = 0; wave <= 1; ++wave)
         for (int finisher = 0; finisher <= 1; ++finisher)
           for (int buster = 0; buster <= 1; ++buster)

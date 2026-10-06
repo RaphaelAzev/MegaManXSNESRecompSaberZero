@@ -57,7 +57,9 @@ typedef enum MmxSaberPadKind {
   SABER_KIND_GROUND3,
   SABER_KIND_AIR,
   SABER_KIND_WALL,
-  SABER_KIND_DASH
+  SABER_KIND_DASH,
+  SABER_KIND_SABER_LAND,
+  SABER_KIND_LAND = SABER_KIND_SABER_LAND
 } MmxSaberPadKind;
 
 typedef struct MmxSaberPadSaber {
@@ -89,4 +91,3 @@ MmxSaberPadOut MmxSaberComputePad(MmxSaberPhysicalPad phys,
                                   MmxSaberNativePad native_mapped,
                                   MmxSaberPadSaber saber,
                                   MmxSaberPadZero zero);
-

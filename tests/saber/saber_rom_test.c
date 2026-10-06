@@ -6,6 +6,7 @@
 #include MMX_GAME_MAIN
 #include "mmx_zero.h"
 #include "mmx_weapons.h"
+#include "saber/mmx_saber_attack.h"
 #include "saber/mmx_saber_frame.h"
 #include "saber/mmx_saber_plugin.h"
 #include "saber/mmx_saber_sfx.h"
@@ -38,6 +39,13 @@ enum {
   X3_ZERO_STORM_TORNADO_PROJECTILES = 1,
   /* X1's native command-6 charged buster path publishes class 2. */
   SABER_X1_CHARGED_RELEASE_CLASS = 2,
+  /* Independent oracle copied from oldsaber/saber-zero-variant:
+   * src/mmx_saber.c:266-268. Keep these literals separate from the new table
+   * so a timing-table mutation cannot make the test pass. */
+  OLD_SABER_GROUND1_STARTUP = 4,
+  OLD_SABER_GROUND1_ACTIVE = 8,
+  OLD_SABER_GROUND1_RECOVERY = 18,
+  OLD_SABER_GROUND1_TOTAL = 30,
 };
 
 static const char *const kMmxRomDigest =
@@ -537,6 +545,7 @@ static FireWaveCounts measure_fire_wave(const char *fixture, unsigned button) {
   unsigned char previous[8] = {0};
 
   load_fixture(fixture);
+  MmxSaberFrameReset();
   select_native_weapon(2); /* Fire Wave. */
   for (unsigned i = 0; i < SABER_FIRE_WAVE_FRAMES; ++i) {
     frame(button);
@@ -554,6 +563,7 @@ static unsigned measure_storm_tornado(const char *fixture, unsigned button) {
   unsigned births = 0;
 
   load_fixture(fixture);
+  MmxSaberFrameReset();
   select_native_weapon(5); /* Storm Tornado: one normal shot per tap. */
   frame(button);
   births += new_projectiles(11, previous);
@@ -652,6 +662,127 @@ static void saber_y_checks(const char *fixture) {
   puts("ok: saber-input-y-blocked");
 }
 
+static void saber_ground_1_checks(const char *fixture) {
+  MmxSaberAttackSnapshot snapshot;
+  MmxSaberAttackSnapshot previous;
+  bool timing_ok = true;
+  bool mask_ok = true;
+  bool position_ok = true;
+  bool charge_not_lost = true;
+  bool shot_before_idle = false;
+  bool previous_projectile = false;
+  unsigned starts = 0;
+  unsigned births = 0;
+  unsigned charge_before_release;
+  uint16_t standing_x;
+
+  printf("reference: old Saber ground-1 timing startup=%u active=%u "
+         "recovery=%u total=%u (oldsaber src/mmx_saber.c:266-269)\n",
+         OLD_SABER_GROUND1_STARTUP, OLD_SABER_GROUND1_ACTIVE,
+         OLD_SABER_GROUND1_RECOVERY, OLD_SABER_GROUND1_TOTAL);
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  for (unsigned i = 0; i < OLD_SABER_GROUND1_TOTAL; ++i) {
+    const MmxSaberPadPhase expected =
+        i < OLD_SABER_GROUND1_STARTUP ? SABER_PHASE_STARTUP :
+        i < OLD_SABER_GROUND1_STARTUP + OLD_SABER_GROUND1_ACTIVE ?
+            SABER_PHASE_ACTIVE : SABER_PHASE_RECOVERY;
+    frame(i == 0 ? SNES_PAD_Y : 0);
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (snapshot.kind != SABER_KIND_GROUND1 || snapshot.index != 0 ||
+        snapshot.anim_id != 1 || snapshot.tick != i ||
+        snapshot.phase != expected)
+      timing_ok = false;
+  }
+  frame(0);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(timing_ok && snapshot.phase == SABER_PHASE_IDLE &&
+            snapshot.kind == SABER_KIND_NONE && snapshot.anim_id == 0,
+        "Saber ground-1 publishes animation 1 through old startup/active/recovery timing");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  previous = MmxSaberAttackSnapshotGet();
+  for (unsigned i = 0; i < OLD_SABER_GROUND1_TOTAL + 12; ++i) {
+    frame(SNES_PAD_Y);
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (previous.phase == SABER_PHASE_IDLE &&
+        snapshot.phase != SABER_PHASE_IDLE)
+      ++starts;
+    previous = snapshot;
+  }
+  check(starts == 1 && snapshot.phase == SABER_PHASE_IDLE,
+        "holding Y starts exactly one ground-1 attack");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  g_ram[0x00ac] = 0x40;
+  g_ram[0x00a7] = 0;
+  g_ram[0x00a9] = 0;
+  starts = 0;
+  previous = MmxSaberAttackSnapshotGet();
+  for (unsigned i = 0; i < OLD_SABER_GROUND1_TOTAL + 2; ++i) {
+    MmxZeroExtPrePlayer(g_ram);
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (previous.phase == SABER_PHASE_IDLE &&
+        snapshot.phase != SABER_PHASE_IDLE)
+      ++starts;
+    previous = snapshot;
+  }
+  check(starts == 1 && snapshot.phase == SABER_PHASE_IDLE,
+        "the pre-player Y hold edge remains one-shot across the idle boundary");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(SNES_PAD_Y | SNES_PAD_RIGHT);
+  standing_x = (uint16_t)read_ram_word(g_ram, 0x0bad);
+  if (g_ram[0x0bdf] & MMX_SABER_NATIVE_HORIZONTAL_BITS)
+    mask_ok = false;
+  for (unsigned i = 0; i < OLD_SABER_GROUND1_TOTAL - 1; ++i) {
+    frame(SNES_PAD_RIGHT);
+    if (g_ram[0x0bdf] & MMX_SABER_NATIVE_HORIZONTAL_BITS)
+      mask_ok = false;
+    if (read_ram_word(g_ram, 0x0bad) != standing_x)
+      position_ok = false;
+  }
+  check(mask_ok && position_ok,
+        "ground-1 feeds the live phase back to clear horizontal pad bits and halt Zero");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(SNES_PAD_Y | SNES_PAD_X);
+  for (unsigned i = 0; i < 6; ++i) {
+    frame(SNES_PAD_X);
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (snapshot.phase != SABER_PHASE_IDLE && all_projectiles())
+      shot_before_idle = true;
+  }
+  charge_before_release = MmxZeroGetState().charge;
+  frame(0);
+  snapshot = MmxSaberAttackSnapshotGet();
+  if (snapshot.phase == SABER_PHASE_IDLE || all_projectiles())
+    shot_before_idle = true;
+  for (unsigned i = 0; i < OLD_SABER_GROUND1_TOTAL + 5; ++i) {
+    bool live;
+    frame(0);
+    snapshot = MmxSaberAttackSnapshotGet();
+    live = all_projectiles() != 0;
+    if (snapshot.phase != SABER_PHASE_IDLE &&
+        MmxZeroGetState().charge < charge_before_release)
+      charge_not_lost = false;
+    if (live && !previous_projectile)
+      ++births;
+    if (live && snapshot.phase != SABER_PHASE_IDLE)
+      shot_before_idle = true;
+    previous_projectile = live;
+  }
+  check(charge_before_release > 0 && charge_not_lost && births == 1 &&
+            !shot_before_idle,
+        "X held during ground-1 charges without a shot; release buffers exactly one post-idle shot");
+  puts("ok: saber-ground-1");
+}
+
 static void saber_special_checks(const char *fixture,
                                  const SpecialCounts *upstream) {
   SpecialCounts saber = measure_specials(fixture, SNES_PAD_X);
@@ -659,11 +790,93 @@ static void saber_special_checks(const char *fixture,
   check_specials_equal("Saber Zero specials equal upstream X3 Zero", upstream,
                        &saber);
 
-  FireWaveCounts saber_x_and_y =
-      measure_fire_wave(fixture, SNES_PAD_X | SNES_PAD_Y);
-  check_fire_wave_equal(
-      "physical Y hold leaves Saber Zero Fire Wave counts unchanged",
-      &saber.fire_wave, &saber_x_and_y);
+  {
+    unsigned char previous[8] = {0};
+    unsigned slash_births = 0;
+    unsigned held_births = 0;
+    unsigned fresh_births = 0;
+    bool saw_slash = false;
+    bool reached_idle = false;
+    MmxSaberAttackSnapshot snapshot;
+
+    load_fixture(fixture);
+    MmxSaberFrameReset();
+    select_native_weapon(2); /* Fire Wave. */
+    shot_presence(8, previous);
+    for (unsigned i = 0; i < OLD_SABER_GROUND1_TOTAL + 2; ++i) {
+      const unsigned input = i == 0 ? SNES_PAD_X | SNES_PAD_Y : SNES_PAD_X;
+      frame(input);
+      snapshot = MmxSaberAttackSnapshotGet();
+      const unsigned births = new_projectiles(8, previous);
+      if (snapshot.phase != SABER_PHASE_IDLE) {
+        saw_slash = true;
+        slash_births += births;
+      } else {
+        reached_idle = true;
+        held_births += births;
+        break;
+      }
+    }
+    for (unsigned i = 0; reached_idle && i < 60; ++i) {
+      frame(SNES_PAD_X);
+      held_births += new_projectiles(8, previous);
+    }
+    printf("reference: OD4 Fire Wave saw_slash=%d reached_idle=%d slash_births=%u held_births=%u\n",
+           saw_slash, reached_idle, slash_births, held_births);
+    check(saw_slash && reached_idle && slash_births == 0,
+          "OD4 blocks new Fire Wave flames throughout ground-1 while X is held");
+    if (held_births) {
+      printf("reference: Saber Fire Wave post-idle held-X semantics births=%u in 60 frames\n",
+             held_births);
+    } else {
+      frame(0);
+      new_projectiles(8, previous);
+      frame(SNES_PAD_X);
+      fresh_births = new_projectiles(8, previous);
+      check(fresh_births > 0,
+            "Fire Wave produces a flame after a fresh X press following ground-1");
+      printf("reference: Saber Fire Wave requires a fresh X press after idle; births=%u\n",
+             fresh_births);
+    }
+  }
+
+  {
+    unsigned char previous[8] = {0};
+    unsigned slash_births = 0;
+    unsigned after_idle_births = 0;
+    bool saw_slash = false;
+    bool reached_idle = false;
+    MmxSaberAttackSnapshot snapshot;
+
+    load_fixture(fixture);
+    MmxSaberFrameReset();
+    select_native_weapon(5); /* Storm Tornado. */
+    shot_presence(11, previous);
+    for (unsigned i = 0; i < OLD_SABER_GROUND1_TOTAL + 2; ++i) {
+      const unsigned input = i == 0 ? SNES_PAD_Y :
+          i == 1 ? SNES_PAD_X : 0;
+      frame(input);
+      snapshot = MmxSaberAttackSnapshotGet();
+      const unsigned births = new_projectiles(11, previous);
+      if (snapshot.phase != SABER_PHASE_IDLE) {
+        saw_slash = true;
+        slash_births += births;
+      } else {
+        reached_idle = true;
+        break;
+      }
+    }
+    check(saw_slash && reached_idle && slash_births == 0,
+          "OD4 blocks a Storm Tornado X press throughout ground-1");
+    frame(SNES_PAD_X);
+    after_idle_births += new_projectiles(11, previous);
+    for (unsigned i = 1; i < SABER_ONE_SHOT_FRAMES; ++i) {
+      frame(0);
+      after_idle_births += new_projectiles(11, previous);
+    }
+    check(after_idle_births == 1,
+          "Storm Tornado fires exactly one projectile from an X press after ground-1");
+  }
   puts("ok: saber-input-specials-zero");
 }
 
@@ -926,8 +1139,10 @@ int main(int argc, char **argv) {
   const bool saber_package = only && !strcmp(only, "saber-package");
   const bool zero_extension = only && !strcmp(only, "zero-extension");
   const bool saber_input = only && !strcmp(only, "saber-input");
+  const bool saber_ground_1 = only && !strcmp(only, "saber-ground-1");
   const bool x3_zero_specials = only && !strcmp(only, "x3-zero-specials");
-  const bool saber_enabled_group = saber_package || zero_extension || saber_input;
+  const bool saber_enabled_group = saber_package || zero_extension ||
+      saber_input || saber_ground_1;
   SpecialCounts upstream_specials = {0};
   if (saber_input) {
     activate_zero(argv[1], x3_rom, assets, false, false);
@@ -940,6 +1155,9 @@ int main(int argc, char **argv) {
   if (saber_input) {
     check(MmxSaberEnabled(), "saber-input runs with the Saber package enabled");
     saber_input_checks(fixture, &upstream_specials);
+  } else if (saber_ground_1) {
+    check(MmxSaberEnabled(), "saber-ground-1 runs with the Saber package enabled");
+    saber_ground_1_checks(fixture);
   } else if (x3_zero_specials) {
     upstream_specials = x3_zero_specials_checks(fixture);
   } else if (zero_extension) {
@@ -972,6 +1190,7 @@ int main(int argc, char **argv) {
       x3_plain_checks(fixture, SNES_PAD_X);
       x3_charge_checks(fixture, SNES_PAD_X);
       saber_special_checks(fixture, &upstream_specials);
+      saber_ground_1_checks(fixture);
       puts("ok: saber-package");
     }
     if (only && !strcmp(only, "saber-assets")) {
@@ -981,6 +1200,7 @@ int main(int argc, char **argv) {
         strcmp(only, "x3-post-charge") && strcmp(only, "x1-native") &&
         strcmp(only, "x3-zero-specials") &&
         strcmp(only, "saber-package") && strcmp(only, "saber-input") &&
+        strcmp(only, "saber-ground-1") &&
         strcmp(only, "zero-extension") &&
         strcmp(only, "saber-assets")) {
       fprintf(stderr, "FAIL: unknown MMX_SABER_TEST_ONLY group: %s\n", only);
