@@ -14,6 +14,33 @@ typedef struct MmxRenderStats {
   unsigned custom_lines, fallback_lines, margin_sprite_pixels, pieces;
 } MmxRenderStats;
 
+/* A presentation-only player plane. Origins are signed coordinates on the
+ * player's 128x128 canvas; the renderer owns projection and composition. */
+typedef struct MmxRenderPlayerOverlayPlane {
+  const uint8_t *pixels;
+  uint16_t width;
+  uint16_t height;
+  int16_t origin_x;
+  int16_t origin_y;
+} MmxRenderPlayerOverlayPlane;
+
+typedef struct MmxRenderPlayerOverlay {
+  bool active;
+  MmxRenderPlayerOverlayPlane body;
+  MmxRenderPlayerOverlayPlane blade;
+  /* 0 none, 1 behind body, 2 in front. */
+  uint8_t blade_layer;
+  const uint16_t *palette;
+  unsigned palette_count;
+  bool facing_left;
+} MmxRenderPlayerOverlay;
+
+typedef bool (*MmxRendererPlayerOverlayProvider)(MmxRenderPlayerOverlay *out);
+
+void MmxRendererSetPlayerOverlayProvider(
+    MmxRendererPlayerOverlayProvider provider);
+MmxRenderPlayerOverlay MmxRendererPlayerOverlaySnapshot(void);
+
 extern bool g_mmx_custom_renderer;
 extern bool g_mmx_custom_hud;
 extern bool g_mmx_expanded_sprites;

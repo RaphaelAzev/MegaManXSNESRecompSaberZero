@@ -9,6 +9,8 @@
 #include "saber/mmx_saber_wave.h"
 #include "saber/mmx_saber_wave_assets.h"
 #include "saber/mmx_saber_frame.h"
+#include "saber/mmx_saber_render.h"
+#include "mmx_renderer.h"
 #include "mmx_zero.h"
 #include "saber/mmx_saber_plugin.h"
 #include "sdl_compat.h"
@@ -23,7 +25,16 @@ static MmxSaberAssets *g_ride_assets;
 static MmxSaberWave *g_saber_wave;
 static bool g_saber_sfx_warning;
 
+static bool saber_overlay_provider(MmxRenderPlayerOverlay *out) {
+  if (!g_mmx_saber_enabled || !g_saber_assets) {
+    if (out) memset(out, 0, sizeof(*out));
+    return false;
+  }
+  return MmxSaberRenderResolve(g_saber_assets, out);
+}
+
 static void saber_activation_failed(void) {
+  MmxRendererSetPlayerOverlayProvider(NULL);
   MmxZeroSetExtension(NULL);
   MmxSaberFrameReset();
 }
@@ -181,6 +192,7 @@ static int prepare_wave(const char rom[4096], char wave_path[4096]) {
 }
 
 static void release_saber_assets(void) {
+  MmxRendererSetPlayerOverlayProvider(NULL);
   MmxSaberWaveFree(g_saber_wave);
   MmxSaberAssetsFree(g_saber_assets);
   MmxSaberAssetsFree(g_ride_assets);
@@ -324,6 +336,7 @@ static void activate(void) {
   MmxSaberFrameReset();
   MmxZeroSetExtension(MmxSaberFrameExtension());
   g_mmx_saber_enabled = true;
+  MmxRendererSetPlayerOverlayProvider(saber_overlay_provider);
   fprintf(stderr, "[mmx-saber-zero] saber-v1.bin, ride-zero-v1.bin, and "
                   "x3-saber-wave-v1.bin loaded\n");
   fprintf(stderr, "[mmx-saber-zero] Saber Zero 0.0.1 enabled; starting as %s\n",
@@ -332,6 +345,7 @@ static void activate(void) {
 
 static void reset(void) {
   g_mmx_saber_enabled = false;
+  MmxRendererSetPlayerOverlayProvider(NULL);
   MmxZeroSetExtension(NULL);
   MmxSaberFrameReset();
   MmxSaberSfxResetRuntime();

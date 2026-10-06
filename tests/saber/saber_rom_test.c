@@ -5,8 +5,10 @@
 #include "desktop/host_main.c"
 #include MMX_GAME_MAIN
 #include <stdint.h>
+#include "mmx_renderer.h"
 #include "mmx_zero.h"
 #include "mmx_weapons.h"
+#include "saber/mmx_saber_assets.h"
 #include "saber/mmx_saber_attack.h"
 #include "saber/mmx_saber_frame.h"
 #include "saber/mmx_saber_plugin.h"
@@ -89,8 +91,16 @@ enum {
 static const char *const kMmxRomDigest =
     "b8f70a6e7fb93819f79693578887e2c11e196bdf1ac6ddc7cb924b1ad0be2d32";
 
+static const uint8_t kSaberManifestSha[32] = {
+  0x4e, 0x29, 0x1e, 0x5f, 0x03, 0x57, 0xaf, 0xa0,
+  0x35, 0x76, 0x14, 0xe0, 0xc4, 0x97, 0xf9, 0xb3,
+  0x65, 0xee, 0x99, 0xe3, 0x70, 0x64, 0x5d, 0x84,
+  0x99, 0xb2, 0xe4, 0xfd, 0x07, 0xf8, 0x0f, 0xd0,
+};
+
 static unsigned projectiles(unsigned kind);
 static bool saber_test_grounded(void);
+static void load_fixture(const char *fixture);
 static bool saber_track_x1_charged;
 static bool saber_saw_x1_charged;
 static unsigned zero_state_reset_calls;
@@ -137,6 +147,96 @@ static void frame(unsigned input) {
 
 static void idle(unsigned count) {
   while (count--) frame(0);
+}
+
+static bool render_plane_matches(const MmxRenderPlayerOverlayPlane *actual,
+                                 const MmxSaberPlane *expected) {
+  return (actual->pixels != NULL) == (expected->pixels != NULL) &&
+      actual->width == expected->width && actual->height == expected->height &&
+      actual->origin_x == expected->origin_x &&
+      actual->origin_y == expected->origin_y;
+}
+
+static MmxSaberAssets *load_render_oracle(void) {
+  const char *cache = getenv("MMX_SABER_TEST_CACHE");
+  char path[4096];
+  char reason[128] = {0};
+  FILE *file;
+  MmxSaberAssets *assets;
+
+  check(cache && cache[0] &&
+            snprintf(path, sizeof(path), "%s/mmx-source/saber-v1.bin",
+                     cache) < (int)sizeof(path),
+        "renderer group receives the isolated Saber sidecar path");
+  file = fopen(path, "rb");
+  check(file != NULL, "renderer group opens the Saber sidecar oracle");
+  fclose(file);
+  assets = MmxSaberAssetsLoadFile(path, kSaberManifestSha,
+                                  reason, sizeof(reason));
+  check(assets != NULL, reason[0] ? reason :
+        "renderer group parses the Saber sidecar oracle");
+  return assets;
+}
+
+static void saber_render_snapshot_checks(const char *fixture) {
+  const MmxSaberAnimation *animation;
+  MmxSaberAssets *oracle = load_render_oracle();
+  MmxRenderPlayerOverlay before;
+  MmxRenderPlayerOverlay after;
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  MmxRendererBeginFrame(g_ram);
+  check(!MmxRendererPlayerOverlaySnapshot().active,
+        "idle BeginFrame snapshots an inactive player overlay");
+
+  /* Change the live attack twice after BeginFrame. The second change crosses
+   * the first sidecar step boundary, so a live read would expose frame 2. */
+  frame(SNES_PAD_Y);
+  MmxRendererBeginFrame(g_ram);
+  before = MmxRendererPlayerOverlaySnapshot();
+  MmxSaberAttackStep(false, true, true, 0, 0);
+  MmxSaberAttackStep(false, true, true, 0, 0);
+  after = MmxRendererPlayerOverlaySnapshot();
+  check(before.active && after.active && before.body.pixels == after.body.pixels &&
+            before.body.origin_x == after.body.origin_x &&
+            before.body.origin_y == after.body.origin_y,
+        "BeginFrame holds one overlay snapshot across a live state change");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  animation = MmxSaberAssetsAnimationById(oracle, 1);
+  check(animation != NULL && animation->facing_xor == 1,
+        "renderer oracle contains donor animation 1");
+  for (unsigned tick = 0; tick < OLD_SABER_GROUND1_TOTAL; ++tick) {
+    const MmxSaberFrame *expected;
+    MmxSaberAttackSnapshot attack;
+    MmxRenderPlayerOverlay actual;
+
+    frame(tick == 0 ? SNES_PAD_Y : 0);
+    MmxRendererBeginFrame(g_ram);
+    attack = MmxSaberAttackSnapshotGet();
+    actual = MmxRendererPlayerOverlaySnapshot();
+    expected = MmxSaberAssetsFrameForStep(oracle, 1, (uint16_t)(tick / 2));
+    check(expected != NULL && attack.anim_id == 1 && attack.tick == tick &&
+              actual.active && render_plane_matches(&actual.body, &expected->body) &&
+              render_plane_matches(&actual.blade, &expected->blade) &&
+              actual.blade_layer == expected->blade_layer &&
+              actual.palette_count == MmxSaberAssetsPaletteCount(oracle) &&
+              actual.facing_left == (((attack.facing & 0x40) != 0) ^
+                                     (animation->facing_xor != 0)),
+          "ground slash snapshot matches each old animation-1 sidecar frame");
+  }
+
+  MmxSaberAttackReset();
+  MmxRendererBeginFrame(g_ram);
+  check(!MmxRendererPlayerOverlaySnapshot().active,
+        "idle after a slash snapshots an inactive overlay");
+  MmxRendererSetPlayerOverlayProvider(NULL);
+  check(!MmxRendererPlayerOverlaySnapshot().active,
+        "clearing the provider clears the overlay snapshot immediately");
+  MmxSaberAssetsFree(oracle);
+  puts("ok: saber-render-snapshot");
 }
 
 static unsigned projectiles(unsigned kind) {
@@ -3146,12 +3246,14 @@ int main(int argc, char **argv) {
   const bool saber_ground_lifecycle = only && !strcmp(only, "saber-ground-lifecycle");
   const bool saber_lifecycle_load = only && !strcmp(only, "saber-lifecycle-load");
   const bool saber_ground_hit = only && !strcmp(only, "saber-ground-hit");
+  const bool saber_render_snapshot = only && !strcmp(only, "saber-render-snapshot");
   const bool x3_zero_specials = only && !strcmp(only, "x3-zero-specials");
   const bool fixtures = only && !strcmp(only, "fixtures");
   const bool saber_enabled_group = saber_package || zero_extension ||
       saber_input || saber_ground_1 || saber_ground_combo ||
       saber_air || saber_wall || saber_dash || saber_land || saber_ground_lifecycle ||
-      saber_ground_hit || saber_cancel || saber_lifecycle_load;
+      saber_ground_hit || saber_cancel || saber_lifecycle_load ||
+      saber_render_snapshot;
   SpecialCounts upstream_specials = {0};
   if (saber_input) {
     activate_zero(argv[1], x3_rom, assets, false, false);
@@ -3198,6 +3300,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-ground-hit runs with the Saber package enabled");
     saber_ground_hit_checks(fixture);
+  } else if (saber_render_snapshot) {
+    check(MmxSaberEnabled(),
+          "saber-render-snapshot runs with the Saber package enabled");
+    saber_render_snapshot_checks(fixture);
   } else if (x3_zero_specials) {
     upstream_specials = x3_zero_specials_checks(fixture);
   } else if (fixtures) {
@@ -3254,6 +3360,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-ground-lifecycle") &&
       strcmp(only, "saber-lifecycle-load") &&
         strcmp(only, "saber-ground-hit") &&
+        strcmp(only, "saber-render-snapshot") &&
         strcmp(only, "zero-extension") &&
         strcmp(only, "saber-assets") &&
         strcmp(only, "fixtures")) {

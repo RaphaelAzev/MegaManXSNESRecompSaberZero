@@ -61,6 +61,8 @@ static bool observed_lists;
 static const uint8_t *rom;
 static size_t rom_size;
 static MmxRenderStats stats;
+static MmxRendererPlayerOverlayProvider player_overlay_provider;
+static MmxRenderPlayerOverlay frame_player_overlay;
 static uint8_t door_cache[512 * 512];
 static int airport_sky_width;
 typedef struct SubmarineBody {
@@ -126,8 +128,17 @@ static const uint8_t *rom_at(unsigned address, size_t length) {
 void MmxRendererSetRom(const uint8_t *bytes, size_t length) {
   rom = bytes; rom_size = length; MmxRenderAssetsSetRom(bytes, length);
 }
+void MmxRendererSetPlayerOverlayProvider(
+    MmxRendererPlayerOverlayProvider provider) {
+  player_overlay_provider = provider;
+  if (!provider) memset(&frame_player_overlay, 0, sizeof(frame_player_overlay));
+}
+MmxRenderPlayerOverlay MmxRendererPlayerOverlaySnapshot(void) {
+  return frame_player_overlay;
+}
 void MmxRendererReset(void) {
   memset(&frame_zero, 0, sizeof(frame_zero));
+  memset(&frame_player_overlay, 0, sizeof(frame_player_overlay));
   frame.valid = false; frame.captured = 0;
   building_count = latched_count = 0;
   building_stage = latched_stage = 0xff;
@@ -317,7 +328,13 @@ static void trace_objects(const uint8_t *ram) {
   }
 }
 void MmxRendererBeginFrame(const uint8_t ram[0x20000]) {
+  MmxRenderPlayerOverlay overlay;
   memset(&frame_coop,0,sizeof(frame_coop));
+  memset(&overlay, 0, sizeof(overlay));
+  if (player_overlay_provider && player_overlay_provider(&overlay))
+    frame_player_overlay = overlay;
+  else
+    memset(&frame_player_overlay, 0, sizeof(frame_player_overlay));
   trace_objects(ram);
   frame.valid = false; frame.captured = 0;
   memcpy(frame.ram, ram, sizeof(frame.ram));
