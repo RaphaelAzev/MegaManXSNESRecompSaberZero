@@ -90,6 +90,7 @@ static const char *const kMmxRomDigest =
     "b8f70a6e7fb93819f79693578887e2c11e196bdf1ac6ddc7cb924b1ad0be2d32";
 
 static unsigned projectiles(unsigned kind);
+static bool saber_test_grounded(void);
 static bool saber_track_x1_charged;
 static bool saber_saw_x1_charged;
 
@@ -261,6 +262,27 @@ static unsigned saber_wall_setup(const char *path, const SaberWallRoute *route,
                "native_facing=0x%02X action=0x%02X\n", route->side,
                read_ram_word(g_ram, 0x0bad), read_ram_word(g_ram, 0x0bb0),
                g_ram[0x0c11] & 0x40, g_ram[0x0baa]);
+      return i;
+    }
+  }
+  return ~0u;
+}
+
+static unsigned saber_wall_charge_setup(const char *path,
+                                        const SaberWallRoute *route) {
+  check(RtlLoadSnapshot(path), "charged wall fixture route loads");
+  check(MmxZeroActive() && !MmxZeroModern(),
+        "charged wall fixture route is legacy X3 Zero");
+  MmxZeroCancel(g_ram);
+  MmxSaberFrameReset();
+  for (unsigned i = 0; i < route->walk_frames; ++i)
+    frame(route->walk_input | SNES_PAD_X);
+  frame(SNES_PAD_X);
+  for (unsigned i = 0; i < 240; ++i) {
+    frame(route->jump_input | SNES_PAD_X);
+    if (g_ram[0x0baa] == 0x12) {
+      for (unsigned settle = 0; settle < 6; ++settle)
+        frame(route->travel_input | SNES_PAD_X);
       return i;
     }
   }
@@ -2219,6 +2241,227 @@ static void saber_dash_checks(const char *fixture) {
   puts("ok: saber-dash");
 }
 
+static bool saber_ground_cancel_charge_probe(
+    const char *fixture, MmxSaberPadPhase cancel_phase, unsigned cancel_input,
+    bool startup_probe) {
+  MmxSaberAttackSnapshot snapshot;
+  bool no_shot;
+  bool accepted;
+  unsigned before;
+  unsigned after;
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  hold_charge_button(30, SNES_PAD_X);
+  before = MmxZeroGetState().charge;
+  frame(SNES_PAD_X | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  if (startup_probe) {
+    frame(SNES_PAD_X | SNES_PAD_B);
+    snapshot = MmxSaberAttackSnapshotGet();
+    accepted = snapshot.kind == SABER_KIND_GROUND1 &&
+        snapshot.phase == SABER_PHASE_STARTUP && saber_test_grounded();
+    no_shot = native_projectiles() == 0 && tagged_projectiles() == 0;
+    for (unsigned i = 0; i < OLD_SABER_GROUND1_TOTAL + 2 &&
+         MmxSaberAttackSnapshotGet().phase != SABER_PHASE_IDLE; ++i)
+      frame(SNES_PAD_X);
+  } else {
+    for (unsigned i = 0; i < OLD_SABER_GROUND1_TOTAL + 2 &&
+         snapshot.phase != cancel_phase; ++i) {
+      frame(SNES_PAD_X);
+      snapshot = MmxSaberAttackSnapshotGet();
+    }
+    check(snapshot.phase == cancel_phase,
+          "ground cancel charge probe reaches its requested phase");
+    frame(SNES_PAD_X | cancel_input);
+    snapshot = MmxSaberAttackSnapshotGet();
+    accepted = snapshot.phase == SABER_PHASE_IDLE &&
+        snapshot.kind == SABER_KIND_NONE;
+    no_shot = native_projectiles() == 0 && tagged_projectiles() == 0 &&
+        projectiles(SABER_TIER_4_RELEASE_CLASS) == 0 &&
+        projectiles(SABER_FULL_RELEASE_CLASS) == 0;
+  }
+  after = MmxZeroGetState().charge;
+  frame(0);
+  return accepted && no_shot && after >= before &&
+      projectiles(SABER_TIER_4_RELEASE_CLASS) == 1 &&
+      projectiles(SABER_FULL_RELEASE_CLASS) == 0;
+}
+
+static void saber_cancel_checks(const char *fixture, const char *fixture_dir) {
+  static const SaberWallRoute route = {
+    "OPEN-RIGHT", SNES_PAD_LEFT, SNES_PAD_B | SNES_PAD_LEFT,
+    SNES_PAD_LEFT, 60, 20, 5142, 2665, 0x40, 1};
+  const char *const fixture_name = "armadillo-fight.sav";
+  char wall_path[4096];
+  MmxSaberAttackSnapshot snapshot;
+  unsigned wall_frame;
+  int written;
+
+  written = snprintf(wall_path, sizeof(wall_path), "%s/%s", fixture_dir,
+                     fixture_name);
+  check(written >= 0 && written < (int)sizeof(wall_path),
+        "cancel wall fixture path fits");
+  printf("reference: W3.3 post-native cancel observation uses old "
+         "oldsaber/src/mmx_saber.c:1197-1210 action values "
+         "$04/$06/$08/$12/$14; $10 remains ordinary per "
+         "oldsaber/src/mmx_saber.c:1045-1065\n");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(SNES_PAD_Y);
+  frame(SNES_PAD_B);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_GROUND1 &&
+            snapshot.phase == SABER_PHASE_STARTUP && saber_test_grounded(),
+        "ground slash 1 STARTUP masks jump and does not cancel or leave ground");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(SNES_PAD_Y);
+  do {
+    frame(0);
+    snapshot = MmxSaberAttackSnapshotGet();
+  } while (snapshot.phase != SABER_PHASE_ACTIVE);
+  frame(SNES_PAD_B);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.phase == SABER_PHASE_IDLE && snapshot.kind == SABER_KIND_NONE &&
+            !saber_test_grounded() &&
+            (g_ram[0x0baa] == 0x04 || g_ram[0x0baa] == 0x06 ||
+             g_ram[0x0baa] == 0x08),
+        "ground slash 1 ACTIVE exits in the native accepted jump frame");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(SNES_PAD_Y);
+  do {
+    frame(0);
+    snapshot = MmxSaberAttackSnapshotGet();
+  } while (snapshot.phase != SABER_PHASE_RECOVERY);
+  frame(SNES_PAD_A | SNES_PAD_RIGHT);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.phase == SABER_PHASE_IDLE && snapshot.kind == SABER_KIND_NONE &&
+            saber_test_grounded() && g_ram[0x0baa] == 0x14,
+        "ground slash 1 RECOVERY exits in the native accepted dash frame");
+
+  check(saber_ground_cancel_charge_probe(
+            fixture, SABER_PHASE_STARTUP, SNES_PAD_B, true),
+        "held tier-4 charge survives the masked STARTUP jump and one release fires class 1");
+  check(saber_ground_cancel_charge_probe(
+            fixture, SABER_PHASE_ACTIVE, SNES_PAD_B, false),
+        "held tier-4 charge survives the accepted ACTIVE jump and one release fires class 1");
+  check(saber_ground_cancel_charge_probe(
+            fixture, SABER_PHASE_RECOVERY, SNES_PAD_A | SNES_PAD_RIGHT, false),
+        "held tier-4 charge survives the accepted RECOVERY dash and one release fires class 1");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(SNES_PAD_Y);
+  do {
+    frame(0);
+    snapshot = MmxSaberAttackSnapshotGet();
+  } while (snapshot.phase != SABER_PHASE_RECOVERY);
+  frame(SNES_PAD_A | SNES_PAD_RIGHT);
+  snapshot = MmxSaberAttackSnapshotGet();
+  for (unsigned i = 0; i < 80 && g_ram[0x0baa] == 0x14; ++i)
+    frame(0);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.phase == SABER_PHASE_IDLE && saber_test_grounded() &&
+            g_ram[0x0baa] != 0x14,
+        "cancelled ground combo returns to idle after native dash completion");
+  frame(SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_GROUND1 && snapshot.tick == 0,
+        "the next ground Y after a cancelled combo starts slash 1");
+
+  wall_frame = saber_wall_charge_setup(wall_path, &route);
+  check(wall_frame != ~0u && g_ram[0x0baa] == 0x12 &&
+            read_ram_word(g_ram, 0x0bad) == route.expected_x &&
+            read_ram_word(g_ram, 0x0bb0) == route.expected_y,
+        "charged cancel wall setup reaches the recorded native cling");
+  const unsigned wall_charge_before = MmxZeroGetState().charge;
+  frame(SNES_PAD_X | route.travel_input | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(wall_charge_before >= SABER_CHARGE_TIER_1_FRAME &&
+            snapshot.kind == SABER_KIND_WALL &&
+            snapshot.phase == SABER_PHASE_ACTIVE,
+        "wall slash ACTIVE starts from the armadillo-fight cling");
+  for (unsigned i = 0; i < 3; ++i) frame(SNES_PAD_X | route.travel_input);
+  const unsigned wall_cues_before_jump = MmxSaberAttackCueCount();
+  frame(SNES_PAD_X | route.jump_input);
+  snapshot = MmxSaberAttackSnapshotGet();
+  const unsigned wall_charge_after_jump = MmxZeroGetState().charge;
+  check(snapshot.phase == SABER_PHASE_IDLE && snapshot.kind == SABER_KIND_NONE &&
+            wall_charge_after_jump >= wall_charge_before &&
+            tagged_projectiles() == 0,
+        "wall slash ACTIVE exits on the native accepted wall jump and keeps charge");
+  bool saw_normal_action10 = false;
+  bool action10_side_effects_ok = true;
+  for (unsigned i = 0; i < 5; ++i) {
+    frame(SNES_PAD_X);
+    if (g_ram[0x0baa] == 0x10) {
+      saw_normal_action10 = true;
+      snapshot = MmxSaberAttackSnapshotGet();
+      if (snapshot.phase != SABER_PHASE_IDLE || snapshot.kind != SABER_KIND_NONE ||
+          tagged_projectiles() != 0 ||
+          MmxSaberAttackCueCount() != wall_cues_before_jump ||
+          MmxZeroGetState().charge < wall_charge_after_jump)
+        action10_side_effects_ok = false;
+    }
+  }
+  check(saw_normal_action10 && action10_side_effects_ok,
+        "the post-jump native $10 frame is playable, idle, side-effect free, and charge-safe");
+  frame(0);
+
+  wall_frame = saber_wall_setup(wall_path, &route, false);
+  check(wall_frame == route.expected_wall_frame && g_ram[0x0baa] == 0x12,
+        "air cancel wall setup reaches the recorded native cling");
+  frame(route.jump_input);
+  check(g_ram[0x0baa] == 0x10 && !saber_test_grounded(),
+        "air cancel probe enters native wall-jump action $10");
+  for (unsigned i = 0; i < 4; ++i) frame(0);
+  frame(SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_AIR && snapshot.phase == SABER_PHASE_STARTUP,
+        "air slash starts from the native wall-jump bridge");
+  for (unsigned i = 0; i < 4; ++i) frame(0);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_AIR && snapshot.phase == SABER_PHASE_ACTIVE,
+        "air cancel probe reaches ACTIVE before the wall-cling observation");
+  bool air_wall_cancelled = false;
+  for (unsigned i = 0; i < 16 && snapshot.phase != SABER_PHASE_IDLE; ++i) {
+    frame(route.travel_input);
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (g_ram[0x0baa] == 0x12) {
+      check(snapshot.phase == SABER_PHASE_IDLE && snapshot.kind == SABER_KIND_NONE,
+            "air ACTIVE wall cling retires the Saber owner through the cancel path");
+      air_wall_cancelled = true;
+      break;
+    }
+  }
+  check(air_wall_cancelled,
+        "air ACTIVE reaches a native wall cling for its old context rule");
+
+  /* Separate Highway probe for the negative observation: B is pressed while
+   * an air slash is ACTIVE, but native has no accepted midair jump action. */
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(SNES_PAD_B);
+  for (unsigned i = 0; i < 4; ++i) frame(SNES_PAD_B);
+  frame(SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_AIR && snapshot.phase == SABER_PHASE_STARTUP,
+        "Highway negative air-cancel probe starts an air slash");
+  for (unsigned i = 0; i < 4; ++i) frame(0);
+  frame(SNES_PAD_B);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_AIR && snapshot.phase == SABER_PHASE_ACTIVE &&
+            !saber_test_grounded() &&
+            g_ram[0x0baa] != 0x12 && g_ram[0x0baa] != 0x14,
+        "an unaccepted airborne jump press does not cancel the air slash");
+  puts("ok: saber-cancel");
+}
+
 static void saber_land_checks(const char *fixture) {
   const MmxSaberAttack *land =
       MmxSaberAttackRecord(SABER_KIND_SABER_LAND, 0);
@@ -2680,7 +2923,8 @@ int main(int argc, char **argv) {
   check(fixture && fixture[0], "MMX_ZERO_TEST_FIXTURE supplied");
   check(x3_rom && x3_rom[0], "MMX_COOP_X3_ROM supplied");
   check(assets && assets[0], "MMX_ZERO_TEST_ASSETS supplied");
-  if (only && (!strcmp(only, "fixtures") || !strcmp(only, "saber-wall")))
+  if (only && (!strcmp(only, "fixtures") || !strcmp(only, "saber-wall") ||
+      !strcmp(only, "saber-cancel")))
     check(fixture_dir && fixture_dir[0], "MMX_SABER_FIXTURE_DIR supplied");
 
   SDL_SetMainReady();
@@ -2743,6 +2987,7 @@ int main(int argc, char **argv) {
   const bool saber_air = only && !strcmp(only, "saber-air");
   const bool saber_wall = only && !strcmp(only, "saber-wall");
   const bool saber_dash = only && !strcmp(only, "saber-dash");
+  const bool saber_cancel = only && !strcmp(only, "saber-cancel");
   const bool saber_land = only && !strcmp(only, "saber-land");
   const bool saber_ground_lifecycle = only && !strcmp(only, "saber-ground-lifecycle");
   const bool saber_ground_hit = only && !strcmp(only, "saber-ground-hit");
@@ -2751,7 +2996,7 @@ int main(int argc, char **argv) {
   const bool saber_enabled_group = saber_package || zero_extension ||
       saber_input || saber_ground_1 || saber_ground_combo ||
       saber_air || saber_wall || saber_dash || saber_land || saber_ground_lifecycle ||
-      saber_ground_hit;
+      saber_ground_hit || saber_cancel;
   SpecialCounts upstream_specials = {0};
   if (saber_input) {
     activate_zero(argv[1], x3_rom, assets, false, false);
@@ -2780,6 +3025,9 @@ int main(int argc, char **argv) {
   } else if (saber_dash) {
     check(MmxSaberEnabled(), "saber-dash runs with the Saber package enabled");
     saber_dash_checks(fixture);
+  } else if (saber_cancel) {
+    check(MmxSaberEnabled(), "saber-cancel runs with the Saber package enabled");
+    saber_cancel_checks(fixture, fixture_dir);
   } else if (saber_land) {
     check(MmxSaberEnabled(), "saber-land runs with the Saber package enabled");
     saber_land_checks(fixture);
@@ -2842,6 +3090,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-air") &&
       strcmp(only, "saber-wall") &&
       strcmp(only, "saber-dash") &&
+      strcmp(only, "saber-cancel") &&
       strcmp(only, "saber-land") &&
       strcmp(only, "saber-ground-lifecycle") &&
         strcmp(only, "saber-ground-hit") &&

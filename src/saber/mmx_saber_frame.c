@@ -121,6 +121,7 @@ static void player_end(uint8_t *ram) {
 static void pre_player(uint8_t *ram) {
   MmxSaberPadOut out;
   MmxSaberPadSaber saber;
+  MmxSaberPadSaber pre_native_saber;
   MmxSaberPadZero zero;
   MmxSaberPhysicalPad physical;
 
@@ -136,6 +137,8 @@ static void pre_player(uint8_t *ram) {
 
   physical = read_physical_pad(ram);
   saber = MmxSaberAttackPadState(release_pending);
+  pre_native_saber = saber;
+  MmxSaberAttackObservePreNative(ram);
   /* A Saber-only frame must not create a buster charge. Once X is held, its
    * release edge, or an existing latch, the buster path remains available so
    * charge can continue through the slash and CR1 can fire after recovery. */
@@ -164,6 +167,13 @@ static void pre_player(uint8_t *ram) {
       native_horizontal_direction(ram));
   MmxSaberAttackRuntimeTick(ram);
   saber = MmxSaberAttackPadState(release_pending);
+  /* The attack tick advances the published donor phase before native runs.
+   * Preserve the phase that was visible on entry for movement-edge masking,
+   * so the last STARTUP frame cannot accept a jump/dash merely because its
+   * post-step snapshot is ACTIVE. */
+  if (pre_native_saber.phase == SABER_PHASE_STARTUP &&
+      saber.phase != SABER_PHASE_IDLE)
+    saber.phase = SABER_PHASE_STARTUP;
   out = MmxSaberComputePad(physical, read_native_pad(ram), saber, zero);
   publish_ground_swing(ram, saber);
 

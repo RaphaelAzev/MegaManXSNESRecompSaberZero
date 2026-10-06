@@ -202,6 +202,11 @@ static MmxSaberAttackState state;
 static uint8_t projectile_generation;
 static uint8_t *runtime_ram;
 static unsigned cue_count;
+static bool native_observation_valid;
+static MmxSaberPadKind native_attack_kind;
+static MmxSaberPadPhase native_attack_phase;
+static uint8_t native_action;
+static bool native_grounded;
 
 typedef struct MmxSaberCollisionWindow {
   uint8_t *rom;
@@ -218,6 +223,16 @@ static MmxSaberCollisionWindow ground_collision = {
 static MmxSaberCollisionWindow air_collision = {
     NULL, {0}, 0x37f40, "$37F40", false, false, false};
 static unsigned collision_warnings;
+
+static bool player_grounded(const uint8_t *ram);
+
+static void clear_native_observation(void) {
+  native_observation_valid = false;
+  native_attack_kind = SABER_KIND_NONE;
+  native_attack_phase = SABER_PHASE_IDLE;
+  native_action = 0;
+  native_grounded = false;
+}
 
 static const MmxSaberAttack *state_attack(void) {
   return MmxSaberAttackRecord(state.kind, state.index);
@@ -544,6 +559,7 @@ void MmxSaberAttackExit(uint8_t *ram, MmxSaberAttackExitReason reason) {
   if (target) runtime_ram = target;
   retire_all_tagged(target);
   clear_attack();
+  clear_native_observation();
   if (!preserve_air_landing) state.air_landing_eligible = false;
 }
 
@@ -628,20 +644,17 @@ void MmxSaberAttackStepWithWallAndDash(bool saber_pressed, bool grounded,
   }
 
   /* Old src/mmx_saber.c:saber_dash_attack_context only admitted a dash owner
-   * while grounded; its post-native dash_left_ground path retired the owner
-   * when native movement took Zero off a ledge.  A jump is the one voluntary
-   * escape for an established dash slash, and startup input is masked by the
-   * pure pad before it reaches this gate. */
+   * while grounded.  A jump is the one voluntary escape for an established
+   * dash slash; its acceptance is observed in PlayerEnd after native movement.
+   * Startup input is masked by the pure pad before it reaches the native
+   * routine. */
   if (attack->kind == SABER_KIND_DASH) {
     if (!grounded) {
       MmxSaberAttackExit(runtime_ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
       return;
     }
-    if (jump_pressed && state.phase != SABER_PHASE_STARTUP) {
-      MmxSaberAttackExit(runtime_ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
-      return;
-    }
   }
+  (void)jump_pressed;
 
   /* The old landing visual has no combo priority: a Y edge cancels it and,
    * while still grounded, immediately claims ordinary ground slash 1. */
@@ -772,6 +785,19 @@ static bool player_grounded(const uint8_t *ram) {
   return ram && ((ram[0x0bd3] & 4) || (ram[0x0bd4] & 4));
 }
 
+void MmxSaberAttackObservePreNative(uint8_t *ram) {
+  runtime_ram = ram;
+  if (!ram) {
+    clear_native_observation();
+    return;
+  }
+  native_observation_valid = true;
+  native_attack_kind = state.kind;
+  native_attack_phase = state.phase;
+  native_action = ram[0x0baa];
+  native_grounded = player_grounded(ram);
+}
+
 static bool native_wall_clinging(const uint8_t *ram) {
   return ram && ram[0x0baa] == 0x12;
 }
@@ -795,10 +821,75 @@ static void emit_pending_cue(void) {
   ++cue_count;
 }
 
+static bool cancel_phase_open(MmxSaberPadPhase phase) {
+  return phase == SABER_PHASE_ACTIVE || phase == SABER_PHASE_RECOVERY;
+}
+
+static bool native_jump_accepted(const uint8_t *ram) {
+  const bool grounded = player_grounded(ram);
+  const unsigned action = ram ? ram[0x0baa] : 0;
+
+  if (!ram || !native_grounded) return false;
+  /* The generated native callback observes the accepted jump one native
+   * subroutine before the final grounded-bit publication.  In that window
+   * the native action is already one of the ordinary jump/fall actions from
+   * the donor whitelist ($04/$06/$08); the settled grounded edge remains the
+   * stronger observation when it is available. */
+  return !grounded || action == 0x04 || action == 0x06 || action == 0x08;
+}
+
+static bool native_movement_accepted(const uint8_t *ram) {
+  const bool grounded = player_grounded(ram);
+  const unsigned action = ram ? ram[0x0baa] : 0;
+
+  if (!ram || !native_observation_valid ||
+      !cancel_phase_open(native_attack_phase))
+    return false;
+
+  /* These are the post-native observations used by the donor at
+   * oldsaber/src/mmx_saber.c:1197-1210.  The old movement whitelist records
+   * ordinary jump/fall/landing as $00/$02/$04/$06/$08/$0A/$20, dash as $14,
+   * and wall cling as $12; ladder/ordinary $10 is not an ownership-loss
+   * result (oldsaber/src/mmx_saber.c:1052-1065). */
+  switch (native_attack_kind) {
+    case SABER_KIND_GROUND1:
+    case SABER_KIND_GROUND2:
+    case SABER_KIND_GROUND3:
+      /* Native jump acceptance is the grounded -> airborne publication. */
+      if (native_jump_accepted(ram)) return true;
+      /* Native dash acceptance is the transition into action $14. */
+      return action == 0x14 && native_action != 0x14;
+
+    case SABER_KIND_AIR:
+      /* X1 has no accepted ordinary midair jump.  Following the old air
+       * context rule, entering wall cling ($12) retires the air owner, while
+       * a wall jump's resulting airborne $10 remains playable and does not
+       * cancel the air slash (oldsaber/src/mmx_saber.c:1141-1145,
+       * 2362-2369). */
+      if (action == 0x12 && native_action != 0x12) return true;
+      /* Keep parity with the old common observation for a native action-$14
+       * transition if a future/native route accepts an air dash. */
+      return action == 0x14 && native_action != 0x14;
+
+    case SABER_KIND_WALL:
+      /* Native wall jump/loss is the settled action transition away from
+       * cling $12.  This is the old context exit, now routed through the same
+       * post-native cancel path. */
+      return native_action == 0x12 && action != 0x12;
+
+    case SABER_KIND_DASH:
+      /* Dash slash accepts only native jump: grounded -> airborne. */
+      return native_jump_accepted(ram);
+
+    default:
+      return false;
+  }
+}
+
 void MmxSaberAttackPlayerEnd(uint8_t *ram) {
   bool grounded;
   bool landed;
-  bool left_ground;
+  bool movement_accepted;
   bool start_land = false;
   uint8_t landing_facing = 0;
   const MmxSaberAttack *attack;
@@ -806,19 +897,18 @@ void MmxSaberAttackPlayerEnd(uint8_t *ram) {
   if (ram) runtime_ram = ram;
   if (!ram) return;
 
+  movement_accepted = native_movement_accepted(ram);
+  clear_native_observation();
   grounded = player_grounded(ram);
   landed = state.previous_grounded_valid && !state.previous_grounded && grounded;
-  left_ground = state.previous_grounded_valid && state.previous_grounded &&
-      !grounded;
   if (state.previous_grounded && !grounded && state.kind != SABER_KIND_AIR)
     state.air_landing_eligible = false;
   state.previous_grounded = grounded;
   state.previous_grounded_valid = true;
 
-  if (state.kind == SABER_KIND_DASH && state.phase != SABER_PHASE_IDLE &&
-      left_ground) {
-    /* Old src/mmx_saber.c:2294-2315 retires a dash owner after native
-     * dash-jump/ledge movement has already published the airborne state. */
+  if (movement_accepted && state.phase != SABER_PHASE_IDLE) {
+    /* Native has already accepted the legal movement.  Retire only Saber
+     * ownership; MmxZero remains the sole owner of movement and charge. */
     MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
     return;
   }

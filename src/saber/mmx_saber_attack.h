@@ -99,13 +99,19 @@ void MmxSaberAttackStepWithWall(bool saber_pressed, bool grounded,
                                 uint8_t native_facing,
                                 uint8_t horizontal_direction);
 /* Full native-context form.  dash_active is the old native action gate
- * ($0BAA == $14); jump_pressed is the mapped native jump edge ($0BE3.7).
+ * ($0BAA == $14); jump_pressed is retained for the frame-bridge ABI but
+ * cancellation is decided from the post-native observation below.
  * Priority is wall > air > dash > ground. */
 void MmxSaberAttackStepWithWallAndDash(bool saber_pressed, bool grounded,
                                        bool wall_clinging, bool dash_active,
                                        bool jump_pressed, bool playable,
                                        uint8_t native_facing,
                                        uint8_t horizontal_direction);
+
+/* Snapshot the native movement publication immediately before the native
+ * player routine.  PlayerEnd compares this snapshot with the settled native
+ * action/ground state; a button edge alone is never a Saber cancel. */
+void MmxSaberAttackObservePreNative(uint8_t *ram);
 
 /* Locked native/render facing for the currently published swing. */
 uint8_t MmxSaberAttackFacing(void);
