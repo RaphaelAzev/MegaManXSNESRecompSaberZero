@@ -57,6 +57,10 @@ typedef struct MmxSaberAttackSnapshot {
   uint8_t tick;
   uint8_t anim_id;
   uint8_t anim_step;
+  /* Native/render facing: $40 is right/open-side on a left wall.  The
+   * donor record's facing_xor is applied separately by the renderer and by
+   * the native collision mirror. */
+  uint8_t facing;
 } MmxSaberAttackSnapshot;
 
 typedef enum MmxSaberAttackExitReason {
@@ -87,8 +91,15 @@ void MmxSaberAttackExit(uint8_t *ram, MmxSaberAttackExitReason reason);
 void MmxSaberAttackStep(bool saber_pressed, bool grounded, bool playable,
                         uint8_t native_facing,
                         uint8_t horizontal_direction);
+/* Wall-aware form used by the frame bridge.  wall_clinging is the old native
+ * wall action ($0BAA == $12), sampled before the native player routine; the
+ * wall owner samples settled $0C11 in MmxSaberAttackPlayerEnd instead. */
+void MmxSaberAttackStepWithWall(bool saber_pressed, bool grounded,
+                                bool wall_clinging, bool playable,
+                                uint8_t native_facing,
+                                uint8_t horizontal_direction);
 
-/* Locked facing for the currently published ground swing. */
+/* Locked native/render facing for the currently published swing. */
 uint8_t MmxSaberAttackFacing(void);
 
 MmxSaberPadSaber MmxSaberAttackPadState(bool release_pending);

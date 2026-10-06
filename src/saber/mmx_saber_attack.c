@@ -128,6 +128,7 @@ static const MmxSaberAttack kSaberAttacks[] = {
         .startup_ticks = 0,
         .active_ticks = 12,
         .recovery_ticks = 8,
+        .total_ticks = 20,
         .chain_open_tick = MMX_SABER_NO_WINDOW,
         .chain_close_tick = MMX_SABER_NO_WINDOW,
         .buffer_open_tick = MMX_SABER_NO_WINDOW,
@@ -580,6 +581,14 @@ static bool start_land_visual(uint8_t facing) {
 void MmxSaberAttackStep(bool saber_pressed, bool grounded, bool playable,
                         uint8_t native_facing,
                         uint8_t horizontal_direction) {
+  MmxSaberAttackStepWithWall(saber_pressed, grounded, false, playable,
+                             native_facing, horizontal_direction);
+}
+
+void MmxSaberAttackStepWithWall(bool saber_pressed, bool grounded,
+                                bool wall_clinging, bool playable,
+                                uint8_t native_facing,
+                                uint8_t horizontal_direction) {
   const MmxSaberAttack *attack;
 
   if (!playable) {
@@ -589,10 +598,13 @@ void MmxSaberAttackStep(bool saber_pressed, bool grounded, bool playable,
   }
 
   if (state.phase == SABER_PHASE_IDLE) {
-    if (saber_pressed)
-      start_attack(MmxSaberAttackRecord(
-                       grounded ? SABER_KIND_GROUND1 : SABER_KIND_AIR, 0),
-                   facing_for_direction(horizontal_direction, native_facing));
+    if (saber_pressed) {
+      const MmxSaberPadKind kind = wall_clinging ? SABER_KIND_WALL :
+          (grounded ? SABER_KIND_GROUND1 : SABER_KIND_AIR);
+      const uint8_t facing = wall_clinging ? (native_facing & 0x40) :
+          facing_for_direction(horizontal_direction, native_facing);
+      start_attack(MmxSaberAttackRecord(kind, 0), facing);
+    }
     return;
   }
 
@@ -659,6 +671,10 @@ static uint8_t next_projectile_generation(void) {
 }
 
 static uint8_t projectile_facing(const MmxSaberAttack *attack) {
+  /* The old records use facing_xor=1 for the right-facing donor art and
+   * forward-positive collision records.  With native/render facing $40 ==
+   * right, this makes a right/open wall use an unmirrored +$11 and a
+   * left/open wall use a mirrored +$11. */
   bool mirror = (state.facing != 0) ^ (attack && attack->facing_xor != 0);
   return mirror ? 0x40 : 0;
 }
@@ -727,6 +743,17 @@ static bool player_grounded(const uint8_t *ram) {
   return ram && ((ram[0x0bd3] & 4) || (ram[0x0bd4] & 4));
 }
 
+static bool native_wall_clinging(const uint8_t *ram) {
+  return ram && ram[0x0baa] == 0x12;
+}
+
+static uint8_t settled_wall_facing(const uint8_t *ram) {
+  /* Do not fall back to stale $0BB9 here.  The old WF1 path used that fallback
+   * on the contact boundary; D-OP-24 requires the native post-movement $0C11
+   * publication, which is the settled open-side wall facing. */
+  return ram ? (uint8_t)(ram[0x0c11] & 0x40) : 0;
+}
+
 static void emit_pending_cue(void) {
   const MmxSaberAttack *attack;
   if (!state.cue_pending) return;
@@ -744,6 +771,7 @@ void MmxSaberAttackPlayerEnd(uint8_t *ram) {
   bool landed;
   bool start_land = false;
   uint8_t landing_facing = 0;
+  const MmxSaberAttack *attack;
 
   if (ram) runtime_ram = ram;
   if (!ram) return;
@@ -773,6 +801,23 @@ void MmxSaberAttackPlayerEnd(uint8_t *ram) {
     return;
   }
 
+  attack = state_attack();
+  if (state.phase != SABER_PHASE_IDLE && attack &&
+      attack->kind == SABER_KIND_WALL) {
+    /* Old src/mmx_saber.c ended a wall owner at the central post-native
+     * context boundary when wall action $12 was lost (wall jump/fall-off).
+     * Native owns the movement and velocity; this branch only retires Saber. */
+    if (!native_wall_clinging(ram)) {
+      MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
+      return;
+    }
+    /* Native wall collision has now settled the side. Keep both donor art and
+     * the live collision object on that facing for every post-native frame. */
+    state.facing = settled_wall_facing(ram);
+    if (saber_projectile_owned(ram, state.projectile))
+      anchor_projectile(ram, state.projectile, attack);
+  }
+
   emit_pending_cue();
 }
 
@@ -787,7 +832,8 @@ MmxSaberPadSaber MmxSaberAttackPadState(bool release_pending) {
 
 MmxSaberAttackSnapshot MmxSaberAttackSnapshotGet(void) {
   return (MmxSaberAttackSnapshot){state.kind, state.index, state.phase,
-                                  state.tick, state.anim_id, state.anim_step};
+                                  state.tick, state.anim_id, state.anim_step,
+                                  state.facing & 0x40};
 }
 
 MmxSaberAttackSnapshot MmxSaberAttackGetSnapshot(void) {

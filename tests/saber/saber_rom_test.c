@@ -71,6 +71,12 @@ enum {
   OLD_SABER_AIR_ACTIVE = 8,
   OLD_SABER_AIR_RECOVERY = 6,
   OLD_SABER_AIR_TOTAL = 18,
+  /* Wall record copied from oldsaber/saber-zero-variant:
+   * src/mmx_saber.c:307-324. */
+  OLD_SABER_WALL_STARTUP = 0,
+  OLD_SABER_WALL_ACTIVE = 12,
+  OLD_SABER_WALL_RECOVERY = 8,
+  OLD_SABER_WALL_TOTAL = 20,
   OLD_SABER_LAND_TOTAL = 18,
 };
 
@@ -177,6 +183,240 @@ static void load_fixture(const char *fixture) {
             !g_ram[0x1f99] && (g_ram[0xbd3] & 4),
         "fixture is Highway standing with the buster selected");
   MmxZeroCancel(g_ram);
+}
+
+static unsigned read_ram_word(const uint8_t *ram, unsigned offset);
+static unsigned empty_enemy_slot(void);
+static unsigned saber_active_slot(void);
+static bool saber_lifecycle_idle(void);
+
+static const uint8_t kOldSaberWallBounds[12] = {
+    31, 246, 33, 19, 22, 0, 23, 15, 14, 1, 16, 12};
+
+typedef struct SaberWallRoute {
+  const char *side;
+  unsigned walk_input;
+  unsigned jump_input;
+  unsigned travel_input;
+  unsigned walk_frames;
+  unsigned expected_wall_frame;
+  unsigned expected_x;
+  unsigned expected_y;
+  uint8_t expected_native_facing;
+  int open_sign;
+} SaberWallRoute;
+
+static const MmxSaberBoundsSegment *saber_wall_segment(uint8_t tick) {
+  const MmxSaberAttack *wall = MmxSaberAttackRecord(SABER_KIND_WALL, 0);
+  if (!wall) return NULL;
+  for (unsigned i = 0; i < wall->bounds_segment_count; ++i) {
+    const MmxSaberBoundsSegment *segment = wall->bounds_segments + i;
+    if (tick >= segment->first_tick && tick <= segment->last_tick)
+      return segment;
+  }
+  return NULL;
+}
+
+static int saber_wall_effective_x(const MmxSaberBoundsSegment *segment,
+                                  uint8_t slot_facing) {
+  if (!segment) return 0;
+  return slot_facing & 0x40 ? -(int)segment->bounds_x :
+      (int)segment->bounds_x;
+}
+
+static unsigned saber_wall_setup(const char *path, const SaberWallRoute *route,
+                                 bool print_reference) {
+  check(RtlLoadSnapshot(path), "wall fixture route loads");
+  check(MmxZeroActive() && !MmxZeroModern(),
+        "wall fixture route is legacy X3 Zero");
+  MmxZeroCancel(g_ram);
+  MmxSaberFrameReset();
+  for (unsigned i = 0; i < route->walk_frames; ++i)
+    frame(route->walk_input);
+  /* The release frame makes the following B edge physical after the setup
+   * walk; the held travel direction remains native wall-slide input. */
+  frame(0);
+  for (unsigned i = 0; i < 240; ++i) {
+    frame(i < 20 ? route->jump_input : route->travel_input);
+    if (g_ram[0x0baa] == 0x12) {
+      if (print_reference)
+        printf("reference: wall fixture=armadillo-fight.sav side=%s "
+               "script=hold %s for %u frames; 0; hold B+direction for "
+               "20 frames; hold direction first_wall_frame=%u Zero=(%u,%u) "
+               "native_facing=0x%02X\n",
+               route->side,
+               route->walk_input == SNES_PAD_LEFT ? "LEFT" : "RIGHT",
+               route->walk_frames, i, read_ram_word(g_ram, 0x0bad),
+               read_ram_word(g_ram, 0x0bb0), g_ram[0x0c11] & 0x40);
+      for (unsigned settle = 0; settle < 6; ++settle)
+        frame(route->travel_input);
+      if (print_reference)
+        printf("reference: wall settled side=%s settle_frames=6 Zero=(%u,%u) "
+               "native_facing=0x%02X action=0x%02X\n", route->side,
+               read_ram_word(g_ram, 0x0bad), read_ram_word(g_ram, 0x0bb0),
+               g_ram[0x0c11] & 0x40, g_ram[0x0baa]);
+      return i;
+    }
+  }
+  return ~0u;
+}
+
+static MmxSaberPadPhase saber_wall_phase(unsigned tick) {
+  return tick < OLD_SABER_WALL_STARTUP ? SABER_PHASE_STARTUP :
+      tick < OLD_SABER_WALL_STARTUP + OLD_SABER_WALL_ACTIVE ?
+          SABER_PHASE_ACTIVE : SABER_PHASE_RECOVERY;
+}
+
+static void saber_wall_checks(const char *fixture_dir) {
+  static const SaberWallRoute routes[] = {
+    {"OPEN-RIGHT", SNES_PAD_LEFT, SNES_PAD_B | SNES_PAD_LEFT,
+     SNES_PAD_LEFT, 60, 20, 5142, 2665, 0x40, 1},
+    {"OPEN-LEFT", SNES_PAD_RIGHT, SNES_PAD_B | SNES_PAD_RIGHT,
+     SNES_PAD_RIGHT, 180, 20, 5353, 2666, 0x00, -1},
+  };
+  const char *const fixture_name = "armadillo-fight.sav";
+  const MmxSaberAttack *wall = MmxSaberAttackRecord(SABER_KIND_WALL, 0);
+  char path[4096];
+  int written = snprintf(path, sizeof(path), "%s/%s", fixture_dir,
+                         fixture_name);
+  check(written >= 0 && written < (int)sizeof(path),
+        "wall fixture path fits");
+  check(wall && wall->visual_animation == 5 && wall->facing_xor == 1 &&
+            wall->startup_ticks == OLD_SABER_WALL_STARTUP &&
+            wall->active_ticks == OLD_SABER_WALL_ACTIVE &&
+            wall->recovery_ticks == OLD_SABER_WALL_RECOVERY &&
+            wall->total_ticks == OLD_SABER_WALL_TOTAL && wall->damage == 3 &&
+            wall->bounds_pointer == MMX_SABER_WALL_BOUNDS_POINTER,
+        "wall record keeps animation 5, old timing, $FF50, and damage 3");
+  printf("reference: old wall timing startup=%u active=%u recovery=%u "
+         "total=%u record=oldsaber/src/mmx_saber.c:307-324 "
+         "context=oldsaber/src/mmx_saber.c:974-978\n",
+         OLD_SABER_WALL_STARTUP, OLD_SABER_WALL_ACTIVE,
+         OLD_SABER_WALL_RECOVERY, OLD_SABER_WALL_TOTAL);
+
+  for (unsigned route_number = 0;
+       route_number < sizeof(routes) / sizeof(routes[0]); ++route_number) {
+    const SaberWallRoute *route = routes + route_number;
+    unsigned baseline_y[OLD_SABER_WALL_TOTAL];
+    unsigned baseline_x[OLD_SABER_WALL_TOTAL];
+    unsigned baseline_vy[OLD_SABER_WALL_TOTAL];
+    bool baseline_wall = true;
+    bool timing_ok = true;
+    bool facing_ok = true;
+    bool anchor_ok = true;
+    bool damage_ok = false;
+    bool slide_ok = true;
+    unsigned active_frames = 0;
+    unsigned slot = 0;
+    unsigned wall_frame = saber_wall_setup(path, route, true);
+    check(wall_frame == route->expected_wall_frame,
+          "wall setup reaches its recorded native contact frame");
+    check(read_ram_word(g_ram, 0x0bad) == route->expected_x &&
+              read_ram_word(g_ram, 0x0bb0) == route->expected_y &&
+              (g_ram[0x0c11] & 0x40) == route->expected_native_facing &&
+              g_ram[0x0baa] == 0x12,
+          "wall setup position and settled native facing match reference");
+    check(!memcmp(g_snes->cart->rom + 0x37f50, kOldSaberWallBounds,
+                  sizeof(kOldSaberWallBounds)),
+          "wall setup has the old $FF50 records in the tagged $37F40 window");
+
+    /* Native-only control trace: the same contact and held direction, with no
+     * Y edge, is the movement oracle for the slash trace below. */
+    for (unsigned i = 0; i < OLD_SABER_WALL_TOTAL; ++i) {
+      frame(route->travel_input);
+      baseline_x[i] = read_ram_word(g_ram, 0x0bad);
+      baseline_y[i] = read_ram_word(g_ram, 0x0bb0);
+      baseline_vy[i] = read_ram_word(g_ram, 0x0bc4);
+      if (g_ram[0x0baa] != 0x12) baseline_wall = false;
+    }
+
+    wall_frame = saber_wall_setup(path, route, false);
+    check(wall_frame == route->expected_wall_frame,
+          "wall slash reload reaches the same native contact frame");
+    for (unsigned i = 0; i < OLD_SABER_WALL_TOTAL; ++i) {
+      const unsigned input = route->travel_input |
+          (i == 0 ? SNES_PAD_Y : 0);
+      frame(input);
+      MmxSaberAttackSnapshot snapshot = MmxSaberAttackSnapshotGet();
+      const MmxSaberPadPhase expected_phase = saber_wall_phase(i);
+      if (snapshot.kind != SABER_KIND_WALL || snapshot.index != 0 ||
+          snapshot.anim_id != 5 || snapshot.tick != i ||
+          snapshot.phase != expected_phase)
+        timing_ok = false;
+      if (baseline_x[i] != read_ram_word(g_ram, 0x0bad) ||
+          baseline_y[i] != read_ram_word(g_ram, 0x0bb0) ||
+          baseline_vy[i] != read_ram_word(g_ram, 0x0bc4))
+        slide_ok = false;
+      if (g_ram[0x0baa] != 0x12)
+        slide_ok = false;
+
+      if (snapshot.phase == SABER_PHASE_ACTIVE) {
+        const MmxSaberBoundsSegment *segment =
+            saber_wall_segment(snapshot.tick);
+        slot = saber_active_slot();
+        const unsigned slot_facing = slot ? g_ram[slot + 0x11] & 0x40 : 0xff;
+        const unsigned expected_slot_facing =
+            ((snapshot.facing != 0) ^ (wall->facing_xor != 0)) ? 0x40 : 0;
+        const unsigned effective_x = saber_wall_effective_x(segment,
+                                                              (uint8_t)slot_facing);
+        const int slot_delta_x = slot ?
+            (int)read_ram_word(g_ram, slot + 5) -
+                (int)read_ram_word(g_ram, 0x0bad) : 0;
+        ++active_frames;
+        if (snapshot.facing != (g_ram[0x0c11] & 0x40) ||
+            slot == 0 || tagged_projectiles() != 1 ||
+            slot_facing != expected_slot_facing ||
+            ((slot_delta_x + (int)effective_x) * route->open_sign) <= 0) {
+          facing_ok = false;
+        }
+        if (!segment || slot == 0 || slot_delta_x < -1 || slot_delta_x > 1 ||
+            read_ram_word(g_ram, slot + 8) != read_ram_word(g_ram, 0x0bb0) ||
+            read_ram_word(g_ram, slot + 0x20) !=
+                wall->bounds_pointer + (unsigned)(segment - wall->bounds_segments) * 4) {
+          anchor_ok = false;
+        }
+        if (slot && !damage_ok) {
+          const unsigned enemy = empty_enemy_slot();
+          const unsigned first_damage =
+              MmxSaberAttackDamage(g_ram, enemy, slot, 1);
+          const unsigned second_damage =
+              MmxSaberAttackDamage(g_ram, enemy, slot, 1);
+          damage_ok = first_damage == 3 && second_damage == 0 &&
+              (MmxSaberAttackHitSlots() &
+               (uint16_t)(1u << ((enemy - 0xe68) / 64)));
+        }
+      } else if (tagged_projectiles() != 0) {
+        anchor_ok = false;
+      }
+    }
+    check(timing_ok && active_frames == OLD_SABER_WALL_ACTIVE,
+          "wall Y starts animation 5 with old startup/active/recovery timing");
+    check(facing_ok,
+          "wall ACTIVE slot facing follows settled $0C11 and points to the open side");
+    check(anchor_ok && damage_ok,
+          "wall ACTIVE uses old bounds and deals 3 once per swing");
+    check(baseline_wall && slide_ok,
+          "wall slash leaves native wall-slide Y motion unchanged");
+    check(MmxSaberAttackCueCount() == 1 &&
+              MmxSaberSfxLastClip() == MMX_SABER_SFX_CLIP_SABER_1,
+          "wall slash emits exactly one saber_1 cue");
+    frame(route->travel_input);
+    check(saber_lifecycle_idle(),
+          "wall slash releases its tagged slot at natural end");
+
+    /* The old wall context is also the post-native wall-loss boundary.  A
+     * native wall jump therefore retires the wall owner instead of becoming a
+     * new Saber air owner. */
+    wall_frame = saber_wall_setup(path, route, false);
+    check(wall_frame == route->expected_wall_frame,
+          "wall leave probe reaches the same native contact frame");
+    frame(route->travel_input | SNES_PAD_Y);
+    for (unsigned i = 0; i < 4; ++i) frame(route->travel_input);
+    frame(route->travel_input | SNES_PAD_B);
+    check(g_ram[0x0baa] != 0x12 && saber_lifecycle_idle(),
+          "wall jump leaves the wall through the old central Saber exit");
+  }
+  puts("ok: saber-wall");
 }
 
 static void hold_charge_button(unsigned frames, unsigned button) {
@@ -2197,7 +2437,7 @@ int main(int argc, char **argv) {
   check(fixture && fixture[0], "MMX_ZERO_TEST_FIXTURE supplied");
   check(x3_rom && x3_rom[0], "MMX_COOP_X3_ROM supplied");
   check(assets && assets[0], "MMX_ZERO_TEST_ASSETS supplied");
-  if (only && !strcmp(only, "fixtures"))
+  if (only && (!strcmp(only, "fixtures") || !strcmp(only, "saber-wall")))
     check(fixture_dir && fixture_dir[0], "MMX_SABER_FIXTURE_DIR supplied");
 
   SDL_SetMainReady();
@@ -2258,6 +2498,7 @@ int main(int argc, char **argv) {
   const bool saber_ground_1 = only && !strcmp(only, "saber-ground-1");
   const bool saber_ground_combo = only && !strcmp(only, "saber-ground-combo");
   const bool saber_air = only && !strcmp(only, "saber-air");
+  const bool saber_wall = only && !strcmp(only, "saber-wall");
   const bool saber_land = only && !strcmp(only, "saber-land");
   const bool saber_ground_lifecycle = only && !strcmp(only, "saber-ground-lifecycle");
   const bool saber_ground_hit = only && !strcmp(only, "saber-ground-hit");
@@ -2265,7 +2506,8 @@ int main(int argc, char **argv) {
   const bool fixtures = only && !strcmp(only, "fixtures");
   const bool saber_enabled_group = saber_package || zero_extension ||
       saber_input || saber_ground_1 || saber_ground_combo ||
-      saber_air || saber_land || saber_ground_lifecycle || saber_ground_hit;
+      saber_air || saber_wall || saber_land || saber_ground_lifecycle ||
+      saber_ground_hit;
   SpecialCounts upstream_specials = {0};
   if (saber_input) {
     activate_zero(argv[1], x3_rom, assets, false, false);
@@ -2288,6 +2530,9 @@ int main(int argc, char **argv) {
   } else if (saber_air) {
     check(MmxSaberEnabled(), "saber-air runs with the Saber package enabled");
     saber_air_checks(fixture);
+  } else if (saber_wall) {
+    check(MmxSaberEnabled(), "saber-wall runs with the Saber package enabled");
+    saber_wall_checks(fixture_dir);
   } else if (saber_land) {
     check(MmxSaberEnabled(), "saber-land runs with the Saber package enabled");
     saber_land_checks(fixture);
@@ -2348,6 +2593,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-ground-1") &&
       strcmp(only, "saber-ground-combo") &&
       strcmp(only, "saber-air") &&
+      strcmp(only, "saber-wall") &&
       strcmp(only, "saber-land") &&
       strcmp(only, "saber-ground-lifecycle") &&
         strcmp(only, "saber-ground-hit") &&
