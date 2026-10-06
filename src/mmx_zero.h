@@ -22,6 +22,7 @@ typedef struct MmxZeroExtension {
   unsigned (*damage)(uint8_t *ram, unsigned d, unsigned x, unsigned value);
   unsigned (*hitbox)(const uint8_t *ram, unsigned d, unsigned x, unsigned value);
   bool (*legacy_intent)(const uint8_t *ram, MmxZeroLegacyIntent *intent); /* true = override */
+  unsigned (*charge_cap)(void);                       /* 0 = no cap */
   void (*collision_rom)(uint8_t *rom, size_t size);
   void (*state_reset)(uint8_t *ram);
 } MmxZeroExtension;

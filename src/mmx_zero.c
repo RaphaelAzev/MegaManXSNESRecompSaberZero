@@ -81,6 +81,14 @@ unsigned MmxZeroChargeTier(const MmxZeroState *s) {
          s->charge < 141 ? 6 : s->charge < 201 ? 8 : 10;
 }
 
+static unsigned legacy_charge_cap(void) {
+  if (extension && extension->charge_cap) {
+    unsigned cap = extension->charge_cap();
+    if (cap) return cap;
+  }
+  return 201;
+}
+
 bool MmxZeroEnabled(void) { return poses != NULL; }
 bool MmxZeroActive(void) { return poses && !state.active_x; }
 bool MmxZeroSwapping(void) { return poses && state.swap_phase; }
@@ -742,7 +750,7 @@ void MmxZeroPlayerTick(uint8_t r[0x20000]) {
     }
   } else if (!state.burst && !state.combo) {
     if (intent.held) {
-      if (state.charge < 201) ++state.charge;
+      if (state.charge < legacy_charge_cap()) ++state.charge;
       /* Feed X1's ordinary charging visuals at Zero's measured thresholds.
        * Its release command is selected explicitly below; X1 special weapons
        * never enter this path and retain their own charge/upgrade rules. */

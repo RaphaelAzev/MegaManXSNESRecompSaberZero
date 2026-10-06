@@ -12,6 +12,10 @@ static bool last_wrote_input;
 
 static void clear_frame_state(void);
 
+static unsigned charge_cap(void) {
+  return 200;
+}
+
 static void state_reset(uint8_t *ram) {
   if (ram)
     MmxSaberAttackResetRam(ram);
@@ -212,6 +216,7 @@ static const MmxZeroExtension extension = {
     .pre_player = pre_player,
     .player_end = player_end,
     .legacy_intent = legacy_intent,
+    .charge_cap = charge_cap,
     .weapon_tick = MmxSaberAttackWeaponTick,
     .damage = MmxSaberAttackDamage,
     .hitbox = MmxSaberAttackHitbox,
