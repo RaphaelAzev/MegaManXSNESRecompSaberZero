@@ -59,6 +59,14 @@ typedef struct MmxSaberAttackSnapshot {
   uint8_t anim_step;
 } MmxSaberAttackSnapshot;
 
+typedef enum MmxSaberAttackExitReason {
+  MMX_SABER_ATTACK_EXIT_NATURAL,
+  MMX_SABER_ATTACK_EXIT_HURT,
+  MMX_SABER_ATTACK_EXIT_DEATH,
+  MMX_SABER_ATTACK_EXIT_CONTEXT,
+  MMX_SABER_ATTACK_EXIT_PROJECTILE
+} MmxSaberAttackExitReason;
+
 const MmxSaberAttack *MmxSaberAttackRecord(MmxSaberPadKind kind,
                                             uint8_t index);
 const MmxSaberAttack *MmxSaberAttackTableAt(size_t id);
@@ -68,6 +76,8 @@ MmxSaberPadPhase MmxSaberAttackPhaseForTick(const MmxSaberAttack *attack,
 
 void MmxSaberAttackReset(void);
 void MmxSaberAttackResetRam(uint8_t *ram);
+void MmxSaberAttackResetCueCount(void);
+void MmxSaberAttackExit(uint8_t *ram, MmxSaberAttackExitReason reason);
 
 /* Advance one pre-player frame.  A press is the physical Y edge; it is not
  * derived from the current attack phase, so a held Y cannot create another
@@ -87,6 +97,7 @@ MmxSaberAttackSnapshot MmxSaberAttackGetSnapshot(void);
 
 /* Native projectile/collision bridge owned entirely by Saber. */
 void MmxSaberAttackRuntimeTick(uint8_t *ram);
+void MmxSaberAttackPlayerEnd(uint8_t *ram);
 void MmxSaberAttackCollisionRom(uint8_t *rom, size_t size);
 unsigned MmxSaberAttackWeaponTick(uint8_t *ram, unsigned projectile,
                                   unsigned value);
@@ -96,3 +107,4 @@ unsigned MmxSaberAttackHitbox(const uint8_t *ram, unsigned enemy,
                               unsigned projectile, unsigned value);
 uint16_t MmxSaberAttackHitSlots(void);
 unsigned MmxSaberAttackCollisionWarningCount(void);
+unsigned MmxSaberAttackCueCount(void);

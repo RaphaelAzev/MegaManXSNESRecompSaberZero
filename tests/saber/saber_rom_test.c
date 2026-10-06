@@ -1076,6 +1076,109 @@ static void saber_ground_combo_checks(const char *fixture) {
   puts("ok: saber-ground-combo");
 }
 
+static bool saber_lifecycle_idle(void) {
+  MmxSaberAttackSnapshot snapshot = MmxSaberAttackSnapshotGet();
+  return snapshot.phase == SABER_PHASE_IDLE &&
+      snapshot.kind == SABER_KIND_NONE && tagged_projectiles() == 0 &&
+      MmxSaberAttackHitSlots() == 0;
+}
+
+static void saber_ground_lifecycle_checks(const char *fixture) {
+  MmxSaberAttackSnapshot snapshot;
+  unsigned cues_before;
+  unsigned charge_before;
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(SNES_PAD_Y);
+  check(MmxSaberAttackCueCount() == 1 &&
+            MmxSaberSfxLastClip() == MMX_SABER_SFX_CLIP_SABER_1,
+        "one accepted ground slash emits exactly one saber_1 cue");
+  for (unsigned i = 0; i < OLD_SABER_GROUND1_TOTAL + 5; ++i)
+    frame(SNES_PAD_Y);
+  check(MmxSaberAttackCueCount() == 1,
+        "holding Y emits no second cue for the same slash");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(SNES_PAD_Y);
+  check(MmxSaberAttackCueCount() == 1 &&
+            MmxSaberSfxLastClip() == MMX_SABER_SFX_CLIP_SABER_1,
+        "ground combo cue 1 is emitted after native player end");
+  for (unsigned i = 1; i < OLD_SABER_GROUND1_CHAIN_CLOSE; ++i)
+    frame(0);
+  frame(SNES_PAD_Y);
+  check(MmxSaberAttackCueCount() == 2 &&
+            MmxSaberSfxLastClip() == MMX_SABER_SFX_CLIP_SABER_2,
+        "ground combo cue 2 is emitted once in order");
+  for (unsigned i = 1; i < OLD_SABER_GROUND2_CHAIN_CLOSE; ++i)
+    frame(0);
+  frame(SNES_PAD_Y);
+  check(MmxSaberAttackCueCount() == 3 &&
+            MmxSaberSfxLastClip() == MMX_SABER_SFX_CLIP_SABER_3,
+        "ground combo cue 3 is emitted once in order");
+  idle(OLD_SABER_GROUND3_TOTAL + 2);
+  check(saber_lifecycle_idle(),
+        "natural recovery end returns Saber idle and clears ownership");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  hold_charge_button(10, SNES_PAD_X);
+  frame(SNES_PAD_X | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  for (unsigned i = 0; i < 8 && snapshot.phase != SABER_PHASE_ACTIVE; ++i) {
+    frame(SNES_PAD_X);
+    snapshot = MmxSaberAttackSnapshotGet();
+  }
+  check(snapshot.phase == SABER_PHASE_ACTIVE,
+        "hurt lifecycle probe reaches an active Saber frame");
+  charge_before = MmxZeroGetState().charge;
+  cues_before = MmxSaberAttackCueCount();
+  g_ram[0xbaa] = 0x0e;
+  g_ram[0xbab] = 0;
+  frame(SNES_PAD_X);
+  check(saber_lifecycle_idle() &&
+            MmxSaberAttackCueCount() == cues_before &&
+            MmxZeroGetState().charge == charge_before,
+        "hurt exits idle, releases the slot, clears the mask, and preserves charge");
+  idle(12);
+  check(MmxSaberAttackCueCount() == cues_before,
+        "hurt exit emits no later Saber cue");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(SNES_PAD_Y);
+  for (unsigned i = 0; i < 5; ++i) frame(0);
+  charge_before = MmxZeroGetState().charge;
+  MmxSaberAttackExit(g_ram, MMX_SABER_ATTACK_EXIT_HURT);
+  check(saber_lifecycle_idle() && MmxZeroGetState().charge == charge_before,
+        "central hurt exit releases ownership without touching charge");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(SNES_PAD_Y);
+  for (unsigned i = 0; i < 5; ++i) frame(0);
+  cues_before = MmxSaberAttackCueCount();
+  switch_to_x();
+  if (!saber_lifecycle_idle()) frame(0);
+  check(saber_lifecycle_idle() && MmxSaberAttackCueCount() == cues_before,
+        "exchange to X returns Saber idle and releases its slot");
+  frame(SNES_PAD_X);
+  check(!MmxSaberFrameLastWroteInput(),
+        "X controls remain native after exchanging out of a slash");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(SNES_PAD_Y);
+  for (unsigned i = 0; i < 5; ++i) frame(0);
+  check(tagged_projectiles() == 1,
+        "plugin reset probe has a live Saber-tagged slot");
+  MmxSaberFrameReset();
+  check(saber_lifecycle_idle(),
+        "plugin reset returns Saber idle and releases tagged RAM ownership");
+  puts("ok: saber-ground-lifecycle");
+}
+
 static const uint8_t kOldSaberGroundBounds[40] = {
     7, 232, 11, 14, 29, 241, 18, 23, 37, 253, 16, 11, 37, 0, 16, 8,
     24, 251, 14, 13, 13, 251, 42, 13, 235, 251, 18, 13,
@@ -1659,10 +1762,12 @@ int main(int argc, char **argv) {
   const bool saber_input = only && !strcmp(only, "saber-input");
   const bool saber_ground_1 = only && !strcmp(only, "saber-ground-1");
   const bool saber_ground_combo = only && !strcmp(only, "saber-ground-combo");
+  const bool saber_ground_lifecycle = only && !strcmp(only, "saber-ground-lifecycle");
   const bool saber_ground_hit = only && !strcmp(only, "saber-ground-hit");
   const bool x3_zero_specials = only && !strcmp(only, "x3-zero-specials");
   const bool saber_enabled_group = saber_package || zero_extension ||
-      saber_input || saber_ground_1 || saber_ground_combo || saber_ground_hit;
+      saber_input || saber_ground_1 || saber_ground_combo ||
+      saber_ground_lifecycle || saber_ground_hit;
   SpecialCounts upstream_specials = {0};
   if (saber_input) {
     activate_zero(argv[1], x3_rom, assets, false, false);
@@ -1682,6 +1787,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-ground-combo runs with the Saber package enabled");
     saber_ground_combo_checks(fixture);
+  } else if (saber_ground_lifecycle) {
+    check(MmxSaberEnabled(),
+          "saber-ground-lifecycle runs with the Saber package enabled");
+    saber_ground_lifecycle_checks(fixture);
   } else if (saber_ground_hit) {
     check(MmxSaberEnabled(),
           "saber-ground-hit runs with the Saber package enabled");
@@ -1719,6 +1828,7 @@ int main(int argc, char **argv) {
       x3_charge_checks(fixture, SNES_PAD_X);
       saber_special_checks(fixture, &upstream_specials);
       saber_ground_1_checks(fixture);
+      saber_ground_lifecycle_checks(fixture);
       puts("ok: saber-package");
     }
     if (only && !strcmp(only, "saber-assets")) {
@@ -1730,6 +1840,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-package") && strcmp(only, "saber-input") &&
       strcmp(only, "saber-ground-1") &&
       strcmp(only, "saber-ground-combo") &&
+      strcmp(only, "saber-ground-lifecycle") &&
         strcmp(only, "saber-ground-hit") &&
         strcmp(only, "zero-extension") &&
         strcmp(only, "saber-assets")) {

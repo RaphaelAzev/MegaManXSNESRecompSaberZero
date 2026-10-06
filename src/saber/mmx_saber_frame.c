@@ -86,6 +86,26 @@ static bool zero_dead_or_reset(const uint8_t *ram) {
   return !(ram[0xbcf] & 127) || ram[0xbaa] == 0x0c || ram[0xbaa] == 0x2c;
 }
 
+static void player_end(uint8_t *ram) {
+  if (!ram) {
+    MmxSaberAttackExit(NULL, MMX_SABER_ATTACK_EXIT_CONTEXT);
+    return;
+  }
+  if (zero_dead_or_reset(ram)) {
+    MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_DEATH);
+    return;
+  }
+  if (ram[0xbaa] == 0x0e) {
+    MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_HURT);
+    return;
+  }
+  if (!zero_frame_context(ram)) {
+    MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
+    return;
+  }
+  MmxSaberAttackPlayerEnd(ram);
+}
+
 static void pre_player(uint8_t *ram) {
   MmxSaberPadOut out;
   MmxSaberPadSaber saber;
@@ -120,6 +140,10 @@ static void pre_player(uint8_t *ram) {
    * only then compute/write the native pad.  saber_pressed is phase-independent,
    * so the pad written for this frame already reflects a newly started slash. */
   out = MmxSaberComputePad(physical, read_native_pad(ram), saber, zero);
+  if (zero.hurt)
+    MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_HURT);
+  else if (zero.dead_or_reset)
+    MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_DEATH);
   MmxSaberAttackStep(out.saber_pressed, zero.grounded,
                      !zero.hurt && !zero.dead_or_reset, ram[0x0c11],
                      native_horizontal_direction(ram));
@@ -148,6 +172,7 @@ static bool legacy_intent(const uint8_t *ram, MmxZeroLegacyIntent *intent) {
 
 static const MmxZeroExtension extension = {
     .pre_player = pre_player,
+    .player_end = player_end,
     .legacy_intent = legacy_intent,
     .weapon_tick = MmxSaberAttackWeaponTick,
     .damage = MmxSaberAttackDamage,
@@ -161,6 +186,7 @@ const MmxZeroExtension *MmxSaberFrameExtension(void) {
 
 void MmxSaberFrameReset(void) {
   MmxSaberAttackReset();
+  MmxSaberAttackResetCueCount();
   release_pending = false;
   previous_y = false;
   clear_frame_state();

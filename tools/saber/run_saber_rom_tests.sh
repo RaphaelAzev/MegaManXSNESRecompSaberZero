@@ -27,7 +27,7 @@ fi
 # asked by name. A full run executes the default pass plus every named group,
 # each in its own isolated catalog/cache copy. Add new groups to this list.
 named_groups=(saber-assets saber-input saber-ground-1 saber-ground-combo saber-ground-hit
-  zero-extension saber-package x3-zero-specials)
+  saber-ground-lifecycle zero-extension saber-package x3-zero-specials)
 if [[ -z "${MMX_SABER_TEST_ONLY:-}" && -z "${MMX_SABER_RUNNER_PASS:-}" ]]; then
   failed=()
   MMX_SABER_RUNNER_PASS=1 bash "${BASH_SOURCE[0]}" "$@" || failed+=(default)

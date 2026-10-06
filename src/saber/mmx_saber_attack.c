@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "mmx_saber_sfx.h"
+
 /* The native records are center offset, center offset, and half-extents.
  * Ground pointers use $FFD8 + 4*segment; air starts at $FF40, wall at
  * $FF50, and dash at $FF5C.  Values are copied from the donor table without
@@ -188,11 +190,14 @@ typedef struct MmxSaberAttackState {
   uint16_t hit_slots;
   uint8_t projectile_tag_generation;
   uint8_t projectile_swing_id;
+  uint8_t cue;
+  bool cue_pending;
 } MmxSaberAttackState;
 
 static MmxSaberAttackState state;
 static uint8_t projectile_generation;
 static uint8_t *runtime_ram;
+static unsigned cue_count;
 
 typedef struct MmxSaberCollisionWindow {
   uint8_t *rom;
@@ -309,6 +314,26 @@ static void update_animation(void) {
       animation_step_for_tick(state.anim_id, state.tick) : 0;
 }
 
+static MmxSaberSfxAttackCue attack_cue(const MmxSaberAttack *attack) {
+  if (!attack) return MMX_SABER_SFX_ATTACK_COUNT;
+  switch (attack->kind) {
+    case SABER_KIND_GROUND1:
+      return MMX_SABER_SFX_ATTACK_GROUND_SLASH_1;
+    case SABER_KIND_GROUND2:
+      return MMX_SABER_SFX_ATTACK_GROUND_SLASH_2;
+    case SABER_KIND_GROUND3:
+      return MMX_SABER_SFX_ATTACK_GROUND_SLASH_3;
+    case SABER_KIND_AIR:
+      return MMX_SABER_SFX_ATTACK_AIR;
+    case SABER_KIND_WALL:
+      return MMX_SABER_SFX_ATTACK_WALL;
+    case SABER_KIND_DASH:
+      return MMX_SABER_SFX_ATTACK_DASH;
+    default:
+      return MMX_SABER_SFX_ATTACK_COUNT;
+  }
+}
+
 static void clear_attack(void) {
   state.kind = SABER_KIND_NONE;
   state.index = 0;
@@ -318,7 +343,12 @@ static void clear_attack(void) {
   state.facing = 0;
   state.anim_id = 0;
   state.anim_step = 0;
+  state.projectile = 0;
+  state.projectile_tag_generation = 0;
+  state.projectile_swing_id = 0;
   state.hit_slots = 0;
+  state.cue = MMX_SABER_SFX_ATTACK_COUNT;
+  state.cue_pending = false;
 }
 
 static const MmxSaberBoundsSegment *bounds_segment(
@@ -488,14 +518,27 @@ MmxSaberPadPhase MmxSaberAttackPhaseForTick(const MmxSaberAttack *attack,
 }
 
 void MmxSaberAttackReset(void) {
-  retire_all_tagged(runtime_ram);
+  MmxSaberAttackExit(runtime_ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
   memset(&state, 0, sizeof(state));
   state.phase = SABER_PHASE_IDLE;
+  state.cue = MMX_SABER_SFX_ATTACK_COUNT;
 }
 
 void MmxSaberAttackResetRam(uint8_t *ram) {
   runtime_ram = ram;
   MmxSaberAttackReset();
+}
+
+void MmxSaberAttackResetCueCount(void) {
+  cue_count = 0;
+}
+
+void MmxSaberAttackExit(uint8_t *ram, MmxSaberAttackExitReason reason) {
+  uint8_t *target = ram ? ram : runtime_ram;
+  (void)reason;
+  if (target) runtime_ram = target;
+  retire_all_tagged(target);
+  clear_attack();
 }
 
 static void start_attack(const MmxSaberAttack *attack, uint8_t facing) {
@@ -511,6 +554,9 @@ static void start_attack(const MmxSaberAttack *attack, uint8_t facing) {
   state.facing = facing & 0x40;
   state.swing_id = swing_id;
   state.anim_id = attack->visual_animation;
+  state.hit_slots = 0;
+  state.cue = attack_cue(attack);
+  state.cue_pending = state.cue < MMX_SABER_SFX_ATTACK_COUNT;
   update_animation();
 }
 
@@ -520,7 +566,8 @@ void MmxSaberAttackStep(bool saber_pressed, bool grounded, bool playable,
   const MmxSaberAttack *attack;
 
   if (!playable) {
-    MmxSaberAttackReset();
+    if (state.phase != SABER_PHASE_IDLE || state.projectile || state.hit_slots)
+      MmxSaberAttackExit(runtime_ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
     return;
   }
 
@@ -538,7 +585,7 @@ void MmxSaberAttackStep(bool saber_pressed, bool grounded, bool playable,
   }
   ++state.tick;
   if (state.tick >= attack->total_ticks) {
-    clear_attack();
+    MmxSaberAttackExit(runtime_ram, MMX_SABER_ATTACK_EXIT_NATURAL);
     return;
   }
 
@@ -637,15 +684,28 @@ void MmxSaberAttackRuntimeTick(uint8_t *ram) {
   if (state.projectile && state.projectile_swing_id != state.swing_id)
     release_current_projectile(ram);
   if (!state.projectile && !allocate_projectile(ram, attack)) {
-    clear_attack();
+    MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_PROJECTILE);
     return;
   }
   if (!saber_projectile_owned(ram, state.projectile)) {
-    release_current_projectile(ram);
-    clear_attack();
+    MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_PROJECTILE);
     return;
   }
   anchor_projectile(ram, state.projectile, attack);
+}
+
+void MmxSaberAttackPlayerEnd(uint8_t *ram) {
+  const MmxSaberAttack *attack;
+  if (ram) runtime_ram = ram;
+  if (!ram || state.phase == SABER_PHASE_IDLE || !state.cue_pending)
+    return;
+  attack = state_attack();
+  state.cue_pending = false;
+  if (!attack || attack->kind == SABER_KIND_SABER_LAND ||
+      state.cue >= MMX_SABER_SFX_ATTACK_COUNT)
+    return;
+  MmxSaberSfxPlayForAttack((MmxSaberSfxAttackCue)state.cue);
+  ++cue_count;
 }
 
 uint8_t MmxSaberAttackFacing(void) {
@@ -674,11 +734,7 @@ unsigned MmxSaberAttackWeaponTick(uint8_t *ram, unsigned projectile,
   if (saber_projectile_owned(ram, projectile)) return 0;
   retire_projectile_slot(ram, projectile);
   if (projectile == state.projectile) {
-    state.projectile = 0;
-    state.projectile_tag_generation = 0;
-    state.projectile_swing_id = 0;
-    state.hit_slots = 0;
-    if (state.phase == SABER_PHASE_ACTIVE) clear_attack();
+    MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_PROJECTILE);
   }
   return 0;
 }
@@ -709,4 +765,8 @@ uint16_t MmxSaberAttackHitSlots(void) {
 
 unsigned MmxSaberAttackCollisionWarningCount(void) {
   return collision_warnings;
+}
+
+unsigned MmxSaberAttackCueCount(void) {
+  return cue_count;
 }
