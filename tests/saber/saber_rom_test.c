@@ -6,6 +6,7 @@
 #include MMX_GAME_MAIN
 #include "mmx_zero.h"
 #include "mmx_weapons.h"
+#include "saber/mmx_saber_frame.h"
 #include "saber/mmx_saber_plugin.h"
 #include "saber/mmx_saber_sfx.h"
 #include "mod_runtime.h"
@@ -27,12 +28,36 @@ enum {
   SABER_FIRE_WAVE_LIVE_FRAMES = 41,
   SABER_FIRE_WAVE_LIVE_SAMPLES = 85,
   SABER_FIRE_WAVE_PEAK = 4,
+  /* These are measured from the pure upstream X3 Zero group below. */
+  X3_ZERO_FIRE_WAVE_BIRTHS = 4,
+  X3_ZERO_FIRE_WAVE_LIVE_FRAMES = 39,
+  X3_ZERO_FIRE_WAVE_LIVE_SAMPLES = 79,
+  X3_ZERO_FIRE_WAVE_PEAK = 4,
   SABER_ONE_SHOT_FRAMES = 60,
   SABER_ONE_SHOT_PROJECTILES = 1,
+  X3_ZERO_STORM_TORNADO_PROJECTILES = 1,
+  /* X1's native command-6 charged buster path publishes class 2. */
+  SABER_X1_CHARGED_RELEASE_CLASS = 2,
 };
 
 static const char *const kMmxRomDigest =
     "b8f70a6e7fb93819f79693578887e2c11e196bdf1ac6ddc7cb924b1ad0be2d32";
+
+static unsigned projectiles(unsigned kind);
+static bool saber_track_x1_charged;
+static bool saber_saw_x1_charged;
+
+typedef struct {
+  unsigned births;
+  unsigned live_frames;
+  unsigned live_samples;
+  unsigned peak;
+} FireWaveCounts;
+
+typedef struct {
+  FireWaveCounts fire_wave;
+  unsigned storm_tornado_projectiles;
+} SpecialCounts;
 
 static void check(int ok, const char *what) {
   if (!ok) {
@@ -53,6 +78,8 @@ static void frame(unsigned input) {
   MmxBeforeFrame();
   RtlRunFrame(input | (1u << 30));
   CaptureSimulationFrame(1);
+  if (saber_track_x1_charged && projectiles(SABER_X1_CHARGED_RELEASE_CLASS))
+    saber_saw_x1_charged = true;
 }
 
 static void idle(unsigned count) {
@@ -97,13 +124,21 @@ static void load_fixture(const char *fixture) {
   MmxZeroCancel(g_ram);
 }
 
+static void hold_charge_button(unsigned frames, unsigned button) {
+  while (frames--) frame(button);
+}
+
+static void release_charge_button(unsigned frames, unsigned button) {
+  hold_charge_button(frames, button);
+  frame(0);
+}
+
 static void hold_charge(unsigned frames) {
-  while (frames--) frame(SNES_PAD_Y);
+  hold_charge_button(frames, SNES_PAD_Y);
 }
 
 static void release_charge(unsigned frames) {
-  hold_charge(frames);
-  frame(0);
+  release_charge_button(frames, SNES_PAD_Y);
 }
 
 static unsigned read_ram_word(const uint8_t *ram, unsigned offset) {
@@ -260,12 +295,12 @@ static void switch_to_x(void) {
   check(!MmxZeroSwapping() && !MmxZeroActive(), "native exchange arrives as X");
 }
 
-static void x3_plain_checks(const char *fixture) {
+static void x3_plain_checks(const char *fixture, unsigned button) {
   load_fixture(fixture);
   unsigned char previous[8] = {0};
   unsigned births = 0;
   for (unsigned tap = 0; tap < 3; ++tap) {
-    frame(SNES_PAD_Y);
+    frame(button);
     births += new_projectiles(0, previous);
     frame(0);
     births += new_projectiles(0, previous);
@@ -278,7 +313,7 @@ static void x3_plain_checks(const char *fixture) {
   puts("ok: x3-zero-plain");
 }
 
-static void x3_charge_checks(const char *fixture) {
+static void x3_charge_checks(const char *fixture, unsigned button) {
   static const struct {
     unsigned frames, charge, tier;
   } checkpoints[] = {
@@ -293,7 +328,7 @@ static void x3_charge_checks(const char *fixture) {
   };
   for (unsigned i = 0; i < sizeof(checkpoints) / sizeof(checkpoints[0]); ++i) {
     load_fixture(fixture);
-    hold_charge(checkpoints[i].frames);
+    hold_charge_button(checkpoints[i].frames, button);
     MmxZeroState state = MmxZeroGetState();
     char label[96];
     snprintf(label, sizeof(label), "X3 Zero charge checkpoint %u reaches %u (tier %u)",
@@ -303,34 +338,36 @@ static void x3_charge_checks(const char *fixture) {
   }
 
   load_fixture(fixture);
-  release_charge(30);
+  release_charge_button(30, button);
   check(projectiles(SABER_TIER_4_RELEASE_CLASS) == 1 &&
             !projectiles(2) && !projectiles(3),
         "tier-4 release fires exactly one class-1 buster projectile");
 
   load_fixture(fixture);
-  release_charge(90);
+  release_charge_button(90, button);
   check(projectiles(SABER_TIER_6_RELEASE_CLASS) == 1 &&
             !projectiles(1) && !projectiles(2),
         "tier-6 release fires exactly one class-3 buster projectile");
 
   load_fixture(fixture);
-  release_charge(150);
+  release_charge_button(150, button);
   check(MmxZeroGetState().combo == 1 && !MmxZeroGetState().saber_ready,
         "tier-8 release stores one X3 charged shot without saber readiness");
   idle(30);
-  check(projectiles(SABER_TIER_8_RELEASE_CLASS) == 1,
+  check(projectiles(SABER_TIER_8_RELEASE_CLASS) == 1 &&
+            !projectiles(SABER_X1_CHARGED_RELEASE_CLASS),
         "tier-8 release emits one class-3 buster projectile");
 
   load_fixture(fixture);
-  release_charge(SABER_CHARGE_FULL_FRAME);
+  release_charge_button(SABER_CHARGE_FULL_FRAME, button);
   check(MmxZeroGetState().combo == 1 && MmxZeroGetState().saber_ready,
         "full release stores the X3 two-shot combo and saber readiness");
   idle(17);
-  frame(SNES_PAD_Y);
+  frame(button);
   idle(9);
   check(projectiles(SABER_FULL_RELEASE_CLASS) == SABER_FULL_RELEASE_SHOTS &&
-            MmxZeroGetState().combo == 2,
+            MmxZeroGetState().combo == 2 &&
+            !projectiles(SABER_X1_CHARGED_RELEASE_CLASS),
         "full charge release produces the observed two class-3 shots");
   printf("reference: X3 charge thresholds frames %u/%u/%u/%u; release classes 1/3/3; full shots=%u\n",
          SABER_CHARGE_TIER_1_FRAME, SABER_CHARGE_TIER_2_FRAME,
@@ -339,9 +376,9 @@ static void x3_charge_checks(const char *fixture) {
   puts("ok: x3-zero-charge-tiers");
 }
 
-static void x3_hurt_checks(const char *fixture) {
+static void x3_hurt_checks(const char *fixture, unsigned button) {
   load_fixture(fixture);
-  hold_charge(60);
+  hold_charge_button(60, button);
   unsigned before = MmxZeroGetState().charge;
   /* This is the same native hurt-state injection used by the upstream Zero
    * ROM checks. It avoids depending on an enemy being in the first few
@@ -352,7 +389,7 @@ static void x3_hurt_checks(const char *fixture) {
   unsigned lowest_charge = before;
   bool hurt_ended = false;
   for (unsigned i = 0; i < 120; ++i) {
-    frame(SNES_PAD_Y);
+    frame(button);
     unsigned charge = MmxZeroGetState().charge;
     if (g_ram[0xbaa] == 0x0e) {
       ++hurt_duration;
@@ -372,9 +409,9 @@ static void x3_hurt_checks(const char *fixture) {
   puts("ok: x3-zero-charge-through-hurt");
 }
 
-static void x3_jump_checks(const char *fixture) {
+static void x3_jump_checks(const char *fixture, unsigned button) {
   load_fixture(fixture);
-  hold_charge(10);
+  hold_charge_button(10, button);
   unsigned before = MmxZeroGetState().charge;
   bool was_grounded = (g_ram[0xbd3] & 4) || (g_ram[0xbd4] & 4);
   unsigned airborne_frames = 0;
@@ -383,7 +420,7 @@ static void x3_jump_checks(const char *fixture) {
   bool landed = false;
   bool charge_never_lowered = true;
   for (unsigned i = 1; i <= 20; ++i) {
-    frame(SNES_PAD_B | SNES_PAD_Y);
+    frame(SNES_PAD_B | button);
     bool grounded = (g_ram[0xbd3] & 4) || (g_ram[0xbd4] & 4);
     unsigned charge = MmxZeroGetState().charge;
     if (!grounded) {
@@ -396,7 +433,7 @@ static void x3_jump_checks(const char *fixture) {
     was_grounded = grounded;
   }
   for (unsigned i = 21; i <= 150; ++i) {
-    frame(SNES_PAD_Y);
+    frame(button);
     bool grounded = (g_ram[0xbd3] & 4) || (g_ram[0xbd4] & 4);
     unsigned charge = MmxZeroGetState().charge;
     if (!grounded) {
@@ -421,7 +458,7 @@ static void x3_jump_checks(const char *fixture) {
   unsigned previous_charge = charge_at_landing;
   bool charge_grew_after_landing = true;
   for (unsigned i = 0; i < 5; ++i) {
-    frame(SNES_PAD_Y);
+    frame(button);
     unsigned charge = MmxZeroGetState().charge;
     if (charge <= previous_charge) charge_grew_after_landing = false;
     previous_charge = charge;
@@ -433,22 +470,22 @@ static void x3_jump_checks(const char *fixture) {
   puts("ok: x3-zero-charge-through-jump");
 }
 
-static void x3_post_charge_checks(const char *fixture) {
+static void x3_post_charge_checks(const char *fixture, unsigned button) {
   load_fixture(fixture);
-  release_charge(SABER_CHARGE_FULL_FRAME);
+  release_charge_button(SABER_CHARGE_FULL_FRAME, button);
   idle(17);
-  frame(SNES_PAD_Y);
+  frame(button);
   idle(9);
   for (unsigned i = 0; i < 240 &&
        (MmxZeroGetState().burst || MmxZeroGetState().shot_mask || g_ram[0xc25]); ++i)
     frame(0);
   check(MmxZeroGetState().combo == 2, "full X3 buster sequence reaches its stored second-shot state");
-  frame(SNES_PAD_Y);
+  frame(button);
   idle(55);
   check(!MmxZeroGetState().combo && !MmxZeroGetState().slash,
         "full X3 buster sequence finishes before the plain-buster probe");
   unsigned char previous[8] = {0};
-  frame(SNES_PAD_Y);
+  frame(button);
   unsigned births = new_projectiles(0, previous);
   check(births == 1 && projectiles(0) == 1,
         "plain Zero buster still fires once after a full charged release");
@@ -493,6 +530,204 @@ static void native_x1_checks(const char *fixture) {
   printf("reference: Storm Tornado one tap frames=%u projectiles=%u\n",
          SABER_ONE_SHOT_FRAMES, births);
   puts("ok: x1-native-weapons");
+}
+
+static FireWaveCounts measure_fire_wave(const char *fixture, unsigned button) {
+  FireWaveCounts counts = {0};
+  unsigned char previous[8] = {0};
+
+  load_fixture(fixture);
+  select_native_weapon(2); /* Fire Wave. */
+  for (unsigned i = 0; i < SABER_FIRE_WAVE_FRAMES; ++i) {
+    frame(button);
+    unsigned live = projectiles(8);
+    counts.births += new_projectiles(8, previous);
+    counts.live_frames += live != 0;
+    counts.live_samples += live;
+    if (live > counts.peak) counts.peak = live;
+  }
+  return counts;
+}
+
+static unsigned measure_storm_tornado(const char *fixture, unsigned button) {
+  unsigned char previous[8] = {0};
+  unsigned births = 0;
+
+  load_fixture(fixture);
+  select_native_weapon(5); /* Storm Tornado: one normal shot per tap. */
+  frame(button);
+  births += new_projectiles(11, previous);
+  for (unsigned i = 1; i < SABER_ONE_SHOT_FRAMES; ++i) {
+    frame(0);
+    births += new_projectiles(11, previous);
+  }
+  return births;
+}
+
+static SpecialCounts measure_specials(const char *fixture, unsigned button) {
+  SpecialCounts counts;
+  counts.fire_wave = measure_fire_wave(fixture, button);
+  counts.storm_tornado_projectiles = measure_storm_tornado(fixture, button);
+  return counts;
+}
+
+static void print_special_reference(const char *label,
+                                    const SpecialCounts *counts) {
+  printf("reference: %s Fire Wave held %u frames births=%u live_frames=%u "
+         "live_samples=%u peak=%u\n",
+         label, SABER_FIRE_WAVE_FRAMES, counts->fire_wave.births,
+         counts->fire_wave.live_frames, counts->fire_wave.live_samples,
+         counts->fire_wave.peak);
+  printf("reference: %s Storm Tornado one tap frames=%u projectiles=%u\n",
+         label, SABER_ONE_SHOT_FRAMES, counts->storm_tornado_projectiles);
+}
+
+static void check_fire_wave_equal(const char *what,
+                                  const FireWaveCounts *reference,
+                                  const FireWaveCounts *actual) {
+  bool equal = reference->births == actual->births &&
+               reference->live_frames == actual->live_frames &&
+               reference->live_samples == actual->live_samples &&
+               reference->peak == actual->peak;
+  if (!equal) {
+    fprintf(stderr,
+            "FAIL: %s upstream=%u/%u/%u/%u actual=%u/%u/%u/%u\n",
+            what, reference->births, reference->live_frames,
+            reference->live_samples, reference->peak, actual->births,
+            actual->live_frames, actual->live_samples, actual->peak);
+  }
+  check(equal, what);
+}
+
+static void check_specials_equal(const char *what,
+                                 const SpecialCounts *reference,
+                                 const SpecialCounts *actual) {
+  bool equal = reference->fire_wave.births == actual->fire_wave.births &&
+               reference->fire_wave.live_frames == actual->fire_wave.live_frames &&
+               reference->fire_wave.live_samples == actual->fire_wave.live_samples &&
+               reference->fire_wave.peak == actual->fire_wave.peak &&
+               reference->storm_tornado_projectiles ==
+                   actual->storm_tornado_projectiles;
+  if (!equal) {
+    fprintf(stderr,
+            "FAIL: %s upstream Fire Wave=%u/%u/%u/%u Storm=%u; "
+            "actual Fire Wave=%u/%u/%u/%u Storm=%u\n",
+            what, reference->fire_wave.births,
+            reference->fire_wave.live_frames,
+            reference->fire_wave.live_samples, reference->fire_wave.peak,
+            reference->storm_tornado_projectiles, actual->fire_wave.births,
+            actual->fire_wave.live_frames, actual->fire_wave.live_samples,
+            actual->fire_wave.peak, actual->storm_tornado_projectiles);
+  }
+  check(equal, what);
+}
+
+static SpecialCounts x3_zero_specials_checks(const char *fixture) {
+  SpecialCounts counts = measure_specials(fixture, SNES_PAD_Y);
+  print_special_reference("X3 Zero", &counts);
+  check(counts.fire_wave.births == X3_ZERO_FIRE_WAVE_BIRTHS &&
+            counts.fire_wave.live_frames == X3_ZERO_FIRE_WAVE_LIVE_FRAMES &&
+            counts.fire_wave.live_samples == X3_ZERO_FIRE_WAVE_LIVE_SAMPLES &&
+            counts.fire_wave.peak == X3_ZERO_FIRE_WAVE_PEAK,
+        "upstream X3 Zero Fire Wave matches its 90-frame reference counts");
+  check(counts.storm_tornado_projectiles == X3_ZERO_STORM_TORNADO_PROJECTILES,
+        "upstream X3 Zero Storm Tornado fires once per tap");
+  puts("ok: x3-zero-specials");
+  return counts;
+}
+
+static void saber_y_checks(const char *fixture) {
+  load_fixture(fixture);
+  for (unsigned i = 0; i < 200; ++i) frame(SNES_PAD_Y);
+  check(MmxZeroGetState().charge == 0 && all_projectiles() == 0,
+        "physical Y hold never charges or fires Zero's buster");
+  frame(0);
+  for (unsigned tap = 0; tap < 3; ++tap) {
+    frame(SNES_PAD_Y);
+    frame(0);
+    idle(20);
+    check(MmxZeroGetState().charge == 0 && all_projectiles() == 0,
+          "physical Y taps never fire a Zero shot");
+  }
+  puts("ok: saber-input-y-blocked");
+}
+
+static void saber_special_checks(const char *fixture,
+                                 const SpecialCounts *upstream) {
+  SpecialCounts saber = measure_specials(fixture, SNES_PAD_X);
+  print_special_reference("Saber Zero", &saber);
+  check_specials_equal("Saber Zero specials equal upstream X3 Zero", upstream,
+                       &saber);
+
+  FireWaveCounts saber_x_and_y =
+      measure_fire_wave(fixture, SNES_PAD_X | SNES_PAD_Y);
+  check_fire_wave_equal(
+      "physical Y hold leaves Saber Zero Fire Wave counts unchanged",
+      &saber.fire_wave, &saber_x_and_y);
+  puts("ok: saber-input-specials-zero");
+}
+
+static void saber_pass_through_checks(const char *fixture) {
+  load_fixture(fixture);
+  switch_to_x();
+  for (unsigned i = 0; i < 5; ++i) {
+    frame(i == 0 ? SNES_PAD_X : 0);
+    check(!MmxSaberFrameLastWroteInput(),
+          "Saber frame hook writes nothing after exchange to X");
+  }
+  puts("ok: saber-input-x-pass-through");
+}
+
+static void saber_legacy_intent_bridge_check(const char *fixture) {
+  load_fixture(fixture);
+  /* Run the real Saber pre-player hook, then clear the mapped fire bytes
+   * before the Zero legacy tick. This isolates the legacy_intent seam from
+   * the native mapped view: a rejected override must not charge. */
+  g_ram[0x00a7] = 0x40;
+  g_ram[0x00a9] = 0;
+  g_ram[0x00ab] = 0x40;
+  g_ram[0x00ac] = 0;
+  MmxZeroExtPrePlayer(g_ram);
+  g_ram[0x0bdf] = 0;
+  g_ram[0x0be3] = 0;
+  MmxZeroPlayerTick(g_ram);
+  check(MmxZeroGetState().charge == 1,
+        "Saber legacy intent drives Zero charge after mapped fire is cleared");
+  load_fixture(fixture);
+}
+
+static void saber_input_checks(const char *fixture,
+                               const SpecialCounts *upstream) {
+  /* Exercise the native X1 arm-upgrade branch while the Saber buster path
+   * still owns the legacy X3 charge chain. */
+  saber_legacy_intent_bridge_check(fixture);
+  load_fixture(fixture);
+  g_ram[0x1f99] |= 2;
+  saber_track_x1_charged = true;
+  saber_saw_x1_charged = false;
+  release_charge_button(SABER_CHARGE_FULL_FRAME, SNES_PAD_X);
+  idle(17);
+  frame(SNES_PAD_X);
+  idle(9);
+  saber_track_x1_charged = false;
+  check(!saber_saw_x1_charged && projectiles(SABER_FULL_RELEASE_CLASS) == 2,
+        "Saber X buster upgrade still emits only the two X3 class-3 shots");
+
+  saber_track_x1_charged = true;
+  saber_saw_x1_charged = false;
+  x3_plain_checks(fixture, SNES_PAD_X);
+  x3_charge_checks(fixture, SNES_PAD_X);
+  x3_hurt_checks(fixture, SNES_PAD_X);
+  x3_jump_checks(fixture, SNES_PAD_X);
+  x3_post_charge_checks(fixture, SNES_PAD_X);
+  saber_track_x1_charged = false;
+  check(!saber_saw_x1_charged,
+        "Saber X3 buster paths never spawn X1 charged-shot class 2");
+  saber_y_checks(fixture);
+  saber_special_checks(fixture, upstream);
+  saber_pass_through_checks(fixture);
+  native_x1_checks(fixture);
+  puts("ok: saber-input");
 }
 
 static const RecompLauncherCModProvider *g_mod_provider;
@@ -622,7 +857,7 @@ static void saber_assets_checks(const char *x1_rom, const char *x3_rom,
   check(!MmxSaberEnabled() && !MmxSaberAssetsLoaded() &&
             !MmxSaberRideAssetsLoaded() && !MmxSaberWaveLoaded(),
         "missing Saber caches leave Saber disabled");
-  x3_plain_checks(fixture);
+  x3_plain_checks(fixture, SNES_PAD_Y);
   puts("ok: saber-assets");
 }
 
@@ -690,35 +925,53 @@ int main(int argc, char **argv) {
 
   const bool saber_package = only && !strcmp(only, "saber-package");
   const bool zero_extension = only && !strcmp(only, "zero-extension");
-  activate_zero(argv[1], x3_rom, assets, saber_package || zero_extension,
-                saber_package || zero_extension);
-  if (zero_extension) {
+  const bool saber_input = only && !strcmp(only, "saber-input");
+  const bool x3_zero_specials = only && !strcmp(only, "x3-zero-specials");
+  const bool saber_enabled_group = saber_package || zero_extension || saber_input;
+  SpecialCounts upstream_specials = {0};
+  if (saber_input) {
+    activate_zero(argv[1], x3_rom, assets, false, false);
+    upstream_specials = x3_zero_specials_checks(fixture);
+    activate_zero(argv[1], x3_rom, assets, true, true);
+  } else {
+    activate_zero(argv[1], x3_rom, assets, saber_enabled_group,
+                  saber_enabled_group);
+  }
+  if (saber_input) {
+    check(MmxSaberEnabled(), "saber-input runs with the Saber package enabled");
+    saber_input_checks(fixture, &upstream_specials);
+  } else if (x3_zero_specials) {
+    upstream_specials = x3_zero_specials_checks(fixture);
+  } else if (zero_extension) {
     check(MmxSaberEnabled(), "zero-extension runs with the Saber package enabled");
     zero_extension_checks(fixture);
-    x3_plain_checks(fixture);
-    x3_charge_checks(fixture);
-    x3_hurt_checks(fixture);
-    x3_jump_checks(fixture);
-    x3_post_charge_checks(fixture);
+    x3_plain_checks(fixture, SNES_PAD_Y);
+    x3_charge_checks(fixture, SNES_PAD_Y);
+    x3_hurt_checks(fixture, SNES_PAD_Y);
+    x3_jump_checks(fixture, SNES_PAD_Y);
+    x3_post_charge_checks(fixture, SNES_PAD_Y);
     puts("ok: zero-extension");
   } else if (saber_package) {
     check(MmxSaberEnabled(), "saber-package reports the Saber plugin enabled");
-    x3_plain_checks(fixture);
-    x3_charge_checks(fixture);
+    x3_plain_checks(fixture, SNES_PAD_X);
+    x3_charge_checks(fixture, SNES_PAD_X);
     puts("ok: saber-package");
   } else {
-    if (!only || !strcmp(only, "x3-plain")) x3_plain_checks(fixture);
-    if (!only || !strcmp(only, "x3-charge")) x3_charge_checks(fixture);
-    if (!only || !strcmp(only, "x3-hurt")) x3_hurt_checks(fixture);
-    if (!only || !strcmp(only, "x3-jump")) x3_jump_checks(fixture);
-    if (!only || !strcmp(only, "x3-post-charge")) x3_post_charge_checks(fixture);
+    if (!only || !strcmp(only, "x3-plain")) x3_plain_checks(fixture, SNES_PAD_Y);
+    if (!only || !strcmp(only, "x3-charge")) x3_charge_checks(fixture, SNES_PAD_Y);
+    if (!only || !strcmp(only, "x3-hurt")) x3_hurt_checks(fixture, SNES_PAD_Y);
+    if (!only || !strcmp(only, "x3-jump")) x3_jump_checks(fixture, SNES_PAD_Y);
+    if (!only || !strcmp(only, "x3-post-charge")) x3_post_charge_checks(fixture, SNES_PAD_Y);
     if (!only || !strcmp(only, "x1-native")) native_x1_checks(fixture);
     if (!only) {
+      upstream_specials = x3_zero_specials_checks(fixture);
       activate_zero(argv[1], x3_rom, assets, true, true);
       check(MmxSaberEnabled(), "default run enables the Saber package group");
       zero_extension_checks(fixture);
-      x3_plain_checks(fixture);
-      x3_charge_checks(fixture);
+      MmxZeroSetExtension(MmxSaberFrameExtension());
+      x3_plain_checks(fixture, SNES_PAD_X);
+      x3_charge_checks(fixture, SNES_PAD_X);
+      saber_special_checks(fixture, &upstream_specials);
       puts("ok: saber-package");
     }
     if (only && !strcmp(only, "saber-assets")) {
@@ -726,7 +979,9 @@ int main(int argc, char **argv) {
     } else if (only && strcmp(only, "x3-plain") && strcmp(only, "x3-charge") &&
         strcmp(only, "x3-hurt") && strcmp(only, "x3-jump") &&
         strcmp(only, "x3-post-charge") && strcmp(only, "x1-native") &&
-        strcmp(only, "saber-package") && strcmp(only, "zero-extension") &&
+        strcmp(only, "x3-zero-specials") &&
+        strcmp(only, "saber-package") && strcmp(only, "saber-input") &&
+        strcmp(only, "zero-extension") &&
         strcmp(only, "saber-assets")) {
       fprintf(stderr, "FAIL: unknown MMX_SABER_TEST_ONLY group: %s\n", only);
       return 1;

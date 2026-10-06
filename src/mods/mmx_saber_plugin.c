@@ -8,6 +8,7 @@
 #include "saber/mmx_saber_sfx.h"
 #include "saber/mmx_saber_wave.h"
 #include "saber/mmx_saber_wave_assets.h"
+#include "saber/mmx_saber_frame.h"
 #include "mmx_zero.h"
 #include "saber/mmx_saber_plugin.h"
 #include "sdl_compat.h"
@@ -21,6 +22,11 @@ static MmxSaberAssets *g_saber_assets;
 static MmxSaberAssets *g_ride_assets;
 static MmxSaberWave *g_saber_wave;
 static bool g_saber_sfx_warning;
+
+static void saber_activation_failed(void) {
+  MmxZeroSetExtension(NULL);
+  MmxSaberFrameReset();
+}
 
 static void saber_sfx_warning(const char *reason, void *context) {
   (void)context;
@@ -264,6 +270,7 @@ static void activate(void) {
   char sfx_path[4096] = {0};
   char reason[256] = {0};
   char start[16] = {0};
+  saber_activation_failed();
   g_mmx_saber_enabled = false;
   g_saber_sfx_warning = false;
   MmxSaberSfxResetRuntime();
@@ -271,7 +278,10 @@ static void activate(void) {
   MmxSaberSfxSetWarningCallback(saber_sfx_warning, NULL);
   MmxSaberSfxSetVolume(saber_sfx_volume());
   release_saber_assets();
-  if (!resolve_saber_rom(rom) || !prepare_zero(path, rom)) return;
+  if (!resolve_saber_rom(rom) || !prepare_zero(path, rom)) {
+    saber_activation_failed();
+    return;
+  }
   snes_mod_runtime_feature_option_value_c(
       "megaman-x.character.saber-zero", "saber-zero", "start",
       start, sizeof(start));
@@ -281,19 +291,25 @@ static void activate(void) {
   if (!MmxZeroLoad(path)) {
     fprintf(stderr, "[mmx-saber-zero] Cannot load extracted Zero assets: %s\n",
             path);
+    saber_activation_failed();
     return;
   }
   MmxZeroRegisterHooks();
-  if (!prepare_wave(rom, wave_path)) return;
+  if (!prepare_wave(rom, wave_path)) {
+    saber_activation_failed();
+    return;
+  }
   if (!cache_path("saber-v1.bin", saber_path) ||
       !cache_path("ride-zero-v1.bin", ride_path) ||
       !load_saber_assets(saber_path, ride_path, reason)) {
     report_saber_asset_failure(saber_path, ride_path, wave_path, reason);
+    saber_activation_failed();
     return;
   }
   if (!load_saber_wave(wave_path, reason)) {
     release_saber_assets();
     report_wave_prepare_failure(wave_path, reason);
+    saber_activation_failed();
     return;
   }
   /* Activation runs before the desktop host creates its audio mutex.  Parse
@@ -305,6 +321,8 @@ static void activate(void) {
   } else if (!MmxSaberSfxLoadRuntime(sfx_path, reason, sizeof(reason))) {
     /* The loader's warning callback already emits one concise diagnostic. */
   }
+  MmxSaberFrameReset();
+  MmxZeroSetExtension(MmxSaberFrameExtension());
   g_mmx_saber_enabled = true;
   fprintf(stderr, "[mmx-saber-zero] saber-v1.bin, ride-zero-v1.bin, and "
                   "x3-saber-wave-v1.bin loaded\n");
@@ -314,6 +332,8 @@ static void activate(void) {
 
 static void reset(void) {
   g_mmx_saber_enabled = false;
+  MmxZeroSetExtension(NULL);
+  MmxSaberFrameReset();
   MmxSaberSfxResetRuntime();
   g_saber_sfx_warning = false;
   release_saber_assets();

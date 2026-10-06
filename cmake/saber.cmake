@@ -4,6 +4,7 @@ set(_saber_wave_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_wave.c")
 set(_saber_wave_assets_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_wave_assets.c")
 set(_saber_sfx_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_sfx.c")
 set(_saber_input_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_input.c")
+set(_saber_frame_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_frame.c")
 set(_saber_sfx_converter_source "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/mmx_saber_sfx_convert.c")
 set(_saber_sfx_codec_source "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/mmx_saber_sfx_codec.c")
 set(_saber_sfx_codec_header "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/mmx_saber_sfx_codec.h")
@@ -83,7 +84,8 @@ if(TARGET MegaManXSNESRecomp)
     target_sources(MegaManXSNESRecomp PRIVATE
         "${_saber_plugin_source}" "${_saber_assets_source}"
         "${_saber_wave_source}" "${_saber_wave_assets_source}"
-        "${_saber_sfx_source}")
+        "${_saber_sfx_source}" "${_saber_input_source}"
+        "${_saber_frame_source}")
     if(TARGET saber_asset_caches)
         add_dependencies(MegaManXSNESRecomp saber_asset_caches)
     endif()
@@ -96,7 +98,8 @@ if(MMX_STATE_TESTS AND TARGET mmx_state_tests)
     target_sources(mmx_state_tests PRIVATE
         "${_saber_plugin_source}" "${_saber_assets_source}"
         "${_saber_wave_source}" "${_saber_wave_assets_source}"
-        "${_saber_sfx_source}")
+        "${_saber_sfx_source}" "${_saber_input_source}"
+        "${_saber_frame_source}")
     if(TARGET saber_asset_caches)
         add_dependencies(mmx_state_tests saber_asset_caches)
     endif()
@@ -122,7 +125,8 @@ if(MMX_STATE_TESTS AND TARGET mmx_state_tests)
         tests/saber/saber_rom_test.c ${_saber_sources}
         "${_saber_plugin_source}" "${_saber_assets_source}"
         "${_saber_wave_source}" "${_saber_wave_assets_source}"
-        "${_saber_sfx_source}")
+        "${_saber_sfx_source}" "${_saber_input_source}"
+        "${_saber_frame_source}")
     foreach(_property INCLUDE_DIRECTORIES COMPILE_DEFINITIONS COMPILE_OPTIONS LINK_LIBRARIES LINK_OPTIONS)
         get_target_property(_value mmx_state_tests ${_property})
         if(_value)
