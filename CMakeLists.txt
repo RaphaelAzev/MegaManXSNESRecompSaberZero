@@ -185,3 +185,4 @@ if(TARGET mmx_state_tests)
     set_property(TARGET mmx_state_tests PROPERTY SOURCES
         tests/mmx_adaptive_state_test.c ${mmx_state_sources})
 endif()
+include(cmake/saber.cmake)
