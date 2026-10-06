@@ -23,6 +23,7 @@ typedef struct MmxZeroExtension {
   unsigned (*hitbox)(const uint8_t *ram, unsigned d, unsigned x, unsigned value);
   bool (*legacy_intent)(const uint8_t *ram, MmxZeroLegacyIntent *intent); /* true = override */
   void (*collision_rom)(uint8_t *rom, size_t size);
+  void (*state_reset)(uint8_t *ram);
 } MmxZeroExtension;
 typedef struct MmxZeroState {
   uint16_t charge, slash, projectile;

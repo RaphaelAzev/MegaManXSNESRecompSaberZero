@@ -44,6 +44,7 @@ void MmxZeroExtPlayerEnd(uint8_t *ram) {
 void MmxZeroResetState(void) {
   memset(&state, 0, sizeof(state)); state.active_x = start_x;
   state.modern.enabled = modern_behavior;
+  if (extension && extension->state_reset) extension->state_reset(NULL);
 }
 bool MmxZeroValidState(const MmxZeroState *value) {
   if (!value) return false;
@@ -73,6 +74,7 @@ void MmxZeroSetState(MmxZeroState s) {
     memset(&state.modern, 0, sizeof(state.modern));
     state.modern.enabled = modern_behavior;
   }
+  if (extension && extension->state_reset) extension->state_reset(NULL);
 }
 unsigned MmxZeroChargeTier(const MmxZeroState *s) {
   return !s || s->charge < 21 ? 0 : s->charge < 81 ? 4 :

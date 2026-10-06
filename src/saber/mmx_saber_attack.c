@@ -201,6 +201,7 @@ typedef struct MmxSaberAttackState {
 static MmxSaberAttackState state;
 static uint8_t projectile_generation;
 static uint8_t *runtime_ram;
+static bool ram_reset_pending;
 static unsigned cue_count;
 static bool native_observation_valid;
 static MmxSaberPadKind native_attack_kind;
@@ -225,6 +226,7 @@ static MmxSaberCollisionWindow air_collision = {
 static unsigned collision_warnings;
 
 static bool player_grounded(const uint8_t *ram);
+static void collision_windows_reset(void);
 
 static void clear_native_observation(void) {
   native_observation_valid = false;
@@ -508,6 +510,26 @@ void MmxSaberAttackCollisionRom(uint8_t *rom, size_t size) {
   collision_window_update(&air_collision, rom, size, air);
 }
 
+static void collision_window_reset(MmxSaberCollisionWindow *window) {
+  uint8_t empty[40];
+  if (!window) return;
+  memset(empty, 255, sizeof(empty));
+  if (window->rom &&
+      !memcmp(window->rom + window->offset, window->bytes,
+              sizeof(window->bytes))) {
+    memcpy(window->rom + window->offset, empty, sizeof(empty));
+    window->warned = false;
+  }
+  window->installed = false;
+  window->ready = false;
+  window->rom = NULL;
+}
+
+static void collision_windows_reset(void) {
+  collision_window_reset(&ground_collision);
+  collision_window_reset(&air_collision);
+}
+
 const MmxSaberAttack *MmxSaberAttackRecord(MmxSaberPadKind kind,
                                             uint8_t index) {
   size_t i;
@@ -537,14 +559,21 @@ MmxSaberPadPhase MmxSaberAttackPhaseForTick(const MmxSaberAttack *attack,
 }
 
 void MmxSaberAttackReset(void) {
-  MmxSaberAttackExit(runtime_ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
+  uint8_t *target = runtime_ram;
+  MmxSaberAttackExit(target, MMX_SABER_ATTACK_EXIT_CONTEXT);
   memset(&state, 0, sizeof(state));
   state.phase = SABER_PHASE_IDLE;
   state.cue = MMX_SABER_SFX_ATTACK_COUNT;
+  ram_reset_pending = target == NULL;
+  if (target) {
+    state.previous_grounded = player_grounded(target);
+    state.previous_grounded_valid = true;
+  }
+  collision_windows_reset();
 }
 
 void MmxSaberAttackResetRam(uint8_t *ram) {
-  runtime_ram = ram;
+  if (ram) runtime_ram = ram;
   MmxSaberAttackReset();
 }
 
@@ -790,6 +819,14 @@ void MmxSaberAttackObservePreNative(uint8_t *ram) {
   if (!ram) {
     clear_native_observation();
     return;
+  }
+  if (ram_reset_pending) {
+    retire_all_tagged(ram);
+    ram_reset_pending = false;
+  }
+  if (!state.previous_grounded_valid) {
+    state.previous_grounded = player_grounded(ram);
+    state.previous_grounded_valid = true;
   }
   native_observation_valid = true;
   native_attack_kind = state.kind;

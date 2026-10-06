@@ -10,6 +10,19 @@ static bool frame_computed;
 static bool frame_override;
 static bool last_wrote_input;
 
+static void clear_frame_state(void);
+
+static void state_reset(uint8_t *ram) {
+  if (ram)
+    MmxSaberAttackResetRam(ram);
+  else
+    MmxSaberAttackReset();
+  MmxSaberAttackResetCueCount();
+  release_pending = false;
+  previous_y = false;
+  clear_frame_state();
+}
+
 static void clear_frame_state(void) {
   frame_intent = (MmxZeroLegacyIntent){false, false, false};
   frame_computed = false;
@@ -203,6 +216,7 @@ static const MmxZeroExtension extension = {
     .damage = MmxSaberAttackDamage,
     .hitbox = MmxSaberAttackHitbox,
     .collision_rom = MmxSaberAttackCollisionRom,
+    .state_reset = state_reset,
 };
 
 const MmxZeroExtension *MmxSaberFrameExtension(void) {
@@ -210,11 +224,7 @@ const MmxZeroExtension *MmxSaberFrameExtension(void) {
 }
 
 void MmxSaberFrameReset(void) {
-  MmxSaberAttackReset();
-  MmxSaberAttackResetCueCount();
-  release_pending = false;
-  previous_y = false;
-  clear_frame_state();
+  state_reset(NULL);
 }
 
 bool MmxSaberFrameLastWroteInput(void) {

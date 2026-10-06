@@ -93,6 +93,12 @@ static unsigned projectiles(unsigned kind);
 static bool saber_test_grounded(void);
 static bool saber_track_x1_charged;
 static bool saber_saw_x1_charged;
+static unsigned zero_state_reset_calls;
+
+static void zero_state_reset_probe(uint8_t *ram) {
+  (void)ram;
+  zero_state_reset_calls++;
+}
 
 typedef struct {
   unsigned births;
@@ -2913,6 +2919,154 @@ static void saber_assets_checks(const char *x1_rom, const char *x3_rom,
   puts("ok: saber-assets");
 }
 
+static bool saber_window_empty(const uint8_t *window) {
+  for (unsigned i = 0; i < 40; ++i)
+    if (window[i] != 0xff) return false;
+  return true;
+}
+
+static void saber_lifecycle_load_checks(const char *x1_rom,
+                                        const char *x3_rom,
+                                        const char *fixture,
+                                        const char *assets) {
+  MmxSaberAttackSnapshot snapshot;
+  const size_t snapshot_capacity = RtlSaveSnapshotToMemory(NULL, 0);
+  uint8_t *airborne_snapshot = malloc(snapshot_capacity);
+
+  check(snapshot_capacity != 0 && airborne_snapshot != NULL,
+        "lifecycle test allocates an in-memory snapshot buffer");
+
+  /* D1: SetState enters the reset seam once for its reset and once again
+   * after the replacement state has been installed. Keep this assertion
+   * separate from Saber behavior so either generic call cannot disappear. */
+  MmxZeroExtension probe = { .state_reset = zero_state_reset_probe };
+  const MmxZeroState zero_state = MmxZeroGetState();
+  zero_state_reset_calls = 0;
+  MmxZeroSetExtension(&probe);
+  MmxZeroSetState(zero_state);
+  MmxZeroSetExtension(MmxSaberFrameExtension());
+  check(zero_state_reset_calls == 2,
+        "state replacement calls the generic reset seam at both boundaries");
+
+  /* D4a: replace a live Saber attack with the standing save in the same
+   * process. The callback must retire the guest slot before the next frame. */
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(SNES_PAD_Y);
+  for (unsigned i = 0; i < OLD_SABER_GROUND1_ACTIVE; ++i) frame(0);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.phase == SABER_PHASE_ACTIVE && tagged_projectiles() == 1,
+        "hot-load probe reaches ACTIVE with a live Saber-tagged slot");
+  check(RtlLoadSnapshot(fixture),
+        "hot-load probe replaces the running state with save0.sav");
+  check(saber_lifecycle_idle(),
+        "state replacement immediately returns Saber idle and retires its slot");
+  const unsigned cues_after_load = MmxSaberAttackCueCount();
+  idle(OLD_SABER_GROUND1_TOTAL);
+  check(MmxSaberAttackCueCount() == cues_after_load,
+        "state replacement emits no delayed Saber cue");
+  frame(SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_GROUND1 &&
+            snapshot.phase == SABER_PHASE_STARTUP && snapshot.tick == 0,
+        "the next Y after a hot load starts ground slash 1 normally");
+
+  /* D4b: save an actually airborne guest state through the harness API,
+   * replace an active Saber state with it, and inspect the first frames. */
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  bool airborne = false;
+  for (unsigned i = 0; i < 60; ++i) {
+    frame(SNES_PAD_B);
+    if (!(g_ram[0xbd3] & 4)) {
+      airborne = true;
+      break;
+    }
+  }
+  check(airborne, "lifecycle harness reaches an airborne state");
+  const size_t airborne_size =
+      RtlSaveSnapshotToMemory(airborne_snapshot, snapshot_capacity);
+  check(airborne_size != 0, "airborne state saves through the harness API");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(SNES_PAD_Y);
+  for (unsigned i = 0; i < OLD_SABER_GROUND1_ACTIVE; ++i) frame(0);
+  check(MmxSaberAttackSnapshotGet().phase == SABER_PHASE_ACTIVE,
+        "airborne-load probe starts from a live Saber attack");
+  check(RtlLoadSnapshotFromMemory(airborne_snapshot, airborne_size),
+        "airborne load replaces the running Saber state");
+  bool fake_landing = false;
+  for (unsigned i = 0; i < 3; ++i) {
+    frame(0);
+    snapshot = MmxSaberAttackSnapshotGet();
+    fake_landing |= snapshot.kind == SABER_KIND_SABER_LAND;
+  }
+  check(!fake_landing,
+        "loading airborne RAM does not synthesize SaberLand before a landing edge");
+
+  /* D4c: release X during an attack, then replace the state. A fresh X edge
+   * must remain a fresh edge; a stale CR1 release latch would suppress it. */
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  hold_charge_button(10, SNES_PAD_X);
+  frame(SNES_PAD_X | SNES_PAD_Y);
+  for (unsigned i = 0; i < OLD_SABER_GROUND1_ACTIVE; ++i)
+    frame(SNES_PAD_X);
+  frame(0);
+  check(MmxSaberAttackSnapshotGet().phase != SABER_PHASE_IDLE,
+        "CR1 probe releases X while the Saber attack is still live");
+  check(RtlLoadSnapshot(fixture),
+        "CR1 probe replaces the running state before attack completion");
+  /* The fixture's upstream save is allowed to carry an ordinary charge; clear
+   * that upstream state so the shot assertion isolates the stale Saber latch. */
+  MmxZeroCancel(g_ram);
+  unsigned char native_before[8];
+  for (unsigned i = 0; i < 8; ++i) {
+    const unsigned d = 0x1228 + i * 64;
+    native_before[i] = (unsigned char)(g_ram[d] && !saber_tagged_projectile(d));
+  }
+  /* Feed only the Saber pre-player seam with a fresh X edge. This exposes the
+   * mapped press without allowing native buster code to create an ordinary
+   * uncharged shot that would obscure the stale-latch assertion. */
+  g_ram[0x00a7] = MMX_SABER_NATIVE_FIRE_BIT;
+  g_ram[0x00a9] = 0;
+  g_ram[0x00ac] = 0;
+  MmxZeroExtPrePlayer(g_ram);
+  check((g_ram[0x0be3] & MMX_SABER_NATIVE_FIRE_BIT) != 0,
+        "state replacement clears the CR1 latch before the next X edge");
+  frame(0);
+  bool native_birth = false;
+  for (unsigned i = 0; i < 8; ++i) {
+    const unsigned d = 0x1228 + i * 64;
+    native_birth |= g_ram[d] && !saber_tagged_projectile(d) && !native_before[i];
+  }
+  check(!native_birth,
+        "state replacement fires no stale charged shot");
+
+  /* D4d: use the same provider activation/deactivation route as the asset
+   * lifecycle checks, then verify both ownership cleanup and reinstallation. */
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(0);
+  check(!memcmp(g_snes->cart->rom + 0x37fd8, kOldSaberGroundBounds, 40) &&
+            !memcmp(g_snes->cart->rom + 0x37f40, kOldSaberAirBounds, 40),
+        "disable probe starts with both Saber collision windows installed");
+  activate_zero(x1_rom, x3_rom, assets, false, false);
+  check(saber_window_empty(g_snes->cart->rom + 0x37fd8) &&
+            saber_window_empty(g_snes->cart->rom + 0x37f40),
+        "disabling Saber restores only its collision windows to $FF");
+  activate_zero(x1_rom, x3_rom, assets, true, true);
+  load_fixture(fixture);
+  frame(0);
+  check(!memcmp(g_snes->cart->rom + 0x37fd8, kOldSaberGroundBounds, 40) &&
+            !memcmp(g_snes->cart->rom + 0x37f40, kOldSaberAirBounds, 40),
+        "re-enabling Saber reinstalls both collision windows");
+
+  free(airborne_snapshot);
+  puts("ok: saber-lifecycle-load");
+}
+
 int main(int argc, char **argv) {
   check(argc == 2, "X1 ROM supplied");
   const char *fixture = getenv("MMX_ZERO_TEST_FIXTURE");
@@ -2990,13 +3144,14 @@ int main(int argc, char **argv) {
   const bool saber_cancel = only && !strcmp(only, "saber-cancel");
   const bool saber_land = only && !strcmp(only, "saber-land");
   const bool saber_ground_lifecycle = only && !strcmp(only, "saber-ground-lifecycle");
+  const bool saber_lifecycle_load = only && !strcmp(only, "saber-lifecycle-load");
   const bool saber_ground_hit = only && !strcmp(only, "saber-ground-hit");
   const bool x3_zero_specials = only && !strcmp(only, "x3-zero-specials");
   const bool fixtures = only && !strcmp(only, "fixtures");
   const bool saber_enabled_group = saber_package || zero_extension ||
       saber_input || saber_ground_1 || saber_ground_combo ||
       saber_air || saber_wall || saber_dash || saber_land || saber_ground_lifecycle ||
-      saber_ground_hit || saber_cancel;
+      saber_ground_hit || saber_cancel || saber_lifecycle_load;
   SpecialCounts upstream_specials = {0};
   if (saber_input) {
     activate_zero(argv[1], x3_rom, assets, false, false);
@@ -3035,6 +3190,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-ground-lifecycle runs with the Saber package enabled");
     saber_ground_lifecycle_checks(fixture);
+  } else if (saber_lifecycle_load) {
+    check(MmxSaberEnabled(),
+          "saber-lifecycle-load runs with the Saber package enabled");
+    saber_lifecycle_load_checks(argv[1], x3_rom, fixture, assets);
   } else if (saber_ground_hit) {
     check(MmxSaberEnabled(),
           "saber-ground-hit runs with the Saber package enabled");
@@ -3093,6 +3252,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-cancel") &&
       strcmp(only, "saber-land") &&
       strcmp(only, "saber-ground-lifecycle") &&
+      strcmp(only, "saber-lifecycle-load") &&
         strcmp(only, "saber-ground-hit") &&
         strcmp(only, "zero-extension") &&
         strcmp(only, "saber-assets") &&
