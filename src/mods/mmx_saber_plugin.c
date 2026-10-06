@@ -11,6 +11,7 @@
 #include "saber/mmx_saber_combo.h"
 #include "saber/mmx_saber_frame.h"
 #include "saber/mmx_saber_render.h"
+#include "saber/mmx_saber_wave_runtime.h"
 #include "mmx_renderer.h"
 #include "mmx_zero.h"
 #include "saber/mmx_saber_plugin.h"
@@ -211,6 +212,7 @@ static int prepare_wave(const char rom[4096], char wave_path[4096]) {
 
 static void release_saber_assets(void) {
   MmxRendererSetPlayerOverlayProvider(NULL);
+  MmxSaberWaveRuntimeSetCollisionRecord(NULL, 0);
   MmxSaberWaveFree(g_saber_wave);
   MmxSaberAssetsFree(g_saber_assets);
   MmxSaberAssetsFree(g_ride_assets);
@@ -290,6 +292,9 @@ static int load_saber_wave(const char *wave_path, char reason[256]) {
     return 0;
   }
   g_saber_wave = wave;
+  MmxSaberWaveRuntimeSetCollisionRecord(
+      MmxSaberWaveCollisionRecord(g_saber_wave),
+      MmxSaberWaveCollisionSize(g_saber_wave));
   reason[0] = '\0';
   return 1;
 }

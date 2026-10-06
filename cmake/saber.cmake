@@ -1,6 +1,7 @@
 set(_saber_plugin_source "${CMAKE_CURRENT_SOURCE_DIR}/src/mods/mmx_saber_plugin.c")
 set(_saber_assets_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_assets.c")
 set(_saber_wave_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_wave.c")
+set(_saber_wave_runtime_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_wave_runtime.c")
 set(_saber_wave_assets_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_wave_assets.c")
 set(_saber_sfx_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_sfx.c")
 set(_saber_input_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_input.c")
@@ -87,6 +88,7 @@ if(TARGET MegaManXSNESRecomp)
     target_sources(MegaManXSNESRecomp PRIVATE
         "${_saber_plugin_source}" "${_saber_assets_source}"
         "${_saber_wave_source}" "${_saber_wave_assets_source}"
+        "${_saber_wave_runtime_source}"
         "${_saber_sfx_source}" "${_saber_input_source}"
         "${_saber_combo_source}"
         "${_saber_attack_source}"
@@ -103,6 +105,7 @@ if(MMX_STATE_TESTS AND TARGET mmx_state_tests)
     target_sources(mmx_state_tests PRIVATE
         "${_saber_plugin_source}" "${_saber_assets_source}"
         "${_saber_wave_source}" "${_saber_wave_assets_source}"
+        "${_saber_wave_runtime_source}"
         "${_saber_sfx_source}" "${_saber_input_source}"
         "${_saber_combo_source}"
         "${_saber_attack_source}"
@@ -123,6 +126,8 @@ if(MMX_STATE_TESTS AND TARGET mmx_state_tests)
         "${_saber_assets_source}"
         src/saber/mmx_saber_wave.c
         "${_saber_wave_source}"
+        src/saber/mmx_saber_wave_runtime.c
+        "${_saber_wave_runtime_source}"
         src/saber/mmx_saber_wave_assets.c
         "${_saber_wave_assets_source}"
         src/saber/mmx_saber_sfx.c
@@ -136,6 +141,7 @@ if(MMX_STATE_TESTS AND TARGET mmx_state_tests)
         tests/saber/saber_rom_test.c ${_saber_sources}
         "${_saber_plugin_source}" "${_saber_assets_source}"
         "${_saber_wave_source}" "${_saber_wave_assets_source}"
+        "${_saber_wave_runtime_source}"
         "${_saber_sfx_source}" "${_saber_input_source}"
         "${_saber_combo_source}"
         "${_saber_attack_source}"
@@ -232,7 +238,7 @@ if(BUILD_TESTING)
     add_executable(mmx_saber_render_test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/saber/mmx_saber_render_test.c"
         "${_saber_render_source}" "${_saber_assets_source}"
-        "${_saber_attack_source}" "${_saber_sfx_source}"
+        "${_saber_attack_source}" "${_saber_wave_runtime_source}" "${_saber_sfx_source}"
         "${SNESRECOMP_ROOT}/runner/src/sha256.c")
     target_include_directories(mmx_saber_render_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"

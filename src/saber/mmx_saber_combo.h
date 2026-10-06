@@ -3,9 +3,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "mmx_saber_wave_runtime.h"
+
 enum {
-  MMX_SABER_WAVE_TAG_FAMILY = 0x5600,
-  MMX_SABER_WAVE_TAG_FAMILY_MASK = 0xff00,
   MMX_SABER_DEFAULT_FINISHER_WINDOW = 27,
   MMX_SABER_MAX_FINISHER_WINDOW = 60
 };

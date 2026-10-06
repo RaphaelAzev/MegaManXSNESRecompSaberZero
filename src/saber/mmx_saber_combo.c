@@ -1,7 +1,5 @@
 #include "mmx_saber_combo.h"
 
-#include <string.h>
-
 #include "../mmx_zero.h"
 #include "mmx_saber_sfx.h"
 
@@ -19,29 +17,10 @@ typedef struct MmxSaberComboState {
 
 static MmxSaberComboState state = {
   0, MMX_SABER_DEFAULT_FINISHER_WINDOW, 0, 0, 0, 0, false, false, false};
-static uint8_t wave_generation;
 static uint8_t *runtime_ram;
 
 static unsigned word(const uint8_t *p) {
   return p[0] | ((unsigned)p[1] << 8);
-}
-
-static void putword(uint8_t *p, unsigned value) {
-  p[0] = (uint8_t)value;
-  p[1] = (uint8_t)(value >> 8);
-}
-
-static bool projectile_slot_valid(unsigned d) {
-  return d >= 0x1228 && d < 0x1428 && (d & 63) == 0x28;
-}
-
-static bool free_projectile(const uint8_t *ram, unsigned d) {
-  return projectile_slot_valid(d) && word(ram + d) == 0;
-}
-
-static uint8_t next_wave_generation(void) {
-  if (++wave_generation == 0) ++wave_generation;
-  return wave_generation;
 }
 
 static uint8_t live_burst_mask(const uint8_t *ram, MmxZeroState snapshot) {
@@ -59,29 +38,14 @@ static uint8_t live_burst_mask(const uint8_t *ram, MmxZeroState snapshot) {
 static void release_reservation(uint8_t *ram) {
   uint8_t *target = ram ? ram : runtime_ram;
   const unsigned d = state.reserved_slot;
-  if (target && d && projectile_slot_valid(d)) {
-    const bool counted = target[d] != 0;
-    memset(target + d, 0, 64);
-    if (counted && target[0x0bdd]) --target[0x0bdd];
-  }
+  if (target && d)
+    (void)MmxSaberWaveRuntimeReleaseReservation(target, d);
   state.reserved_slot = 0;
 }
 
 static bool reserve_wave_slot(uint8_t *ram) {
   unsigned first = 0;
-  unsigned free_count = 0;
-  if (!ram) return false;
-  for (unsigned d = 0x1228; d < 0x1428; d += 64) {
-    if (!free_projectile(ram, d)) continue;
-    if (!first) first = d;
-    ++free_count;
-  }
-  /* Reserve only after the complete two-slot precondition is known. */
-  if (free_count < 2) return false;
-  memset(ram + first, 0, 64);
-  ram[first + 1] = 0x80; /* inactive reservation, not a native projectile */
-  putword(ram + first + 0x3e,
-          MMX_SABER_WAVE_TAG_FAMILY | next_wave_generation());
+  if (!MmxSaberWaveRuntimeReserve(ram, &first)) return false;
   state.reserved_slot = (uint16_t)first;
   return true;
 }
@@ -148,6 +112,14 @@ void MmxSaberComboPlayerEnd(uint8_t *ram) {
       !snapshot.slash && !state.window_ticks && state.window_frames)
     state.window_ticks = state.window_frames;
   state.pre_valid = false;
+
+  /* Old src/mmx_zero.c advances the legacy finisher to age 7 and publishes
+   * the reserved wave in that same update.  The current bridge observes the
+   * equivalent post-native player-end seam before the weapon pass. */
+  if (snapshot.slash == 7 && state.reserved_slot) {
+    (void)MmxSaberWaveRuntimePublish(ram, state.reserved_slot);
+    state.reserved_slot = 0;
+  }
 
   if (state.slash_request_sent) {
     if (snapshot.slash == 1) {

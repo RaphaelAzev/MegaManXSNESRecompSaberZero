@@ -3,6 +3,7 @@
 #include "mmx_saber_attack.h"
 #include "mmx_saber_combo.h"
 #include "mmx_saber_input.h"
+#include "mmx_saber_wave_runtime.h"
 
 static bool release_pending;
 static bool previous_y;
@@ -22,6 +23,7 @@ static void state_reset(uint8_t *ram) {
     MmxSaberAttackResetRam(ram);
   else
     MmxSaberAttackReset();
+  MmxSaberWaveRuntimeReset(ram);
   MmxSaberComboReset(ram);
   MmxSaberAttackResetCueCount();
   release_pending = false;
@@ -125,6 +127,7 @@ static void player_end(uint8_t *ram) {
   }
   if (zero_dead_or_reset(ram)) {
     MmxSaberComboCancel(ram);
+    MmxSaberWaveRuntimeRetireAll(ram);
     MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_DEATH);
     return;
   }
@@ -149,6 +152,7 @@ static void pre_player(uint8_t *ram) {
   MmxSaberPadZero zero;
   MmxSaberPhysicalPad physical;
 
+  MmxSaberWaveRuntimeObserveStage(ram);
   clear_frame_state();
   if (!zero_frame_context(ram)) {
     /* This also handles an exchange to X, title/menu frames, and an upstream

@@ -14,6 +14,8 @@
 #include "saber/mmx_saber_frame.h"
 #include "saber/mmx_saber_plugin.h"
 #include "saber/mmx_saber_sfx.h"
+#include "saber/mmx_saber_wave.h"
+#include "saber/mmx_saber_wave_runtime.h"
 #include "mod_runtime.h"
 #include "recomp_launcher.h"
 #include "snes/interp_bridge.h"
@@ -329,6 +331,8 @@ static unsigned read_ram_word(const uint8_t *ram, unsigned offset);
 static unsigned empty_enemy_slot(void);
 static unsigned saber_active_slot(void);
 static bool saber_lifecycle_idle(void);
+static bool saber_window_empty(const uint8_t *window);
+static bool saber_wave_record_empty(const uint8_t *record);
 
 static const uint8_t kOldSaberWallBounds[12] = {
     31, 246, 33, 19, 22, 0, 23, 15, 14, 1, 16, 12};
@@ -586,6 +590,11 @@ static void release_charge(unsigned frames) {
 
 static unsigned read_ram_word(const uint8_t *ram, unsigned offset) {
   return ram[offset] | (unsigned)ram[offset + 1] << 8;
+}
+
+static void write_ram_word(uint8_t *ram, unsigned offset, unsigned value) {
+  ram[offset] = (uint8_t)value;
+  ram[offset + 1] = (uint8_t)(value >> 8);
 }
 
 enum {
@@ -3763,6 +3772,202 @@ static void saber_finisher_checks(const char *fixture) {
   puts("ok: saber-finisher");
 }
 
+static unsigned saber_wave_live_count(void) {
+  unsigned count = 0;
+  for (unsigned d = 0x1228; d < 0x1428; d += 64)
+    if (MmxSaberWaveRuntimeOwns(g_ram, d)) ++count;
+  return count;
+}
+
+static void saber_wave_keep_onscreen(unsigned slot) {
+  const int x = (int16_t)read_ram_word(g_ram, slot + 5);
+  write_ram_word(g_ram, 0x1e4d, (uint16_t)(x - 128));
+}
+
+static unsigned saber_wave_launch(const char *fixture, bool left) {
+  unsigned slot;
+  bool reserved_ages = true;
+
+  saber_finisher_window_setup(fixture);
+  /* The upstream X3 burst has finished by the open window. Set the native
+   * facing immediately before the legacy request, matching old $C11 use. */
+  g_ram[0x0c11] = left ? 0 : 0x40;
+  g_ram[0x0bb9] = (g_ram[0x0bb9] & (uint8_t)~0x40) | (left ? 0 : 0x40);
+  frame(SNES_PAD_Y);
+  slot = saber_finisher_wave_slot();
+  check(MmxZeroGetState().slash == 1 && slot,
+        "wave launch starts the upstream finisher and keeps its reservation");
+  const unsigned generation = read_ram_word(g_ram, slot + 0x3e);
+  check((generation & MMX_SABER_WAVE_TAG_FAMILY_MASK) ==
+            MMX_SABER_WAVE_TAG_FAMILY && (generation & 0xff) != 0,
+        "wave reservation carries a nonzero $5600 generation");
+  for (unsigned age = 2; age <= 7; ++age) {
+    frame(0);
+    if (age <= 6)
+      reserved_ages &= !g_ram[slot] && g_ram[slot + 1] == 0x80 &&
+          read_ram_word(g_ram, slot + 0x3e) == generation;
+  }
+  check(reserved_ages,
+        "reserved wave stays inactive through finisher ages 1-6");
+  check(MmxZeroGetState().slash == 7 && MmxSaberWaveRuntimeOwns(g_ram, slot),
+        "finisher age 7 publishes the reserved wave");
+  const int player_x = (int16_t)read_ram_word(g_ram, 0x0bad);
+  const int player_y = (int16_t)read_ram_word(g_ram, 0x0bb0);
+  const int wave_x = (int16_t)read_ram_word(g_ram, slot + 5);
+  const int wave_y = (int16_t)read_ram_word(g_ram, slot + 8);
+  check(wave_x == player_x + (left ? -24 : 24) && wave_y == player_y - 6 &&
+            (g_ram[slot + 0x11] & 0x40) == (left ? 0 : 0x40),
+        left ? "left wave publishes at player X-24/Y-6" :
+               "right wave publishes at player X+24/Y-6");
+  check(read_ram_word(g_ram, slot + 0x20) ==
+            MMX_SABER_WAVE_COLLISION_POINTER,
+        "published wave installs the old $FFA0 collision pointer");
+  check(!MmxSaberComboReservedSlot() &&
+            g_ram[slot + MMX_SABER_WAVE_SLOT_AGE] == 0,
+        "age-7 publication releases the reservation before active travel");
+  return slot;
+}
+
+static bool saber_wave_record_matches_asset(void) {
+  const char *cache = getenv("MMX_SABER_TEST_CACHE");
+  char path[4096];
+  char reason[128] = {0};
+  MmxSaberWave *wave;
+  bool matches;
+  if (!cache || !cache[0] ||
+      snprintf(path, sizeof(path), "%s/mmx-source/x3-saber-wave-v1.bin",
+               cache) >= (int)sizeof(path)) return false;
+  wave = MmxSaberWaveLoadFile(path, reason, sizeof(reason));
+  if (!wave) return false;
+  matches = MmxSaberWaveCollisionSize(wave) ==
+          MMX_SABER_WAVE_COLLISION_RECORD_BYTES &&
+      !memcmp(g_snes->cart->rom + MMX_SABER_WAVE_COLLISION_ROM_OFFSET,
+              MmxSaberWaveCollisionRecord(wave),
+              MMX_SABER_WAVE_COLLISION_RECORD_BYTES);
+  MmxSaberWaveFree(wave);
+  return matches;
+}
+
+static void saber_wave_travel_checks(const char *x1_rom, const char *x3_rom,
+                                     const char *fixture, const char *assets) {
+  unsigned slot;
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(0);
+  check(saber_wave_record_matches_asset(),
+        "Saber installs the validated old four-byte wave record at $37FA0");
+
+  slot = saber_wave_launch(fixture, false);
+  const int launch_x = (int16_t)read_ram_word(g_ram, slot + 5);
+  const unsigned launch_age = g_ram[slot + MMX_SABER_WAVE_SLOT_AGE];
+  const bool had_birth = g_ram[slot + MMX_SABER_WAVE_SLOT_BIRTH] != 0;
+  if (had_birth) {
+    saber_wave_keep_onscreen(slot);
+    check(MmxZeroWeaponTick(g_ram, slot, 1) == 0 && g_ram[slot] &&
+              (int16_t)read_ram_word(g_ram, slot + 5) == launch_x &&
+              g_ram[slot + MMX_SABER_WAVE_SLOT_AGE] == launch_age &&
+              !g_ram[slot + MMX_SABER_WAVE_SLOT_BIRTH],
+          "birth guard consumes the publication tick without movement");
+  } else {
+    check(launch_age == 0, "publication frame has no active travel age");
+  }
+  bool right_trajectory = true;
+  for (unsigned i = 0; i < 3; ++i) {
+    const int before_x = (int16_t)read_ram_word(g_ram, slot + 5);
+    const unsigned before_age = g_ram[slot + MMX_SABER_WAVE_SLOT_AGE];
+    saber_wave_keep_onscreen(slot);
+    MmxZeroWeaponTick(g_ram, slot, 1);
+    right_trajectory &= g_ram[slot] &&
+        (int16_t)read_ram_word(g_ram, slot + 5) == before_x + 8 &&
+        g_ram[slot + MMX_SABER_WAVE_SLOT_AGE] == before_age + 1;
+  }
+  check(right_trajectory, "right-facing wave advances exactly 8 px per active tick");
+  const unsigned enemy = empty_enemy_slot();
+  check(MmxZeroHitbox(g_ram, enemy, slot, 1) == 0 &&
+            MmxZeroDamage(g_ram, enemy, slot, 1) == 0,
+        "wave hitbox and damage callbacks are explicit no-damage pass-throughs");
+
+  slot = saber_wave_launch(fixture, true);
+  bool left_trajectory = true;
+  if (g_ram[slot + MMX_SABER_WAVE_SLOT_BIRTH]) {
+    const int before_x = (int16_t)read_ram_word(g_ram, slot + 5);
+    saber_wave_keep_onscreen(slot);
+    MmxZeroWeaponTick(g_ram, slot, 1);
+    left_trajectory &= (int16_t)read_ram_word(g_ram, slot + 5) == before_x &&
+        !g_ram[slot + MMX_SABER_WAVE_SLOT_BIRTH];
+  }
+  for (unsigned i = 0; i < 3; ++i) {
+    const int before_x = (int16_t)read_ram_word(g_ram, slot + 5);
+    const unsigned before_age = g_ram[slot + MMX_SABER_WAVE_SLOT_AGE];
+    saber_wave_keep_onscreen(slot);
+    MmxZeroWeaponTick(g_ram, slot, 1);
+    left_trajectory &= g_ram[slot] &&
+        (int16_t)read_ram_word(g_ram, slot + 5) == before_x - 8 &&
+        g_ram[slot + MMX_SABER_WAVE_SLOT_AGE] == before_age + 1;
+  }
+  check(left_trajectory, "left-facing wave advances exactly 8 px per active tick");
+
+  slot = saber_wave_launch(fixture, false);
+  unsigned lifetime_ticks = 0;
+  while (g_ram[slot] && lifetime_ticks < MMX_SABER_WAVE_LIFETIME) {
+    const bool birth = g_ram[slot + MMX_SABER_WAVE_SLOT_BIRTH] != 0;
+    saber_wave_keep_onscreen(slot);
+    MmxZeroWeaponTick(g_ram, slot, 1);
+    if (!birth) ++lifetime_ticks;
+  }
+  check(lifetime_ticks == MMX_SABER_WAVE_LIFETIME && !g_ram[slot],
+        "onscreen wave retires on active tick 96");
+
+  slot = saber_wave_launch(fixture, false);
+  g_ram[0x1f7a] ^= 1;
+  MmxSaberWaveRuntimeObserveStage(g_ram);
+  check(!g_ram[slot], "stage change retires the wave without a weapon tick");
+
+  slot = saber_wave_launch(fixture, false);
+  unsigned natural_ticks = 0;
+  while (g_ram[slot] && natural_ticks <= MMX_SABER_WAVE_LIFETIME) {
+    const bool birth = g_ram[slot + MMX_SABER_WAVE_SLOT_BIRTH] != 0;
+    MmxZeroWeaponTick(g_ram, slot, 1);
+    if (!birth) ++natural_ticks;
+  }
+  check(!g_ram[slot] && natural_ticks <= MMX_SABER_WAVE_LIFETIME,
+        "save0 wave retires by the 96-tick/offscreen rule");
+  printf("reference: save0 wave retirement=%s active_ticks=%u\n",
+         natural_ticks == MMX_SABER_WAVE_LIFETIME ? "lifetime" : "offscreen",
+         natural_ticks);
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(0);
+  unsigned first = 0, second = 0;
+  check(MmxSaberWaveRuntimeReserve(g_ram, &first) &&
+            MmxSaberWaveRuntimeReserve(g_ram, &second) && first != second,
+        "two wave reservations allocate distinct generations");
+  const unsigned first_tag = read_ram_word(g_ram, first + 0x3e);
+  const unsigned second_tag = read_ram_word(g_ram, second + 0x3e);
+  check(first_tag != second_tag &&
+            MmxSaberWaveRuntimePublish(g_ram, first) &&
+            MmxSaberWaveRuntimePublish(g_ram, second) &&
+            saber_wave_live_count() == 2,
+        "two published generations coexist");
+  g_ram[first + MMX_SABER_WAVE_SLOT_BIRTH] = 0;
+  g_ram[second + MMX_SABER_WAVE_SLOT_BIRTH] = 0;
+  g_ram[first + MMX_SABER_WAVE_SLOT_AGE] = MMX_SABER_WAVE_LIFETIME - 1;
+  saber_wave_keep_onscreen(first);
+  saber_wave_keep_onscreen(second);
+  MmxZeroWeaponTick(g_ram, first, 1);
+  check(!g_ram[first] && g_ram[second] &&
+            read_ram_word(g_ram, second + 0x3e) == second_tag,
+        "retiring the first generation leaves the second wave untouched");
+
+  activate_zero(x1_rom, x3_rom, assets, false, false);
+  check(saber_wave_record_empty(g_snes->cart->rom +
+                                    MMX_SABER_WAVE_COLLISION_ROM_OFFSET),
+        "disabling Saber restores the wave collision record to $FF");
+  puts("ok: saber-wave-travel");
+}
+
 static void zero_hook_parity_checks(const char *fixture) {
   check(!MmxSaberEnabled(), "zero-hook-parity runs with Saber disabled");
   zero_extension_checks(fixture);
@@ -3838,6 +4043,12 @@ static void saber_assets_checks(const char *x1_rom, const char *x3_rom,
 static bool saber_window_empty(const uint8_t *window) {
   for (unsigned i = 0; i < 40; ++i)
     if (window[i] != 0xff) return false;
+  return true;
+}
+
+static bool saber_wave_record_empty(const uint8_t *record) {
+  for (unsigned i = 0; i < MMX_SABER_WAVE_COLLISION_RECORD_BYTES; ++i)
+    if (record[i] != 0xff) return false;
   return true;
 }
 
@@ -4063,6 +4274,7 @@ int main(int argc, char **argv) {
   const bool saber_ground_lifecycle = only && !strcmp(only, "saber-ground-lifecycle");
   const bool saber_lifecycle_load = only && !strcmp(only, "saber-lifecycle-load");
   const bool saber_buster_rules = only && !strcmp(only, "saber-buster-rules");
+  const bool saber_wave_travel = only && !strcmp(only, "saber-wave-travel");
   const bool saber_ground_hit = only && !strcmp(only, "saber-ground-hit");
   const bool saber_render_snapshot = only && !strcmp(only, "saber-render-snapshot");
   const bool x3_zero_specials = only && !strcmp(only, "x3-zero-specials");
@@ -4072,7 +4284,8 @@ int main(int argc, char **argv) {
       saber_input || saber_ground_1 || saber_ground_combo ||
       saber_air || saber_wall || saber_dash || saber_land || saber_ground_lifecycle ||
       saber_ground_hit || saber_cancel || saber_lifecycle_load ||
-      saber_render_snapshot || saber_buster_rules || saber_finisher;
+      saber_render_snapshot || saber_buster_rules || saber_finisher ||
+      saber_wave_travel;
   SpecialCounts upstream_specials = {0};
   if (saber_input || saber_buster_rules) {
     activate_zero(argv[1], x3_rom, assets, false, false);
@@ -4130,6 +4343,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-finisher runs with the Saber package enabled");
     saber_finisher_checks(fixture);
+  } else if (saber_wave_travel) {
+    check(MmxSaberEnabled(),
+          "saber-wave-travel runs with the Saber package enabled");
+    saber_wave_travel_checks(argv[1], x3_rom, fixture, assets);
   } else if (saber_ground_hit) {
     check(MmxSaberEnabled(),
           "saber-ground-hit runs with the Saber package enabled");
@@ -4197,6 +4414,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-ground-lifecycle") &&
       strcmp(only, "saber-lifecycle-load") &&
       strcmp(only, "saber-buster-rules") &&
+        strcmp(only, "saber-wave-travel") &&
         strcmp(only, "saber-ground-hit") &&
         strcmp(only, "saber-render-snapshot") &&
         strcmp(only, "zero-hook-parity") &&

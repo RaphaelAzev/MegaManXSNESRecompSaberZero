@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "mmx_saber_sfx.h"
+#include "mmx_saber_wave_runtime.h"
 
 /* The native records are center offset, center offset, and half-extents.
  * Ground pointers use $FFD8 + 4*segment; air starts at $FF40, wall at
@@ -508,6 +509,7 @@ void MmxSaberAttackCollisionRom(uint8_t *rom, size_t size) {
   bounds_records_for_window(air, MMX_SABER_AIR_BOUNDS_POINTER);
   collision_window_update(&ground_collision, rom, size, ground);
   collision_window_update(&air_collision, rom, size, air);
+  MmxSaberWaveRuntimeCollisionRom(rom, size);
 }
 
 static void collision_window_reset(MmxSaberCollisionWindow *window) {
@@ -1010,6 +1012,8 @@ MmxSaberAttackSnapshot MmxSaberAttackGetSnapshot(void) {
 
 unsigned MmxSaberAttackWeaponTick(uint8_t *ram, unsigned projectile,
                                   unsigned value) {
+  if (MmxSaberWaveRuntimeOwns(ram, projectile))
+    return MmxSaberWaveRuntimeWeaponTick(ram, projectile, value);
   if (!ram || !projectile_slot_valid(projectile) || !ram[projectile] ||
       !saber_tag_family(word(ram + projectile + 0x3e)))
     return value;
@@ -1024,6 +1028,8 @@ unsigned MmxSaberAttackWeaponTick(uint8_t *ram, unsigned projectile,
 unsigned MmxSaberAttackDamage(uint8_t *ram, unsigned enemy,
                               unsigned projectile, unsigned value) {
   unsigned bit;
+  if (MmxSaberWaveRuntimeOwns(ram, projectile))
+    return MmxSaberWaveRuntimeDamage(ram, enemy, projectile, value);
   if (!saber_projectile_owned(ram, projectile) || !enemy_slot_valid(enemy) ||
       !value || (value & 128))
     return value;
@@ -1035,6 +1041,8 @@ unsigned MmxSaberAttackDamage(uint8_t *ram, unsigned enemy,
 
 unsigned MmxSaberAttackHitbox(const uint8_t *ram, unsigned enemy,
                               unsigned projectile, unsigned value) {
+  if (MmxSaberWaveRuntimeOwns(ram, projectile))
+    return MmxSaberWaveRuntimeHitbox(ram, enemy, projectile, value);
   if (saber_projectile_owned(ram, projectile) && enemy_slot_valid(enemy) &&
       (state.hit_slots & (1u << ((enemy - 0xe68) / 64))))
     return 0;
