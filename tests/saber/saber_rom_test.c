@@ -77,6 +77,12 @@ enum {
   OLD_SABER_WALL_ACTIVE = 12,
   OLD_SABER_WALL_RECOVERY = 8,
   OLD_SABER_WALL_TOTAL = 20,
+  /* Dash record copied from oldsaber/saber-zero-variant:
+   * src/mmx_saber.c:362-379. */
+  OLD_SABER_DASH_STARTUP = 2,
+  OLD_SABER_DASH_ACTIVE = 10,
+  OLD_SABER_DASH_RECOVERY = 18,
+  OLD_SABER_DASH_TOTAL = 30,
   OLD_SABER_LAND_TOTAL = 18,
 };
 
@@ -1976,6 +1982,243 @@ static bool saber_test_grounded(void) {
   return (g_ram[0xbd3] & 4) || (g_ram[0xbd4] & 4);
 }
 
+typedef struct SaberDashSample {
+  unsigned x;
+  int vx;
+  uint8_t facing;
+} SaberDashSample;
+
+static int saber_signed_ram_word(const uint8_t *ram, unsigned offset) {
+  return (int)(int16_t)read_ram_word(ram, offset);
+}
+
+static unsigned start_saber_dash_right(unsigned extra_input) {
+  for (unsigned i = 0; i < 40; ++i) {
+    frame(extra_input | SNES_PAD_A | SNES_PAD_RIGHT);
+    if (g_ram[0xbaa] == 0x14 && saber_test_grounded()) return i + 1;
+  }
+  return 0;
+}
+
+static SaberDashSample saber_dash_sample(void) {
+  return (SaberDashSample){
+      read_ram_word(g_ram, 0x0bad),
+      saber_signed_ram_word(g_ram, 0x0bc2),
+      (uint8_t)(g_ram[0x0c11] & 0x40)};
+}
+
+static unsigned trace_native_dash(const char *fixture,
+                                  SaberDashSample samples[OLD_SABER_DASH_TOTAL]) {
+  unsigned started;
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  started = start_saber_dash_right(0);
+  if (!started) return 0;
+  for (unsigned i = 0; i < OLD_SABER_DASH_TOTAL; ++i) {
+    frame(SNES_PAD_A | SNES_PAD_RIGHT);
+    samples[i] = saber_dash_sample();
+  }
+  return started;
+}
+
+static unsigned trace_dash_slash_motion(
+    const char *fixture, unsigned direction,
+    SaberDashSample samples[OLD_SABER_DASH_TOTAL]) {
+  unsigned started;
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  started = start_saber_dash_right(0);
+  if (!started) return 0;
+  for (unsigned i = 0; i < OLD_SABER_DASH_TOTAL; ++i) {
+    frame(SNES_PAD_A | direction | (i == 0 ? SNES_PAD_Y : 0));
+    samples[i] = saber_dash_sample();
+  }
+  return started;
+}
+
+static MmxSaberPadPhase old_dash_phase(unsigned tick) {
+  return tick < OLD_SABER_DASH_STARTUP ? SABER_PHASE_STARTUP :
+      tick < OLD_SABER_DASH_STARTUP + OLD_SABER_DASH_ACTIVE ?
+          SABER_PHASE_ACTIVE : SABER_PHASE_RECOVERY;
+}
+
+static void saber_dash_checks(const char *fixture) {
+  const MmxSaberAttack *dash = MmxSaberAttackRecord(SABER_KIND_DASH, 0);
+  SaberDashSample native[OLD_SABER_DASH_TOTAL];
+  SaberDashSample slash[OLD_SABER_DASH_TOTAL];
+  SaberDashSample no_direction[OLD_SABER_DASH_TOTAL];
+  SaberDashSample opposite[OLD_SABER_DASH_TOTAL];
+  MmxSaberAttackSnapshot snapshot;
+  unsigned native_start;
+  unsigned slash_start;
+  unsigned no_direction_start;
+  unsigned opposite_start;
+  bool timing_ok = true;
+  bool motion_ok = true;
+  bool slot_ok = true;
+  bool startup_empty = true;
+  bool cue_ok = true;
+  bool damage_ok = false;
+  unsigned active_frames = 0;
+  unsigned damage_enemy = 0;
+
+  printf("reference: old Saber dash timing startup=%u active=%u recovery=%u "
+         "total=%u (oldsaber src/mmx_saber.c:362-379)\n",
+         OLD_SABER_DASH_STARTUP, OLD_SABER_DASH_ACTIVE,
+         OLD_SABER_DASH_RECOVERY, OLD_SABER_DASH_TOTAL);
+  check(dash && dash->visual_animation == 6 &&
+            dash->startup_ticks == OLD_SABER_DASH_STARTUP &&
+            dash->active_ticks == OLD_SABER_DASH_ACTIVE &&
+            dash->recovery_ticks == OLD_SABER_DASH_RECOVERY &&
+            dash->total_ticks == OLD_SABER_DASH_TOTAL && dash->damage == 3 &&
+            dash->bounds_pointer == MMX_SABER_DASH_BOUNDS_POINTER &&
+            MmxSaberSfxAttackClip(MMX_SABER_SFX_ATTACK_DASH) ==
+                MMX_SABER_SFX_CLIP_SABER_2,
+        "dash record keeps animation 6, old timing, $FF5C, damage 3, and saber_2");
+
+  native_start = trace_native_dash(fixture, native);
+  check(native_start != 0, "Highway starts a native grounded dash to the right");
+  printf("reference: Highway native dash start_frames=%u x/vx=", native_start);
+  for (unsigned i = 0; i < OLD_SABER_DASH_TOTAL; ++i)
+    printf("%u/%d%s", native[i].x, native[i].vx,
+           i + 1 == OLD_SABER_DASH_TOTAL ? "" : ",");
+  printf(" facing=0x%02X\n", native[0].facing);
+  check(native[0].vx == 0x0375,
+        "native Highway dash reference keeps the old X1 VX 0x0375");
+  check(!memcmp(g_snes->cart->rom + 0x37f40 + 28,
+                kOldSaberAirBounds + 28, 12),
+        "dash slash keeps the old $FF5C records in the $37F40 window");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  slash_start = start_saber_dash_right(0);
+  check(slash_start == native_start,
+        "dash slash starts from the same native dash frame as its control");
+  for (unsigned i = 0; i < OLD_SABER_DASH_TOTAL; ++i) {
+    frame(SNES_PAD_A | SNES_PAD_RIGHT | (i == 0 ? SNES_PAD_Y : 0));
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (snapshot.kind != SABER_KIND_DASH || snapshot.index != 0 ||
+        snapshot.anim_id != 6 || snapshot.tick != i ||
+        snapshot.phase != old_dash_phase(i))
+      timing_ok = false;
+    slash[i] = saber_dash_sample();
+    if (slash[i].x != native[i].x || slash[i].vx != native[i].vx)
+      motion_ok = false;
+    if (snapshot.phase == SABER_PHASE_STARTUP && tagged_projectiles() != 0)
+      startup_empty = false;
+    if (snapshot.phase == SABER_PHASE_ACTIVE) {
+      const unsigned slot = saber_active_slot();
+      ++active_frames;
+      if (!slot || tagged_projectiles() != 1 ||
+          read_ram_word(g_ram, slot + 8) != read_ram_word(g_ram, 0x0bb0) ||
+          read_ram_word(g_ram, slot + 0x20) !=
+              saber_record_pointer(&snapshot))
+        slot_ok = false;
+      if (!damage_enemy && slot) {
+        damage_enemy = empty_enemy_slot();
+        damage_ok = MmxSaberAttackDamage(g_ram, damage_enemy, slot, 1) == 3 &&
+            MmxSaberAttackDamage(g_ram, damage_enemy, slot, 1) == 0 &&
+            (MmxSaberAttackHitSlots() &
+             (uint16_t)(1u << ((damage_enemy - 0xe68) / 64)));
+      }
+    } else if (tagged_projectiles() != 0) {
+      slot_ok = false;
+    }
+    if (i == 0 && (MmxSaberAttackCueCount() != 1 ||
+                   MmxSaberSfxLastClip() != MMX_SABER_SFX_CLIP_SABER_2))
+      cue_ok = false;
+  }
+  printf("reference: dash slash active_frames=%u startup_empty=%u slot_ok=%u "
+         "damage_ok=%u\n", active_frames, startup_empty, slot_ok, damage_ok);
+  check(timing_ok,
+        "dash Y starts animation 6 with the old startup/active/recovery timing");
+  check(motion_ok,
+        "dash slash X/VX matches the plain native dash reference every frame");
+  check(active_frames == OLD_SABER_DASH_ACTIVE && startup_empty && slot_ok &&
+            damage_ok,
+        "dash ACTIVE owns one tagged slot and deals 3 once per swing");
+  check(cue_ok && MmxSaberAttackCueCount() == 1 &&
+            MmxSaberSfxLastClip() == MMX_SABER_SFX_CLIP_SABER_2,
+        "dash slash emits exactly one saber_2 cue");
+  frame(SNES_PAD_A | SNES_PAD_RIGHT);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.phase == SABER_PHASE_IDLE && snapshot.kind == SABER_KIND_NONE &&
+            tagged_projectiles() == 0,
+        "dash slash natural end releases its tagged slot");
+
+  no_direction_start = trace_dash_slash_motion(fixture, 0, no_direction);
+  opposite_start = trace_dash_slash_motion(fixture, SNES_PAD_LEFT, opposite);
+  bool opposite_ok = no_direction_start == native_start &&
+      opposite_start == native_start;
+  for (unsigned i = 0; i < OLD_SABER_DASH_TOTAL; ++i) {
+    if (no_direction[i].facing != opposite[i].facing ||
+        no_direction[i].vx != opposite[i].vx ||
+        no_direction[i].facing != native[i].facing ||
+        no_direction[i].vx != native[i].vx)
+      opposite_ok = false;
+  }
+  check(opposite_ok,
+        "holding LEFT during dash slash cannot turn or change native VX");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  check(start_saber_dash_right(0) != 0, "active-jump probe starts a native dash");
+  frame(SNES_PAD_A | SNES_PAD_RIGHT | SNES_PAD_Y);
+  frame(SNES_PAD_A | SNES_PAD_RIGHT);
+  frame(SNES_PAD_A | SNES_PAD_RIGHT);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_DASH && snapshot.phase == SABER_PHASE_ACTIVE,
+        "active-jump probe reaches dash ACTIVE");
+  frame(SNES_PAD_A | SNES_PAD_RIGHT | SNES_PAD_B);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.phase == SABER_PHASE_IDLE && snapshot.kind == SABER_KIND_NONE &&
+            !saber_test_grounded(),
+        "jump during dash ACTIVE exits that frame and leaves Zero airborne");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  check(start_saber_dash_right(0) != 0, "startup-jump probe starts a native dash");
+  frame(SNES_PAD_A | SNES_PAD_RIGHT | SNES_PAD_Y);
+  frame(SNES_PAD_A | SNES_PAD_RIGHT | SNES_PAD_B);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_DASH && snapshot.tick == 1 &&
+            snapshot.phase == SABER_PHASE_STARTUP && saber_test_grounded(),
+        "jump during dash STARTUP is masked and does not leave the slash");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  hold_charge_button(30, SNES_PAD_X);
+  const unsigned charge_before_dash = MmxZeroGetState().charge;
+  bool charge_never_decreased = charge_before_dash != 0;
+  bool shot_fired = false;
+  unsigned previous_charge = charge_before_dash;
+  check(start_saber_dash_right(SNES_PAD_X) != 0,
+        "charged dash probe starts while X remains held");
+  for (unsigned i = 0; i < 3; ++i) {
+    frame(SNES_PAD_A | SNES_PAD_RIGHT | SNES_PAD_X |
+          (i == 0 ? SNES_PAD_Y : 0));
+    if (MmxZeroGetState().charge < previous_charge)
+      charge_never_decreased = false;
+    previous_charge = MmxZeroGetState().charge;
+    if (native_projectiles() || MmxZeroGetState().burst) shot_fired = true;
+  }
+  snapshot = MmxSaberAttackSnapshotGet();
+  const unsigned charge_before_jump = MmxZeroGetState().charge;
+  frame(SNES_PAD_A | SNES_PAD_RIGHT | SNES_PAD_X | SNES_PAD_B);
+  if (MmxZeroGetState().charge < previous_charge)
+    charge_never_decreased = false;
+  if (native_projectiles() || MmxZeroGetState().burst) shot_fired = true;
+  check(snapshot.kind == SABER_KIND_DASH &&
+            snapshot.phase == SABER_PHASE_ACTIVE && charge_before_jump >=
+                charge_before_dash,
+        "charged dash probe reaches ACTIVE without consuming charge");
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(charge_never_decreased && snapshot.phase == SABER_PHASE_IDLE &&
+            !saber_test_grounded() && !shot_fired && native_projectiles() == 0,
+        "held X charge survives dash slash and jump-out without firing");
+  puts("ok: saber-dash");
+}
+
 static void saber_land_checks(const char *fixture) {
   const MmxSaberAttack *land =
       MmxSaberAttackRecord(SABER_KIND_SABER_LAND, 0);
@@ -2499,6 +2742,7 @@ int main(int argc, char **argv) {
   const bool saber_ground_combo = only && !strcmp(only, "saber-ground-combo");
   const bool saber_air = only && !strcmp(only, "saber-air");
   const bool saber_wall = only && !strcmp(only, "saber-wall");
+  const bool saber_dash = only && !strcmp(only, "saber-dash");
   const bool saber_land = only && !strcmp(only, "saber-land");
   const bool saber_ground_lifecycle = only && !strcmp(only, "saber-ground-lifecycle");
   const bool saber_ground_hit = only && !strcmp(only, "saber-ground-hit");
@@ -2506,7 +2750,7 @@ int main(int argc, char **argv) {
   const bool fixtures = only && !strcmp(only, "fixtures");
   const bool saber_enabled_group = saber_package || zero_extension ||
       saber_input || saber_ground_1 || saber_ground_combo ||
-      saber_air || saber_wall || saber_land || saber_ground_lifecycle ||
+      saber_air || saber_wall || saber_dash || saber_land || saber_ground_lifecycle ||
       saber_ground_hit;
   SpecialCounts upstream_specials = {0};
   if (saber_input) {
@@ -2533,6 +2777,9 @@ int main(int argc, char **argv) {
   } else if (saber_wall) {
     check(MmxSaberEnabled(), "saber-wall runs with the Saber package enabled");
     saber_wall_checks(fixture_dir);
+  } else if (saber_dash) {
+    check(MmxSaberEnabled(), "saber-dash runs with the Saber package enabled");
+    saber_dash_checks(fixture);
   } else if (saber_land) {
     check(MmxSaberEnabled(), "saber-land runs with the Saber package enabled");
     saber_land_checks(fixture);
@@ -2594,6 +2841,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-ground-combo") &&
       strcmp(only, "saber-air") &&
       strcmp(only, "saber-wall") &&
+      strcmp(only, "saber-dash") &&
       strcmp(only, "saber-land") &&
       strcmp(only, "saber-ground-lifecycle") &&
         strcmp(only, "saber-ground-hit") &&

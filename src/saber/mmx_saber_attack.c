@@ -581,14 +581,25 @@ static bool start_land_visual(uint8_t facing) {
 void MmxSaberAttackStep(bool saber_pressed, bool grounded, bool playable,
                         uint8_t native_facing,
                         uint8_t horizontal_direction) {
-  MmxSaberAttackStepWithWall(saber_pressed, grounded, false, playable,
-                             native_facing, horizontal_direction);
+  MmxSaberAttackStepWithWallAndDash(saber_pressed, grounded, false, false,
+                                    false, playable, native_facing,
+                                    horizontal_direction);
 }
 
 void MmxSaberAttackStepWithWall(bool saber_pressed, bool grounded,
                                 bool wall_clinging, bool playable,
                                 uint8_t native_facing,
                                 uint8_t horizontal_direction) {
+  MmxSaberAttackStepWithWallAndDash(saber_pressed, grounded, wall_clinging,
+                                    false, false, playable, native_facing,
+                                    horizontal_direction);
+}
+
+void MmxSaberAttackStepWithWallAndDash(bool saber_pressed, bool grounded,
+                                       bool wall_clinging, bool dash_active,
+                                       bool jump_pressed, bool playable,
+                                       uint8_t native_facing,
+                                       uint8_t horizontal_direction) {
   const MmxSaberAttack *attack;
 
   if (!playable) {
@@ -600,8 +611,10 @@ void MmxSaberAttackStepWithWall(bool saber_pressed, bool grounded,
   if (state.phase == SABER_PHASE_IDLE) {
     if (saber_pressed) {
       const MmxSaberPadKind kind = wall_clinging ? SABER_KIND_WALL :
-          (grounded ? SABER_KIND_GROUND1 : SABER_KIND_AIR);
-      const uint8_t facing = wall_clinging ? (native_facing & 0x40) :
+          (!grounded ? SABER_KIND_AIR :
+           (dash_active ? SABER_KIND_DASH : SABER_KIND_GROUND1));
+      const uint8_t facing = wall_clinging || kind == SABER_KIND_DASH ?
+          (native_facing & 0x40) :
           facing_for_direction(horizontal_direction, native_facing);
       start_attack(MmxSaberAttackRecord(kind, 0), facing);
     }
@@ -612,6 +625,22 @@ void MmxSaberAttackStepWithWall(bool saber_pressed, bool grounded,
   if (!attack || !attack->total_ticks) {
     clear_attack();
     return;
+  }
+
+  /* Old src/mmx_saber.c:saber_dash_attack_context only admitted a dash owner
+   * while grounded; its post-native dash_left_ground path retired the owner
+   * when native movement took Zero off a ledge.  A jump is the one voluntary
+   * escape for an established dash slash, and startup input is masked by the
+   * pure pad before it reaches this gate. */
+  if (attack->kind == SABER_KIND_DASH) {
+    if (!grounded) {
+      MmxSaberAttackExit(runtime_ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
+      return;
+    }
+    if (jump_pressed && state.phase != SABER_PHASE_STARTUP) {
+      MmxSaberAttackExit(runtime_ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
+      return;
+    }
   }
 
   /* The old landing visual has no combo priority: a Y edge cancels it and,
@@ -769,6 +798,7 @@ static void emit_pending_cue(void) {
 void MmxSaberAttackPlayerEnd(uint8_t *ram) {
   bool grounded;
   bool landed;
+  bool left_ground;
   bool start_land = false;
   uint8_t landing_facing = 0;
   const MmxSaberAttack *attack;
@@ -778,10 +808,20 @@ void MmxSaberAttackPlayerEnd(uint8_t *ram) {
 
   grounded = player_grounded(ram);
   landed = state.previous_grounded_valid && !state.previous_grounded && grounded;
+  left_ground = state.previous_grounded_valid && state.previous_grounded &&
+      !grounded;
   if (state.previous_grounded && !grounded && state.kind != SABER_KIND_AIR)
     state.air_landing_eligible = false;
   state.previous_grounded = grounded;
   state.previous_grounded_valid = true;
+
+  if (state.kind == SABER_KIND_DASH && state.phase != SABER_PHASE_IDLE &&
+      left_ground) {
+    /* Old src/mmx_saber.c:2294-2315 retires a dash owner after native
+     * dash-jump/ledge movement has already published the airborne state. */
+    MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
+    return;
+  }
 
   /* The grounded edge is observed here, after native movement, so this is
    * the sole landing owner.  An idle Saber can still claim the visual after

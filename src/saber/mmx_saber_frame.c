@@ -62,6 +62,12 @@ static bool native_wall_clinging(const uint8_t *ram) {
   return ram && ram[0x0baa] == 0x12;
 }
 
+static bool native_dash_active(const uint8_t *ram) {
+  /* Old src/mmx_saber.c:saber_dash_attack_context uses native action $14 as
+   * the grounded dash-start gate. */
+  return ram && ram[0x0baa] == 0x14;
+}
+
 static bool ground_swing(MmxSaberPadSaber saber) {
   return saber.phase != SABER_PHASE_IDLE &&
       (saber.kind == SABER_KIND_GROUND1 ||
@@ -150,10 +156,12 @@ static void pre_player(uint8_t *ram) {
     MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_HURT);
   else if (zero.dead_or_reset)
     MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_DEATH);
-  MmxSaberAttackStepWithWall(out.saber_pressed, zero.grounded,
-                             native_wall_clinging(ram),
-                             !zero.hurt && !zero.dead_or_reset, ram[0x0c11],
-                             native_horizontal_direction(ram));
+  MmxSaberAttackStepWithWallAndDash(
+      out.saber_pressed, zero.grounded, native_wall_clinging(ram),
+      native_dash_active(ram),
+      (out.native.action_pressed & MMX_SABER_NATIVE_JUMP_BIT) != 0,
+      !zero.hurt && !zero.dead_or_reset, ram[0x0c11],
+      native_horizontal_direction(ram));
   MmxSaberAttackRuntimeTick(ram);
   saber = MmxSaberAttackPadState(release_pending);
   out = MmxSaberComputePad(physical, read_native_pad(ram), saber, zero);

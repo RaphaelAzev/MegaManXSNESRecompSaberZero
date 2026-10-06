@@ -98,6 +98,14 @@ void MmxSaberAttackStepWithWall(bool saber_pressed, bool grounded,
                                 bool wall_clinging, bool playable,
                                 uint8_t native_facing,
                                 uint8_t horizontal_direction);
+/* Full native-context form.  dash_active is the old native action gate
+ * ($0BAA == $14); jump_pressed is the mapped native jump edge ($0BE3.7).
+ * Priority is wall > air > dash > ground. */
+void MmxSaberAttackStepWithWallAndDash(bool saber_pressed, bool grounded,
+                                       bool wall_clinging, bool dash_active,
+                                       bool jump_pressed, bool playable,
+                                       uint8_t native_facing,
+                                       uint8_t horizontal_direction);
 
 /* Locked native/render facing for the currently published swing. */
 uint8_t MmxSaberAttackFacing(void);
