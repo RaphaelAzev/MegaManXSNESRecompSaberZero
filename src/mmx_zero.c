@@ -156,10 +156,14 @@ bool MmxZeroLoad(const char *path) {
 }
 const uint16_t *MmxZeroColors(void) { return colors; }
 bool MmxZeroHasChargeArt(void) { return charge_poses != NULL; }
-const uint16_t *MmxZeroBodyColors(const MmxZeroState *s) {
+int MmxZeroChargeFlashPaletteIndex(const MmxZeroState *s) {
   if (!charge_poses || !s || s->active_x || s->swap_phase || s->slash ||
-      (s->charge < 25 && !(s->combo && s->saber_ready)) || (s->charge_phase & 2)) return colors + 16;
-  return charge_colors[s->saber_ready || s->charge >= 201 ? 2 : s->charge >= 141 ? 1 : 0];
+      (s->charge < 25 && !(s->combo && s->saber_ready)) || (s->charge_phase & 2)) return -1;
+  return s->saber_ready || s->charge >= 201 ? 2 : s->charge >= 141 ? 1 : 0;
+}
+const uint16_t *MmxZeroBodyColors(const MmxZeroState *s) {
+  int index = MmxZeroChargeFlashPaletteIndex(s);
+  return index < 0 ? colors + 16 : charge_colors[index];
 }
 const uint8_t *MmxZeroChargePose(const MmxZeroState *s) {
   if (!charge_poses || !s || s->active_x || s->swap_phase || s->slash || s->burst || s->combo || s->charge < 21) return NULL;

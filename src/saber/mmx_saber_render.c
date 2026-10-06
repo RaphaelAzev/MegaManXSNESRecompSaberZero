@@ -1,9 +1,70 @@
 #include "mmx_saber_render.h"
+#include "mmx_zero.h"
 
 #include <string.h>
 
+static uint16_t flash_palette[256];
+
 static void clear_overlay(MmxRenderPlayerOverlay *out) {
   if (out) memset(out, 0, sizeof(*out));
+}
+
+static unsigned color_luminance(uint16_t color) {
+  unsigned red = color & 31, green = (color >> 5) & 31, blue = (color >> 10) & 31;
+  return red * 299 + green * 587 + blue * 114;
+}
+
+/* Match oldsaber/saber-zero-variant:src/mmx_renderer.c:1138-1191. The
+ * donor palette keeps its role ordering while native Zero supplies the
+ * selected 16-entry charge palette. */
+static void map_flash_palette(uint16_t *mapped, const uint16_t *palette,
+                              uint16_t palette_count, const uint16_t *flash) {
+  uint16_t donor_order[256], flash_order[16];
+  unsigned donor_count = 0, groups = 0;
+  if (!mapped || !palette || !palette_count || !flash) return;
+  memcpy(mapped, palette, (size_t)palette_count * sizeof(*mapped));
+  mapped[0] = 0;
+  for (unsigned i = 1; i < palette_count; ++i) {
+    unsigned j = donor_count;
+    while (j && (color_luminance(palette[donor_order[j - 1]]) >
+                     color_luminance(palette[i]) ||
+                 (color_luminance(palette[donor_order[j - 1]]) ==
+                      color_luminance(palette[i]) && donor_order[j - 1] > i))) {
+      donor_order[j] = donor_order[j - 1];
+      --j;
+    }
+    donor_order[j] = (uint16_t)i;
+    ++donor_count;
+  }
+  for (unsigned i = 0; i < 16; ++i) {
+    unsigned j = i;
+    while (j && (color_luminance(flash[flash_order[j - 1]]) >
+                     color_luminance(flash[i]) ||
+                 (color_luminance(flash[flash_order[j - 1]]) ==
+                      color_luminance(flash[i]) && flash_order[j - 1] > i))) {
+      flash_order[j] = flash_order[j - 1];
+      --j;
+    }
+    flash_order[j] = (uint16_t)i;
+  }
+  for (unsigned rank = 0; rank < donor_count;) {
+    unsigned end = rank + 1;
+    unsigned luminance = color_luminance(palette[donor_order[rank]]);
+    while (end < donor_count &&
+           color_luminance(palette[donor_order[end]]) == luminance) ++end;
+    ++groups;
+    rank = end;
+  }
+  for (unsigned group = 0, rank = 0; rank < donor_count; ++group) {
+    unsigned end = rank + 1;
+    unsigned luminance = color_luminance(palette[donor_order[rank]]);
+    while (end < donor_count &&
+           color_luminance(palette[donor_order[end]]) == luminance) ++end;
+    unsigned flash_rank = groups > 1 ? group * 15 / (groups - 1) : 0;
+    for (unsigned i = rank; i < end; ++i)
+      mapped[donor_order[i]] = flash[flash_order[flash_rank]];
+    rank = end;
+  }
 }
 
 bool MmxSaberRenderResolveSnapshot(const MmxSaberAssets *assets,
@@ -57,6 +118,12 @@ bool MmxSaberRenderResolveSnapshot(const MmxSaberAssets *assets,
   out->blade_layer = frame->blade_layer;
   out->palette = MmxSaberAssetsPalette(assets);
   out->palette_count = MmxSaberAssetsPaletteCount(assets);
+  MmxZeroState zero = MmxZeroGetState();
+  if (MmxZeroChargeFlashPaletteIndex(&zero) >= 0) {
+    map_flash_palette(flash_palette, out->palette, out->palette_count,
+                      MmxZeroBodyColors(&zero));
+    out->palette = flash_palette;
+  }
   /* The old compositor's mirror expression is the final left-facing bit:
    * oldsaber/saber-zero-variant:src/mmx_renderer.c:1595-1596. */
   out->facing_left = (snapshot.facing & 0x40) != 0 ^

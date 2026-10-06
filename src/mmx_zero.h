@@ -63,6 +63,7 @@ int MmxZeroPoseOffsetY(const uint8_t ram[0x20000]);
 const uint8_t *MmxZeroPose(const uint8_t ram[0x20000], const MmxZeroState *snapshot);
 const uint8_t *MmxZeroBlade(const MmxZeroState *snapshot);
 const uint16_t *MmxZeroColors(void);
+int MmxZeroChargeFlashPaletteIndex(const MmxZeroState *snapshot);
 const uint16_t *MmxZeroBodyColors(const MmxZeroState *snapshot);
 const uint8_t *MmxZeroChargePose(const MmxZeroState *snapshot);
 bool MmxZeroHasChargeArt(void);
