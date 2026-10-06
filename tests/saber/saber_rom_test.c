@@ -741,7 +741,7 @@ static void fixture_checks(const char *fixture_dir) {
 }
 
 static struct {
-  unsigned pre_calls, end_calls, frame_counter;
+  unsigned pre_calls, tick_calls, end_calls, frame_counter;
   unsigned pre_frames[32], end_frames[32];
   uint16_t first_pre_x, last_end_x;
   bool have_end, order_ok, movement_seen, slide_precondition_seen;
@@ -757,6 +757,8 @@ static bool zero_extension_solid(const uint8_t *ram, int x, int y) {
 static void zero_extension_pre_player(uint8_t *ram) {
   unsigned call = zero_extension_observer.pre_calls++;
   if (call < 32) zero_extension_observer.pre_frames[call] = zero_extension_observer.frame_counter;
+  if (zero_extension_observer.pre_calls != zero_extension_observer.tick_calls + 1)
+    zero_extension_observer.order_ok = false;
   unsigned x = read_ram_word(ram, 0xbad);
   if (ram[0xbaa] == 0 && read_ram_word(ram, 0xbc8) == 0xa552)
     zero_extension_observer.slide_precondition_seen = true;
@@ -767,6 +769,8 @@ static void zero_extension_pre_player(uint8_t *ram) {
 static void zero_extension_player_end(uint8_t *ram) {
   unsigned call = zero_extension_observer.end_calls++;
   if (call < 32) zero_extension_observer.end_frames[call] = zero_extension_observer.frame_counter;
+  if (zero_extension_observer.tick_calls != zero_extension_observer.pre_calls)
+    zero_extension_observer.order_ok = false;
   unsigned x = read_ram_word(ram, 0xbad);
   if (zero_extension_observer.have_end && x != zero_extension_observer.last_end_x)
     zero_extension_observer.movement_seen = true;
@@ -774,6 +778,16 @@ static void zero_extension_player_end(uint8_t *ram) {
     zero_extension_observer.movement_seen = true;
   zero_extension_observer.last_end_x = (uint16_t)x;
   zero_extension_observer.have_end = true;
+}
+
+static bool zero_extension_tick_probe(const uint8_t *ram,
+                                      MmxZeroLegacyIntent *intent) {
+  (void)ram;
+  (void)intent;
+  ++zero_extension_observer.tick_calls;
+  if (zero_extension_observer.tick_calls != zero_extension_observer.pre_calls)
+    zero_extension_observer.order_ok = false;
+  return false;
 }
 
 static unsigned zero_extension_intent_calls;
@@ -806,6 +820,7 @@ static void zero_extension_checks(const char *fixture) {
   static const MmxZeroExtension hooks = {
     .pre_player = zero_extension_pre_player,
     .player_end = zero_extension_player_end,
+    .legacy_intent = zero_extension_tick_probe,
     .collision_rom = NULL,
   };
   static const MmxZeroExtension intent_hooks = {
@@ -831,6 +846,8 @@ static void zero_extension_checks(const char *fixture) {
   }
   check(zero_extension_observer.pre_calls == 30 && zero_extension_observer.end_calls == 30,
         "zero extension calls pre-player and player-end once per frame");
+  check(zero_extension_observer.tick_calls == 30,
+        "zero extension observes one legacy player tick per frame");
   bool frame_records_match = true;
   for (unsigned i = 0; i < 21; ++i)
     if (zero_extension_observer.pre_frames[i] != i || zero_extension_observer.end_frames[i] != i)
@@ -875,6 +892,59 @@ static void zero_extension_checks(const char *fixture) {
         "legacy intent callback returning false preserves mapped behavior");
 
   MmxZeroSetExtension(NULL);
+}
+
+static unsigned zero_legacy_slash_slot(void) {
+  for (unsigned d = 0x1228; d < 0x1428; d += 64)
+    if (g_ram[d] && read_ram_word(g_ram, d + 0x3e) == 0x5a53) return d;
+  return 0;
+}
+
+static unsigned zero_slash_request_calls;
+static bool zero_slash_request_pending;
+
+static bool zero_legacy_slash_request(const uint8_t *ram) {
+  (void)ram;
+  ++zero_slash_request_calls;
+  if (!zero_slash_request_pending) return false;
+  zero_slash_request_pending = false;
+  return true;
+}
+
+static void zero_legacy_slash_request_checks(const char *fixture) {
+  static const MmxZeroExtension request_hooks = {
+    .legacy_slash_request = zero_legacy_slash_request,
+  };
+  load_fixture(fixture);
+  zero_slash_request_calls = 0;
+  zero_slash_request_pending = true;
+  MmxZeroSetExtension(&request_hooks);
+  frame(0);
+  MmxZeroState started = MmxZeroGetState();
+  unsigned slot = zero_legacy_slash_slot();
+  check(zero_slash_request_calls == 1,
+        "legacy slash request callback runs once on the request frame");
+  check(started.slash == 1 && slot && read_ram_word(g_ram, slot + 0x3e) == 0x5a53,
+        "legacy slash request publishes one upstream $5A53 slot at slash 1");
+  frame(0);
+  check(MmxZeroGetState().slash == 2,
+        "legacy slash request ages to slash 2 on the next frame");
+  unsigned enemy = empty_enemy_slot();
+  check(MmxZeroDamage(g_ram, enemy, slot, 3) == 16 &&
+            MmxZeroDamage(g_ram, enemy, slot, 3) == 0,
+        "legacy requested slash keeps upstream one-hit damage");
+  MmxZeroSetExtension(NULL);
+
+  load_fixture(fixture);
+  zero_slash_request_calls = 0;
+  zero_slash_request_pending = false;
+  MmxZeroSetExtension(&request_hooks);
+  frame(0);
+  check(zero_slash_request_calls == 1 && !MmxZeroGetState().slash &&
+            !zero_legacy_slash_slot(),
+        "a false legacy slash request does not start a slash");
+  MmxZeroSetExtension(NULL);
+  puts("ok: zero-legacy-slash-request");
 }
 
 static void select_native_weapon(unsigned weapon) {
@@ -3442,6 +3512,13 @@ static void activate_zero(const char *x1_rom, const char *x3_rom,
   check(readable_file(assets), "isolated X3 Zero asset cache exists");
 }
 
+static void zero_hook_parity_checks(const char *fixture) {
+  check(!MmxSaberEnabled(), "zero-hook-parity runs with Saber disabled");
+  zero_extension_checks(fixture);
+  zero_legacy_slash_request_checks(fixture);
+  puts("ok: zero-hook-parity");
+}
+
 static void saber_assets_checks(const char *x1_rom, const char *x3_rom,
                                 const char *fixture, const char *assets) {
   const char *empty_cache = getenv("MMX_SABER_EMPTY_CACHE");
@@ -3737,6 +3814,7 @@ int main(int argc, char **argv) {
   const bool saber_ground_hit = only && !strcmp(only, "saber-ground-hit");
   const bool saber_render_snapshot = only && !strcmp(only, "saber-render-snapshot");
   const bool x3_zero_specials = only && !strcmp(only, "x3-zero-specials");
+  const bool zero_hook_parity = only && !strcmp(only, "zero-hook-parity");
   const bool fixtures = only && !strcmp(only, "fixtures");
   const bool saber_enabled_group = saber_package || zero_extension ||
       saber_input || saber_ground_1 || saber_ground_combo ||
@@ -3751,6 +3829,10 @@ int main(int argc, char **argv) {
     else
       x3_charge_checks(fixture, SNES_PAD_Y);
     activate_zero(argv[1], x3_rom, assets, true, true);
+  } else if (zero_hook_parity) {
+    check(set_test_env("SNESRECOMP_LLE_BOUNCE", "0") == 0,
+          "zero-hook-parity forces the interpreted task path");
+    activate_zero(argv[1], x3_rom, assets, false, false);
   } else {
     activate_zero(argv[1], x3_rom, assets, saber_enabled_group,
                   saber_enabled_group);
@@ -3800,6 +3882,8 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-render-snapshot runs with the Saber package enabled");
     saber_render_snapshot_checks(fixture);
+  } else if (zero_hook_parity) {
+    zero_hook_parity_checks(fixture);
   } else if (x3_zero_specials) {
     upstream_specials = x3_zero_specials_checks(fixture);
   } else if (fixtures) {
@@ -3858,6 +3942,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-buster-rules") &&
         strcmp(only, "saber-ground-hit") &&
         strcmp(only, "saber-render-snapshot") &&
+        strcmp(only, "zero-hook-parity") &&
         strcmp(only, "zero-extension") &&
         strcmp(only, "saber-assets") &&
         strcmp(only, "fixtures")) {

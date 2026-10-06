@@ -733,7 +733,13 @@ void MmxZeroPlayerTick(uint8_t r[0x20000]) {
     if (r[0xbd3] & 4) r[0xbab] = 0; /* Restart the ordinary idle action. */
     else if (r[0xbaa] == 8) MmxZeroAnimationStart(0xba8,5 + r[0xc17]);
   }
-  if (state.slash) {
+  bool legacy_slash_started = false;
+  if (!state.slash && extension && extension->legacy_slash_request &&
+      extension->legacy_slash_request(r)) {
+    state.burst = state.burst_end = 0;
+    legacy_slash_started = start_slash(r);
+  }
+  if (state.slash && !legacy_slash_started) {
     if (++state.slash > 44) {
       MmxZeroCancel(r);
       if (r[0xbd3] & 4) r[0xbab] = 0;

@@ -25,6 +25,7 @@ typedef struct MmxZeroExtension {
   unsigned (*charge_cap)(void);                       /* 0 = no cap */
   void (*collision_rom)(uint8_t *rom, size_t size);
   void (*state_reset)(uint8_t *ram);
+  bool (*legacy_slash_request)(const uint8_t *ram);
 } MmxZeroExtension;
 typedef struct MmxZeroState {
   uint16_t charge, slash, projectile;

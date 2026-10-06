@@ -65,6 +65,7 @@ static void hook(CpuState *cpu, uint32_t pc) {
     case 0x00d76a: MmxRendererRecordPiece(g_ram, cpu->D); break;
     case 0x01971f: case 0x019796: case 0x0198ff: if (MmxZeroActive()) cpu->A |= 8; break;
     case 0x01815c:
+      MmxZeroExtPrePlayer(g_ram);
       MmxZeroSlideTick(g_ram);
       MmxZeroMovementTick(g_ram);
       MmxWeaponsPlayerTick(g_ram);
@@ -72,7 +73,7 @@ static void hook(CpuState *cpu, uint32_t pc) {
       break;
     case 0x019d47: MmxWeaponsMarkShot(g_ram, cpu->X); break;
     case 0x0194af: MmxWeaponsSelectShot(g_ram, cpu->X); break;
-    case 0x018165: MmxZeroPlayerEnd(g_ram); break;
+    case 0x018165: MmxZeroPlayerEnd(g_ram); MmxZeroExtPlayerEnd(g_ram); break;
     case 0x0491dc: MmxWeaponsTerrainEnd(g_ram,cpu->D); break;
     case 0x01898e: case 0x018999: case 0x018965: {
       static const struct { unsigned from, to; } slide[] = {
