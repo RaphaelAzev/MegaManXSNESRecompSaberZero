@@ -12,6 +12,17 @@ typedef struct MmxZeroModernState {
   uint8_t enabled, jump_used, dash_used, dash_ticks;
   uint8_t dash_facing, slash_buffer, hit_phase, reserved;
 } MmxZeroModernState;
+typedef struct MmxZeroLegacyIntent {
+  bool held, pressed, released;
+} MmxZeroLegacyIntent;
+typedef struct MmxZeroExtension {
+  void (*pre_player)(uint8_t *ram);                 /* $815C, before SlideTick */
+  void (*player_end)(uint8_t *ram);                 /* $8165, after MmxZeroPlayerEnd */
+  unsigned (*weapon_tick)(uint8_t *ram, unsigned d, unsigned value);
+  unsigned (*damage)(uint8_t *ram, unsigned d, unsigned x, unsigned value);
+  unsigned (*hitbox)(const uint8_t *ram, unsigned d, unsigned x, unsigned value);
+  bool (*legacy_intent)(const uint8_t *ram, MmxZeroLegacyIntent *intent); /* true = override */
+} MmxZeroExtension;
 typedef struct MmxZeroState {
   uint16_t charge, slash, projectile;
   /* Reuses the formerly unused cooldown byte without changing save layout. */
@@ -29,6 +40,12 @@ typedef struct MmxZeroState {
   uint8_t hp[2], hp_valid, hp_max; /* Index 0 = Zero, 1 = X; shared maximum. */
   MmxZeroModernState modern;
 } MmxZeroState;
+/* The extension belongs to its owner and survives MmxZeroDisable() and
+ * MmxZeroResetState(); the owner must clear it with MmxZeroSetExtension(NULL)
+ * during its own reset. */
+void MmxZeroSetExtension(const MmxZeroExtension *ext);
+void MmxZeroExtPrePlayer(uint8_t *ram);
+void MmxZeroExtPlayerEnd(uint8_t *ram);
 bool MmxZeroLoad(const char *path);
 void MmxZeroDisable(void);
 bool MmxZeroEnabled(void);

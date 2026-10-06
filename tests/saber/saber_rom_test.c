@@ -105,6 +105,144 @@ static void release_charge(unsigned frames) {
   frame(0);
 }
 
+static unsigned read_ram_word(const uint8_t *ram, unsigned offset) {
+  return ram[offset] | (unsigned)ram[offset + 1] << 8;
+}
+
+static struct {
+  unsigned pre_calls, end_calls, frame_counter;
+  unsigned pre_frames[32], end_frames[32];
+  uint16_t first_pre_x, last_end_x;
+  bool have_end, order_ok, movement_seen, slide_precondition_seen;
+} zero_extension_observer;
+
+static bool zero_extension_solid(const uint8_t *ram, int x, int y) {
+  (void)ram;
+  (void)x;
+  (void)y;
+  return true;
+}
+
+static void zero_extension_pre_player(uint8_t *ram) {
+  unsigned call = zero_extension_observer.pre_calls++;
+  if (call < 32) zero_extension_observer.pre_frames[call] = zero_extension_observer.frame_counter;
+  unsigned x = read_ram_word(ram, 0xbad);
+  if (ram[0xbaa] == 0 && read_ram_word(ram, 0xbc8) == 0xa552)
+    zero_extension_observer.slide_precondition_seen = true;
+  if (!zero_extension_observer.have_end) zero_extension_observer.first_pre_x = (uint16_t)x;
+  else if (x != zero_extension_observer.last_end_x) zero_extension_observer.order_ok = false;
+}
+
+static void zero_extension_player_end(uint8_t *ram) {
+  unsigned call = zero_extension_observer.end_calls++;
+  if (call < 32) zero_extension_observer.end_frames[call] = zero_extension_observer.frame_counter;
+  unsigned x = read_ram_word(ram, 0xbad);
+  if (zero_extension_observer.have_end && x != zero_extension_observer.last_end_x)
+    zero_extension_observer.movement_seen = true;
+  if (!zero_extension_observer.have_end && x != zero_extension_observer.first_pre_x)
+    zero_extension_observer.movement_seen = true;
+  zero_extension_observer.last_end_x = (uint16_t)x;
+  zero_extension_observer.have_end = true;
+}
+
+static unsigned zero_extension_intent_calls;
+static bool zero_extension_saw_mapped_charge;
+
+static bool zero_extension_intent_override(const uint8_t *ram, MmxZeroLegacyIntent *intent) {
+  if ((ram[0xbdf] & 64) || (ram[0xbe3] & 64)) zero_extension_saw_mapped_charge = true;
+  unsigned call = zero_extension_intent_calls++;
+  if (call < 30) {
+    intent->held = true;
+    intent->pressed = false;
+    intent->released = false;
+  } else {
+    intent->held = false;
+    intent->pressed = false;
+    intent->released = true;
+  }
+  return true;
+}
+
+static bool zero_extension_intent_reject(const uint8_t *ram, MmxZeroLegacyIntent *intent) {
+  if ((ram[0xbdf] & 64) || (ram[0xbe3] & 64)) zero_extension_saw_mapped_charge = true;
+  intent->held = true;
+  intent->pressed = false;
+  intent->released = false;
+  return false;
+}
+
+static void zero_extension_checks(const char *fixture) {
+  static const MmxZeroExtension hooks = {
+    .pre_player = zero_extension_pre_player,
+    .player_end = zero_extension_player_end,
+  };
+  static const MmxZeroExtension intent_hooks = {
+    .legacy_intent = zero_extension_intent_override,
+  };
+  static const MmxZeroExtension reject_hooks = {
+    .legacy_intent = zero_extension_intent_reject,
+  };
+
+  load_fixture(fixture);
+  memset(&zero_extension_observer, 0, sizeof(zero_extension_observer));
+  zero_extension_observer.order_ok = true;
+  MmxZeroSetTerrainQuery(zero_extension_solid);
+  g_ram[0xbaa] = 0;
+  g_ram[0xbc8] = 0x52;
+  g_ram[0xbc9] = 0xa5;
+  MmxZeroSetExtension(&hooks);
+  for (unsigned i = 0; i < 30; ++i) {
+    zero_extension_observer.frame_counter = i;
+    frame(SNES_PAD_RIGHT);
+  }
+  check(zero_extension_observer.pre_calls == 30 && zero_extension_observer.end_calls == 30,
+        "zero extension calls pre-player and player-end once per frame");
+  bool frame_records_match = true;
+  for (unsigned i = 0; i < 30; ++i)
+    if (zero_extension_observer.pre_frames[i] != i || zero_extension_observer.end_frames[i] != i)
+      frame_records_match = false;
+  check(frame_records_match, "zero extension callbacks record each frame in order");
+  check(zero_extension_observer.order_ok && zero_extension_observer.movement_seen &&
+            zero_extension_observer.slide_precondition_seen,
+        "zero extension pre-player runs before native rightward movement");
+
+  MmxZeroRegisterHooks();
+  MmxZeroSetExtension(NULL);
+  load_fixture(fixture);
+  hold_charge(30);
+  unsigned physical_charge = MmxZeroGetState().charge;
+  frame(0);
+  unsigned physical_class = projectiles(SABER_TIER_4_RELEASE_CLASS);
+  check(physical_charge == 30 && physical_class == 1,
+        "physical 30-frame charge establishes the legacy release reference");
+
+  load_fixture(fixture);
+  zero_extension_intent_calls = 0;
+  zero_extension_saw_mapped_charge = false;
+  MmxZeroSetExtension(&intent_hooks);
+  for (unsigned i = 0; i < 30; ++i) frame(0);
+  unsigned virtual_charge = MmxZeroGetState().charge;
+  check(!zero_extension_saw_mapped_charge && virtual_charge == physical_charge,
+        "legacy intent override charges without a physical charge button");
+  frame(0);
+  check(projectiles(SABER_TIER_4_RELEASE_CLASS) == physical_class &&
+            !projectiles(2) && !projectiles(3),
+        "legacy released intent fires the physical release shot class");
+
+  load_fixture(fixture);
+  zero_extension_intent_calls = 0;
+  zero_extension_saw_mapped_charge = false;
+  MmxZeroSetExtension(&reject_hooks);
+  hold_charge(30);
+  unsigned rejected_charge = MmxZeroGetState().charge;
+  frame(0);
+  check(zero_extension_saw_mapped_charge && rejected_charge == physical_charge &&
+            projectiles(SABER_TIER_4_RELEASE_CLASS) == physical_class,
+        "legacy intent callback returning false preserves mapped behavior");
+
+  MmxZeroSetExtension(NULL);
+}
+
 static void select_native_weapon(unsigned weapon) {
   check(weapon >= 1 && weapon <= 8, "native weapon index is valid");
   g_ram[0x1f85 + weapon * 2] = 0;
@@ -469,8 +607,18 @@ int main(int argc, char **argv) {
   g_spc_player->initialize(g_spc_player);
 
   const bool saber_package = only && !strcmp(only, "saber-package");
-  activate_zero(argv[1], x3_rom, assets, saber_package);
-  if (saber_package) {
+  const bool zero_extension = only && !strcmp(only, "zero-extension");
+  activate_zero(argv[1], x3_rom, assets, saber_package || zero_extension);
+  if (zero_extension) {
+    check(MmxSaberEnabled(), "zero-extension runs with the Saber package enabled");
+    zero_extension_checks(fixture);
+    x3_plain_checks(fixture);
+    x3_charge_checks(fixture);
+    x3_hurt_checks(fixture);
+    x3_jump_checks(fixture);
+    x3_post_charge_checks(fixture);
+    puts("ok: zero-extension");
+  } else if (saber_package) {
     check(MmxSaberEnabled(), "saber-package reports the Saber plugin enabled");
     x3_plain_checks(fixture);
     x3_charge_checks(fixture);
@@ -485,13 +633,15 @@ int main(int argc, char **argv) {
     if (!only) {
       activate_zero(argv[1], x3_rom, assets, true);
       check(MmxSaberEnabled(), "default run enables the Saber package group");
+      zero_extension_checks(fixture);
       x3_plain_checks(fixture);
       x3_charge_checks(fixture);
       puts("ok: saber-package");
     }
     if (only && strcmp(only, "x3-plain") && strcmp(only, "x3-charge") &&
         strcmp(only, "x3-hurt") && strcmp(only, "x3-jump") &&
-        strcmp(only, "x3-post-charge") && strcmp(only, "x1-native")) {
+        strcmp(only, "x3-post-charge") && strcmp(only, "x1-native") &&
+        strcmp(only, "saber-package") && strcmp(only, "zero-extension")) {
       fprintf(stderr, "FAIL: unknown MMX_SABER_TEST_ONLY group: %s\n", only);
       return 1;
     }

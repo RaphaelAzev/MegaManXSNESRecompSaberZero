@@ -13,6 +13,7 @@ static uint16_t hud_colors[16];
 static uint8_t animation[MMX_ZERO_ANIMATION_BYTES];
 static uint8_t muzzle[MMX_ZERO_MUZZLE_BYTES];
 static MmxZeroState state;
+static const MmxZeroExtension *extension;
 _Static_assert(offsetof(MmxZeroState, anim_offset) == MMX_ZERO_LEGACY_STATE_SIZE,
                "Keep the v4 combat-state prefix readable");
 _Static_assert(offsetof(MmxZeroState, burst_offset) == MMX_ZERO_ANIMATION_STATE_SIZE,
@@ -33,6 +34,13 @@ static bool modern_behavior;
 void MmxZeroSetModern(bool enabled) { modern_behavior = enabled; }
 bool MmxZeroModern(void) { return MmxZeroActive() && modern_behavior; }
 void MmxZeroSetStartCharacter(bool x) { start_x = x; }
+void MmxZeroSetExtension(const MmxZeroExtension *ext) { extension = ext; }
+void MmxZeroExtPrePlayer(uint8_t *ram) {
+  if (extension && extension->pre_player) extension->pre_player(ram);
+}
+void MmxZeroExtPlayerEnd(uint8_t *ram) {
+  if (extension && extension->player_end) extension->player_end(ram);
+}
 void MmxZeroResetState(void) {
   memset(&state, 0, sizeof(state)); state.active_x = start_x;
   state.modern.enabled = modern_behavior;
@@ -643,6 +651,18 @@ static bool start_slash(uint8_t *r) {
   putword(r + d + 0x3e, 0x5a53); ++r[0xbdd];
   return true;
 }
+static MmxZeroLegacyIntent legacy_intent_from_mapped(const uint8_t *r) {
+  MmxZeroLegacyIntent intent = {
+    (r[0xbdf] & 64) != 0,
+    (r[0xbe3] & 64) != 0,
+    (r[0xbdf] & 64) == 0,
+  };
+  if (extension && extension->legacy_intent) {
+    MmxZeroLegacyIntent override = intent;
+    if (extension->legacy_intent(r, &override)) intent = override;
+  }
+  return intent;
+}
 void MmxZeroPlayerTick(uint8_t r[0x20000]) {
   if (!MmxZeroActive() || !r) return;
   unsigned action = r[0xbaa];
@@ -657,7 +677,7 @@ void MmxZeroPlayerTick(uint8_t r[0x20000]) {
   if (!playable && stage && action == 0x0e && state.charge &&
       !state.combo && !state.burst && !state.slash) return;
   if (!playable) { MmxZeroCancel(r); return; }
-  bool held = (r[0xbdf] & 64) != 0, pressed = (r[0xbe3] & 64) != 0;
+  bool pressed = (r[0xbe3] & 64) != 0;
   if (modern_behavior) {
     /* Movement takes priority over an ongoing direct swing. Preserve the
      * native jump and ladder inputs instead of masking them into a forced
@@ -687,6 +707,7 @@ void MmxZeroPlayerTick(uint8_t r[0x20000]) {
     r[0xbdf] &= (uint8_t)~64; r[0xbe3] &= (uint8_t)~64;
     goto slash_update;
   }
+  MmxZeroLegacyIntent intent = legacy_intent_from_mapped(r);
   if (state.charge >= 21 || (state.combo && state.saber_ready))
     state.charge_phase = (uint8_t)((state.charge_phase + 1) % 88);
   else state.charge_phase = 0;
@@ -702,7 +723,7 @@ void MmxZeroPlayerTick(uint8_t r[0x20000]) {
       if (r[0xbd3] & 4) r[0xbab] = 0;
       return;
     }
-  } else if (!state.burst && state.combo && pressed) {
+  } else if (!state.burst && state.combo && intent.pressed) {
     if (state.combo == 1) {
       if (free_projectile(r) && !r[0x1f0d]) {
         state.combo = state.saber_ready ? 2 : 0;
@@ -712,7 +733,7 @@ void MmxZeroPlayerTick(uint8_t r[0x20000]) {
       start_slash(r);
     }
   } else if (!state.burst && !state.combo) {
-    if (held) {
+    if (intent.held) {
       if (state.charge < 201) ++state.charge;
       /* Feed X1's ordinary charging visuals at Zero's measured thresholds.
        * Its release command is selected explicitly below; X1 special weapons
@@ -722,7 +743,7 @@ void MmxZeroPlayerTick(uint8_t r[0x20000]) {
       else if (state.charge == 81) r[0xbff] = 0x51;
       else if (state.charge > 81) r[0xbff] = 0x40;
       if (state.charge >= 141) { r[0xc03] = 1; r[0xc2a] = 4; }
-    } else {
+    } else if (intent.released) {
       unsigned tier = MmxZeroChargeTier(&state);
       if (tier >= 8 && free_projectile(r) && !r[0x1f0d]) {
         state.combo = 1; state.saber_ready = tier == 10;
@@ -826,23 +847,35 @@ void MmxZeroPlayerEnd(uint8_t r[0x20000]) {
   }
 }
 unsigned MmxZeroWeaponTick(uint8_t r[0x20000], unsigned d, unsigned active) {
-  if (!own_projectile(r, d)) return active;
-  if (!poses || d != state.projectile || !state.slash) {
-    memset(r + d, 0, 64); if (r[0xbdd]) --r[0xbdd];
+  unsigned value = active;
+  if (own_projectile(r, d)) {
+    if (!poses || d != state.projectile || !state.slash) {
+      memset(r + d, 0, 64); if (r[0xbdd]) --r[0xbdd];
+    }
+    value = 0; /* Our transient melee object has no native projectile update. */
   }
-  return 0; /* Our transient melee object has no native projectile update. */
+  return extension && extension->weapon_tick ?
+      extension->weapon_tick(r, d, value) : value;
 }
 unsigned MmxZeroDamage(uint8_t r[0x20000], unsigned enemy, unsigned projectile, unsigned original) {
-  if (!poses || !own_projectile(r, projectile) || projectile != state.projectile ||
-      enemy < 0xe68 || enemy >= 0x1228 || (enemy & 63) != 0x28 || !original || (original & 128)) return original;
-  unsigned bit = 1u << ((enemy - 0xe68) / 64);
-  if (state.hit_slots & bit) return 0;
-  state.hit_slots |= (uint16_t)bit;
-  return modern_behavior ? 3 : 16;
+  unsigned value = original;
+  if (poses && own_projectile(r, projectile) && projectile == state.projectile &&
+      enemy >= 0xe68 && enemy < 0x1228 && (enemy & 63) == 0x28 && original && !(original & 128)) {
+    unsigned bit = 1u << ((enemy - 0xe68) / 64);
+    if (state.hit_slots & bit) value = 0;
+    else {
+      state.hit_slots |= (uint16_t)bit;
+      value = modern_behavior ? 3 : 16;
+    }
+  }
+  return extension && extension->damage ?
+      extension->damage(r, enemy, projectile, value) : value;
 }
 unsigned MmxZeroHitbox(const uint8_t r[0x20000], unsigned enemy, unsigned projectile, unsigned original) {
+  unsigned value = original;
   if (poses && own_projectile(r, projectile) && projectile == state.projectile &&
       enemy >= 0xe68 && enemy < 0x1228 && (enemy & 63) == 0x28 &&
-      (state.hit_slots & (1u << ((enemy - 0xe68) / 64)))) return 0;
-  return original;
+      (state.hit_slots & (1u << ((enemy - 0xe68) / 64)))) value = 0;
+  return extension && extension->hitbox ?
+      extension->hitbox(r, enemy, projectile, value) : value;
 }
