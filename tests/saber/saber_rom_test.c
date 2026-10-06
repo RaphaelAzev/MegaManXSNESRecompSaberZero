@@ -496,8 +496,17 @@ static void native_x1_checks(const char *fixture) {
 
 static const RecompLauncherCModProvider *g_mod_provider;
 
+static int set_test_env(const char *name, const char *value) {
+#ifdef _WIN32
+  return _putenv_s(name, value);
+#else
+  return setenv(name, value, 1);
+#endif
+}
+
 static void activate_zero(const char *x1_rom, const char *x3_rom,
-                          const char *assets, bool saber_package) {
+                          const char *assets, bool saber_package,
+                          bool expect_saber_assets) {
   const char *root = getenv("MMX_COOP_LAUNCHER_ROOT");
   const char *package = saber_package ? "megaman-x.character.saber-zero"
                                       : "megaman-x.character.zero";
@@ -538,10 +547,37 @@ static void activate_zero(const char *x1_rom, const char *x3_rom,
   check(MmxZeroEnabled() && MmxZeroActive() && !MmxZeroModern(),
         saber_package ? "Saber package activates the legacy X3 controller" :
                         "upstream Zero package activates the legacy X3 controller");
-  check(saber_package ? MmxSaberEnabled() : !MmxSaberEnabled(),
-        saber_package ? "Saber package enables the Saber plugin" :
-                        "upstream Zero package leaves the Saber plugin disabled");
+  check(expect_saber_assets ? MmxSaberEnabled() : !MmxSaberEnabled(),
+        expect_saber_assets ? "Saber package enables the Saber plugin" :
+                              "missing Saber assets leave the Saber plugin disabled");
+  if (saber_package && expect_saber_assets)
+    check(MmxSaberAssetsLoaded() && MmxSaberRideAssetsLoaded(),
+          "Saber loader reports both private caches loaded");
   check(readable_file(assets), "isolated X3 Zero asset cache exists");
+}
+
+static void saber_assets_checks(const char *x1_rom, const char *x3_rom,
+                                const char *fixture, const char *assets) {
+  const char *empty_cache = getenv("MMX_SABER_EMPTY_CACHE");
+  check(empty_cache && empty_cache[0], "runner supplies an empty Saber cache");
+
+  activate_zero(x1_rom, x3_rom, assets, true, true);
+  check(MmxSaberAssetsLoaded() && MmxSaberRideAssetsLoaded() &&
+            MmxSaberEnabled(),
+        "Saber asset activation enables both caches");
+
+  check(set_test_env("MMX_SABER_TEST_CACHE", empty_cache) == 0,
+        "Saber test redirects to the empty cache");
+  check(set_test_env("MMX_SABER_TEST_CACHE_ONLY", "1") == 0,
+        "Saber missing-cache run disables message boxes");
+  snes_mod_runtime_activate_plugins_c();
+  check(MmxZeroEnabled() && MmxZeroActive() && !MmxZeroModern(),
+        "X3 Zero remains active when Saber caches are missing");
+  check(!MmxSaberEnabled() && !MmxSaberAssetsLoaded() &&
+            !MmxSaberRideAssetsLoaded(),
+        "missing Saber caches leave Saber disabled");
+  x3_plain_checks(fixture);
+  puts("ok: saber-assets");
 }
 
 int main(int argc, char **argv) {
@@ -608,7 +644,8 @@ int main(int argc, char **argv) {
 
   const bool saber_package = only && !strcmp(only, "saber-package");
   const bool zero_extension = only && !strcmp(only, "zero-extension");
-  activate_zero(argv[1], x3_rom, assets, saber_package || zero_extension);
+  activate_zero(argv[1], x3_rom, assets, saber_package || zero_extension,
+                saber_package || zero_extension);
   if (zero_extension) {
     check(MmxSaberEnabled(), "zero-extension runs with the Saber package enabled");
     zero_extension_checks(fixture);
@@ -631,17 +668,20 @@ int main(int argc, char **argv) {
     if (!only || !strcmp(only, "x3-post-charge")) x3_post_charge_checks(fixture);
     if (!only || !strcmp(only, "x1-native")) native_x1_checks(fixture);
     if (!only) {
-      activate_zero(argv[1], x3_rom, assets, true);
+      activate_zero(argv[1], x3_rom, assets, true, true);
       check(MmxSaberEnabled(), "default run enables the Saber package group");
       zero_extension_checks(fixture);
       x3_plain_checks(fixture);
       x3_charge_checks(fixture);
       puts("ok: saber-package");
     }
-    if (only && strcmp(only, "x3-plain") && strcmp(only, "x3-charge") &&
+    if (only && !strcmp(only, "saber-assets")) {
+      saber_assets_checks(argv[1], x3_rom, fixture, assets);
+    } else if (only && strcmp(only, "x3-plain") && strcmp(only, "x3-charge") &&
         strcmp(only, "x3-hurt") && strcmp(only, "x3-jump") &&
         strcmp(only, "x3-post-charge") && strcmp(only, "x1-native") &&
-        strcmp(only, "saber-package") && strcmp(only, "zero-extension")) {
+        strcmp(only, "saber-package") && strcmp(only, "zero-extension") &&
+        strcmp(only, "saber-assets")) {
       fprintf(stderr, "FAIL: unknown MMX_SABER_TEST_ONLY group: %s\n", only);
       return 1;
     }

@@ -50,6 +50,8 @@ if [[ -d "$cache_source" ]]; then
 else
   mkdir -p "$run_dir/cache"
 fi
+empty_cache="$run_dir/empty-cache"
+mkdir -p "$empty_cache"
 if [[ -f "$build_dir/SDL3.dll" ]]; then
   cp "$build_dir/SDL3.dll" "$run_dir/SDL3.dll"
 fi
@@ -68,6 +70,8 @@ set +e
     MMX_ZERO_TEST_FIXTURE="$fixture" \
     MMX_ZERO_TEST_ASSETS="$asset_path" \
     MMX_SABER_TEST_CACHE="$run_dir/cache" \
+    MMX_SABER_EMPTY_CACHE="$empty_cache" \
+    MMX_SABER_TEST_CACHE_ONLY="1" \
     "$test_exe" "$x1_rom"
 ) 2>&1 | tee "$log_path"
 test_exit="${PIPESTATUS[0]}"
