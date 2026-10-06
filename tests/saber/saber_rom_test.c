@@ -7,6 +7,7 @@
 #include "mmx_zero.h"
 #include "mmx_weapons.h"
 #include "saber/mmx_saber_plugin.h"
+#include "saber/mmx_saber_sfx.h"
 #include "mod_runtime.h"
 #include "recomp_launcher.h"
 #include "snes/interp_bridge.h"
@@ -516,8 +517,11 @@ static void activate_zero(const char *x1_rom, const char *x3_rom,
     check(readable_file(x1_rom), "X1 ROM exists");
     check(readable_file(x3_rom), "X3 ROM exists");
     check(readable_file(getenv("MMX_ZERO_TEST_FIXTURE")), "save0.sav exists");
-    check(snes_mod_runtime_initialize_c(root, "megaman-x-us", kMmxRomDigest),
-          "Saber catalog initializes");
+    if (!snes_mod_runtime_initialize_c(root, "megaman-x-us", kMmxRomDigest)) {
+      fprintf(stderr, "Saber catalog error: %s\n",
+              snes_mod_runtime_last_error_c());
+      check(0, "Saber catalog initializes");
+    }
     g_mod_provider = snes_mod_runtime_launcher_provider_c();
     check(g_mod_provider && g_mod_provider->feature_enable &&
               g_mod_provider->feature_set_option &&
@@ -560,12 +564,53 @@ static void activate_zero(const char *x1_rom, const char *x3_rom,
 static void saber_assets_checks(const char *x1_rom, const char *x3_rom,
                                 const char *fixture, const char *assets) {
   const char *empty_cache = getenv("MMX_SABER_EMPTY_CACHE");
+  const char *cache = getenv("MMX_SABER_TEST_CACHE");
+  char sfx_path[4096];
+  static const MmxSaberSfxAttackCue kCues[] = {
+    MMX_SABER_SFX_ATTACK_GROUND_SLASH_1,
+    MMX_SABER_SFX_ATTACK_GROUND_SLASH_2,
+    MMX_SABER_SFX_ATTACK_GROUND_SLASH_3,
+    MMX_SABER_SFX_ATTACK_X3_FINISHER,
+    MMX_SABER_SFX_ATTACK_AIR,
+    MMX_SABER_SFX_ATTACK_WALL,
+    MMX_SABER_SFX_ATTACK_DASH
+  };
+  static const unsigned kExpectedClips[] = {
+    MMX_SABER_SFX_CLIP_SABER_1,
+    MMX_SABER_SFX_CLIP_SABER_2,
+    MMX_SABER_SFX_CLIP_SABER_3,
+    MMX_SABER_SFX_CLIP_SABER_3,
+    MMX_SABER_SFX_CLIP_SABER_1,
+    MMX_SABER_SFX_CLIP_SABER_1,
+    MMX_SABER_SFX_CLIP_SABER_2
+  };
   check(empty_cache && empty_cache[0], "runner supplies an empty Saber cache");
+  check(cache && cache[0] &&
+            snprintf(sfx_path, sizeof(sfx_path), "%s/mmx-source/%s", cache,
+                     "saber-sfx-v2.bin") < (int)sizeof(sfx_path),
+        "runner supplies an isolated Saber SFX cache path");
 
   activate_zero(x1_rom, x3_rom, assets, true, true);
   check(MmxSaberAssetsLoaded() && MmxSaberRideAssetsLoaded() &&
             MmxSaberWaveLoaded() && MmxSaberEnabled(),
         "Saber asset activation enables sprite and wave caches");
+  check(MmxSaberSfxLoaded(), "Saber SFX sidecar loads at activation");
+  check(MmxSaberSfxVolume() == 50,
+        "Saber SFX package option defaults to 50 percent");
+  for (unsigned i = 0; i < sizeof(kCues) / sizeof(kCues[0]); ++i) {
+    MmxSaberSfxPlayForAttack(kCues[i]);
+    check(MmxSaberSfxLastClip() == kExpectedClips[i],
+          "Saber attack cue maps to the expected clip");
+  }
+  check(MmxSaberSfxRegisteredClipCount() == MMX_SABER_SFX_CLIP_COUNT,
+        "Saber SFX clips register lazily on first cue");
+
+  check(remove(sfx_path) == 0, "temporary SFX cache can be removed");
+  snes_mod_runtime_activate_plugins_c();
+  check(MmxSaberEnabled() && MmxSaberAssetsLoaded() &&
+            MmxSaberRideAssetsLoaded() && MmxSaberWaveLoaded(),
+        "missing SFX cache does not disable Saber");
+  check(!MmxSaberSfxLoaded(), "missing SFX cache leaves SFX unavailable only");
 
   check(set_test_env("MMX_SABER_TEST_CACHE", empty_cache) == 0,
         "Saber test redirects to the empty cache");

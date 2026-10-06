@@ -23,6 +23,23 @@ if [[ $# -gt 1 ]]; then
   printf 'usage: %s [X1_ROM]\n' "$0" >&2
   exit 2
 fi
+# saber-assets deletes cache files and reactivates plugins, so the test binary
+# only runs it when asked by name. A full run executes it in a second,
+# separately isolated pass.
+if [[ -z "${MMX_SABER_TEST_ONLY:-}" && -z "${MMX_SABER_RUNNER_PASS:-}" ]]; then
+  MMX_SABER_RUNNER_PASS=1 bash "${BASH_SOURCE[0]}" "$@"
+  main_exit=$?
+  MMX_SABER_RUNNER_PASS=1 MMX_SABER_TEST_ONLY=saber-assets \
+    bash "${BASH_SOURCE[0]}" "$@"
+  assets_exit=$?
+  if [[ "$main_exit" == 0 && "$assets_exit" == 0 ]]; then
+    printf 'PASS: all Saber ROM passes\n'
+    exit 0
+  fi
+  printf 'FAIL: Saber ROM passes (main=%s saber-assets=%s)\n' \
+    "$main_exit" "$assets_exit"
+  exit 1
+fi
 if [[ ! -x "$exe" ]]; then
   printf 'FAIL: test executable is missing: %s\n' "$exe" >&2
   exit 2

@@ -1,8 +1,11 @@
 #include "mod_runtime.h"
+#include "mod_audio.h"
+#include "common_rtl.h"
 #include "host_paths.h"
 #include "recomp_launcher.h"
 #include "mmx_source_assets.h"
 #include "saber/mmx_saber_assets.h"
+#include "saber/mmx_saber_sfx.h"
 #include "saber/mmx_saber_wave.h"
 #include "saber/mmx_saber_wave_assets.h"
 #include "mmx_zero.h"
@@ -17,6 +20,46 @@ static bool g_mmx_saber_enabled;
 static MmxSaberAssets *g_saber_assets;
 static MmxSaberAssets *g_ride_assets;
 static MmxSaberWave *g_saber_wave;
+static bool g_saber_sfx_warning;
+
+static void saber_sfx_warning(const char *reason, void *context) {
+  (void)context;
+  if (g_saber_sfx_warning) return;
+  g_saber_sfx_warning = true;
+  fprintf(stderr, "[mmx-saber-zero] Saber swing audio unavailable: %s\n",
+          reason && reason[0] ? reason : "invalid sidecar");
+}
+
+static int saber_sfx_register_pcm(const int16_t *samples, uint32_t frames,
+                                  uint32_t sample_rate, uint32_t channels,
+                                  void *context) {
+  (void)context;
+  return snes_mod_audio_register_pcm_s16(samples, frames, sample_rate,
+                                         channels);
+}
+
+static void saber_sfx_unregister(int clip, void *context) {
+  (void)context;
+  snes_mod_audio_unregister((SNESModAudioClip)clip);
+}
+
+static int saber_sfx_play(int clip, int volume_percent, void *context) {
+  (void)context;
+  return snes_mod_audio_play((SNESModAudioClip)clip, volume_percent);
+}
+
+static bool saber_sfx_suppressed(void *context) {
+  (void)context;
+  return RtlSpeculativeFrame();
+}
+
+static const MmxSaberSfxHost kSaberSfxHost = {
+  saber_sfx_register_pcm,
+  saber_sfx_unregister,
+  saber_sfx_play,
+  saber_sfx_suppressed,
+  NULL
+};
 
 static const uint8_t kSaberManifestSha[32] = {
   0x4e, 0x29, 0x1e, 0x5f, 0x03, 0x57, 0xaf, 0xa0,
@@ -60,6 +103,21 @@ static int cache_path(const char *name, char path[4096]) {
   written = snprintf(leaf, sizeof(leaf), "cache/mmx-source/%s", name);
   return written >= 0 && (size_t)written < sizeof(leaf) &&
       snesrecomp_exe_dir_path(leaf, path, 4096);
+}
+
+static int saber_sfx_volume(void) {
+  char value[32] = {0};
+  char *end = NULL;
+  long parsed;
+  if (!snes_mod_runtime_feature_option_value_c(
+          "megaman-x.character.saber-zero", "saber-zero",
+          "saber_swing_volume", value, sizeof(value)) || !value[0])
+    return 50;
+  parsed = strtol(value, &end, 10);
+  if (end == value) return 50;
+  if (parsed < 0) parsed = 0;
+  if (parsed > 200) parsed = 200;
+  return (int)parsed;
 }
 
 static int resolve_saber_rom(char path[4096]) {
@@ -203,9 +261,15 @@ static int load_saber_wave(const char *wave_path, char reason[256]) {
 static void activate(void) {
   char path[4096] = {0}, rom[4096] = {0}, wave_path[4096] = {0};
   char saber_path[4096] = {0}, ride_path[4096] = {0};
+  char sfx_path[4096] = {0};
   char reason[256] = {0};
   char start[16] = {0};
   g_mmx_saber_enabled = false;
+  g_saber_sfx_warning = false;
+  MmxSaberSfxResetRuntime();
+  MmxSaberSfxSetHost(&kSaberSfxHost);
+  MmxSaberSfxSetWarningCallback(saber_sfx_warning, NULL);
+  MmxSaberSfxSetVolume(saber_sfx_volume());
   release_saber_assets();
   if (!resolve_saber_rom(rom) || !prepare_zero(path, rom)) return;
   snes_mod_runtime_feature_option_value_c(
@@ -232,6 +296,15 @@ static void activate(void) {
     report_wave_prepare_failure(wave_path, reason);
     return;
   }
+  /* Activation runs before the desktop host creates its audio mutex.  Parse
+   * the validated sidecar now; MmxSaberSfxPlay registers the copied PCM only
+   * when the first real game-thread cue arrives.  Missing sound data does not
+   * invalidate the character package. */
+  if (!cache_path("saber-sfx-v2.bin", sfx_path)) {
+    saber_sfx_warning("cannot resolve sidecar path", NULL);
+  } else if (!MmxSaberSfxLoadRuntime(sfx_path, reason, sizeof(reason))) {
+    /* The loader's warning callback already emits one concise diagnostic. */
+  }
   g_mmx_saber_enabled = true;
   fprintf(stderr, "[mmx-saber-zero] saber-v1.bin, ride-zero-v1.bin, and "
                   "x3-saber-wave-v1.bin loaded\n");
@@ -241,6 +314,8 @@ static void activate(void) {
 
 static void reset(void) {
   g_mmx_saber_enabled = false;
+  MmxSaberSfxResetRuntime();
+  g_saber_sfx_warning = false;
   release_saber_assets();
 }
 

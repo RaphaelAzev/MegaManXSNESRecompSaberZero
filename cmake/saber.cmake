@@ -2,6 +2,12 @@ set(_saber_plugin_source "${CMAKE_CURRENT_SOURCE_DIR}/src/mods/mmx_saber_plugin.
 set(_saber_assets_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_assets.c")
 set(_saber_wave_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_wave.c")
 set(_saber_wave_assets_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_wave_assets.c")
+set(_saber_sfx_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_sfx.c")
+set(_saber_sfx_converter_source "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/mmx_saber_sfx_convert.c")
+set(_saber_sfx_codec_source "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/mmx_saber_sfx_codec.c")
+set(_saber_sfx_codec_header "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/mmx_saber_sfx_codec.h")
+set(_saber_sfx_vorbis_source "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/third_party/stb_vorbis.c")
+set(_saber_sfx_source_dir "${CMAKE_CURRENT_SOURCE_DIR}/SaberSFX")
 set(_saber_converter "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/convert_saber_zero.py")
 set(_saber_manifest "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/saber_zero_manifest.json")
 set(_ride_manifest "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/ride_zero_manifest.json")
@@ -9,7 +15,37 @@ set(_saber_source_dir "${CMAKE_CURRENT_SOURCE_DIR}/SaberSprites")
 set(_saber_cache_dir "${CMAKE_CURRENT_BINARY_DIR}/cache/mmx-source")
 set(_saber_cache "${_saber_cache_dir}/saber-v1.bin")
 set(_ride_cache "${_saber_cache_dir}/ride-zero-v1.bin")
+set(_saber_sfx_cache "${_saber_cache_dir}/saber-sfx-v2.bin")
 set(_saber_wave_test_cache_dir "${_saber_cache_dir}")
+file(GLOB _saber_sfx_inputs CONFIGURE_DEPENDS
+    "${_saber_sfx_source_dir}/*.ogg")
+
+add_executable(mmx_saber_sfx_convert
+    "${_saber_sfx_converter_source}" "${_saber_sfx_codec_source}"
+    "${_saber_sfx_vorbis_source}")
+target_include_directories(mmx_saber_sfx_convert PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/saber"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber")
+if(NOT WIN32)
+    target_link_libraries(mmx_saber_sfx_convert PRIVATE m)
+endif()
+
+set(_saber_sfx_inputs_ready FALSE)
+if(EXISTS "${_saber_sfx_source_dir}/saber_1.ogg" AND
+   EXISTS "${_saber_sfx_source_dir}/saber_2.ogg" AND
+   EXISTS "${_saber_sfx_source_dir}/saber_3.ogg" AND _saber_sfx_inputs)
+    set(_saber_sfx_inputs_ready TRUE)
+    add_custom_command(
+        OUTPUT "${_saber_sfx_cache}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${_saber_cache_dir}"
+        COMMAND "$<TARGET_FILE:mmx_saber_sfx_convert>"
+            --source-dir "${_saber_sfx_source_dir}"
+            --out "${_saber_sfx_cache}"
+        DEPENDS mmx_saber_sfx_convert ${_saber_sfx_inputs}
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        VERBATIM)
+    add_custom_target(saber_sfx_cache DEPENDS "${_saber_sfx_cache}")
+endif()
 
 # The donor sheets are deliberately private and ignored. When they are
 # present, build the same deterministic v1 caches as the old branch beside
@@ -45,18 +81,26 @@ endif()
 if(TARGET MegaManXSNESRecomp)
     target_sources(MegaManXSNESRecomp PRIVATE
         "${_saber_plugin_source}" "${_saber_assets_source}"
-        "${_saber_wave_source}" "${_saber_wave_assets_source}")
+        "${_saber_wave_source}" "${_saber_wave_assets_source}"
+        "${_saber_sfx_source}")
     if(TARGET saber_asset_caches)
         add_dependencies(MegaManXSNESRecomp saber_asset_caches)
+    endif()
+    if(TARGET saber_sfx_cache)
+        add_dependencies(MegaManXSNESRecomp saber_sfx_cache)
     endif()
 endif()
 
 if(MMX_STATE_TESTS AND TARGET mmx_state_tests)
     target_sources(mmx_state_tests PRIVATE
         "${_saber_plugin_source}" "${_saber_assets_source}"
-        "${_saber_wave_source}" "${_saber_wave_assets_source}")
+        "${_saber_wave_source}" "${_saber_wave_assets_source}"
+        "${_saber_sfx_source}")
     if(TARGET saber_asset_caches)
         add_dependencies(mmx_state_tests saber_asset_caches)
+    endif()
+    if(TARGET saber_sfx_cache)
+        add_dependencies(mmx_state_tests saber_sfx_cache)
     endif()
     get_target_property(_saber_sources mmx_state_tests SOURCES)
     list(REMOVE_ITEM _saber_sources
@@ -69,12 +113,15 @@ if(MMX_STATE_TESTS AND TARGET mmx_state_tests)
         src/saber/mmx_saber_wave.c
         "${_saber_wave_source}"
         src/saber/mmx_saber_wave_assets.c
-        "${_saber_wave_assets_source}")
+        "${_saber_wave_assets_source}"
+        src/saber/mmx_saber_sfx.c
+        "${_saber_sfx_source}")
 
     add_executable(mmx_saber_rom_tests
         tests/saber/saber_rom_test.c ${_saber_sources}
         "${_saber_plugin_source}" "${_saber_assets_source}"
-        "${_saber_wave_source}" "${_saber_wave_assets_source}")
+        "${_saber_wave_source}" "${_saber_wave_assets_source}"
+        "${_saber_sfx_source}")
     foreach(_property INCLUDE_DIRECTORIES COMPILE_DEFINITIONS COMPILE_OPTIONS LINK_LIBRARIES LINK_OPTIONS)
         get_target_property(_value mmx_state_tests ${_property})
         if(_value)
@@ -85,9 +132,54 @@ if(MMX_STATE_TESTS AND TARGET mmx_state_tests)
     if(TARGET saber_asset_caches)
         add_dependencies(mmx_saber_rom_tests saber_asset_caches)
     endif()
+    if(TARGET saber_sfx_cache)
+        add_dependencies(mmx_saber_rom_tests saber_sfx_cache)
+    endif()
 endif()
 
 if(BUILD_TESTING)
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/tmp")
+
+    add_executable(mmx_saber_sfx_test
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/saber/mmx_saber_sfx_test.c"
+        "${_saber_sfx_source}")
+    target_include_directories(mmx_saber_sfx_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/saber")
+    target_compile_definitions(mmx_saber_sfx_test PRIVATE
+        MMX_SABER_SFX_CACHE="${_saber_sfx_cache}")
+    add_test(NAME mmx_saber_sfx_loader COMMAND mmx_saber_sfx_test)
+    set_tests_properties(mmx_saber_sfx_loader PROPERTIES SKIP_RETURN_CODE 77)
+    if(MSVC)
+        target_compile_options(mmx_saber_sfx_test PRIVATE /UNDEBUG)
+    else()
+        target_compile_options(mmx_saber_sfx_test PRIVATE -UNDEBUG)
+    endif()
+    if(TARGET saber_sfx_cache)
+        add_dependencies(mmx_saber_sfx_test saber_sfx_cache)
+    endif()
+
+    add_executable(mmx_saber_sfx_codec_test
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/saber/mmx_saber_sfx_codec_test.c"
+        "${_saber_sfx_codec_source}")
+    target_include_directories(mmx_saber_sfx_codec_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber")
+    add_test(NAME mmx_saber_sfx_codec COMMAND mmx_saber_sfx_codec_test)
+    if(MSVC)
+        target_compile_options(mmx_saber_sfx_codec_test PRIVATE /UNDEBUG)
+    else()
+        target_compile_options(mmx_saber_sfx_codec_test PRIVATE -UNDEBUG)
+    endif()
+    if(NOT WIN32)
+        target_link_libraries(mmx_saber_sfx_codec_test PRIVATE m)
+    endif()
+
+    add_test(NAME saber_sfx_converter
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/saber/test_saber_sfx_converter.py"
+            --converter $<TARGET_FILE:mmx_saber_sfx_convert>)
+    set_tests_properties(saber_sfx_converter PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/tmp")
+
     add_executable(mmx_saber_check
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/mmx_saber_check.c"
         "${_saber_assets_source}"
