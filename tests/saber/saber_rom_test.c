@@ -14,6 +14,7 @@
 #include "saber/mmx_saber_frame.h"
 #include "saber/mmx_saber_plugin.h"
 #include "saber/mmx_saber_sfx.h"
+#include "saber/mmx_saber_tuning.h"
 #include "saber/mmx_saber_wave.h"
 #include "saber/mmx_saber_wave_runtime.h"
 #include "mod_runtime.h"
@@ -4243,6 +4244,40 @@ static void saber_finisher_checks(const char *fixture) {
   puts("ok: saber-finisher");
 }
 
+static void saber_tuning_checks(void) {
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, "megaman-x.character.saber-zero",
+            "saber-zero", "slash3_damage", "32"),
+        "test catalog sets slash3_damage through feature_set_option");
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, "megaman-x.character.saber-zero",
+            "saber-zero", "boss_slash3_damage", "0"),
+        "test catalog sets boss_slash3_damage through feature_set_option");
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, "megaman-x.character.saber-zero",
+            "saber-zero", "priority_window_frames", "71"),
+        "test catalog sets priority_window_frames through feature_set_option");
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, "megaman-x.character.saber-zero",
+            "saber-zero", "finisher_window_frames", "60"),
+        "test catalog sets finisher_window_frames through feature_set_option");
+  puts("reference: Saber tuning options set through the copied catalog "
+       "feature_set_option API before plugin activation");
+  snes_mod_runtime_activate_plugins_c();
+  check(MmxSaberEnabled(), "option-backed tuning reactivation keeps Saber enabled");
+  check(MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_SLASH3) == 32,
+        "slash3_damage reaches the normal damage getter after activation");
+  check(MmxSaberTuningGet()->boss_damage[MMX_SABER_TUNING_DAMAGE_SLASH3] == 0,
+        "boss slash3 retains the zero fallback marker in the cache");
+  check(MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_SLASH3) == 32,
+        "boss zero resolves to the tuned normal slash3 damage");
+  check(MmxSaberTuningPriorityWindowFrames() == 71,
+        "priority_window_frames preserves an arbitrary in-range integer");
+  check(MmxSaberTuningFinisherWindowFrames() == 60,
+        "finisher_window_frames reaches the typed getter after activation");
+  puts("ok: saber-tuning");
+}
+
 static unsigned saber_wave_live_count(void) {
   unsigned count = 0;
   for (unsigned d = 0x1228; d < 0x1428; d += 64)
@@ -5242,6 +5277,7 @@ int main(int argc, char **argv) {
 
   const bool saber_package = only && !strcmp(only, "saber-package");
   const bool saber_finisher = only && !strcmp(only, "saber-finisher");
+  const bool saber_tuning = only && !strcmp(only, "saber-tuning");
   const bool zero_extension = only && !strcmp(only, "zero-extension");
   const bool saber_input = only && !strcmp(only, "saber-input");
   const bool saber_ground_1 = only && !strcmp(only, "saber-ground-1");
@@ -5269,6 +5305,7 @@ int main(int argc, char **argv) {
       saber_air || saber_wall || saber_dash || saber_land || saber_ground_lifecycle ||
       saber_ground_hit || saber_cancel || saber_lifecycle_load ||
       saber_render_snapshot || saber_buster_rules || saber_finisher ||
+      saber_tuning ||
       saber_wave_travel || saber_wave_damage || saber_wave_lifecycle ||
       saber_wave_render;
   SpecialCounts upstream_specials = {0};
@@ -5328,6 +5365,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-finisher runs with the Saber package enabled");
     saber_finisher_checks(fixture);
+  } else if (saber_tuning) {
+    check(MmxSaberEnabled(),
+          "saber-tuning runs with the Saber package enabled");
+    saber_tuning_checks();
   } else if (saber_wave_travel) {
     check(MmxSaberEnabled(),
           "saber-wave-travel runs with the Saber package enabled");
@@ -5403,6 +5444,7 @@ int main(int argc, char **argv) {
         strcmp(only, "x3-zero-specials") &&
       strcmp(only, "saber-package") && strcmp(only, "saber-input") &&
       strcmp(only, "saber-finisher") &&
+      strcmp(only, "saber-tuning") &&
       strcmp(only, "saber-ground-1") &&
       strcmp(only, "saber-ground-combo") &&
       strcmp(only, "saber-air") &&

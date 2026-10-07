@@ -125,10 +125,10 @@ step = 1
 feature = "saber-zero"
 id = "boss_slash1_damage"
 label = "Boss slash 1 damage"
-description = "Damage dealt by the first ground slash to bosses; defaults to the normal slash 1 value."
+description = "0 = same as the normal value"
 type = "integer"
-default = 3
-min = 1
+default = 0
+min = 0
 max = 32
 step = 1
 
@@ -136,10 +136,10 @@ step = 1
 feature = "saber-zero"
 id = "boss_slash2_damage"
 label = "Boss slash 2 damage"
-description = "Damage dealt by the second ground slash to bosses; defaults to the normal slash 2 value."
+description = "0 = same as the normal value"
 type = "integer"
-default = 3
-min = 1
+default = 0
+min = 0
 max = 32
 step = 1
 
@@ -147,10 +147,10 @@ step = 1
 feature = "saber-zero"
 id = "boss_slash3_damage"
 label = "Boss slash 3 damage"
-description = "Damage dealt by the third ground slash to bosses; defaults to the normal slash 3 value."
+description = "0 = same as the normal value"
 type = "integer"
-default = 8
-min = 1
+default = 0
+min = 0
 max = 32
 step = 1
 
@@ -158,10 +158,10 @@ step = 1
 feature = "saber-zero"
 id = "boss_air_damage"
 label = "Boss air slash damage"
-description = "Damage dealt by an air slash to bosses; defaults to the normal air slash value."
+description = "0 = same as the normal value"
 type = "integer"
-default = 3
-min = 1
+default = 0
+min = 0
 max = 32
 step = 1
 
@@ -169,10 +169,10 @@ step = 1
 feature = "saber-zero"
 id = "boss_wall_damage"
 label = "Boss wall slash damage"
-description = "Damage dealt by a wall slash to bosses; defaults to the normal wall slash value."
+description = "0 = same as the normal value"
 type = "integer"
-default = 3
-min = 1
+default = 0
+min = 0
 max = 32
 step = 1
 
@@ -180,10 +180,10 @@ step = 1
 feature = "saber-zero"
 id = "boss_dash_damage"
 label = "Boss dash slash damage"
-description = "Damage dealt by a dash slash to bosses; defaults to the normal dash slash value."
+description = "0 = same as the normal value"
 type = "integer"
-default = 3
-min = 1
+default = 0
+min = 0
 max = 32
 step = 1
 
@@ -191,10 +191,10 @@ step = 1
 feature = "saber-zero"
 id = "boss_x3_finisher_damage"
 label = "Boss X3 finisher damage"
-description = "Damage dealt by the X3 Saber finisher to bosses; defaults to the normal finisher value."
+description = "0 = same as the normal value"
 type = "integer"
-default = 16
-min = 1
+default = 0
+min = 0
 max = 32
 step = 1
 
@@ -202,10 +202,10 @@ step = 1
 feature = "saber-zero"
 id = "boss_wave_damage"
 label = "Boss Saber wave damage"
-description = "Damage dealt by each Saber wave pulse to bosses; defaults to the normal wave value."
+description = "0 = same as the normal value"
 type = "integer"
-default = 6
-min = 1
+default = 0
+min = 0
 max = 32
 step = 1
 

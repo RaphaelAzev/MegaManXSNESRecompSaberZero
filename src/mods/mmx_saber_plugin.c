@@ -11,6 +11,7 @@
 #include "saber/mmx_saber_combo.h"
 #include "saber/mmx_saber_frame.h"
 #include "saber/mmx_saber_render.h"
+#include "saber/mmx_saber_tuning.h"
 #include "saber/mmx_saber_wave_runtime.h"
 #include "mmx_renderer.h"
 #include "mmx_zero.h"
@@ -82,6 +83,14 @@ static const MmxSaberSfxHost kSaberSfxHost = {
   NULL
 };
 
+static bool saber_tuning_option_reader(const char *option_id, char *value,
+                                       size_t value_size, void *context) {
+  (void)context;
+  return snes_mod_runtime_feature_option_value_c(
+             "megaman-x.character.saber-zero", "saber-zero", option_id,
+             value, (uint32_t)value_size) != 0;
+}
+
 static const uint8_t kSaberManifestSha[32] = {
   0x4e, 0x29, 0x1e, 0x5f, 0x03, 0x57, 0xaf, 0xa0,
   0x35, 0x76, 0x14, 0xe0, 0xc4, 0x97, 0xf9, 0xb3,
@@ -124,38 +133,6 @@ static int cache_path(const char *name, char path[4096]) {
   written = snprintf(leaf, sizeof(leaf), "cache/mmx-source/%s", name);
   return written >= 0 && (size_t)written < sizeof(leaf) &&
       snesrecomp_exe_dir_path(leaf, path, 4096);
-}
-
-static int saber_sfx_volume(void) {
-  char value[32] = {0};
-  char *end = NULL;
-  long parsed;
-  if (!snes_mod_runtime_feature_option_value_c(
-          "megaman-x.character.saber-zero", "saber-zero",
-          "saber_swing_volume", value, sizeof(value)) || !value[0])
-    return 50;
-  parsed = strtol(value, &end, 10);
-  if (end == value) return 50;
-  if (parsed < 0) parsed = 0;
-  if (parsed > 200) parsed = 200;
-  return (int)parsed;
-}
-
-static unsigned saber_finisher_window_frames(void) {
-  char value[32] = {0};
-  char *end = NULL;
-  long parsed;
-  if (!snes_mod_runtime_feature_option_value_c(
-          "megaman-x.character.saber-zero", "saber-zero",
-          "finisher_window_frames", value, sizeof(value)) || !value[0])
-    return MMX_SABER_DEFAULT_FINISHER_WINDOW;
-  parsed = strtol(value, &end, 10);
-  if (end == value || *end != '\0')
-    return MMX_SABER_DEFAULT_FINISHER_WINDOW;
-  if (parsed < 0) return 0;
-  if (parsed > MMX_SABER_MAX_FINISHER_WINDOW)
-    return MMX_SABER_MAX_FINISHER_WINDOW;
-  return (unsigned)parsed;
 }
 
 static int resolve_saber_rom(char path[4096]) {
@@ -317,8 +294,9 @@ static void activate(void) {
   MmxSaberSfxResetRuntime();
   MmxSaberSfxSetHost(&kSaberSfxHost);
   MmxSaberSfxSetWarningCallback(saber_sfx_warning, NULL);
-  MmxSaberSfxSetVolume(saber_sfx_volume());
-  MmxSaberComboSetWindowFrames(saber_finisher_window_frames());
+  MmxSaberTuningLoad(saber_tuning_option_reader, NULL);
+  MmxSaberSfxSetVolume(MmxSaberTuningSaberSwingVolume());
+  MmxSaberComboSetWindowFrames((unsigned)MmxSaberTuningFinisherWindowFrames());
   release_saber_assets();
   if (!resolve_saber_rom(rom) || !prepare_zero(path, rom)) {
     saber_activation_failed();
