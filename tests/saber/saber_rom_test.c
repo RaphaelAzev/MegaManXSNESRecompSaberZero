@@ -7035,6 +7035,231 @@ static void saber_lifecycle_load_checks(const char *x1_rom,
   puts("ok: saber-lifecycle-load");
 }
 
+static bool saber_context_cyan_box_present(void) {
+  MmxRenderDebugRect rects[64];
+  const unsigned count = MmxSaberHitboxDebugProvide(rects,
+                                                     sizeof(rects) /
+                                                         sizeof(rects[0]));
+  for (unsigned i = 0; i < count; ++i)
+    if (rects[i].rgb555 == MMX_SABER_HITBOX_CYAN) return true;
+  return false;
+}
+
+static bool saber_context_clean(unsigned cue_count) {
+  const MmxZeroState zero = MmxZeroGetState();
+  MmxSaberAttackSnapshot snapshot = MmxSaberAttackSnapshotGet();
+  MmxRendererBeginFrame(g_ram);
+  return snapshot.phase == SABER_PHASE_IDLE &&
+      snapshot.kind == SABER_KIND_NONE && snapshot.anim_id == 0 &&
+      tagged_projectiles() == 0 && MmxSaberAttackHitSlots() == 0 &&
+      !saber_context_cyan_box_present() && !zero.slash && !zero.burst &&
+      !zero.combo && !zero.projectile && !zero.hit_slots &&
+      !MmxSaberWaveRuntimeActive(g_ram) &&
+      !saber_finisher_wave_slot() && !MmxSaberComboReservedSlot() &&
+      !MmxSaberComboWindowTicks() && !MmxSaberComboFinisherCueCount() &&
+      MmxSaberAttackCueCount() == cue_count &&
+      !MmxRendererPlayerOverlaySnapshot().active;
+}
+
+static void saber_context_start_ground(const char *fixture) {
+  MmxSaberAttackSnapshot snapshot;
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  for (unsigned i = 0; i < OLD_SABER_GROUND1_ACTIVE + 2 &&
+       snapshot.phase != SABER_PHASE_ACTIVE; ++i) {
+    frame(0);
+    snapshot = MmxSaberAttackSnapshotGet();
+  }
+  check(snapshot.kind == SABER_KIND_GROUND1 &&
+            snapshot.phase == SABER_PHASE_ACTIVE && tagged_projectiles() == 1,
+        "context ground route reaches an active ground slash with one tagged slot");
+}
+
+static void saber_context_start_air(const char *fixture) {
+  begin_air_landing_probe(fixture);
+  advance_air_landing_probe(6);
+  check(MmxSaberAttackSnapshotGet().kind == SABER_KIND_AIR &&
+            MmxSaberAttackSnapshotGet().phase == SABER_PHASE_ACTIVE &&
+            tagged_projectiles() == 1,
+        "context air route reaches an active air slash with one tagged slot");
+}
+
+static bool saber_pause_open(void) {
+  return (g_ram[0x1f10] == 6 || g_ram[0x1f10] == 8) &&
+      (g_ram[0x00c3] & 0x80);
+}
+
+static void saber_context_death_checks(const char *fixture) {
+  unsigned cues;
+
+  saber_context_start_ground(fixture);
+  cues = MmxSaberAttackCueCount();
+  g_ram[0x0bcf] = 0;
+  frame(0);
+  check(saber_context_clean(cues),
+        "death on an active ground slash clears every Saber owner on the death frame");
+  for (unsigned i = 0; i < 12; ++i) {
+    g_ram[0x0bcf] = 0;
+    g_ram[0x0baa] = 0x0c;
+    frame(SNES_PAD_Y);
+  }
+  check(saber_context_clean(cues),
+        "death input cannot restart Saber during the death sequence");
+  puts("ok: saber-contexts/death");
+}
+
+static void saber_context_pause_checks(const char *fixture) {
+  MmxSaberAttackSnapshot before;
+  MmxSaberAttackSnapshot after;
+  unsigned cues;
+  bool opened = false;
+  bool no_menu_start = true;
+
+  saber_context_start_ground(fixture);
+  before = MmxSaberAttackSnapshotGet();
+  cues = MmxSaberAttackCueCount();
+  frame(SNES_PAD_START);
+  for (unsigned i = 0; i < 75; ++i) frame(0);
+  opened |= saber_pause_open();
+  check(opened, "save0 Highway Start input opens the native weapon menu");
+
+  for (unsigned i = 0; i < 4; ++i) {
+    frame(SNES_PAD_Y);
+    after = MmxSaberAttackSnapshotGet();
+    if (MmxSaberAttackCueCount() != cues ||
+        (after.phase == SABER_PHASE_STARTUP && after.tick == 0))
+      no_menu_start = false;
+  }
+  check(no_menu_start,
+        "Y pressed in the native pause menu does not start or cue Saber");
+
+  frame(SNES_PAD_START);
+  for (unsigned i = 0; i < 75; ++i) frame(0);
+  bool closed = !saber_pause_open();
+  check(closed, "native weapon menu closes through a second Start input");
+  after = MmxSaberAttackSnapshotGet();
+  check(MmxSaberAttackCueCount() == cues &&
+            (after.phase == SABER_PHASE_IDLE || after.tick >= before.tick),
+        "pause resume cleans up or continues the same slash without replay");
+  if (after.phase != SABER_PHASE_IDLE)
+    idle(OLD_SABER_GROUND1_TOTAL + 2);
+  check(saber_context_clean(cues),
+        "pause route has no delayed Saber cue, hitbox, or overlay");
+  puts("ok: saber-contexts/pause");
+}
+
+static void saber_context_scene_checks(const char *fixture_dir) {
+  char path[4096];
+  MmxSaberAttackSnapshot snapshot;
+  unsigned cues;
+  int written = snprintf(path, sizeof(path), "%s/%s", fixture_dir,
+                         "penguin-fight.sav");
+  check(written >= 0 && written < (int)sizeof(path),
+        "scripted-scene fixture path fits");
+  check(readable_file(path), "penguin-fight.sav exists for scripted control");
+  check(RtlLoadSnapshot(path), "penguin-fight.sav loads for scripted control");
+  check(MmxZeroActive() && !MmxZeroModern() && g_ram[0x1f7a] == 8,
+        "penguin-fight.sav starts in the Chill Penguin stage");
+  MmxZeroCancel(g_ram);
+  MmxSaberFrameReset();
+  frame(SNES_PAD_Y);
+  for (unsigned i = 0; i < OLD_SABER_GROUND1_ACTIVE + 2; ++i) {
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (snapshot.phase == SABER_PHASE_ACTIVE) break;
+    frame(0);
+  }
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.phase == SABER_PHASE_ACTIVE,
+        "penguin-fight route starts a ground slash before scripted control");
+  cues = MmxSaberAttackCueCount();
+  /* $1F0C is the native scripted-player owner flag used by the existing
+   * zero_frame_context gate. Exercise the post-pre-player ownership change,
+   * then keep it asserted while Y is pressed. */
+  MmxZeroExtPrePlayer(g_ram);
+  g_ram[0x1f0c] = 1;
+  MmxZeroExtPlayerEnd(g_ram);
+  check(saber_context_clean(cues),
+        "scripted ownership change at player_end clears the Saber owner");
+  bool scene_detected = false;
+  for (unsigned i = 0; i < 4; ++i) {
+    g_ram[0x1f0c] = 1;
+    scene_detected |= g_ram[0x1f0c] != 0;
+    frame(SNES_PAD_Y);
+  }
+  check(scene_detected, "penguin-fight scripted control is detected by $1F0C");
+  check(saber_context_clean(cues),
+        "scripted control clears the active slash and all Saber ownership");
+  for (unsigned i = 0; i < 8; ++i) {
+    g_ram[0x1f0c] = 1;
+    frame(SNES_PAD_Y);
+  }
+  check(saber_context_clean(cues),
+        "Y cannot start Saber while scripted control remains active");
+  puts("ok: saber-contexts/scripted-scene");
+}
+
+static void saber_context_load_checks(const char *fixture) {
+  const size_t capacity = RtlSaveSnapshotToMemory(NULL, 0);
+  uint8_t *saved = malloc(capacity);
+
+  check(capacity != 0 && saved != NULL,
+        "context load route allocates an in-memory save-state buffer");
+  saber_context_start_air(fixture);
+  const size_t size = RtlSaveSnapshotToMemory(saved, capacity);
+  check(size != 0 && tagged_projectiles() == 1,
+        "air slash save-state route captures a live Saber slot");
+  frame(0);
+  check(RtlLoadSnapshotFromMemory(saved, size),
+        "air slash save-state route restores through the normal loader");
+  MmxRendererBeginFrame(g_ram);
+  const bool load_overlay_clear =
+      !MmxRendererPlayerOverlaySnapshot().active;
+  check(load_overlay_clear && saber_context_clean(MmxSaberAttackCueCount()) &&
+            MmxSaberPriorityCurrentFrame() == 0,
+        "save-state load drops air Saber, hitbox, overlay, combo, and priority state");
+  const unsigned loaded_cues = MmxSaberAttackCueCount();
+  idle(OLD_SABER_AIR_TOTAL + 2);
+  check(MmxSaberAttackCueCount() == loaded_cues,
+        "air slash save-state load emits no delayed Saber cue");
+  free(saved);
+
+  saber_context_start_air(fixture);
+  check(set_test_env("SNESRECOMP_REWIND", "1") == 0,
+        "context rewind route enables the rewind harness");
+  snes_rewind_shutdown();
+  snes_rewind_set_defaults(1, 4, 1);
+  snes_rewind_configure();
+  for (unsigned i = 0; i < 5; ++i) {
+    frame(0);
+    snes_rewind_note_frame();
+  }
+  check(snes_rewind_open(), "context rewind route opens its real snapshot ring");
+  snes_rewind_step(-1);
+  snes_rewind_commit();
+  MmxRendererBeginFrame(g_ram);
+  const bool rewind_overlay_clear =
+      !MmxRendererPlayerOverlaySnapshot().active;
+  check(rewind_overlay_clear && saber_context_clean(MmxSaberAttackCueCount()) &&
+            MmxSaberPriorityCurrentFrame() == 0,
+        "rewind drops air Saber, hitbox, overlay, combo, and priority state");
+  const unsigned rewound_cues = MmxSaberAttackCueCount();
+  idle(OLD_SABER_AIR_TOTAL + 2);
+  check(MmxSaberAttackCueCount() == rewound_cues,
+        "rewind emits no delayed Saber cue");
+  snes_rewind_shutdown();
+  puts("ok: saber-contexts/load-rewind");
+}
+
+static void saber_context_checks(const char *fixture, const char *fixture_dir) {
+  saber_context_death_checks(fixture);
+  saber_context_pause_checks(fixture);
+  saber_context_scene_checks(fixture_dir);
+  saber_context_load_checks(fixture);
+  puts("ok: saber-contexts");
+}
+
 int main(int argc, char **argv) {
   check(argc == 2, "X1 ROM supplied");
   const char *fixture = getenv("MMX_ZERO_TEST_FIXTURE");
@@ -7049,7 +7274,8 @@ int main(int argc, char **argv) {
       !strcmp(only, "saber-cancel") || !strcmp(only, "saber-buster-rules") ||
       !strcmp(only, "saber-damage") || !strcmp(only, "saber-priority") ||
       !strcmp(only, "saber-armadillo") ||
-      !strcmp(only, "saber-ride-pilot")))
+      !strcmp(only, "saber-ride-pilot") ||
+      !strcmp(only, "saber-contexts")))
     check(fixture_dir && fixture_dir[0], "MMX_SABER_FIXTURE_DIR supplied");
 
   SDL_SetMainReady();
@@ -7120,6 +7346,7 @@ int main(int argc, char **argv) {
   const bool saber_land = only && !strcmp(only, "saber-land");
   const bool saber_ground_lifecycle = only && !strcmp(only, "saber-ground-lifecycle");
   const bool saber_lifecycle_load = only && !strcmp(only, "saber-lifecycle-load");
+  const bool saber_contexts = only && !strcmp(only, "saber-contexts");
   const bool saber_buster_rules = only && !strcmp(only, "saber-buster-rules");
   const bool saber_burst_height = only && !strcmp(only, "saber-burst-height");
   const bool saber_priority_classify =
@@ -7141,6 +7368,7 @@ int main(int argc, char **argv) {
       saber_input || saber_ground_1 || saber_ground_combo ||
       saber_air || saber_wall || saber_dash || saber_land || saber_ground_lifecycle ||
       saber_ground_hit || saber_cancel || saber_lifecycle_load ||
+      saber_contexts ||
       saber_render_snapshot || saber_buster_rules || saber_burst_height ||
       saber_finisher || saber_priority_classify ||
       saber_priority || saber_armadillo ||
@@ -7201,6 +7429,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-lifecycle-load runs with the Saber package enabled");
     saber_lifecycle_load_checks(argv[1], x3_rom, fixture, assets);
+  } else if (saber_contexts) {
+    check(MmxSaberEnabled(),
+          "saber-contexts runs with the Saber package enabled");
+    saber_context_checks(fixture, fixture_dir);
   } else if (saber_buster_rules) {
     check(MmxSaberEnabled(),
           "saber-buster-rules runs with the Saber package enabled");
@@ -7332,6 +7564,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-land") &&
       strcmp(only, "saber-ground-lifecycle") &&
       strcmp(only, "saber-lifecycle-load") &&
+      strcmp(only, "saber-contexts") &&
         strcmp(only, "saber-buster-rules") &&
         strcmp(only, "saber-burst-height") &&
         strcmp(only, "saber-wave-travel") &&
