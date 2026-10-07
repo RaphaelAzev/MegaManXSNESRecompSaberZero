@@ -229,12 +229,19 @@ static bool legacy_intent(const uint8_t *ram, MmxZeroLegacyIntent *intent) {
   return true;
 }
 
+static int burst_origin_y(const uint8_t *ram, unsigned shot_index,
+                          int native_y, int paired_y) {
+  (void)ram;
+  return shot_index == 0 ? paired_y : native_y;
+}
+
 static const MmxZeroExtension extension = {
     .pre_player = pre_player,
     .player_end = player_end,
     .legacy_intent = legacy_intent,
     .legacy_slash_request = MmxSaberComboLegacySlashRequest,
     .charge_cap = charge_cap,
+    .burst_origin_y = burst_origin_y,
     .weapon_tick = MmxSaberAttackWeaponTick,
     .damage = MmxSaberAttackDamage,
     .hitbox = MmxSaberAttackHitbox,

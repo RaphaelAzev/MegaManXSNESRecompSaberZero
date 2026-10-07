@@ -28,6 +28,8 @@ typedef struct MmxZeroExtension {
   bool (*legacy_slash_request)(const uint8_t *ram);
   unsigned (*response)(uint8_t *ram, unsigned enemy, unsigned projectile,
                        unsigned value);
+  int (*burst_origin_y)(const uint8_t *ram, unsigned shot_index,
+                        int native_y, int paired_y);
 } MmxZeroExtension;
 typedef struct MmxZeroState {
   uint16_t charge, slash, projectile;

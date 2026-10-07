@@ -232,6 +232,27 @@ void MmxZeroAnimationAdvance(unsigned object) {
   }
   animation_record(next);
 }
+static unsigned burst_sequence_for(unsigned which, bool air) {
+  return which == 1 ? (air ? 0x43 : 0x30) : (air ? 0x49 : 0x36);
+}
+static bool burst_emission_y(unsigned which, bool air, int *value) {
+  if (!value || (which != 1 && which != 2)) return false;
+  unsigned offset = word(animation + burst_sequence_for(which, air) * 2);
+  for (unsigned i = 0; i < sizeof(animation) / 3; ++i) {
+    if (offset < 272 || offset + 3 > sizeof(animation)) return false;
+    unsigned flags = animation[offset + 1];
+    if (flags & 128) return false;
+    if (flags & 64) {
+      unsigned pose = animation[offset + 2];
+      unsigned muzzle_offset = pose < 117 ? muzzle[pose] : 0;
+      if (!muzzle_offset) return false;
+      *value = (int8_t)(muzzle[120 + muzzle_offset] - 8);
+      return true;
+    }
+    offset += 3;
+  }
+  return false;
+}
 unsigned MmxZeroMuzzle(const uint8_t r[0x20000], unsigned object,
                       unsigned native_index, unsigned axis, unsigned original) {
   if (!MmxZeroActive() || !r || object < 0x1228 || object >= 0x1428 ||
@@ -249,8 +270,18 @@ unsigned MmxZeroMuzzle(const uint8_t r[0x20000], unsigned object,
   if (!offset) return original;
   /* X3 stores signed Y then left-facing X. X1's native helpers mirror a
    * positive X and sign-extend Y. Keep their later spread/trajectory offsets. */
-  return axis ? (unsigned)(uint8_t)(muzzle[120 + offset] - 8) :
-                (unsigned)(uint8_t)(-(int8_t)muzzle[121 + offset]);
+  if (axis) {
+    unsigned result = (unsigned)(uint8_t)(muzzle[120 + offset] - 8);
+    if (state.burst && extension && extension->burst_origin_y) {
+      int paired_y;
+      unsigned other = state.burst == 1 ? 2 : 1;
+      if (burst_emission_y(other, state.air, &paired_y))
+        result = (unsigned)(uint8_t)extension->burst_origin_y(
+            r, state.burst - 1, (int8_t)result, paired_y);
+    }
+    return result;
+  }
+  return (unsigned)(uint8_t)(-(int8_t)muzzle[121 + offset]);
 }
 int MmxZeroHudColor(unsigned x, unsigned y) {
   /* Original X3 tile/palette data, independent of body visibility. */
@@ -525,7 +556,7 @@ bool MmxZeroSwapTick(uint8_t r[0x20000]) {
   return true;
 }
 static unsigned burst_sequence(void) {
-  return state.burst == 1 ? (state.air ? 0x43 : 0x30) : (state.air ? 0x49 : 0x36);
+  return burst_sequence_for(state.burst, state.air);
 }
 static void burst_record(unsigned sequence) {
   state.burst_offset = (uint16_t)word(animation + sequence * 2);

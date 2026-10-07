@@ -236,6 +236,12 @@ typedef struct {
   unsigned storm_tornado_projectiles;
 } SpecialCounts;
 
+typedef struct {
+  unsigned shots;
+  int y[2];
+  bool airborne_release;
+} BurstHeight;
+
 static void check(int ok, const char *what) {
   if (!ok) {
     fprintf(stderr, "FAIL: %s\n", what);
@@ -1170,6 +1176,121 @@ static void x3_charge_checks(const char *fixture, unsigned button) {
          SABER_CHARGE_TIER_3_FRAME, SABER_CHARGE_FULL_FRAME,
          projectiles(SABER_FULL_RELEASE_CLASS));
   puts("ok: x3-zero-charge-tiers");
+}
+
+static void set_burst_facing(bool left) {
+  const uint8_t facing = left ? 0 : 0x40;
+  g_ram[0xc11] = (uint8_t)((g_ram[0xc11] & (uint8_t)~0x40) | facing);
+  g_ram[0xbb9] = (uint8_t)((g_ram[0xbb9] & (uint8_t)~0x40) | facing);
+}
+
+static void capture_burst_heights(unsigned char seen[8], BurstHeight *result) {
+  for (unsigned i = 0; i < 8; ++i) {
+    const unsigned d = 0x1228 + i * 64;
+    if (!seen[i] && g_ram[d] && g_ram[d + 10] == SABER_FULL_RELEASE_CLASS) {
+      seen[i] = 1;
+      if (result->shots < 2)
+        result->y[result->shots] = (int)read_ram_word(g_ram, d + 8) -
+            (int)read_ram_word(g_ram, 0xbb0);
+      ++result->shots;
+    }
+  }
+}
+
+static BurstHeight measure_burst_heights(const char *fixture, unsigned button,
+                                         unsigned hold_frames, bool left,
+                                         bool airborne) {
+  BurstHeight result = {0};
+  unsigned char seen[8] = {0};
+  load_fixture(fixture);
+  if (MmxSaberEnabled()) MmxSaberFrameReset();
+  set_burst_facing(left);
+
+  if (!airborne) {
+    hold_charge_button(hold_frames, button);
+  } else {
+    /* Start a real jump near the end of the charge so the release remains
+     * airborne without changing the save fixture or its terrain. */
+    const unsigned jump_frame = hold_frames > 20 ? hold_frames - 20 : 1;
+    for (unsigned i = 0; i < hold_frames; ++i) {
+      const bool jump_hold = i >= jump_frame && i < jump_frame + 10;
+      frame(button | (jump_hold ? SNES_PAD_B : 0));
+    }
+    result.airborne_release = !saber_test_grounded();
+  }
+  frame(0);
+  capture_burst_heights(seen, &result);
+  /* Match the established full-charge route: wait 17 frames, then make the
+   * second press that starts burst 2. Keep sampling through both births. */
+  for (unsigned i = 0; i < 120 && result.shots < 2; ++i) {
+    frame(i == 17 ? button : 0);
+    capture_burst_heights(seen, &result);
+  }
+  return result;
+}
+
+static void upstream_burst_height_checks(const char *fixture,
+                                         BurstHeight upstream[2],
+                                         BurstHeight *airborne) {
+  for (unsigned side = 0; side < 2; ++side) {
+    upstream[side] = measure_burst_heights(
+        fixture, SNES_PAD_Y, SABER_CHARGE_FULL_FRAME, side != 0, false);
+    check(upstream[side].shots == 2,
+          side ? "upstream left-facing full burst emits two shots" :
+                 "upstream right-facing full burst emits two shots");
+    check(upstream[side].y[0] < upstream[side].y[1],
+          side ? "upstream left-facing shot 1 keeps its higher Y" :
+                 "upstream right-facing shot 1 keeps its higher Y");
+    printf("reference: save0 upstream burst-height facing=%s shot1=%d shot2=%d\n",
+           side ? "left" : "right", upstream[side].y[0], upstream[side].y[1]);
+  }
+  *airborne = measure_burst_heights(
+      fixture, SNES_PAD_Y, SABER_CHARGE_FULL_FRAME, false, true);
+  if (airborne->shots == 2)
+    printf("reference: save0 upstream burst-height airborne release_airborne=%u "
+           "shot1=%d shot2=%d\n", airborne->airborne_release,
+           airborne->y[0], airborne->y[1]);
+  else
+    puts("reference: save0 upstream airborne burst-height unavailable");
+}
+
+static void saber_burst_height_checks(const char *fixture,
+                                      const BurstHeight upstream[2],
+                                      const BurstHeight *upstream_airborne) {
+  BurstHeight saber[2];
+  for (unsigned side = 0; side < 2; ++side) {
+    saber[side] = measure_burst_heights(
+        fixture, SNES_PAD_X, SABER_CHARGE_TIER_3_FRAME + 59,
+        side != 0, false);
+    check(saber[side].shots == 2,
+          side ? "Saber left-facing capped burst emits two shots" :
+                 "Saber right-facing capped burst emits two shots");
+    check(saber[side].y[0] == saber[side].y[1],
+          side ? "Saber left-facing burst uses one Y for both shots" :
+                 "Saber right-facing burst uses one Y for both shots");
+    check(upstream[side].y[0] < upstream[side].y[1],
+          side ? "upstream left-facing reference remains the higher first shot" :
+                 "upstream right-facing reference remains the higher first shot");
+    printf("reference: save0 Saber burst-height facing=%s cap-tier=8 shot1=%d "
+           "shot2=%d upstream=%d/%d\n", side ? "left" : "right",
+           saber[side].y[0], saber[side].y[1], upstream[side].y[0],
+           upstream[side].y[1]);
+  }
+
+  BurstHeight airborne = measure_burst_heights(
+      fixture, SNES_PAD_X, SABER_CHARGE_TIER_3_FRAME + 59, false, true);
+  if (upstream_airborne->shots == 2 && upstream_airborne->airborne_release &&
+      airborne.shots == 2 && airborne.airborne_release) {
+    check(airborne.y[0] == airborne.y[1],
+          "Saber airborne burst uses one Y for both shots");
+    printf("reference: save0 Saber burst-height airborne shot1=%d shot2=%d "
+           "upstream=%d/%d native-differ=%u\n", airborne.y[0], airborne.y[1],
+           upstream_airborne->y[0], upstream_airborne->y[1],
+           upstream_airborne->y[0] != upstream_airborne->y[1]);
+  } else {
+    puts("reference: save0 Saber airborne burst-height unavailable");
+  }
+  puts("ok: saber-burst-height");
 }
 
 static void x3_hurt_checks(const char *fixture, unsigned button) {
@@ -5565,6 +5686,7 @@ int main(int argc, char **argv) {
   const bool saber_ground_lifecycle = only && !strcmp(only, "saber-ground-lifecycle");
   const bool saber_lifecycle_load = only && !strcmp(only, "saber-lifecycle-load");
   const bool saber_buster_rules = only && !strcmp(only, "saber-buster-rules");
+  const bool saber_burst_height = only && !strcmp(only, "saber-burst-height");
   const bool saber_wave_travel = only && !strcmp(only, "saber-wave-travel");
   const bool saber_wave_damage = only && !strcmp(only, "saber-wave-damage");
   const bool saber_wave_lifecycle = only && !strcmp(only, "saber-wave-lifecycle");
@@ -5579,17 +5701,23 @@ int main(int argc, char **argv) {
       saber_input || saber_ground_1 || saber_ground_combo ||
       saber_air || saber_wall || saber_dash || saber_land || saber_ground_lifecycle ||
       saber_ground_hit || saber_cancel || saber_lifecycle_load ||
-      saber_render_snapshot || saber_buster_rules || saber_finisher ||
+      saber_render_snapshot || saber_buster_rules || saber_burst_height ||
+      saber_finisher ||
       saber_tuning || saber_damage ||
       saber_wave_travel || saber_wave_damage || saber_wave_lifecycle ||
       saber_wave_render;
   SpecialCounts upstream_specials = {0};
-  if (saber_input || saber_buster_rules) {
+  BurstHeight upstream_burst[2] = {{0}};
+  BurstHeight upstream_airborne = {0};
+  if (saber_input || saber_buster_rules || saber_burst_height) {
     activate_zero(argv[1], x3_rom, assets, false, false);
     if (saber_input)
       upstream_specials = x3_zero_specials_checks(fixture);
-    else
+    else if (saber_buster_rules)
       x3_charge_checks(fixture, SNES_PAD_Y);
+    else
+      upstream_burst_height_checks(fixture, upstream_burst,
+                                   &upstream_airborne);
     activate_zero(argv[1], x3_rom, assets, true, true);
   } else if (zero_hook_parity) {
     check(set_test_env("SNESRECOMP_LLE_BOUNCE", "0") == 0,
@@ -5636,6 +5764,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-buster-rules runs with the Saber package enabled");
     saber_buster_rule_checks(fixture, fixture_dir);
+  } else if (saber_burst_height) {
+    check(MmxSaberEnabled(),
+          "saber-burst-height runs with the Saber package enabled");
+    saber_burst_height_checks(fixture, upstream_burst, &upstream_airborne);
   } else if (saber_finisher) {
     check(MmxSaberEnabled(),
           "saber-finisher runs with the Saber package enabled");
@@ -5735,6 +5867,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-ground-lifecycle") &&
       strcmp(only, "saber-lifecycle-load") &&
         strcmp(only, "saber-buster-rules") &&
+        strcmp(only, "saber-burst-height") &&
         strcmp(only, "saber-wave-travel") &&
         strcmp(only, "saber-wave-damage") &&
         strcmp(only, "saber-wave-lifecycle") &&
