@@ -36,7 +36,7 @@
   "animations": [
     {
       "id": 107,
-      "facing_xor": 0,
+      "facing_xor": 1,
       "steps": [
         {"frame": 1101, "ticks": 1},
         {"frame": 1102, "ticks": 1},

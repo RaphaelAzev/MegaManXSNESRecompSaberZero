@@ -166,7 +166,10 @@ bool MmxSaberRenderResolveRide(const MmxSaberAssets *assets,
   out->body.origin_y = frame->body.origin_y;
   out->palette = MmxSaberAssetsPalette(assets);
   out->palette_count = MmxSaberAssetsPaletteCount(assets);
-  out->facing_left = (ram[0x0bb9] & 0x40) != 0;
+  /* Ride art is authored in the opposite horizontal orientation from the
+   * native pilot/armor facing, like the Saber attack sheets. */
+  out->facing_left = (ram[0x0bb9] & 0x40) != 0 ^
+      (animation->facing_xor != 0);
   out->active = out->palette && out->palette_count;
   if (!out->active) clear_overlay(out);
   return out->active;

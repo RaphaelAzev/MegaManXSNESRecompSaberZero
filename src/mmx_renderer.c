@@ -581,6 +581,38 @@ bool MmxRendererRidePilotBoundsForTest(int native_box[4], int drawn_box[4]) {
   drawn_box[3] = overlay_bottom + pilot_overlay_alignment.dy;
   return true;
 }
+/* Test-only orientation probe. The native pilot's OAM pieces should share one
+ * horizontal-flip bit; expose that captured bit beside the overlay mirror so
+ * the ROM test can prove both facings use the same authored orientation. */
+bool MmxRendererRidePilotFacingForTest(bool *native_hflip,
+                                       bool *drawn_mirror) {
+  bool found = false;
+  bool hflip = false;
+  unsigned animation;
+  if (!native_hflip || !drawn_mirror || !frame.valid ||
+      !frame_player_overlay.active || frame.ram[0x0baa] != 0x2c ||
+      !pilot_overlay_alignment.valid)
+    return false;
+  animation = frame.ram[0x0bbe];
+  if (animation != 0x6a && animation != 0x6b) return false;
+  for (unsigned i = 0; i < frame.piece_count; ++i) {
+    const Piece *piece = &frame.pieces[i];
+    bool piece_hflip;
+    if (piece->object != 0xba8 || piece->animation != animation ||
+        !pilot_overlay_oam_match(piece)) continue;
+    piece_hflip = (piece->attr & 0x4000) != 0;
+    if (!found) {
+      hflip = piece_hflip;
+      found = true;
+    } else if (hflip != piece_hflip) {
+      return false;
+    }
+  }
+  if (!found) return false;
+  *native_hflip = hflip;
+  *drawn_mirror = frame_player_overlay.facing_left;
+  return true;
+}
 void MmxRendererCaptureLine(const Ppu *p, unsigned line) {
   if (!p || line < 1 || line > 224 || line != frame.captured + 1) return;
   Raster *r = &frame.lines[line - 1];

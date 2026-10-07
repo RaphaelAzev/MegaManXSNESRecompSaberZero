@@ -27,6 +27,8 @@
 /* Test-only renderer probe; the implementation stays out of the public API. */
 extern bool MmxRendererRidePilotBoundsForTest(int native_box[4],
                                               int drawn_box[4]);
+extern bool MmxRendererRidePilotFacingForTest(bool *native_hflip,
+                                              bool *drawn_mirror);
 
 enum {
   SABER_CHARGE_TIER_1_FRAME = 21,
@@ -110,10 +112,10 @@ static const uint8_t kSaberManifestSha[32] = {
 };
 
 static const uint8_t kRideManifestSha[32] = {
-  0x49, 0x96, 0x7c, 0x80, 0x01, 0x9c, 0x16, 0x94,
-  0xa5, 0xcd, 0x04, 0x72, 0x03, 0x7c, 0xab, 0x5b,
-  0xdd, 0x7c, 0x2f, 0xab, 0x0b, 0x0e, 0x9d, 0xe4,
-  0xf9, 0x06, 0xb9, 0x0d, 0x0d, 0xf8, 0xa7, 0xbd,
+  0xdf, 0x56, 0x36, 0x93, 0x59, 0x9e, 0x7d, 0x4d,
+  0x37, 0xcb, 0xb7, 0x28, 0x7c, 0x4d, 0x95, 0x3e,
+  0xbf, 0x23, 0xdb, 0x14, 0xa5, 0xc4, 0xbd, 0x29,
+  0x91, 0x91, 0xf8, 0xf4, 0xb1, 0xff, 0x7d, 0xac,
 };
 
 static unsigned projectiles(unsigned kind);
@@ -134,6 +136,7 @@ typedef struct RidePilotMeasuredPoses {
 } RidePilotMeasuredPoses;
 
 static RidePilotMeasuredPoses ride_pilot_measured;
+static bool ride_pilot_orientation_seen[2];
 
 static void zero_state_reset_probe(uint8_t *ram) {
   (void)ram;
@@ -444,33 +447,50 @@ static bool ride_pilot_expected_box(const char *label, unsigned pose,
   return !memcmp(native_box, expected, 4 * sizeof(*expected));
 }
 
-static void ride_pilot_record_box(const char *label, unsigned pose,
-                                  bool facing_left) {
+static void ride_pilot_record_box(const char *label, unsigned pose) {
   int native_box[4], drawn_box[4];
   int expected_box[4];
+  bool native_hflip, drawn_mirror;
   bool *seen = NULL;
   char message[160];
-  if ((!strcmp(label, "neutral") && pose == 0 && facing_left))
-    seen = &ride_pilot_measured.neutral_left;
-  else if ((!strcmp(label, "walk-left") && pose == 1 && facing_left))
-    seen = &ride_pilot_measured.walk_left;
-  else if ((!strcmp(label, "punch-left") && pose == 2 && facing_left))
-    seen = &ride_pilot_measured.punch_left;
-  else if ((!strcmp(label, "walk-right") && pose == 1 && !facing_left))
-    seen = &ride_pilot_measured.walk_right;
-  else if ((!strcmp(label, "punch-right") && pose == 2 && !facing_left))
-    seen = &ride_pilot_measured.punch_right;
-  else if ((!strcmp(label, "jump") && pose == 6 && facing_left))
-    seen = &ride_pilot_measured.jump_left;
-  else if ((!strcmp(label, "landing") && pose == 6 && facing_left))
-    seen = &ride_pilot_measured.landing_left;
   if (!ride_pilot_render_bounds(native_box, drawn_box)) return;
+  check(MmxRendererRidePilotFacingForTest(&native_hflip, &drawn_mirror),
+        "Ride pilot orientation probe finds native OAM pieces");
+  snprintf(message, sizeof(message),
+           "Ride pilot mirror matches native pilot facing (BB9=%s, OAM=%s)",
+           (g_ram[0x0bb9] & 0x40) ? "set" : "clear",
+           native_hflip ? "set" : "clear");
+  /* The ride sheet is authored opposite the native pilot OAM convention;
+   * facing_xor=1 is the data record for that relationship. */
+  check(drawn_mirror != native_hflip, message);
+  if (!ride_pilot_orientation_seen[native_hflip]) {
+    printf("reference: ride-facing BB9=%s native-oam-hflip=%s ride-mirror=%s "
+           "expected=%s\n",
+           (g_ram[0x0bb9] & 0x40) ? "set" : "clear",
+           native_hflip ? "set" : "clear", drawn_mirror ? "left" : "right",
+           native_hflip ? "right" : "left");
+    ride_pilot_orientation_seen[native_hflip] = true;
+  }
+  if ((!strcmp(label, "neutral") && pose == 0 && native_hflip))
+    seen = &ride_pilot_measured.neutral_left;
+  else if ((!strcmp(label, "walk-left") && pose == 1 && native_hflip))
+    seen = &ride_pilot_measured.walk_left;
+  else if ((!strcmp(label, "punch-left") && pose == 2 && native_hflip))
+    seen = &ride_pilot_measured.punch_left;
+  else if ((!strcmp(label, "walk-right") && pose == 1 && !native_hflip))
+    seen = &ride_pilot_measured.walk_right;
+  else if ((!strcmp(label, "punch-right") && pose == 2 && !native_hflip))
+    seen = &ride_pilot_measured.punch_right;
+  else if ((!strcmp(label, "jump") && pose == 6 && native_hflip))
+    seen = &ride_pilot_measured.jump_left;
+  else if ((!strcmp(label, "landing") && pose == 6 && native_hflip))
+    seen = &ride_pilot_measured.landing_left;
   if (!ride_pilot_expected_box(label, pose, native_box, expected_box)) return;
   if (!seen || *seen) return;
   *seen = true;
   printf("reference: ride-bbox %s pose=%u facing=%s native=(%d,%d)-(%d,%d) "
          "drawn=(%d,%d)-(%d,%d) delta=(%d,%d,%d,%d)\n", label, pose,
-         facing_left ? "L" : "R", native_box[0], native_box[1],
+         native_hflip ? "L" : "R", native_box[0], native_box[1],
          native_box[2], native_box[3], drawn_box[0], drawn_box[1],
          drawn_box[2], drawn_box[3], drawn_box[0] - native_box[0],
          drawn_box[1] - native_box[1], drawn_box[2] - native_box[2],
@@ -478,7 +498,7 @@ static void ride_pilot_record_box(const char *label, unsigned pose,
   for (unsigned edge = 0; edge < 4; ++edge) {
     snprintf(message, sizeof(message),
              "Ride pilot %s pose %u %s edge %u is within 2 px",
-             label, pose, facing_left ? "left" : "right", edge);
+             label, pose, native_hflip ? "left" : "right", edge);
     check(abs(drawn_box[edge] - native_box[edge]) <= 2, message);
   }
 }
@@ -490,7 +510,10 @@ static void reload_ride_fixture(const char *path) {
 static void saber_ride_pilot_sequence(const char *label, unsigned input,
                                        unsigned count,
                                        const MmxSaberAssets *oracle) {
+  const MmxSaberAnimation *animation =
+      MmxSaberAssetsAnimationById(oracle, 0x006b);
   printf("reference: ride-pilot %s poses=", label);
+  check(animation != NULL, "Ride pilot oracle contains animation 0x006B");
   for (unsigned i = 0; i < count; ++i) {
     MmxRenderPlayerOverlay actual;
     unsigned pose;
@@ -515,9 +538,10 @@ static void saber_ride_pilot_sequence(const char *label, unsigned input,
                       (size_t)actual.palette_count * sizeof(uint16_t)) &&
               actual.blade.pixels == NULL && actual.blade.width == 0 &&
               actual.blade.height == 0 && actual.blade_layer == 0 &&
-              actual.facing_left == ((g_ram[0x0bb9] & 0x40) != 0),
+              actual.facing_left == (((g_ram[0x0bb9] & 0x40) != 0) ^
+                                     (animation->facing_xor != 0)),
           "Ride Armor renderer overlay follows the live native pose");
-    ride_pilot_record_box(label, pose, actual.facing_left);
+    ride_pilot_record_box(label, pose);
     printf("%s%u", i ? " " : "", pose);
   }
   puts("");
@@ -535,6 +559,7 @@ static void saber_ride_pilot_checks(const char *fixture_dir) {
             (g_ram[0x0e22] & 0x40) != 0 && g_ram[0x0bbf] < 23,
         "ride-armor.sav starts in the $6A Ride Armor pilot action");
   memset(&ride_pilot_measured, 0, sizeof(ride_pilot_measured));
+  memset(ride_pilot_orientation_seen, 0, sizeof(ride_pilot_orientation_seen));
   MmxSaberFrameReset();
   saber_ride_pilot_sequence("neutral", 0, 8, oracle);
   reload_ride_fixture(path);
@@ -554,6 +579,8 @@ static void saber_ride_pilot_checks(const char *fixture_dir) {
             ride_pilot_measured.punch_right && ride_pilot_measured.jump_left &&
             ride_pilot_measured.landing_left,
         "Ride pilot measured poses all have native and drawn bounding boxes");
+  check(ride_pilot_orientation_seen[0] && ride_pilot_orientation_seen[1],
+        "Ride pilot orientation matches native OAM h-flip for both facings");
 
   load_fixture(getenv("MMX_ZERO_TEST_FIXTURE"));
   MmxSaberFrameReset();

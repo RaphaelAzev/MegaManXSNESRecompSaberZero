@@ -39,10 +39,10 @@ static const uint8_t kSaberManifestSha[32] = {
 };
 
 static const uint8_t kRideManifestSha[32] = {
-  0x49, 0x96, 0x7c, 0x80, 0x01, 0x9c, 0x16, 0x94,
-  0xa5, 0xcd, 0x04, 0x72, 0x03, 0x7c, 0xab, 0x5b,
-  0xdd, 0x7c, 0x2f, 0xab, 0x0b, 0x0e, 0x9d, 0xe4,
-  0xf9, 0x06, 0xb9, 0x0d, 0x0d, 0xf8, 0xa7, 0xbd,
+  0xdf, 0x56, 0x36, 0x93, 0x59, 0x9e, 0x7d, 0x4d,
+  0x37, 0xcb, 0xb7, 0x28, 0x7c, 0x4d, 0x95, 0x3e,
+  0xbf, 0x23, 0xdb, 0x14, 0xa5, 0xc4, 0xbd, 0x29,
+  0x91, 0x91, 0xf8, 0xf4, 0xb1, 0xff, 0x7d, 0xac,
 };
 
 static const uint16_t kRideSourceFrames[23] = {
@@ -393,6 +393,8 @@ static void check_tuple(const MmxSaberAssets *assets, unsigned animation_index,
 static void ride_matrix_checks(const MmxSaberAssets *assets) {
   uint8_t ram[0x20000] = {0};
   bool matrix_ok = true;
+  const MmxSaberAnimation *animation =
+      MmxSaberAssetsAnimationById(assets, 0x006b);
 
   ram[0x0baa] = 0x2c;
   ram[0x0e18] = 1;
@@ -417,7 +419,8 @@ static void ride_matrix_checks(const MmxSaberAssets *assets) {
             actual.palette_count == MmxSaberAssetsPaletteCount(assets) &&
             actual.blade.pixels == NULL && actual.blade.width == 0 &&
             actual.blade.height == 0 && actual.blade_layer == 0 &&
-            actual.facing_left == (facing != 0);
+            animation && actual.facing_left == ((facing != 0) ^
+                                                (animation->facing_xor != 0));
         ram[0x0bbf] = (uint8_t)(pose + 1);
       }
       ram[0x0bbf] = 0;
