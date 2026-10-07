@@ -67,6 +67,10 @@ enum { MAX_WORLD_SPRITES = 8 };
 static MmxRendererWorldSpriteProvider world_sprite_provider;
 static MmxRenderWorldSprite frame_world_sprites[MAX_WORLD_SPRITES];
 static unsigned frame_world_sprite_count;
+enum { MAX_DEBUG_RECTS = 64 };
+static MmxRendererDebugRectProvider debug_rect_provider;
+static MmxRenderDebugRect frame_debug_rects[MAX_DEBUG_RECTS];
+static unsigned frame_debug_rect_count;
 static uint8_t door_cache[512 * 512];
 static int airport_sky_width;
 typedef struct SubmarineBody {
@@ -151,10 +155,22 @@ unsigned MmxRendererWorldSpriteSnapshot(MmxRenderWorldSprite *out,
     memcpy(out, frame_world_sprites, count * sizeof(*out));
   return count;
 }
+void MmxRendererSetDebugRectProvider(MmxRendererDebugRectProvider provider) {
+  debug_rect_provider = provider;
+  if (!provider) frame_debug_rect_count = 0;
+}
+unsigned MmxRendererDebugRectSnapshot(MmxRenderDebugRect *out,
+                                      unsigned max) {
+  unsigned count = frame_debug_rect_count < max ? frame_debug_rect_count : max;
+  if (out && count)
+    memcpy(out, frame_debug_rects, count * sizeof(*out));
+  return count;
+}
 void MmxRendererReset(void) {
   memset(&frame_zero, 0, sizeof(frame_zero));
   memset(&frame_player_overlay, 0, sizeof(frame_player_overlay));
   frame_world_sprite_count = 0;
+  frame_debug_rect_count = 0;
   frame.valid = false; frame.captured = 0;
   building_count = latched_count = 0;
   building_stage = latched_stage = 0xff;
@@ -346,7 +362,9 @@ static void trace_objects(const uint8_t *ram) {
 void MmxRendererBeginFrame(const uint8_t ram[0x20000]) {
   MmxRenderPlayerOverlay overlay;
   MmxRenderWorldSprite world_sprites[MAX_WORLD_SPRITES];
+  MmxRenderDebugRect debug_rects[MAX_DEBUG_RECTS];
   unsigned world_sprite_count = 0;
+  unsigned debug_rect_count = 0;
   memset(&frame_coop,0,sizeof(frame_coop));
   memset(&overlay, 0, sizeof(overlay));
   if (player_overlay_provider && player_overlay_provider(&overlay))
@@ -363,6 +381,15 @@ void MmxRendererBeginFrame(const uint8_t ram[0x20000]) {
   if (world_sprite_count)
     memcpy(frame_world_sprites, world_sprites,
            world_sprite_count * sizeof(*frame_world_sprites));
+  memset(debug_rects, 0, sizeof(debug_rects));
+  if (debug_rect_provider)
+    debug_rect_count = debug_rect_provider(debug_rects, MAX_DEBUG_RECTS);
+  if (debug_rect_count > MAX_DEBUG_RECTS)
+    debug_rect_count = MAX_DEBUG_RECTS;
+  frame_debug_rect_count = debug_rect_count;
+  if (debug_rect_count)
+    memcpy(frame_debug_rects, debug_rects,
+           debug_rect_count * sizeof(*frame_debug_rects));
   trace_objects(ram);
   frame.valid = false; frame.captured = 0;
   memcpy(frame.ram, ram, sizeof(frame.ram));
@@ -1310,6 +1337,47 @@ static void world_sprite_row(const MmxRenderWorldSprite *sprite, int y,
     object_colors[dx] = sprite->palette[pixel];
   }
 }
+static uint32_t debug_rgb555(uint16_t color) {
+  unsigned red = color & 31;
+  unsigned green = (color >> 5) & 31;
+  unsigned blue = (color >> 10) & 31;
+  red = (red << 3) | (red >> 2);
+  green = (green << 3) | (green >> 2);
+  blue = (blue << 3) | (blue >> 2);
+  return (red << 16) | (green << 8) | blue;
+}
+static void draw_debug_rect(uint32_t *out, MmxRenderView view,
+                            const MmxRenderDebugRect *rect) {
+  int64_t left, top, right, bottom;
+  int x0, x1;
+
+  if (!out || !rect || !rect->w || !rect->h) return;
+  left = (int64_t)rect->world_x - view_camera(frame.ram, 0x1e4d) + view.extra;
+  top = (int64_t)rect->world_y - view_camera(frame.ram, 0x1e50);
+  right = left + rect->w - 1;
+  bottom = top + rect->h - 1;
+  x0 = left < 0 ? 0 : left >= view.width ? view.width - 1 : (int)left;
+  x1 = right < 0 ? 0 : right >= view.width ? view.width - 1 : (int)right;
+  if (left >= view.width || right < 0 || top >= MMX_RENDER_HEIGHT ||
+      bottom < 0 || x0 > x1)
+    return;
+
+  const uint32_t color = debug_rgb555(rect->rgb555);
+  if (top >= 0 && top < MMX_RENDER_HEIGHT)
+    for (int x = x0; x <= x1; ++x) out[(int)top * view.width + x] = color;
+  if (bottom >= 0 && bottom < MMX_RENDER_HEIGHT && bottom != top)
+    for (int x = x0; x <= x1; ++x) out[(int)bottom * view.width + x] = color;
+  if (left >= 0 && left < view.width && bottom - top > 1) {
+    int y0 = top + 1 < 0 ? 0 : top + 1 >= MMX_RENDER_HEIGHT ? MMX_RENDER_HEIGHT : (int)top + 1;
+    int y1 = bottom - 1 >= MMX_RENDER_HEIGHT ? MMX_RENDER_HEIGHT - 1 : (int)bottom - 1;
+    for (int y = y0; y <= y1; ++y) out[y * view.width + (int)left] = color;
+  }
+  if (right >= 0 && right < view.width && right != left && bottom - top > 1) {
+    int y0 = top + 1 < 0 ? 0 : top + 1 >= MMX_RENDER_HEIGHT ? MMX_RENDER_HEIGHT : (int)top + 1;
+    int y1 = bottom - 1 >= MMX_RENDER_HEIGHT ? MMX_RENDER_HEIGHT - 1 : (int)bottom - 1;
+    for (int y = y0; y <= y1; ++y) out[y * view.width + (int)right] = color;
+  }
+}
 bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
   if (!out || !frame.valid || view.width < 256 || view.width > MMX_RENDER_MAX_WIDTH ||
       view.extra != (view.width - 256) / 2 || (view.width & 1)) return false;
@@ -1685,5 +1753,7 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
                                        dialogue_backdrop && (x < 0 || x >= 256));
     }
   }
+  for (unsigned i = 0; i < frame_debug_rect_count; ++i)
+    draw_debug_rect(out, view, &frame_debug_rects[i]);
   return true;
 }

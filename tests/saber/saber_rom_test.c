@@ -12,6 +12,7 @@
 #include "saber/mmx_saber_attack.h"
 #include "saber/mmx_saber_combo.h"
 #include "saber/mmx_saber_frame.h"
+#include "saber/mmx_saber_hitbox_debug.h"
 #include "saber/mmx_saber_plugin.h"
 #include "saber/mmx_saber_sfx.h"
 #include "saber/mmx_saber_tuning.h"
@@ -4373,6 +4374,149 @@ static void saber_tuning_checks(void) {
   puts("ok: saber-tuning");
 }
 
+static bool debug_rects_overlap(const MmxRenderDebugRect *a,
+                                const MmxRenderDebugRect *b) {
+  int32_t a_right, a_bottom, b_right, b_bottom;
+  if (!a || !b || !a->w || !a->h || !b->w || !b->h) return false;
+  a_right = a->world_x + (int32_t)a->w - 1;
+  a_bottom = a->world_y + (int32_t)a->h - 1;
+  b_right = b->world_x + (int32_t)b->w - 1;
+  b_bottom = b->world_y + (int32_t)b->h - 1;
+  return a->world_x <= b_right && b->world_x <= a_right &&
+      a->world_y <= b_bottom && b->world_y <= a_bottom;
+}
+
+static void saber_hitbox_debug_checks(const char *fixture) {
+  static const int8_t old_slash1_record[4] = {7, -24, 11, 14};
+  MmxRenderDebugRect rects[64];
+  MmxRenderDebugRect slash_rect = {0};
+  unsigned target, walk_frames = 0, count;
+  unsigned hp_before;
+  bool slash_record_checked = false;
+  bool hit_overlap = false;
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(0);
+  MmxRendererBeginFrame(g_ram);
+  check(!MmxSaberTuningShowHitboxes() &&
+            MmxRendererDebugRectSnapshot(rects, 64) == 0,
+        "show_hitboxes defaults off and leaves no renderer provider snapshot");
+
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, "megaman-x.character.saber-zero",
+            "saber-zero", "show_hitboxes", "true"),
+        "test catalog sets show_hitboxes through feature_set_option");
+  snes_mod_runtime_activate_plugins_c();
+  check(MmxSaberEnabled() && MmxSaberTuningShowHitboxes(),
+        "show_hitboxes reactivation keeps Saber enabled and turns the provider on");
+
+  target = walk_to_ground_enemy(fixture, &walk_frames);
+  check(target == 0xea8 && walk_frames == 213,
+        "hitbox debug walk reaches Highway enemy $0EA8 in 213 frames");
+  hp_before = g_ram[target + 0x27] & 127;
+  frame(SNES_PAD_Y);
+  for (unsigned i = 0; i < 45; ++i) {
+    MmxSaberAttackSnapshot snapshot = MmxSaberAttackSnapshotGet();
+    MmxRenderDebugRect active_cyan = {0};
+    bool active_cyan_found = false;
+    MmxRendererBeginFrame(g_ram);
+    count = MmxRendererDebugRectSnapshot(rects, 64);
+    for (unsigned r = 0; r < count; ++r)
+      if (!active_cyan_found && rects[r].rgb555 == MMX_SABER_HITBOX_CYAN) {
+        active_cyan = rects[r];
+        active_cyan_found = true;
+      }
+    if (snapshot.phase == SABER_PHASE_ACTIVE && snapshot.tick == 4) {
+      const unsigned slot = saber_active_slot();
+      int center_x = old_slash1_record[0];
+      bool found = false;
+      check(slot != 0 && (g_ram[slot + 0x11] & 0x40) == 0,
+            "right-facing slash publishes the unmirrored native orientation");
+      if (g_ram[slot + 0x11] & 0x40) center_x = -center_x;
+      slash_rect.world_x = (int16_t)read_ram_word(g_ram, 0x0bad) +
+          center_x - old_slash1_record[2];
+      slash_rect.world_y = (int16_t)read_ram_word(g_ram, 0x0bb0) +
+          old_slash1_record[1] - old_slash1_record[3];
+      slash_rect.w = (uint16_t)(old_slash1_record[2] * 2 + 1);
+      slash_rect.h = (uint16_t)(old_slash1_record[3] * 2 + 1);
+      slash_rect.rgb555 = MMX_SABER_HITBOX_CYAN;
+      for (unsigned r = 0; r < count; ++r)
+        if (rects[r].rgb555 == MMX_SABER_HITBOX_CYAN &&
+            rects[r].world_x == slash_rect.world_x &&
+            rects[r].world_y == slash_rect.world_y &&
+            rects[r].w == slash_rect.w && rects[r].h == slash_rect.h) {
+          found = true;
+          break;
+        }
+      check(found && slash_rect.w == 23 && slash_rect.h == 29,
+            "ACTIVE slash 1 exposes the independent old collision record bounds");
+      slash_record_checked = found;
+    }
+    if ((g_ram[target + 0x27] & 127) < hp_before && active_cyan_found) {
+      for (unsigned r = 0; r < count; ++r)
+        if (rects[r].rgb555 == MMX_SABER_HITBOX_RED &&
+            debug_rects_overlap(&rects[r], &active_cyan)) {
+          hit_overlap = true;
+          break;
+        }
+    }
+    hp_before = g_ram[target + 0x27] & 127;
+    if (snapshot.phase == SABER_PHASE_IDLE) break;
+    frame(0);
+  }
+  check(slash_record_checked,
+        "the Saber provider returns a cyan donor box during ACTIVE");
+  check(hit_overlap,
+        "the $0EA8 red enemy box overlaps the cyan slash on the hit frame");
+
+  /* The left-facing case is deliberately independent of the right-facing
+   * record assertion above. It catches a provider that forgets native bit $40
+   * while still producing a plausible right-facing rectangle. */
+  target = walk_to_ground_enemy(fixture, &walk_frames);
+  check(target == 0xea8 && walk_frames == 213,
+        "left-facing hitbox probe reaches Highway enemy $0EA8");
+  g_ram[0x0c11] &= (uint8_t)~0x40;
+  g_ram[0x0bb9] &= (uint8_t)~0x40;
+  frame(0);
+  frame(SNES_PAD_Y);
+  bool left_record_checked = false;
+  for (unsigned i = 0; i < 45 && !left_record_checked; ++i) {
+    MmxSaberAttackSnapshot snapshot = MmxSaberAttackSnapshotGet();
+    MmxRendererBeginFrame(g_ram);
+    count = MmxRendererDebugRectSnapshot(rects, 64);
+    if (snapshot.phase == SABER_PHASE_ACTIVE && snapshot.tick == 4) {
+      const unsigned slot = saber_active_slot();
+      int center_x = -old_slash1_record[0];
+      bool found = false;
+      check(slot != 0 && (g_ram[slot + 0x11] & 0x40) != 0,
+            "left-facing slash publishes native bit $40 for the mirrored record");
+      if (g_ram[slot + 0x11] & 0x40) center_x = -old_slash1_record[0];
+      slash_rect.world_x = (int16_t)read_ram_word(g_ram, 0x0bad) +
+          center_x - old_slash1_record[2];
+      slash_rect.world_y = (int16_t)read_ram_word(g_ram, 0x0bb0) +
+          old_slash1_record[1] - old_slash1_record[3];
+      slash_rect.w = (uint16_t)(old_slash1_record[2] * 2 + 1);
+      slash_rect.h = (uint16_t)(old_slash1_record[3] * 2 + 1);
+      slash_rect.rgb555 = MMX_SABER_HITBOX_CYAN;
+      for (unsigned r = 0; r < count; ++r)
+        if (rects[r].rgb555 == MMX_SABER_HITBOX_CYAN &&
+            rects[r].world_x == slash_rect.world_x &&
+            rects[r].world_y == slash_rect.world_y &&
+            rects[r].w == slash_rect.w && rects[r].h == slash_rect.h) {
+          found = true;
+          break;
+        }
+      check(found,
+            "left-facing ACTIVE slash mirrors the old record's X center offset");
+      left_record_checked = found;
+    }
+    if (!left_record_checked) frame(0);
+  }
+  check(left_record_checked,
+        "left-facing mutation coverage reaches the mirrored cyan slash box");
+}
+
 static unsigned saber_wave_live_count(void) {
   unsigned count = 0;
   for (unsigned d = 0x1228; d < 0x1428; d += 64)
@@ -5673,6 +5817,7 @@ int main(int argc, char **argv) {
   const bool saber_package = only && !strcmp(only, "saber-package");
   const bool saber_finisher = only && !strcmp(only, "saber-finisher");
   const bool saber_tuning = only && !strcmp(only, "saber-tuning");
+  const bool saber_hitbox_debug = only && !strcmp(only, "saber-hitbox-debug");
   const bool saber_damage = only && !strcmp(only, "saber-damage");
   const bool zero_extension = only && !strcmp(only, "zero-extension");
   const bool saber_input = only && !strcmp(only, "saber-input");
@@ -5703,7 +5848,7 @@ int main(int argc, char **argv) {
       saber_ground_hit || saber_cancel || saber_lifecycle_load ||
       saber_render_snapshot || saber_buster_rules || saber_burst_height ||
       saber_finisher ||
-      saber_tuning || saber_damage ||
+      saber_tuning || saber_hitbox_debug || saber_damage ||
       saber_wave_travel || saber_wave_damage || saber_wave_lifecycle ||
       saber_wave_render;
   SpecialCounts upstream_specials = {0};
@@ -5776,6 +5921,11 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-tuning runs with the Saber package enabled");
     saber_tuning_checks();
+  } else if (saber_hitbox_debug) {
+    check(MmxSaberEnabled(),
+          "saber-hitbox-debug runs with the Saber package enabled");
+    saber_hitbox_debug_checks(fixture);
+    puts("ok: saber-hitbox-debug");
   } else if (saber_damage) {
     check(MmxSaberEnabled(),
           "saber-damage runs with the Saber package enabled");
@@ -5856,6 +6006,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-package") && strcmp(only, "saber-input") &&
       strcmp(only, "saber-finisher") &&
       strcmp(only, "saber-tuning") &&
+      strcmp(only, "saber-hitbox-debug") &&
       strcmp(only, "saber-damage") &&
       strcmp(only, "saber-ground-1") &&
       strcmp(only, "saber-ground-combo") &&

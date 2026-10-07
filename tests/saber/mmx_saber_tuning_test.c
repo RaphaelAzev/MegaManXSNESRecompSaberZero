@@ -68,6 +68,8 @@ static void check_defaults(void) {
             MmxSaberTuningFinisherWindowFrames() == 27 &&
             MmxSaberTuningSaberSwingVolume() == 50,
         "window and volume defaults match the manifest");
+  check(!tuning->show_hitboxes && !MmxSaberTuningShowHitboxes(),
+        "show_hitboxes defaults off");
   check(MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_SLASH3) == 8,
         "zero boss default resolves to the normal damage");
 }
@@ -90,6 +92,7 @@ static void check_each_id_maps_to_field(void) {
     {"x3_finisher_priority", "2"}, {"wave_priority", "3"},
     {"priority_window_frames", "71"}, {"finisher_window_frames", "60"},
     {"saber_swing_volume", "90"},
+    {"show_hitboxes", "true"},
   };
   FakeOptions source = {options, sizeof(options) / sizeof(options[0])};
   static const int expected_boss[] = {21, 22, 23, 27, 24, 25, 26, 28};
@@ -115,6 +118,8 @@ static void check_each_id_maps_to_field(void) {
         "finisher window option id maps to its field");
   check(MmxSaberTuningSaberSwingVolume() == 90,
         "swing volume option id maps to its field");
+  check(MmxSaberTuningGet()->show_hitboxes && MmxSaberTuningShowHitboxes(),
+        "boolean show_hitboxes option maps to its field");
 }
 
 static void check_clamping_and_invalid_fallback(void) {
@@ -127,6 +132,7 @@ static void check_clamping_and_invalid_fallback(void) {
     {"saber_swing_volume", "-10"},
     {"wave_priority", "10"},
     {"air_damage", "3x"},
+    {"show_hitboxes", "not-a-boolean"},
   };
   FakeOptions source = {options, sizeof(options) / sizeof(options[0])};
 
@@ -147,6 +153,8 @@ static void check_clamping_and_invalid_fallback(void) {
         "priority clamps to its manifest maximum");
   check(MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_AIR) == 3,
         "trailing text falls back to the normal damage default");
+  check(!MmxSaberTuningShowHitboxes(),
+        "invalid boolean falls back to show_hitboxes off");
 }
 
 static void check_boss_semantics(void) {

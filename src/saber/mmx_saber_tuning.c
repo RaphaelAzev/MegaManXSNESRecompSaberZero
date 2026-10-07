@@ -3,13 +3,15 @@
 #include <errno.h>
 #include <limits.h>
 #include <stdlib.h>
+#include <string.h>
 
 typedef struct MmxSaberTuningOption {
   const char *id;
   int default_value;
   int min_value;
   int max_value;
-  int *value;
+  void *value;
+  bool boolean;
 } MmxSaberTuningOption;
 
 static MmxSaberTuning g_tuning = {
@@ -19,6 +21,7 @@ static MmxSaberTuning g_tuning = {
   70,
   27,
   50,
+  false,
 };
 
 static MmxSaberTuningOption k_options[] = {
@@ -86,6 +89,7 @@ static MmxSaberTuningOption k_options[] = {
   {"finisher_window_frames", 27, 12, 60,
    &g_tuning.finisher_window_frames},
   {"saber_swing_volume", 50, 0, 200, &g_tuning.saber_swing_volume},
+  {"show_hitboxes", 0, 0, 1, &g_tuning.show_hitboxes, true},
 };
 
 static bool parse_integer(const char *text, int *out) {
@@ -102,19 +106,43 @@ static bool parse_integer(const char *text, int *out) {
   return true;
 }
 
+static bool parse_boolean(const char *text, bool *out) {
+  if (!text || !out) return false;
+  if (!strcmp(text, "1") || !strcmp(text, "true") ||
+      !strcmp(text, "on")) {
+    *out = true;
+    return true;
+  }
+  if (!strcmp(text, "0") || !strcmp(text, "false") ||
+      !strcmp(text, "off")) {
+    *out = false;
+    return true;
+  }
+  return false;
+}
+
 void MmxSaberTuningLoad(MmxSaberTuningOptionReader reader, void *context) {
   for (unsigned i = 0; i < sizeof(k_options) / sizeof(k_options[0]); ++i) {
     char text[64] = {0};
     int parsed;
+    bool parsed_boolean;
     MmxSaberTuningOption *option = k_options + i;
 
-    *option->value = option->default_value;
+    if (option->boolean)
+      *(bool *)option->value = option->default_value != 0;
+    else
+      *(int *)option->value = option->default_value;
     if (!reader || !reader(option->id, text, sizeof(text), context)) continue;
     text[sizeof(text) - 1] = '\0';
+    if (option->boolean) {
+      if (!parse_boolean(text, &parsed_boolean)) continue;
+      *(bool *)option->value = parsed_boolean;
+      continue;
+    }
     if (!parse_integer(text, &parsed)) continue;
     if (parsed < option->min_value) parsed = option->min_value;
     if (parsed > option->max_value) parsed = option->max_value;
-    *option->value = parsed;
+    *(int *)option->value = parsed;
   }
 }
 
@@ -149,6 +177,10 @@ int MmxSaberTuningFinisherWindowFrames(void) {
 
 int MmxSaberTuningSaberSwingVolume(void) {
   return g_tuning.saber_swing_volume;
+}
+
+bool MmxSaberTuningShowHitboxes(void) {
+  return g_tuning.show_hitboxes;
 }
 
 int MmxSaberTuningSwingVolume(void) {

@@ -1,5 +1,7 @@
 #pragma once
 /* Local presentation only. -1 selects the existing shared view. */
+#include <stdint.h>
+
 void MmxRendererSetPeerView(int seat);
 #include "snes/ppu.h"
 #include "mmx_display.h"
@@ -61,6 +63,23 @@ void MmxRendererSetWorldSpriteProvider(MmxRendererWorldSpriteProvider provider);
 /* Copy the immutable snapshot captured by BeginFrame. */
 unsigned MmxRendererWorldSpriteSnapshot(MmxRenderWorldSprite *out,
                                         unsigned max);
+
+/* A presentation-only world-space diagnostic rectangle. The origin is the
+ * top-left corner; w and h are inclusive pixel dimensions. rgb555 uses the
+ * native BGR555 bit layout. */
+typedef struct MmxRenderDebugRect {
+  int32_t world_x, world_y;
+  uint16_t w, h;
+  uint16_t rgb555;
+} MmxRenderDebugRect;
+
+typedef unsigned (*MmxRendererDebugRectProvider)(MmxRenderDebugRect *out,
+                                                 unsigned max);
+
+void MmxRendererSetDebugRectProvider(MmxRendererDebugRectProvider provider);
+/* Copy the immutable snapshot captured by BeginFrame. */
+unsigned MmxRendererDebugRectSnapshot(MmxRenderDebugRect *out,
+                                      unsigned max);
 
 extern bool g_mmx_custom_renderer;
 extern bool g_mmx_custom_hud;

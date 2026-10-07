@@ -6,6 +6,7 @@
 #include "../mmx_wide_policy.h"
 #include "../mmx_zero.h"
 #include "mmx_saber_sfx.h"
+#include "mmx_saber_hitbox_debug.h"
 #include "mmx_saber_tuning.h"
 #include "mmx_saber_wave_runtime.h"
 
@@ -553,6 +554,7 @@ static void collision_window_update(MmxSaberCollisionWindow *window,
 
 void MmxSaberAttackCollisionRom(uint8_t *rom, size_t size) {
   uint8_t ground[40], air[40];
+  MmxSaberHitboxDebugSetRom(rom, size);
   bounds_records_for_window(ground, MMX_SABER_ATTACK_BOUNDS_POINTER);
   bounds_records_for_window(air, MMX_SABER_AIR_BOUNDS_POINTER);
   collision_window_update(&ground_collision, rom, size, ground);

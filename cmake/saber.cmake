@@ -8,6 +8,7 @@ set(_saber_input_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_input.c
 set(_saber_combo_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_combo.c")
 set(_saber_attack_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_attack.c")
 set(_saber_frame_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_frame.c")
+set(_saber_hitbox_debug_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_hitbox_debug.c")
 set(_saber_render_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_render.c")
 set(_saber_tuning_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_tuning.c")
 set(_saber_sfx_converter_source "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/mmx_saber_sfx_convert.c")
@@ -93,7 +94,8 @@ if(TARGET MegaManXSNESRecomp)
         "${_saber_sfx_source}" "${_saber_input_source}"
         "${_saber_combo_source}"
         "${_saber_attack_source}"
-        "${_saber_frame_source}" "${_saber_render_source}"
+        "${_saber_frame_source}" "${_saber_hitbox_debug_source}"
+        "${_saber_render_source}"
         "${_saber_tuning_source}")
     if(TARGET saber_asset_caches)
         add_dependencies(MegaManXSNESRecomp saber_asset_caches)
@@ -111,7 +113,8 @@ if(MMX_STATE_TESTS AND TARGET mmx_state_tests)
         "${_saber_sfx_source}" "${_saber_input_source}"
         "${_saber_combo_source}"
         "${_saber_attack_source}"
-        "${_saber_frame_source}" "${_saber_render_source}"
+        "${_saber_frame_source}" "${_saber_hitbox_debug_source}"
+        "${_saber_render_source}"
         "${_saber_tuning_source}")
     if(TARGET saber_asset_caches)
         add_dependencies(mmx_state_tests saber_asset_caches)
@@ -139,6 +142,8 @@ if(MMX_STATE_TESTS AND TARGET mmx_state_tests)
         "${_saber_attack_source}"
         src/saber/mmx_saber_render.c
         "${_saber_render_source}"
+        src/saber/mmx_saber_hitbox_debug.c
+        "${_saber_hitbox_debug_source}"
         src/saber/mmx_saber_tuning.c
         "${_saber_tuning_source}")
 
@@ -150,7 +155,8 @@ if(MMX_STATE_TESTS AND TARGET mmx_state_tests)
         "${_saber_sfx_source}" "${_saber_input_source}"
         "${_saber_combo_source}"
         "${_saber_attack_source}"
-        "${_saber_frame_source}" "${_saber_render_source}"
+        "${_saber_frame_source}" "${_saber_hitbox_debug_source}"
+        "${_saber_render_source}"
         "${_saber_tuning_source}")
     foreach(_property INCLUDE_DIRECTORIES COMPILE_DEFINITIONS COMPILE_OPTIONS LINK_LIBRARIES LINK_OPTIONS)
         get_target_property(_value mmx_state_tests ${_property})
@@ -253,7 +259,7 @@ if(BUILD_TESTING)
         "${_saber_render_source}" "${_saber_assets_source}"
         "${_saber_wave_source}"
         "${_saber_attack_source}" "${_saber_wave_runtime_source}" "${_saber_sfx_source}"
-        "${_saber_tuning_source}"
+        "${_saber_tuning_source}" "${_saber_hitbox_debug_source}"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/mmx_wide_policy.c"
         "${SNESRECOMP_ROOT}/runner/src/sha256.c")
     target_include_directories(mmx_saber_render_test PRIVATE

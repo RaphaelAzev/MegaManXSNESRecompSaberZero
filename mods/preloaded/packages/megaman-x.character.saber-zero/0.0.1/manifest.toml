@@ -35,6 +35,14 @@ label = "Zero"
 
 [[option]]
 feature = "saber-zero"
+id = "show_hitboxes"
+label = "Show hitboxes"
+description = "Debug: outline enemy, Zero and Saber attack hitboxes (custom renderer only)"
+type = "boolean"
+default = false
+
+[[option]]
+feature = "saber-zero"
 id = "slash1_damage"
 label = "Slash 1 damage"
 description = "Normal damage dealt by the first ground slash."

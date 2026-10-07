@@ -37,6 +37,8 @@ static uint32_t right_output[256 * 224];
 static MmxRenderPlayerOverlay provider_overlay;
 static MmxRenderWorldSprite provider_world[8];
 static unsigned provider_world_count;
+static MmxRenderDebugRect provider_debug[64];
+static unsigned provider_debug_count;
 static uint8_t body_pixels[] = {
   1, 2, 0, 0, 0,
   0, 3, 2, 0, 0,
@@ -86,6 +88,12 @@ static bool provide_overlay(MmxRenderPlayerOverlay *out) {
 static unsigned provide_world(MmxRenderWorldSprite *out, unsigned max) {
   unsigned count = provider_world_count < max ? provider_world_count : max;
   if (count) memcpy(out, provider_world, count * sizeof(*out));
+  return count;
+}
+
+static unsigned provide_debug(MmxRenderDebugRect *out, unsigned max) {
+  unsigned count = provider_debug_count < max ? provider_debug_count : max;
+  if (count) memcpy(out, provider_debug, count * sizeof(*out));
   return count;
 }
 
@@ -139,7 +147,9 @@ static void scene(void) {
   memset(stock, 0, sizeof(stock));
   MmxRendererSetPlayerOverlayProvider(NULL);
   MmxRendererSetWorldSpriteProvider(NULL);
+  MmxRendererSetDebugRectProvider(NULL);
   provider_world_count = 0;
+  provider_debug_count = 0;
   MmxRendererReset();
   MmxRendererSetRom(rom, sizeof(rom));
   g_mmx_custom_renderer = true;
@@ -322,6 +332,73 @@ static void world_sprite_geometry_and_snapshot(void) {
         "world coordinates are snapshotted before mid-frame provider changes");
 }
 
+static void debug_rect_geometry_and_snapshot(void) {
+  MmxRenderDebugRect snapshot[64];
+  const MmxRenderView narrow = {256, 0, 4.0 / 3.0};
+  const MmxRenderView wide = {342, 43, 16.0 / 9.0};
+
+  scene();
+  render_view(narrow);
+  memcpy(right_output, output, sizeof(right_output));
+
+  scene();
+  MmxRendererSetDebugRectProvider(provide_debug);
+  render_view(narrow);
+  check(!memcmp(right_output, output, sizeof(right_output)) &&
+            MmxRendererDebugRectSnapshot(snapshot, 64) == 0,
+        "an empty debug-rectangle snapshot preserves the native output exactly");
+
+  scene();
+  provider_debug[0] = (MmxRenderDebugRect){40, 40, 3, 2, 0x001f};
+  provider_debug_count = 1;
+  MmxRendererSetDebugRectProvider(provide_debug);
+  render_view(narrow);
+  check(MmxRendererDebugRectSnapshot(snapshot, 64) == 1 &&
+            snapshot[0].world_x == 40 && snapshot[0].w == 3,
+        "BeginFrame captures one independent debug-rectangle snapshot");
+  check(output[40 * 256 + 40] == 0xff0000 &&
+            output[40 * 256 + 41] == 0xff0000 &&
+            output[40 * 256 + 42] == 0xff0000 &&
+            output[41 * 256 + 40] == 0xff0000 &&
+            output[41 * 256 + 41] == 0xff0000 &&
+            output[41 * 256 + 42] == 0xff0000,
+        "debug rectangles draw a one-pixel outlined box at narrow width");
+
+  scene();
+  provider_debug[0] = (MmxRenderDebugRect){-1, 40, 3, 2, 0x001f};
+  provider_debug_count = 1;
+  MmxRendererSetDebugRectProvider(provide_debug);
+  render_view(narrow);
+  check(output[40 * 256] == 0xff0000 &&
+            output[40 * 256 + 1] == 0xff0000 &&
+            output[40 * 256 + 2] == 0 &&
+            output[41 * 256] == 0xff0000 &&
+            output[41 * 256 + 1] == 0xff0000,
+        "offscreen debug rectangles clip safely at the narrow edge");
+
+  scene();
+  provider_debug[0] = (MmxRenderDebugRect){0, 40, 3, 2, 0x03e0};
+  provider_debug_count = 1;
+  MmxRendererSetDebugRectProvider(provide_debug);
+  render_view(wide);
+  check(output[40 * wide.width + wide.extra] == 0x00ff00 &&
+            output[40 * wide.width + wide.extra + 1] == 0x00ff00 &&
+            output[40 * wide.width + wide.extra + 2] == 0x00ff00 &&
+            output[40 * wide.width + wide.extra + 3] == 0,
+        "debug rectangles use the object camera and clip at widescreen width");
+
+  scene();
+  provider_debug[0] = (MmxRenderDebugRect){40, 40, 3, 2, 0x001f};
+  provider_debug_count = 1;
+  MmxRendererSetDebugRectProvider(provide_debug);
+  MmxRendererBeginFrame(ram);
+  provider_debug[0].world_x = 80;
+  capture_and_draw(narrow);
+  check(output[40 * 256 + 40] == 0xff0000 &&
+            output[40 * 256 + 80] == 0,
+        "debug rectangles are snapshotted before mid-frame provider changes");
+}
+
 static void world_sprite_composes_after_weapon_effect(void) {
   MmxWeaponCombatState combat = {0};
   const MmxRenderView view = {256, 0, 4.0 / 3.0};
@@ -502,6 +579,7 @@ int main(void) {
 
   write_zero_asset();
   inactive_matches_baseline();
+  debug_rect_geometry_and_snapshot();
   world_sprite_geometry_and_snapshot();
   world_sprite_composes_after_weapon_effect();
   body_geometry_and_mirror();

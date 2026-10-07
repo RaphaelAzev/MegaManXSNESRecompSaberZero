@@ -10,6 +10,7 @@
 #include "saber/mmx_saber_wave_assets.h"
 #include "saber/mmx_saber_combo.h"
 #include "saber/mmx_saber_frame.h"
+#include "saber/mmx_saber_hitbox_debug.h"
 #include "saber/mmx_saber_render.h"
 #include "saber/mmx_saber_tuning.h"
 #include "saber/mmx_saber_wave_runtime.h"
@@ -39,6 +40,7 @@ static bool saber_overlay_provider(MmxRenderPlayerOverlay *out) {
 static void saber_activation_failed(void) {
   MmxRendererSetPlayerOverlayProvider(NULL);
   MmxRendererSetWorldSpriteProvider(NULL);
+  MmxRendererSetDebugRectProvider(NULL);
   MmxSaberRenderSetWave(NULL);
   MmxZeroSetExtension(NULL);
   MmxSaberFrameReset();
@@ -192,6 +194,7 @@ static int prepare_wave(const char rom[4096], char wave_path[4096]) {
 static void release_saber_assets(void) {
   MmxRendererSetPlayerOverlayProvider(NULL);
   MmxRendererSetWorldSpriteProvider(NULL);
+  MmxRendererSetDebugRectProvider(NULL);
   MmxSaberRenderSetWave(NULL);
   MmxSaberWaveRuntimeSetCollisionRecord(NULL, 0);
   MmxSaberWaveFree(g_saber_wave);
@@ -347,6 +350,8 @@ static void activate(void) {
   MmxRendererSetPlayerOverlayProvider(saber_overlay_provider);
   MmxSaberRenderSetWave(g_saber_wave);
   MmxRendererSetWorldSpriteProvider(MmxSaberRenderProvideWorldSprites);
+  if (MmxSaberTuningShowHitboxes())
+    MmxRendererSetDebugRectProvider(MmxSaberHitboxDebugProvide);
   fprintf(stderr, "[mmx-saber-zero] saber-v1.bin, ride-zero-v1.bin, and "
                   "x3-saber-wave-v1.bin loaded\n");
   fprintf(stderr, "[mmx-saber-zero] Saber Zero 0.0.1 enabled; starting as %s\n",
@@ -357,6 +362,7 @@ static void reset(void) {
   g_mmx_saber_enabled = false;
   MmxRendererSetPlayerOverlayProvider(NULL);
   MmxRendererSetWorldSpriteProvider(NULL);
+  MmxRendererSetDebugRectProvider(NULL);
   MmxSaberRenderSetWave(NULL);
   MmxZeroSetExtension(NULL);
   MmxSaberFrameReset();

@@ -2,6 +2,7 @@
 
 #include "mmx_saber_attack.h"
 #include "mmx_saber_combo.h"
+#include "mmx_saber_hitbox_debug.h"
 #include "mmx_saber_input.h"
 #include "mmx_saber_wave_runtime.h"
 
@@ -19,6 +20,7 @@ static unsigned charge_cap(void) {
 }
 
 static void state_reset(uint8_t *ram) {
+  MmxSaberHitboxDebugSetRam(ram);
   if (ram)
     MmxSaberAttackResetRam(ram);
   else
@@ -120,6 +122,7 @@ static bool zero_dead_or_reset(const uint8_t *ram) {
 }
 
 static void player_end(uint8_t *ram) {
+  MmxSaberHitboxDebugSetRam(ram);
   if (!ram) {
     MmxSaberComboCancel(NULL);
     MmxSaberAttackExit(NULL, MMX_SABER_ATTACK_EXIT_CONTEXT);
@@ -152,6 +155,7 @@ static void pre_player(uint8_t *ram) {
   MmxSaberPadZero zero;
   MmxSaberPhysicalPad physical;
 
+  MmxSaberHitboxDebugSetRam(ram);
   if (MmxSaberWaveRuntimeObserveStage(ram))
     MmxSaberComboCancel(ram);
   clear_frame_state();
@@ -255,6 +259,7 @@ const MmxZeroExtension *MmxSaberFrameExtension(void) {
 
 void MmxSaberFrameReset(void) {
   state_reset(NULL);
+  MmxSaberHitboxDebugReset();
 }
 
 bool MmxSaberFrameLastWroteInput(void) {
