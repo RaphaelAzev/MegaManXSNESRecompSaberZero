@@ -82,8 +82,9 @@ bool MmxSaberRenderResolveSnapshot(const MmxSaberAssets *assets,
     return false;
 
   /* The attack kind remains the owner of timing/collision semantics, while
-   * the snapshot animation ID owns the visual donor.  Landing can therefore
-   * keep an AIR owner and hand only its current visual tick to SaberLand. */
+   * the snapshot animation ID selects that attack's visual donor.  Landing
+   * exits through the central attack cleanup before any replacement visual
+   * can be selected. */
   attack = MmxSaberAttackRecord(snapshot.kind, snapshot.index);
   if (!attack) return false;
   animation = MmxSaberAssetsAnimationById(assets, snapshot.anim_id);

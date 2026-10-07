@@ -828,8 +828,7 @@ static void emit_pending_cue(void) {
   if (!state.cue_pending) return;
   attack = state_attack();
   state.cue_pending = false;
-  if (!attack || attack->kind == SABER_KIND_SABER_LAND ||
-      state.cue >= MMX_SABER_SFX_ATTACK_COUNT)
+  if (!attack || state.cue >= MMX_SABER_SFX_ATTACK_COUNT)
     return;
   MmxSaberSfxPlayForAttack((MmxSaberSfxAttackCue)state.cue);
   ++cue_count;
@@ -916,24 +915,18 @@ void MmxSaberAttackPlayerEnd(uint8_t *ram) {
   state.previous_grounded = grounded;
   state.previous_grounded_valid = true;
 
+  /* Landing ends an AIR owner immediately.  The central exit retires the
+   * tagged slot, clears the hit mask, and leaves native movement/pose alone. */
+  if (landed && state.kind == SABER_KIND_AIR &&
+      state.phase != SABER_PHASE_IDLE) {
+    MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_LANDING);
+    return;
+  }
+
   if (movement_accepted && state.phase != SABER_PHASE_IDLE) {
     /* Native has already accepted the legal movement.  Retire only Saber
      * ownership; MmxZero remains the sole owner of movement and charge. */
     MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
-    return;
-  }
-
-  /* The grounded edge is observed here, after native movement.  An AIR owner
-   * hands only its visual to SaberLand: the AIR record remains authoritative
-   * for phase, timing, collision bounds, projectile tag, and hit mask. */
-  if (landed && state.kind == SABER_KIND_AIR && state.phase != SABER_PHASE_IDLE) {
-    const MmxSaberAttack *land =
-        MmxSaberAttackRecord(SABER_KIND_SABER_LAND, 0);
-    emit_pending_cue();
-    if (land) {
-      state.anim_id = land->visual_animation;
-      update_animation();
-    }
     return;
   }
 

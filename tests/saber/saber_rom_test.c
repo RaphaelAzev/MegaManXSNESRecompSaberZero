@@ -3086,6 +3086,15 @@ static void advance_air_landing_probe(unsigned target_tick) {
   }
 }
 
+static void advance_air_landing_probe_without_native(unsigned target_tick) {
+  MmxSaberAttackSnapshot snapshot = MmxSaberAttackSnapshotGet();
+  while (snapshot.kind == SABER_KIND_AIR && snapshot.tick < target_tick) {
+    MmxSaberAttackStep(false, false, true, 0, 0);
+    MmxSaberAttackRuntimeTick(g_ram);
+    snapshot = MmxSaberAttackSnapshotGet();
+  }
+}
+
 static void force_air_landing_probe(void) {
   g_ram[0xbd3] |= 4;
   MmxSaberAttackPlayerEnd(g_ram);
@@ -3094,26 +3103,98 @@ static void force_air_landing_probe(void) {
 static void saber_land_checks(const char *fixture) {
   const MmxSaberAttack *land =
       MmxSaberAttackRecord(SABER_KIND_SABER_LAND, 0);
-  MmxSaberAssets *oracle = load_render_oracle();
   MmxSaberAttackSnapshot snapshot;
 
-  printf("reference: SaberLand donor visual total=%u; AIR owns timing and "
-         "collision after the landing handoff\n", OLD_SABER_LAND_TOTAL);
+  printf("reference: SaberLand record total=%u remains inert table data; "
+         "landing exits the AIR owner\n", OLD_SABER_LAND_TOTAL);
   check(land && land->visual_animation == 7 &&
             land->total_ticks == OLD_SABER_LAND_TOTAL &&
             land->active_ticks == 0 && land->recovery_ticks == 0 &&
             land->bounds_segments == NULL && land->bounds_segment_count == 0 &&
             land->damage == 0 && land->bounds_pointer == 0,
-        "SaberLand remains anim 7 for 18 visual ticks with no hitbox or damage");
+        "ported SaberLand record remains inert table data and is never started");
 
-  /* D4a: the AIR owner completes before this fixture lands.  The old
-   * air_landing_eligible latch started a fresh visual after the edge. */
+  /* D3a/e: force the grounded edge at AIR tick 6.  Use the direct damage and
+   * hitbox callbacks to prove that a target reachable only after landing is
+   * not hit by the ended AIR swing. */
+  begin_air_landing_probe(fixture);
+  advance_air_landing_probe(6);
+  snapshot = MmxSaberAttackSnapshotGet();
+  const unsigned active_slot = saber_active_slot();
+  const unsigned active_tag = active_slot ?
+      read_ram_word(g_ram, active_slot + 0x3e) : 0;
+  const unsigned air_enemy = empty_enemy_slot();
+  const unsigned air_bit = 1u << ((air_enemy - 0xe68) / 64);
+  const unsigned air_cue_count = MmxSaberAttackCueCount();
+  const unsigned air_first_damage = active_slot ?
+      MmxSaberAttackDamage(g_ram, air_enemy, active_slot, 1) : 0;
+  check(snapshot.kind == SABER_KIND_AIR && snapshot.phase == SABER_PHASE_ACTIVE &&
+            snapshot.tick == 6 && snapshot.anim_id == 4 && active_slot != 0 &&
+            active_tag != 0 && tagged_projectiles() == 1 && air_enemy != 0 &&
+            air_first_damage == 3 &&
+            (MmxSaberAttackHitSlots() & air_bit) &&
+            read_ram_word(g_ram, active_slot + 0x20) ==
+                saber_record_pointer(&snapshot),
+        "tick-6 probe reaches AIR ACTIVE with a live tagged slot and hit mask");
+  force_air_landing_probe();
+  snapshot = MmxSaberAttackSnapshotGet();
+  bool active_landing_idle = snapshot.phase == SABER_PHASE_IDLE &&
+      snapshot.kind == SABER_KIND_NONE && snapshot.anim_id == 0 &&
+      tagged_projectiles() == 0 && saber_active_slot() == 0 &&
+      MmxSaberAttackHitSlots() == 0 && MmxSaberAttackCueCount() == air_cue_count &&
+      !g_ram[active_slot] && read_ram_word(g_ram, active_slot + 0x20) == 0;
+  bool no_post_landing_visual = true;
+  for (unsigned i = 0; i < 4; ++i) {
+    frame(0);
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (snapshot.phase != SABER_PHASE_IDLE ||
+        snapshot.kind != SABER_KIND_NONE || snapshot.anim_id != 0)
+      no_post_landing_visual = false;
+  }
+  check(active_landing_idle && no_post_landing_visual,
+        "active AIR landing exits on the landing frame with no anim 4/7, slot, or extra cue");
+  const unsigned damage_after_landing =
+      MmxSaberAttackDamage(g_ram, air_enemy, active_slot, 1);
+  const unsigned hitbox_after_landing =
+      MmxSaberAttackHitbox(g_ram, air_enemy, active_slot, 1);
+  check(damage_after_landing == 1 && hitbox_after_landing == 1 &&
+            MmxSaberAttackHitSlots() == 0 &&
+            read_ram_word(g_ram, active_slot + 0x3e) == 0,
+        "direct damage and hitbox callbacks cannot hit an enemy reachable only after landing");
+
+  /* D3b: recovery landing also exits immediately and has no later effect. */
+  begin_air_landing_probe(fixture);
+  advance_air_landing_probe_without_native(14);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.phase == SABER_PHASE_RECOVERY && snapshot.tick == 14 &&
+            tagged_projectiles() == 0,
+        "tick-14 probe reaches AIR recovery with no tagged slot");
+  const unsigned recovery_cues = MmxSaberAttackCueCount();
+  force_air_landing_probe();
+  snapshot = MmxSaberAttackSnapshotGet();
+  bool recovery_nothing_after = true;
+  if (snapshot.phase != SABER_PHASE_IDLE || snapshot.kind != SABER_KIND_NONE ||
+      snapshot.anim_id != 0 || tagged_projectiles() != 0 ||
+      MmxSaberAttackHitSlots() != 0 ||
+      MmxSaberAttackCueCount() != recovery_cues)
+    recovery_nothing_after = false;
+  for (unsigned i = 0; i < 5; ++i) {
+    MmxSaberAttackStep(false, true, true, 0, 0);
+    snapshot = MmxSaberAttackSnapshotGet();
+    MmxSaberAttackRuntimeTick(g_ram);
+    if (snapshot.phase != SABER_PHASE_IDLE || snapshot.kind != SABER_KIND_NONE ||
+        snapshot.anim_id != 0 || tagged_projectiles() != 0)
+      recovery_nothing_after = false;
+  }
+  check(recovery_nothing_after,
+        "recovery AIR landing is idle on the landing frame and stays side-effect free");
+
+  /* D3c: the AIR slash completes before this fixture's later landing. */
   load_fixture(fixture);
   MmxSaberFrameReset();
   bool air_completed_before_landing = false;
   bool landed_after_air_completion = false;
-  bool completion_replayed_on_landing = false;
-  unsigned landing_edge_frame = 0;
+  bool completed_landing_idle = true;
   for (unsigned frame_number = 1; frame_number <= 120; ++frame_number) {
     const bool was_grounded = saber_test_grounded();
     const MmxSaberAttackSnapshot before = MmxSaberAttackSnapshotGet();
@@ -3125,178 +3206,70 @@ static void saber_land_checks(const char *fixture) {
         before.tick == OLD_SABER_AIR_TOTAL - 1 &&
         snapshot.phase == SABER_PHASE_IDLE)
       air_completed_before_landing = true;
-    if (air_completed_before_landing && !was_grounded && saber_test_grounded()) {
-      landed_after_air_completion = true;
-      landing_edge_frame = frame_number;
+    if (air_completed_before_landing) {
+      if (snapshot.phase != SABER_PHASE_IDLE ||
+          snapshot.kind != SABER_KIND_NONE || snapshot.anim_id != 0)
+        completed_landing_idle = false;
+      if (!was_grounded && saber_test_grounded())
+        landed_after_air_completion = true;
     }
-    if (landed_after_air_completion &&
-        (snapshot.anim_id == 4 || snapshot.anim_id == 7))
-      completion_replayed_on_landing = true;
-    if (landing_edge_frame &&
-        frame_number > landing_edge_frame + OLD_SABER_LAND_TOTAL)
-      break;
+    if (landed_after_air_completion) break;
   }
-  check(air_completed_before_landing && landed_after_air_completion,
-        "air slash completes before the fixture's later landing");
-  check(!completion_replayed_on_landing,
-        "completed air slash does not replay anim 4 or SaberLand anim 7 after landing");
+  check(air_completed_before_landing && landed_after_air_completion &&
+            completed_landing_idle,
+        "completed air slash has no visual or attack state when landing later");
 
-  /* D4b: force the grounded edge at AIR tick 6.  The real ROM frame has
-   * already installed the tagged AIR projectile before the deterministic edge
-   * is published through the landing owner. */
-  begin_air_landing_probe(fixture);
-  advance_air_landing_probe(6);
-  snapshot = MmxSaberAttackSnapshotGet();
-  unsigned active_slot = saber_active_slot();
-  unsigned active_tag = active_slot ? read_ram_word(g_ram, active_slot + 0x3e) : 0;
-  unsigned air_cue_count = MmxSaberAttackCueCount();
-  check(snapshot.kind == SABER_KIND_AIR && snapshot.phase == SABER_PHASE_ACTIVE &&
-            snapshot.tick == 6 && snapshot.anim_id == 4 && active_slot != 0 &&
-            tagged_projectiles() == 1 &&
-            read_ram_word(g_ram, active_slot + 0x20) ==
-                saber_record_pointer(&snapshot),
-        "tick-6 probe reaches AIR ACTIVE with the tagged $FF40 record");
-  force_air_landing_probe();
-  snapshot = MmxSaberAttackSnapshotGet();
-  const MmxSaberFrame *land_frame =
-      MmxSaberAssetsFrameForStep(oracle, 7, snapshot.anim_step);
-  MmxRenderPlayerOverlay land_overlay;
-  check(snapshot.kind == SABER_KIND_AIR && snapshot.phase == SABER_PHASE_ACTIVE &&
-            snapshot.tick == 6 && snapshot.anim_id == 7 && active_slot != 0 &&
-            saber_active_slot() == active_slot &&
-            read_ram_word(g_ram, active_slot + 0x3e) == active_tag &&
-            MmxSaberAttackCueCount() == air_cue_count && land_frame != NULL &&
-            MmxSaberRenderResolveSnapshot(oracle, snapshot, &land_overlay) &&
-            land_overlay.body.pixels == land_frame->body.pixels,
-        "tick-6 landing switches only the visual to SaberLand at the current tick");
-
-  bool active_handoff_ticks = true;
-  bool release_after_active = false;
-  for (unsigned tick = 7; tick < OLD_SABER_AIR_TOTAL; ++tick) {
-    MmxSaberAttackStep(false, true, true, 0, 0);
-    snapshot = MmxSaberAttackSnapshotGet();
-    MmxSaberAttackRuntimeTick(g_ram);
-    if (snapshot.kind != SABER_KIND_AIR || snapshot.tick != tick ||
-        snapshot.anim_id != 7)
-      active_handoff_ticks = false;
-    if (tick <= OLD_SABER_AIR_STARTUP + OLD_SABER_AIR_ACTIVE - 1) {
-      if (snapshot.phase != SABER_PHASE_ACTIVE || saber_active_slot() != active_slot ||
-          read_ram_word(g_ram, active_slot + 0x20) !=
-              saber_record_pointer(&snapshot))
-        active_handoff_ticks = false;
-    } else if (tagged_projectiles() == 0) {
-      release_after_active = true;
-    }
-  }
-  check(active_handoff_ticks && release_after_active,
-        "the same AIR swing shows SaberLand ticks 7..17 and releases $FF40 after tick 11");
-  MmxSaberAttackStep(false, true, true, 0, 0);
-  snapshot = MmxSaberAttackSnapshotGet();
-  check(snapshot.phase == SABER_PHASE_IDLE && snapshot.kind == SABER_KIND_NONE &&
-            snapshot.anim_id == 0 && tagged_projectiles() == 0,
-        "the handed-off AIR swing exits naturally at its original 18-tick total");
-
-  /* D4c: use direct damage callbacks because the forced landing is a
-   * deterministic owner test rather than a walk-to-enemy scene. */
-  begin_air_landing_probe(fixture);
-  advance_air_landing_probe(5);
-  snapshot = MmxSaberAttackSnapshotGet();
-  active_slot = saber_active_slot();
-  unsigned air_enemy = empty_enemy_slot();
-  unsigned ground_enemy = 0;
-  for (unsigned d = 0xe68; d < 0x1228; d += 64)
-    if (d != air_enemy && !g_ram[d]) {
-      ground_enemy = d;
-      break;
-    }
-  check(snapshot.phase == SABER_PHASE_ACTIVE && active_slot != 0 &&
-            air_enemy != 0 && ground_enemy != 0,
-        "tick-5 hit-mask probe has two empty enemy slots and a live AIR slot");
-  const unsigned air_bit = 1u << ((air_enemy - 0xe68) / 64);
-  const unsigned ground_bit = 1u << ((ground_enemy - 0xe68) / 64);
-  const unsigned air_first_damage =
-      MmxSaberAttackDamage(g_ram, air_enemy, active_slot, 1);
-  const unsigned air_repeat_before_landing =
-      MmxSaberAttackDamage(g_ram, air_enemy, active_slot, 1);
-  frame(0);
-  snapshot = MmxSaberAttackSnapshotGet();
-  check(snapshot.tick == 6 && snapshot.phase == SABER_PHASE_ACTIVE,
-        "the hit-mask probe advances to AIR tick 6 before landing");
-  force_air_landing_probe();
-  const unsigned air_repeat_after_landing =
-      MmxSaberAttackDamage(g_ram, air_enemy, active_slot, 1);
-  const unsigned ground_first_damage =
-      MmxSaberAttackDamage(g_ram, ground_enemy, active_slot, 1);
-  const unsigned ground_repeat_damage =
-      MmxSaberAttackDamage(g_ram, ground_enemy, active_slot, 1);
-  check(air_first_damage == 3 && air_repeat_before_landing == 0 &&
-            air_repeat_after_landing == 0 && ground_first_damage == 3 &&
-            ground_repeat_damage == 0 &&
-            (MmxSaberAttackHitSlots() & air_bit) &&
-            (MmxSaberAttackHitSlots() & ground_bit),
-        "the same swing preserves its hit mask across landing and hits a new enemy once");
-
-  /* D4d: recovery landing changes only the donor frame; it cannot recreate an
-   * inactive tagged slot. */
-  begin_air_landing_probe(fixture);
-  advance_air_landing_probe(14);
-  snapshot = MmxSaberAttackSnapshotGet();
-  check(snapshot.phase == SABER_PHASE_RECOVERY && snapshot.tick == 14 &&
-            tagged_projectiles() == 0,
-        "tick-14 probe reaches AIR recovery with no tagged slot");
-  force_air_landing_probe();
-  bool recovery_handoff_ticks = snapshot.kind == SABER_KIND_AIR;
-  snapshot = MmxSaberAttackSnapshotGet();
-  recovery_handoff_ticks = recovery_handoff_ticks &&
-      snapshot.phase == SABER_PHASE_RECOVERY && snapshot.tick == 14 &&
-      snapshot.anim_id == 7 && tagged_projectiles() == 0;
-  for (unsigned tick = 15; tick < OLD_SABER_AIR_TOTAL; ++tick) {
-    MmxSaberAttackStep(false, true, true, 0, 0);
-    snapshot = MmxSaberAttackSnapshotGet();
-    MmxSaberAttackRuntimeTick(g_ram);
-    if (snapshot.kind != SABER_KIND_AIR || snapshot.phase != SABER_PHASE_RECOVERY ||
-        snapshot.tick != tick || snapshot.anim_id != 7 || tagged_projectiles() != 0)
-      recovery_handoff_ticks = false;
-  }
-  check(recovery_handoff_ticks,
-        "tick-14 landing shows SaberLand frames 14..17 without a tagged slot");
-  MmxSaberAttackStep(false, true, true, 0, 0);
-  check(MmxSaberAttackSnapshotGet().phase == SABER_PHASE_IDLE,
-        "recovery handoff exits through the AIR owner at tick 18");
-
-  /* D3/D2: after handoff the owner is still AIR, so Y is ignored and the
-   * current air gating/cancel behavior remains in force on the ground. */
-  begin_air_landing_probe(fixture);
-  advance_air_landing_probe(6);
-  force_air_landing_probe();
-  air_cue_count = MmxSaberAttackCueCount();
-  active_slot = saber_active_slot();
-  MmxSaberAttackStep(true, true, true, 0, 0);
-  snapshot = MmxSaberAttackSnapshotGet();
-  check(snapshot.kind == SABER_KIND_AIR && snapshot.phase == SABER_PHASE_ACTIVE &&
-            snapshot.tick == 7 && snapshot.anim_id == 7 &&
-            MmxSaberAttackCueCount() == air_cue_count &&
-            saber_active_slot() == active_slot,
-        "Y during the handoff is ignored like Y during the AIR slash");
-
-  /* D4e: plain jump has no AIR owner, so its landing remains completely idle. */
+  /* D3d: plain jump has no AIR owner, so its landing remains completely idle. */
   load_fixture(fixture);
   MmxSaberFrameReset();
-  unsigned plain_landing_starts = 0;
   bool plain_landing_edge = false;
+  bool plain_landing_idle = true;
+  bool plain_airborne = false;
   for (unsigned frame_number = 1; frame_number <= 120; ++frame_number) {
     const bool was_grounded = saber_test_grounded();
     frame(frame_number <= 20 ? SNES_PAD_B : 0);
     snapshot = MmxSaberAttackSnapshotGet();
-    if (!was_grounded && saber_test_grounded()) plain_landing_edge = true;
-    if (snapshot.anim_id == 7 || snapshot.kind == SABER_KIND_SABER_LAND)
-      ++plain_landing_starts;
-    if (plain_landing_edge) break;
+    if (!saber_test_grounded()) plain_airborne = true;
+    if (plain_airborne && !was_grounded && saber_test_grounded()) {
+      plain_landing_edge = true;
+      plain_landing_idle = snapshot.phase == SABER_PHASE_IDLE &&
+          snapshot.kind == SABER_KIND_NONE && snapshot.anim_id == 0;
+      break;
+    }
   }
-  check(plain_landing_edge && plain_landing_starts == 0,
-        "plain jump landing has no SaberLand visual");
+  check(plain_landing_edge && plain_landing_idle,
+        "plain jump landing has no Saber attack or replacement visual");
 
-  MmxSaberAssetsFree(oracle);
+  /* D3f: upstream owns charge; holding X never decreases it through this
+   * landing edge. */
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  hold_charge_button(30, SNES_PAD_X);
+  const unsigned charge_before_landing = MmxZeroGetState().charge;
+  unsigned charge_at_landing = 0;
+  bool charge_airborne = false;
+  bool charge_landed = false;
+  bool charge_never_decreased = true;
+  for (unsigned frame_number = 1; frame_number <= 120; ++frame_number) {
+    const bool was_grounded = saber_test_grounded();
+    const unsigned charge_before_frame = MmxZeroGetState().charge;
+    unsigned input = frame_number <= 20 ? SNES_PAD_B | SNES_PAD_X : SNES_PAD_X;
+    if (frame_number == 3) input |= SNES_PAD_Y;
+    frame(input);
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (MmxZeroGetState().charge < charge_before_frame)
+      charge_never_decreased = false;
+    if (!saber_test_grounded()) charge_airborne = true;
+    if (charge_airborne && !was_grounded && saber_test_grounded()) {
+      charge_landed = true;
+      charge_at_landing = MmxZeroGetState().charge;
+      break;
+    }
+  }
+  check(charge_airborne && charge_landed && charge_never_decreased &&
+            charge_at_landing >= charge_before_landing,
+        "held X charge never decreases across an air slash landing");
+
   puts("ok: saber-land");
 }
 
