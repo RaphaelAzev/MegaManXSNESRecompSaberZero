@@ -16,11 +16,11 @@ set(_saber_sfx_converter_source "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/mmx_sab
 set(_saber_sfx_codec_source "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/mmx_saber_sfx_codec.c")
 set(_saber_sfx_codec_header "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/mmx_saber_sfx_codec.h")
 set(_saber_sfx_vorbis_source "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/third_party/stb_vorbis.c")
-set(_saber_sfx_source_dir "${CMAKE_CURRENT_SOURCE_DIR}/SaberSFX")
+set(_saber_sfx_source_dir "${CMAKE_CURRENT_SOURCE_DIR}/assets/saber-zero/sfx")
 set(_saber_converter "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/convert_saber_zero.py")
 set(_saber_manifest "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/saber_zero_manifest.json")
 set(_ride_manifest "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/ride_zero_manifest.json")
-set(_saber_source_dir "${CMAKE_CURRENT_SOURCE_DIR}/SaberSprites")
+set(_saber_source_dir "${CMAKE_CURRENT_SOURCE_DIR}/assets/saber-zero/sprites")
 set(_saber_cache_dir "${CMAKE_CURRENT_BINARY_DIR}/cache/mmx-source")
 set(_saber_cache "${_saber_cache_dir}/saber-v1.bin")
 set(_ride_cache "${_saber_cache_dir}/ride-zero-v1.bin")
@@ -56,10 +56,8 @@ if(EXISTS "${_saber_sfx_source_dir}/saber_1.ogg" AND
     add_custom_target(saber_sfx_cache DEPENDS "${_saber_sfx_cache}")
 endif()
 
-# The donor sheets are deliberately private and ignored. When they are
-# present, build the same deterministic v1 caches as the old branch beside
-# the executable. On a checkout without the private inputs the runtime/unit
-# test remains buildable and reports SKIPPED for the missing cache instead.
+# The tracked donor sheets build the same deterministic v1 caches as the old
+# branch beside the executable.
 file(GLOB _saber_donor_files CONFIGURE_DEPENDS
     "${_saber_source_dir}/*.png")
 if(EXISTS "${_saber_source_dir}" AND _saber_donor_files AND
@@ -241,6 +239,12 @@ if(BUILD_TESTING)
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/saber/test_saber_sfx_converter.py"
             --converter $<TARGET_FILE:mmx_saber_sfx_convert>)
     set_tests_properties(saber_sfx_converter PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/tmp")
+
+    add_test(NAME saber_asset_layout
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/saber/test_saber_zero_assets.py")
+    set_tests_properties(saber_asset_layout PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/tmp")
 
     add_executable(mmx_saber_check

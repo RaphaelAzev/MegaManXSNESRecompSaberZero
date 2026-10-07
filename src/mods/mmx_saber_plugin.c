@@ -220,10 +220,12 @@ static void report_saber_asset_failure(const char *saber_path,
       "  reason: %s\n\n"
       "Regenerate them with:\n"
       "python -I tools/saber/convert_saber_zero.py --manifest "
-      "tools/saber/saber_zero_manifest.json --source-dir SaberSprites "
+      "tools/saber/saber_zero_manifest.json --source-dir "
+      "assets/saber-zero/sprites "
       "--out <exe-dir>/cache/mmx-source/saber-v1.bin\n"
       "python -I tools/saber/convert_saber_zero.py --manifest "
-      "tools/saber/ride_zero_manifest.json --source-dir SaberSprites "
+      "tools/saber/ride_zero_manifest.json --source-dir "
+      "assets/saber-zero/sprites "
       "--out <exe-dir>/cache/mmx-source/ride-zero-v1.bin",
       saber_path && saber_path[0] ? saber_path : "<unresolved>",
       ride_path && ride_path[0] ? ride_path : "<unresolved>",

@@ -312,9 +312,8 @@ class SaberConverterTests(unittest.TestCase):
 
     def test_production_sv2_origins_wv1_wall_order_and_dv1_dash_alignment_are_pinned(self) -> None:
         manifest_path = ROOT / "tools" / "saber" / "saber_zero_manifest.json"
-        source_dir = ROOT / "SaberSprites"
-        if not source_dir.is_dir():
-            self.skipTest("private SaberSprites/ is absent")
+        source_dir = ROOT / "assets" / "saber-zero" / "sprites"
+        self.assertTrue(source_dir.is_dir(), source_dir)
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         saber2_origins = [
             (frame["source_frame"], tuple(frame["body"]["origin"]))
