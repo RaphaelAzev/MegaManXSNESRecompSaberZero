@@ -34,6 +34,8 @@ static bool saber_overlay_provider(MmxRenderPlayerOverlay *out) {
     if (out) memset(out, 0, sizeof(*out));
     return false;
   }
+  if (MmxSaberRenderResolveRide(g_ride_assets, MmxSaberFrameRam(), out))
+    return true;
   return MmxSaberRenderResolve(g_saber_assets, out);
 }
 

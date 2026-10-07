@@ -136,6 +136,42 @@ bool MmxSaberRenderResolveSnapshot(const MmxSaberAssets *assets,
   return out->active;
 }
 
+bool MmxSaberRenderResolveRide(const MmxSaberAssets *assets,
+                               const uint8_t *ram,
+                               MmxRenderPlayerOverlay *out) {
+  const MmxSaberAnimation *animation;
+  const MmxSaberFrame *frame;
+  unsigned pose;
+
+  clear_overlay(out);
+  if (!out || !assets || !ram || ram[0x0baa] != 0x2c)
+    return false;
+
+  animation = MmxSaberAssetsAnimationById(assets, 0x006b);
+  if (!animation || !animation->step_count) return false;
+  pose = ram[0x0bbf] & 0x7f;
+  if (pose >= 23 || pose >= animation->step_count) pose = 0;
+  frame = MmxSaberAssetsFrameForStep(assets, 0x006b, (uint16_t)pose);
+  if (!frame || !frame->body.pixels || !frame->body.width ||
+      !frame->body.height)
+    return false;
+
+  /* Ride frames are authored as complete cockpit canvases. Publish only the
+   * body plane, with the ride palette and native player facing; the renderer
+   * supplies the normal player anchor and priority for this pilot submission. */
+  out->body.pixels = frame->body.pixels;
+  out->body.width = frame->body.width;
+  out->body.height = frame->body.height;
+  out->body.origin_x = frame->body.origin_x;
+  out->body.origin_y = frame->body.origin_y;
+  out->palette = MmxSaberAssetsPalette(assets);
+  out->palette_count = MmxSaberAssetsPaletteCount(assets);
+  out->facing_left = (ram[0x0bb9] & 0x40) != 0;
+  out->active = out->palette && out->palette_count;
+  if (!out->active) clear_overlay(out);
+  return out->active;
+}
+
 bool MmxSaberRenderResolve(const MmxSaberAssets *assets,
                            MmxRenderPlayerOverlay *out) {
   return MmxSaberRenderResolveSnapshot(assets, MmxSaberAttackGetSnapshot(),

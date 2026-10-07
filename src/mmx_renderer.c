@@ -1568,7 +1568,8 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
           int zx = menu_body ? 128 : (int16_t)(word(frame.ram, 0xbad) - view_camera(frame.ram,0x1e4d));
           int zy = menu_body ? 152 : (int16_t)(word(frame.ram, 0xbb0) - view_camera(frame.ram,0x1e50)) + MmxZeroPoseOffsetY(frame.ram);
           bool pilot = !menu_body && (s.animation==0x6a || s.animation==0x6b);
-          if(pilot) {
+          bool player_overlay = !menu_body && frame_player_overlay.active;
+          if(pilot && !player_overlay) {
             /* X1 switches to a separate pilot group on boarding. Its pose
              * numbers are not movement poses. Keep its authored entry/walk/
              * punch offsets and expose Zero's original helmet/shoulders over
@@ -1581,7 +1582,6 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
             }
             body=MmxZeroMenuPose();
           }
-          bool player_overlay = !menu_body && !pilot && frame_player_overlay.active;
           if (player_overlay) {
             unsigned z = ((((s.attr >> 12) & 3) * 4 + 2) << 12) | 0x680;
             if (frame_player_overlay.blade_layer == 1)

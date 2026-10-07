@@ -13,6 +13,7 @@ static MmxZeroLegacyIntent frame_intent;
 static bool frame_computed;
 static bool frame_override;
 static bool last_wrote_input;
+static const uint8_t *frame_ram;
 
 static void clear_frame_state(void);
 
@@ -21,6 +22,7 @@ static unsigned charge_cap(void) {
 }
 
 static void state_reset(uint8_t *ram) {
+  if (ram) frame_ram = ram;
   MmxSaberHitboxDebugSetRam(ram);
   if (ram)
     MmxSaberAttackResetRam(ram);
@@ -124,6 +126,7 @@ static bool zero_dead_or_reset(const uint8_t *ram) {
 }
 
 static void player_end(uint8_t *ram) {
+  if (ram) frame_ram = ram;
   MmxSaberHitboxDebugSetRam(ram);
   if (!ram) {
     MmxSaberComboCancel(NULL);
@@ -160,6 +163,7 @@ static void pre_player(uint8_t *ram) {
   MmxSaberPhysicalPad physical;
 
   MmxSaberHitboxDebugSetRam(ram);
+  frame_ram = ram;
   MmxSaberPriorityObservePrePlayer(
       ram, MmxZeroGetState().shot_mask, MmxZeroGetState().burst);
   if (MmxSaberWaveRuntimeObserveStage(ram))
@@ -262,6 +266,10 @@ static const MmxZeroExtension extension = {
 
 const MmxZeroExtension *MmxSaberFrameExtension(void) {
   return &extension;
+}
+
+const uint8_t *MmxSaberFrameRam(void) {
+  return frame_ram;
 }
 
 void MmxSaberFrameReset(void) {

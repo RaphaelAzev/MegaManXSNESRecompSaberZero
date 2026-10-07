@@ -17,6 +17,11 @@ bool MmxSaberRenderResolveSnapshot(const MmxSaberAssets *assets,
                                    MmxSaberAttackSnapshot snapshot,
                                    MmxRenderPlayerOverlay *out);
 
+/* Resolve the current Ride Armor pilot from live native player RAM. */
+bool MmxSaberRenderResolveRide(const MmxSaberAssets *assets,
+                               const uint8_t *ram,
+                               MmxRenderPlayerOverlay *out);
+
 /* Resolve the current live Saber attack state against the loaded sidecar. */
 bool MmxSaberRenderResolve(const MmxSaberAssets *assets,
                            MmxRenderPlayerOverlay *out);

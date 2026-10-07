@@ -484,6 +484,42 @@ static void body_geometry_and_mirror(void) {
   check(true, "left-facing donor body is the exact anchor mirror");
 }
 
+static void pilot_scene(uint8_t group) {
+  scene();
+  ram[0x0baa] = 0x2c;
+  ram[0x0e18] = 1;
+  ram[0x0e22] = 0x40;
+  ram[0xba8 + 0x16] = group;
+  ram[0xba8 + 0x17] = 0;
+  MmxRendererReset();
+  MmxRendererObserveObject(ram, 0xba8);
+  MmxRendererRecordPiece(ram, 0);
+  MmxRendererLatchSprites();
+}
+
+static void pilot_overlay_owns_submission(void) {
+  static const uint32_t expected[3][5] = {
+    {0xff0000, 0x00ff00, 0, 0, 0},
+    {0, 0x0000ff, 0x00ff00, 0, 0},
+    {0, 0, 0, 0x0000ff, 0xff0000},
+  };
+  for (unsigned group = 0; group < 2; ++group) {
+    pilot_scene((uint8_t)(group ? 0x6b : 0x6a));
+    provider_overlay = synthetic_overlay(false, 0);
+    MmxRendererSetPlayerOverlayProvider(provide_overlay);
+    render();
+    bool exact = true;
+    for (int y = 0; y < 224; ++y) for (int x = 0; x < 256; ++x) {
+      uint32_t value = 0;
+      if (y >= 38 && y < 41 && x >= 37 && x < 42)
+        value = expected[y - 38][x - 37];
+      if (output[y * 256 + x] != value) exact = false;
+    }
+    check(exact,
+          "an active player overlay replaces the native X/menu pose for both pilot groups");
+  }
+}
+
 static void blade_order(void) {
   scene();
   provider_overlay = synthetic_overlay(false, 1);
@@ -583,6 +619,7 @@ int main(void) {
   world_sprite_geometry_and_snapshot();
   world_sprite_composes_after_weapon_effect();
   body_geometry_and_mirror();
+  pilot_overlay_owns_submission();
   blade_order();
   donor_origin_and_palette(assets);
   invisible_zero_is_empty();

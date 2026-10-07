@@ -105,6 +105,13 @@ static const uint8_t kSaberManifestSha[32] = {
   0x99, 0xb2, 0xe4, 0xfd, 0x07, 0xf8, 0x0f, 0xd0,
 };
 
+static const uint8_t kRideManifestSha[32] = {
+  0x49, 0x96, 0x7c, 0x80, 0x01, 0x9c, 0x16, 0x94,
+  0xa5, 0xcd, 0x04, 0x72, 0x03, 0x7c, 0xab, 0x5b,
+  0xdd, 0x7c, 0x2f, 0xab, 0x0b, 0x0e, 0x9d, 0xe4,
+  0xf9, 0x06, 0xb9, 0x0d, 0x0d, 0xf8, 0xa7, 0xbd,
+};
+
 static unsigned projectiles(unsigned kind);
 static bool saber_test_grounded(void);
 static void load_fixture(const char *fixture);
@@ -302,6 +309,27 @@ static MmxSaberAssets *load_render_oracle(void) {
   return assets;
 }
 
+static MmxSaberAssets *load_ride_render_oracle(void) {
+  const char *cache = getenv("MMX_SABER_TEST_CACHE");
+  char path[4096];
+  char reason[128] = {0};
+  FILE *file;
+  MmxSaberAssets *assets;
+
+  check(cache && cache[0] &&
+            snprintf(path, sizeof(path), "%s/mmx-source/ride-zero-v1.bin",
+                     cache) < (int)sizeof(path),
+        "Ride pilot group receives the isolated ride sidecar path");
+  file = fopen(path, "rb");
+  check(file != NULL, "Ride pilot group opens the ride sidecar oracle");
+  fclose(file);
+  assets = MmxSaberAssetsLoadFile(path, kRideManifestSha,
+                                  reason, sizeof(reason));
+  check(assets != NULL, reason[0] ? reason :
+        "Ride pilot group parses the ride sidecar oracle");
+  return assets;
+}
+
 static void saber_render_snapshot_checks(const char *fixture) {
   const MmxSaberAnimation *animation;
   MmxSaberAssets *oracle = load_render_oracle();
@@ -361,6 +389,69 @@ static void saber_render_snapshot_checks(const char *fixture) {
         "clearing the provider clears the overlay snapshot immediately");
   MmxSaberAssetsFree(oracle);
   puts("ok: saber-render-snapshot");
+}
+
+static void saber_ride_pilot_sequence(const char *label, unsigned input,
+                                       unsigned count,
+                                       const MmxSaberAssets *oracle) {
+  printf("reference: ride-pilot %s poses=", label);
+  for (unsigned i = 0; i < count; ++i) {
+    MmxRenderPlayerOverlay actual;
+    unsigned pose;
+    const MmxSaberFrame *expected;
+
+    frame(input);
+    MmxRendererBeginFrame(g_ram);
+    actual = MmxRendererPlayerOverlaySnapshot();
+    pose = g_ram[0x0bbf] & 0x7f;
+    expected = MmxSaberAssetsFrameForStep(
+        oracle, 0x006b, (uint16_t)(pose < 23 ? pose : 0));
+    check(g_ram[0x0baa] == 0x2c && actual.active && expected &&
+              actual.body.pixels &&
+              actual.body.width == expected->body.width &&
+              actual.body.height == expected->body.height &&
+              actual.body.origin_x == expected->body.origin_x &&
+              actual.body.origin_y == expected->body.origin_y &&
+              !memcmp(actual.body.pixels, expected->body.pixels,
+                      (size_t)expected->body.width * expected->body.height) &&
+              actual.palette &&
+              actual.palette_count == MmxSaberAssetsPaletteCount(oracle) &&
+              !memcmp(actual.palette, MmxSaberAssetsPalette(oracle),
+                      (size_t)actual.palette_count * sizeof(uint16_t)) &&
+              actual.blade.pixels == NULL && actual.blade.width == 0 &&
+              actual.blade.height == 0 && actual.blade_layer == 0 &&
+              actual.facing_left == ((g_ram[0x0bb9] & 0x40) != 0),
+          "Ride Armor renderer overlay follows the live native pose");
+    printf("%s%u", i ? " " : "", pose);
+  }
+  puts("");
+}
+
+static void saber_ride_pilot_checks(const char *fixture_dir) {
+  char path[4096];
+  MmxSaberAssets *oracle = load_ride_render_oracle();
+  int written = snprintf(path, sizeof(path), "%s/%s", fixture_dir,
+                         "ride-armor.sav");
+  check(written >= 0 && written < (int)sizeof(path),
+        "ride-pilot fixture path fits");
+  check(RtlLoadSnapshot(path), "ride-armor.sav loads");
+  check(g_ram[0x0baa] == 0x2c && g_ram[0x0bbe] == 0x6a &&
+            (g_ram[0x0e22] & 0x40) != 0 && g_ram[0x0bbf] < 23,
+        "ride-armor.sav starts in the $6A Ride Armor pilot action");
+  MmxSaberFrameReset();
+  saber_ride_pilot_sequence("neutral", 0, 8, oracle);
+  saber_ride_pilot_sequence("walking", SNES_PAD_RIGHT, 8, oracle);
+  saber_ride_pilot_sequence("X-attack", SNES_PAD_X, 8, oracle);
+
+  load_fixture(getenv("MMX_ZERO_TEST_FIXTURE"));
+  MmxSaberFrameReset();
+  frame(0);
+  MmxRendererBeginFrame(g_ram);
+  check(g_ram[0x0baa] != 0x2c &&
+            !MmxRendererPlayerOverlaySnapshot().active,
+        "standing save0 has no Ride Armor overlay");
+  MmxSaberAssetsFree(oracle);
+  puts("ok: saber-ride-pilot");
 }
 
 static unsigned projectiles(unsigned kind) {
@@ -6957,7 +7048,8 @@ int main(int argc, char **argv) {
   if (only && (!strcmp(only, "fixtures") || !strcmp(only, "saber-wall") ||
       !strcmp(only, "saber-cancel") || !strcmp(only, "saber-buster-rules") ||
       !strcmp(only, "saber-damage") || !strcmp(only, "saber-priority") ||
-      !strcmp(only, "saber-armadillo")))
+      !strcmp(only, "saber-armadillo") ||
+      !strcmp(only, "saber-ride-pilot")))
     check(fixture_dir && fixture_dir[0], "MMX_SABER_FIXTURE_DIR supplied");
 
   SDL_SetMainReady();
@@ -7040,6 +7132,7 @@ int main(int argc, char **argv) {
   const bool saber_wave_render = only && !strcmp(only, "saber-wave-render");
   const bool saber_ground_hit = only && !strcmp(only, "saber-ground-hit");
   const bool saber_render_snapshot = only && !strcmp(only, "saber-render-snapshot");
+  const bool saber_ride_pilot = only && !strcmp(only, "saber-ride-pilot");
   const bool x3_zero_specials = only && !strcmp(only, "x3-zero-specials");
   const bool zero_hook_parity = only && !strcmp(only, "zero-hook-parity");
   const bool zero_response_seam = only && !strcmp(only, "zero-response-seam");
@@ -7053,7 +7146,7 @@ int main(int argc, char **argv) {
       saber_priority || saber_armadillo ||
       saber_tuning || saber_hitbox_debug || saber_damage ||
       saber_wave_travel || saber_wave_damage || saber_wave_lifecycle ||
-      saber_wave_render;
+      saber_wave_render || saber_ride_pilot;
   SpecialCounts upstream_specials = {0};
   BurstHeight upstream_burst[2] = {{0}};
   BurstHeight upstream_airborne = {0};
@@ -7169,6 +7262,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-render-snapshot runs with the Saber package enabled");
     saber_render_snapshot_checks(fixture);
+  } else if (saber_ride_pilot) {
+    check(MmxSaberEnabled(),
+          "saber-ride-pilot runs with the Saber package enabled");
+    saber_ride_pilot_checks(fixture_dir);
   } else if (zero_hook_parity) {
     zero_hook_parity_checks(fixture);
   } else if (zero_response_seam) {
@@ -7243,6 +7340,7 @@ int main(int argc, char **argv) {
         strcmp(only, "saber-wave-render") &&
         strcmp(only, "saber-ground-hit") &&
         strcmp(only, "saber-render-snapshot") &&
+        strcmp(only, "saber-ride-pilot") &&
         strcmp(only, "zero-hook-parity") &&
         strcmp(only, "zero-response-seam") &&
         strcmp(only, "zero-extension") &&

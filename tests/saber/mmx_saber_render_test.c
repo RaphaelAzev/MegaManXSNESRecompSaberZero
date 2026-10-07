@@ -38,6 +38,18 @@ static const uint8_t kSaberManifestSha[32] = {
   0x99, 0xb2, 0xe4, 0xfd, 0x07, 0xf8, 0x0f, 0xd0,
 };
 
+static const uint8_t kRideManifestSha[32] = {
+  0x49, 0x96, 0x7c, 0x80, 0x01, 0x9c, 0x16, 0x94,
+  0xa5, 0xcd, 0x04, 0x72, 0x03, 0x7c, 0xab, 0x5b,
+  0xdd, 0x7c, 0x2f, 0xab, 0x0b, 0x0e, 0x9d, 0xe4,
+  0xf9, 0x06, 0xb9, 0x0d, 0x0d, 0xf8, 0xa7, 0xbd,
+};
+
+static const uint16_t kRideSourceFrames[23] = {
+  4, 35, 36, 7, 8, 9, 19, 14, 15, 16, 5, 6,
+  26, 21, 22, 23, 1, 2, 3, 28, 30, 31, 32,
+};
+
 typedef struct OldRenderTuple {
   uint8_t tick;
   uint8_t step;
@@ -378,6 +390,58 @@ static void check_tuple(const MmxSaberAssets *assets, unsigned animation_index,
         "resolver returns the exact donor planes, palette, layer, and facing");
 }
 
+static void ride_matrix_checks(const MmxSaberAssets *assets) {
+  uint8_t ram[0x20000] = {0};
+  bool matrix_ok = true;
+
+  ram[0x0baa] = 0x2c;
+  ram[0x0e18] = 1;
+  ram[0x0e22] = 0x40;
+  for (unsigned group = 0; group < 2; ++group) {
+    ram[0x0bbe] = (uint8_t)(group ? 0x6b : 0x6a);
+    for (unsigned facing = 0; facing < 2; ++facing) {
+      ram[0x0bb9] = (uint8_t)(facing ? 0x40 : 0);
+      for (unsigned pose = 0; pose < 23; ++pose) {
+        MmxRenderPlayerOverlay actual;
+        const MmxSaberFrame *expected = MmxSaberAssetsFrameForStep(
+            assets, 0x006b, (uint16_t)pose);
+        bool resolved = MmxSaberRenderResolveRide(assets, ram, &actual);
+        matrix_ok &= resolved && expected && actual.active &&
+            actual.body.pixels == expected->body.pixels &&
+            actual.body.width == expected->body.width &&
+            actual.body.height == expected->body.height &&
+            actual.body.origin_x == expected->body.origin_x &&
+            actual.body.origin_y == expected->body.origin_y &&
+            expected->source_frame_id == kRideSourceFrames[pose] &&
+            actual.palette == MmxSaberAssetsPalette(assets) &&
+            actual.palette_count == MmxSaberAssetsPaletteCount(assets) &&
+            actual.blade.pixels == NULL && actual.blade.width == 0 &&
+            actual.blade.height == 0 && actual.blade_layer == 0 &&
+            actual.facing_left == (facing != 0);
+        ram[0x0bbf] = (uint8_t)(pose + 1);
+      }
+      ram[0x0bbf] = 0;
+    }
+  }
+  check(matrix_ok,
+        "Ride Armor resolver maps both pilot groups, all 23 poses, palette, and facing");
+
+  ram[0x0baa] = 0x10;
+  ram[0x0bbe] = 0x6b;
+  MmxRenderPlayerOverlay inactive;
+  check(!MmxSaberRenderResolveRide(assets, ram, &inactive) &&
+            !inactive.active,
+        "a non-riding action never resolves a Ride Armor overlay");
+
+  ram[0x0baa] = 0x2c;
+  ram[0x0bbf] = 23;
+  const MmxSaberFrame *pose_zero = MmxSaberAssetsFrameForStep(assets, 0x006b, 0);
+  MmxRenderPlayerOverlay fallback;
+  check(pose_zero && MmxSaberRenderResolveRide(assets, ram, &fallback) &&
+            fallback.body.pixels == pose_zero->body.pixels,
+        "an out-of-range native pose falls back to ride pose zero");
+}
+
 static void wave_sequence_checks(const MmxSaberWave *wave) {
   static const uint8_t expected_frames[34] = {
     0, 0, 1, 1, 2, 2, 3, 3,
@@ -413,9 +477,11 @@ static void wave_sequence_checks(const MmxSaberWave *wave) {
 
 int main(void) {
   char path[4096];
+  char ride_path[4096];
   char wave_path[4096];
   char reason[128] = {0};
   MmxSaberAssets *assets;
+  MmxSaberAssets *ride;
   MmxSaberWave *wave;
 
   if (!MMX_SABER_RENDER_CACHE_DIR[0] ||
@@ -438,8 +504,30 @@ int main(void) {
             reason[0] ? reason : "unknown reason");
     return 1;
   }
+  if (!join_path(ride_path, sizeof(ride_path), MMX_SABER_RENDER_CACHE_DIR,
+                 "ride-zero-v1.bin")) {
+    MmxSaberAssetsFree(assets);
+    fprintf(stderr, "FAIL: Ride Armor cache path is not configured\n");
+    return 1;
+  }
+  file = fopen(ride_path, "rb");
+  if (!file) {
+    printf("SKIPPED: private Ride Armor sidecar is absent (%s)\n", ride_path);
+    MmxSaberAssetsFree(assets);
+    return 77;
+  }
+  fclose(file);
+  ride = MmxSaberAssetsLoadFile(ride_path, kRideManifestSha,
+                                reason, sizeof(reason));
+  if (!ride) {
+    fprintf(stderr, "FAIL: Ride Armor sidecar rejected: %s\n",
+            reason[0] ? reason : "unknown reason");
+    MmxSaberAssetsFree(assets);
+    return 1;
+  }
   if (!join_path(wave_path, sizeof(wave_path), MMX_SABER_RENDER_CACHE_DIR,
                  "x3-saber-wave-v1.bin")) {
+    MmxSaberAssetsFree(ride);
     MmxSaberAssetsFree(assets);
     fprintf(stderr, "FAIL: Saber wave cache path is not configured\n");
     return 1;
@@ -447,6 +535,7 @@ int main(void) {
   file = fopen(wave_path, "rb");
   if (!file) {
     printf("SKIPPED: private Saber wave sidecar is absent (%s)\n", wave_path);
+    MmxSaberAssetsFree(ride);
     MmxSaberAssetsFree(assets);
     return 77;
   }
@@ -455,6 +544,7 @@ int main(void) {
   if (!wave) {
     fprintf(stderr, "FAIL: Saber wave sidecar rejected: %s\n",
             reason[0] ? reason : "unknown reason");
+    MmxSaberAssetsFree(ride);
     MmxSaberAssetsFree(assets);
     return 1;
   }
@@ -462,6 +552,7 @@ int main(void) {
   for (unsigned animation = 0; animation < 7; ++animation)
     for (unsigned tuple = 0; tuple < 4; ++tuple)
       check_tuple(assets, animation, &kOldTuples[animation][tuple]);
+  ride_matrix_checks(ride);
 
   MmxSaberAttackReset();
   MmxSaberAttackStep(true, true, true, 0, 0);
@@ -482,6 +573,7 @@ int main(void) {
   MmxSaberAssetsFree(flash_assets);
 
   MmxSaberWaveFree(wave);
+  MmxSaberAssetsFree(ride);
   MmxSaberAssetsFree(assets);
   puts("MMX SABER RENDER CHECKS PASSED");
   return 0;
