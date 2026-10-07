@@ -4,6 +4,7 @@
 #include "mmx_saber_combo.h"
 #include "mmx_saber_hitbox_debug.h"
 #include "mmx_saber_input.h"
+#include "mmx_saber_priority.h"
 #include "mmx_saber_wave_runtime.h"
 
 static bool release_pending;
@@ -26,6 +27,7 @@ static void state_reset(uint8_t *ram) {
   else
     MmxSaberAttackReset();
   MmxSaberWaveRuntimeReset(ram);
+  MmxSaberPriorityReset();
   MmxSaberComboReset(ram);
   MmxSaberAttackResetCueCount();
   release_pending = false;
@@ -144,6 +146,8 @@ static void player_end(uint8_t *ram) {
     MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
     return;
   }
+  MmxSaberPriorityObservePlayerEnd(
+      ram, MmxZeroGetState().shot_mask, MmxZeroGetState().burst);
   MmxSaberComboPlayerEnd(ram);
   MmxSaberAttackPlayerEnd(ram);
 }
@@ -156,6 +160,8 @@ static void pre_player(uint8_t *ram) {
   MmxSaberPhysicalPad physical;
 
   MmxSaberHitboxDebugSetRam(ram);
+  MmxSaberPriorityObservePrePlayer(
+      ram, MmxZeroGetState().shot_mask, MmxZeroGetState().burst);
   if (MmxSaberWaveRuntimeObserveStage(ram))
     MmxSaberComboCancel(ram);
   clear_frame_state();

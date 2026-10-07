@@ -14,6 +14,7 @@
 #include "saber/mmx_saber_frame.h"
 #include "saber/mmx_saber_hitbox_debug.h"
 #include "saber/mmx_saber_plugin.h"
+#include "saber/mmx_saber_priority.h"
 #include "saber/mmx_saber_sfx.h"
 #include "saber/mmx_saber_tuning.h"
 #include "saber/mmx_saber_wave.h"
@@ -4579,6 +4580,164 @@ static unsigned saber_wave_launch(const char *fixture, bool left) {
   return slot;
 }
 
+static unsigned priority_classify_live(MmxSaberPriorityClass expected,
+                                       unsigned expected_priority,
+                                       const char *label) {
+  unsigned found = 0;
+  unsigned count = 0;
+  for (unsigned d = 0x1228; d < 0x1428; d += 64) {
+    MmxSaberPriorityClassification result;
+    if (!g_ram[d] || !MmxSaberPriorityClassify(g_ram, d, &result)) continue;
+    if (result.priority_class == expected &&
+        result.priority == expected_priority) {
+      found = d;
+      ++count;
+    }
+  }
+  check(count == 1, label);
+  return found;
+}
+
+static unsigned priority_find_class(MmxSaberPriorityClass expected,
+                                    unsigned expected_priority) {
+  for (unsigned d = 0x1228; d < 0x1428; d += 64) {
+    MmxSaberPriorityClassification result;
+    if (!g_ram[d] || !MmxSaberPriorityClassify(g_ram, d, &result)) continue;
+    if (result.priority_class == expected &&
+        result.priority == expected_priority)
+      return d;
+  }
+  return 0;
+}
+
+static unsigned priority_wait_for_class(MmxSaberPriorityClass expected,
+                                        unsigned expected_priority) {
+  for (unsigned i = 0; i < 160; ++i) {
+    unsigned slot = priority_find_class(expected, expected_priority);
+    if (slot) return slot;
+    frame(0);
+  }
+  return 0;
+}
+
+static unsigned priority_direct_ground(unsigned target_index) {
+  MmxSaberAttackSnapshot snapshot;
+  MmxSaberFrameReset();
+  MmxSaberAttackStep(true, true, true, g_ram[0x0c11], 0);
+  MmxSaberAttackRuntimeTick(g_ram);
+  if (!target_index) {
+    snapshot = MmxSaberAttackSnapshotGet();
+    for (unsigned i = 0; i < 32 && snapshot.phase != SABER_PHASE_ACTIVE; ++i) {
+      MmxSaberAttackStep(false, true, true, g_ram[0x0c11], 0);
+      MmxSaberAttackRuntimeTick(g_ram);
+      snapshot = MmxSaberAttackSnapshotGet();
+    }
+  } else {
+    for (unsigned index = 0; index < target_index; ++index) {
+      const MmxSaberAttack *attack = MmxSaberAttackRecord(
+          (MmxSaberPadKind)(SABER_KIND_GROUND1 + index), (uint8_t)index);
+      check(attack != NULL, "priority direct ground attack record exists");
+      for (unsigned tick = 1; tick < attack->chain_open_tick; ++tick) {
+        MmxSaberAttackStep(false, true, true, g_ram[0x0c11], 0);
+        MmxSaberAttackRuntimeTick(g_ram);
+      }
+      MmxSaberAttackStep(true, true, true, g_ram[0x0c11], 0);
+      MmxSaberAttackRuntimeTick(g_ram);
+    }
+  }
+  return saber_active_slot();
+}
+
+static unsigned priority_direct_context(MmxSaberPadKind expected_kind,
+                                         bool grounded, bool wall,
+                                         bool dash) {
+  MmxSaberAttackSnapshot snapshot;
+  MmxSaberFrameReset();
+  MmxSaberAttackStepWithWallAndDash(
+      true, grounded, wall, dash, false, true, g_ram[0x0c11], 0);
+  MmxSaberAttackRuntimeTick(g_ram);
+  snapshot = MmxSaberAttackSnapshotGet();
+  for (unsigned i = 0; i < 32 && snapshot.phase != SABER_PHASE_ACTIVE; ++i) {
+    MmxSaberAttackStepWithWallAndDash(
+        false, grounded, wall, dash, false, true, g_ram[0x0c11], 0);
+    MmxSaberAttackRuntimeTick(g_ram);
+    snapshot = MmxSaberAttackSnapshotGet();
+  }
+  check(snapshot.kind == expected_kind &&
+            snapshot.phase == SABER_PHASE_ACTIVE,
+        "priority direct context reaches an active Saber slot");
+  return saber_active_slot();
+}
+
+static void saber_priority_classify_checks(const char *fixture) {
+  unsigned slot;
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  release_charge_button(30, SNES_PAD_X);
+  priority_classify_live(MMX_SABER_PRIORITY_CLASS_CHARGE_SMALL, 1,
+                         "tier-4 live shot classifies as small charge");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  release_charge_button(90, SNES_PAD_X);
+  priority_classify_live(MMX_SABER_PRIORITY_CLASS_CHARGE_FULL, 1,
+                         "tier-6 live shot classifies as full charge");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  release_charge_button(150, SNES_PAD_X);
+  slot = priority_wait_for_class(MMX_SABER_PRIORITY_CLASS_MAX_SHOT1, 2);
+  check(slot != 0,
+        "burst-1 live shot classifies as maximum shot 1 with tuned priority");
+  for (unsigned i = 0; i < 240 &&
+       (MmxZeroGetState().burst || MmxZeroGetState().shot_mask ||
+        g_ram[0xc25]); ++i)
+    frame(0);
+  frame(SNES_PAD_X);
+  slot = priority_wait_for_class(MMX_SABER_PRIORITY_CLASS_MAX_SHOT2, 3);
+  check(slot != 0,
+        "burst-2 live shot classifies as maximum shot 2 with tuned priority");
+
+  load_fixture(fixture);
+  slot = priority_direct_ground(0);
+  check(slot != 0, "ground slash 1 publishes a slot");
+  priority_classify_live(MMX_SABER_PRIORITY_CLASS_SLASH1, 2,
+                         "ground slash 1 slot classifies correctly");
+  slot = priority_direct_ground(1);
+  check(slot != 0, "ground slash 2 publishes a slot");
+  priority_classify_live(MMX_SABER_PRIORITY_CLASS_SLASH2, 3,
+                         "ground slash 2 slot classifies correctly");
+  slot = priority_direct_ground(2);
+  check(slot != 0, "ground slash 3 publishes a slot");
+  priority_classify_live(MMX_SABER_PRIORITY_CLASS_SLASH3, 4,
+                         "ground slash 3 slot classifies correctly");
+
+  slot = priority_direct_context(SABER_KIND_AIR, false, false, false);
+  check(slot != 0, "air slash publishes a slot");
+  priority_classify_live(MMX_SABER_PRIORITY_CLASS_AIR, 1,
+                         "air slash slot classifies correctly");
+  slot = priority_direct_context(SABER_KIND_WALL, false, true, false);
+  check(slot != 0, "wall slash publishes a slot");
+  priority_classify_live(MMX_SABER_PRIORITY_CLASS_WALL, 1,
+                         "wall slash slot classifies correctly");
+  slot = priority_direct_context(SABER_KIND_DASH, true, false, true);
+  check(slot != 0, "dash slash publishes a slot");
+  priority_classify_live(MMX_SABER_PRIORITY_CLASS_DASH, 5,
+                         "dash slash slot classifies correctly");
+
+  slot = saber_wave_launch(fixture, false);
+  check(slot != 0, "priority finisher setup publishes a live wave");
+  check(saber_finisher_slot_with_tag(0x5a53) != 0,
+        "priority finisher setup keeps a live $5A53 slot");
+  priority_classify_live(MMX_SABER_PRIORITY_CLASS_X3_FINISHER, 4,
+                         "$5A53 finisher slot classifies correctly");
+  priority_classify_live(MMX_SABER_PRIORITY_CLASS_WAVE, 5,
+                         "$5600 wave slot classifies correctly");
+
+  puts("ok: saber-priority-classify");
+}
+
 static unsigned renderer_world_sprite_count(void) {
   MmxRenderWorldSprite snapshot[8];
   return MmxRendererWorldSpriteSnapshot(snapshot,
@@ -5832,6 +5991,8 @@ int main(int argc, char **argv) {
   const bool saber_lifecycle_load = only && !strcmp(only, "saber-lifecycle-load");
   const bool saber_buster_rules = only && !strcmp(only, "saber-buster-rules");
   const bool saber_burst_height = only && !strcmp(only, "saber-burst-height");
+  const bool saber_priority_classify =
+      only && !strcmp(only, "saber-priority-classify");
   const bool saber_wave_travel = only && !strcmp(only, "saber-wave-travel");
   const bool saber_wave_damage = only && !strcmp(only, "saber-wave-damage");
   const bool saber_wave_lifecycle = only && !strcmp(only, "saber-wave-lifecycle");
@@ -5847,7 +6008,7 @@ int main(int argc, char **argv) {
       saber_air || saber_wall || saber_dash || saber_land || saber_ground_lifecycle ||
       saber_ground_hit || saber_cancel || saber_lifecycle_load ||
       saber_render_snapshot || saber_buster_rules || saber_burst_height ||
-      saber_finisher ||
+      saber_finisher || saber_priority_classify ||
       saber_tuning || saber_hitbox_debug || saber_damage ||
       saber_wave_travel || saber_wave_damage || saber_wave_lifecycle ||
       saber_wave_render;
@@ -5917,6 +6078,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-finisher runs with the Saber package enabled");
     saber_finisher_checks(fixture);
+  } else if (saber_priority_classify) {
+    check(MmxSaberEnabled(),
+          "saber-priority-classify runs with the Saber package enabled");
+    saber_priority_classify_checks(fixture);
   } else if (saber_tuning) {
     check(MmxSaberEnabled(),
           "saber-tuning runs with the Saber package enabled");
@@ -6005,6 +6170,7 @@ int main(int argc, char **argv) {
         strcmp(only, "x3-zero-specials") &&
       strcmp(only, "saber-package") && strcmp(only, "saber-input") &&
       strcmp(only, "saber-finisher") &&
+      strcmp(only, "saber-priority-classify") &&
       strcmp(only, "saber-tuning") &&
       strcmp(only, "saber-hitbox-debug") &&
       strcmp(only, "saber-damage") &&
