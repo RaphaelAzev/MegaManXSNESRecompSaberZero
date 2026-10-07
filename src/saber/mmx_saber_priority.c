@@ -32,6 +32,18 @@ typedef struct MmxSaberPriorityProjectileObservation {
   uint16_t tag;
 } MmxSaberPriorityProjectileObservation;
 
+typedef struct MmxSaberPriorityPending {
+  bool active;
+  uint16_t enemy;
+  uint16_t projectile;
+  uint16_t tag;
+  uint8_t generation;
+  uint8_t stage;
+  uint8_t native_damage_row;
+  MmxSaberPriorityClassification classification;
+  uint32_t frame;
+} MmxSaberPriorityPending;
+
 typedef struct MmxSaberPriorityState {
   uint32_t frame;
   uint8_t stage;
@@ -46,6 +58,7 @@ typedef struct MmxSaberPriorityState {
   uint8_t pre_shot_mask;
   uint8_t pre_burst;
   bool pre_valid;
+  MmxSaberPriorityPending pending;
 } MmxSaberPriorityState;
 
 static MmxSaberPriorityState state;
@@ -110,6 +123,7 @@ static bool enemy_eligible_target(const uint8_t *ram, unsigned slot) {
 static void clear_history_records(void) {
   memset(state.history, 0, sizeof(state.history));
   state.enemy_live = 0;
+  memset(&state.pending, 0, sizeof(state.pending));
 }
 
 static void clear_provenance(void) {
@@ -281,6 +295,7 @@ bool MmxSaberPriorityClassify(const uint8_t *ram, unsigned projectile_slot,
   if (result) {
     result->priority_class = MMX_SABER_PRIORITY_CLASS_NONE;
     result->priority = 0;
+    result->native_damage_row = 0;
   }
   if (!projectile_live(ram, projectile_slot)) return false;
   sync_stage(ram);
@@ -300,6 +315,72 @@ bool MmxSaberPriorityClassify(const uint8_t *ram, unsigned projectile_slot,
   if (priority_class == MMX_SABER_PRIORITY_CLASS_NONE) return false;
   set_result(result, priority_class);
   return result != NULL && result->priority != 0;
+}
+
+unsigned MmxSaberPriorityResponse(uint8_t *ram, unsigned enemy_slot,
+                                  unsigned projectile_slot, unsigned original) {
+  MmxSaberPriorityClassification candidate;
+  MmxSaberPriorityHistory history;
+  uint32_t frame;
+
+  /* A response callback is a one-shot producer. A new native collision must
+   * never inherit a token from an earlier response, including a reflection or
+   * another nonzero response. */
+  memset(&state.pending, 0, sizeof(state.pending));
+  if (!ram || original != 0 ||
+      !MmxSaberPriorityClassify(ram, projectile_slot, &candidate))
+    return original;
+  /* Classification synchronizes stage state, so sample the frame only after
+   * that synchronization. */
+  frame = MmxSaberPriorityCurrentFrame();
+  if (!MmxSaberPriorityHistoryEligible(ram, enemy_slot, candidate.priority,
+                                       frame) ||
+      !MmxSaberPriorityHistoryLookup(ram, enemy_slot, &history))
+    return original;
+
+  state.pending.active = true;
+  state.pending.enemy = (uint16_t)enemy_slot;
+  state.pending.projectile = (uint16_t)projectile_slot;
+  state.pending.tag = projectile_tag(ram, projectile_slot);
+  state.pending.generation = history.generation;
+  state.pending.stage = history.stage;
+  state.pending.native_damage_row = history.native_damage_row;
+  state.pending.classification = candidate;
+  state.pending.frame = frame;
+  /* Sentinel 1 re-enters the native positive-response path. The final table
+   * read at $9E6E is still zero; the damage callback consumes this token. */
+  return 1;
+}
+
+bool MmxSaberPriorityConsumePending(
+    const uint8_t *ram, unsigned enemy_slot, unsigned projectile_slot,
+    MmxSaberPriorityClassification *classification) {
+  const unsigned index = enemy_index(enemy_slot);
+  MmxSaberPriorityHistory history;
+
+  if (classification) memset(classification, 0, sizeof(*classification));
+  if (!ram || !state.pending.active ||
+      index >= MMX_SABER_PRIORITY_ENEMY_SLOT_COUNT)
+    return false;
+  sync_enemies(ram);
+  if (state.pending.enemy != enemy_slot ||
+      state.pending.projectile != projectile_slot ||
+      state.pending.frame != state.frame ||
+      state.pending.stage != state.stage ||
+      state.pending.generation != state.enemy_generation[index] ||
+      !projectile_live(ram, projectile_slot) ||
+      projectile_tag(ram, projectile_slot) != state.pending.tag ||
+      !MmxSaberPriorityHistoryLookup(ram, enemy_slot, &history) ||
+      history.generation != state.pending.generation ||
+      history.stage != state.pending.stage)
+    return false;
+
+  if (classification) {
+    *classification = state.pending.classification;
+    classification->native_damage_row = state.pending.native_damage_row;
+  }
+  memset(&state.pending, 0, sizeof(state.pending));
+  return true;
 }
 
 void MmxSaberPriorityReset(void) {
@@ -404,6 +485,8 @@ bool MmxSaberPriorityHistoryRecord(
   history->generation = state.enemy_generation[index];
   history->stage = state.stage;
   history->priority = candidate->priority;
+  history->native_damage_row = candidate->native_damage_row ?
+      candidate->native_damage_row : (uint8_t)(ram[enemy_slot + 0x28] + 1);
   history->frame = frame;
   return true;
 }

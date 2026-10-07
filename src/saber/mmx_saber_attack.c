@@ -7,6 +7,7 @@
 #include "../mmx_zero.h"
 #include "mmx_saber_sfx.h"
 #include "mmx_saber_hitbox_debug.h"
+#include "mmx_saber_priority.h"
 #include "mmx_saber_tuning.h"
 #include "mmx_saber_wave_runtime.h"
 
@@ -228,6 +229,11 @@ static MmxSaberCollisionWindow ground_collision = {
 static MmxSaberCollisionWindow air_collision = {
     NULL, {0}, 0x37f40, "$37F40", false, false, false};
 static unsigned collision_warnings;
+/* The native positive path reads $86:EF37 through the collision ROM. Keep
+ * the same ROM view here so a priority-bypassed buster can reproduce that
+ * read with the pre-i-frame enemy row. */
+static uint8_t *native_collision_rom;
+static size_t native_collision_rom_size;
 
 static bool player_grounded(const uint8_t *ram);
 static void collision_windows_reset(void);
@@ -297,6 +303,91 @@ static unsigned attack_tuned_damage(const uint8_t *ram, unsigned enemy,
   const int damage = boss ? MmxSaberTuningBossDamage(kind) :
       MmxSaberTuningNormalDamage(kind);
   return clamp_tuned_damage(damage);
+}
+
+static bool priority_buster_class(MmxSaberPriorityClass priority_class) {
+  return priority_class == MMX_SABER_PRIORITY_CLASS_CHARGE_SMALL ||
+      priority_class == MMX_SABER_PRIORITY_CLASS_CHARGE_FULL ||
+      priority_class == MMX_SABER_PRIORITY_CLASS_MAX_SHOT1 ||
+      priority_class == MMX_SABER_PRIORITY_CLASS_MAX_SHOT2;
+}
+
+static MmxSaberTuningDamageKind priority_damage_kind(
+    MmxSaberPriorityClass priority_class) {
+  switch (priority_class) {
+    case MMX_SABER_PRIORITY_CLASS_SLASH1:
+      return MMX_SABER_TUNING_DAMAGE_SLASH1;
+    case MMX_SABER_PRIORITY_CLASS_SLASH2:
+      return MMX_SABER_TUNING_DAMAGE_SLASH2;
+    case MMX_SABER_PRIORITY_CLASS_SLASH3:
+      return MMX_SABER_TUNING_DAMAGE_SLASH3;
+    case MMX_SABER_PRIORITY_CLASS_AIR:
+      return MMX_SABER_TUNING_DAMAGE_AIR;
+    case MMX_SABER_PRIORITY_CLASS_WALL:
+      return MMX_SABER_TUNING_DAMAGE_WALL;
+    case MMX_SABER_PRIORITY_CLASS_DASH:
+      return MMX_SABER_TUNING_DAMAGE_DASH;
+    case MMX_SABER_PRIORITY_CLASS_X3_FINISHER:
+      return MMX_SABER_TUNING_DAMAGE_X3_FINISHER;
+    case MMX_SABER_PRIORITY_CLASS_WAVE:
+      return MMX_SABER_TUNING_DAMAGE_WAVE;
+    default:
+      return MMX_SABER_TUNING_DAMAGE_COUNT;
+  }
+}
+
+static bool native_collision_rom_byte(unsigned address, unsigned *value) {
+  const unsigned native_bank = 0x86;
+  size_t native_offset;
+
+  address &= 0xffff;
+  /* The native table is in the bank's LoROM window. */
+  if (address < 0x8000) return false;
+  native_offset = (size_t)(native_bank & 0x7f) * 0x8000u +
+      (address & 0x7fff);
+  if (!native_collision_rom || native_offset >= native_collision_rom_size)
+    return false;
+  if (value) *value = native_collision_rom[native_offset];
+  return true;
+}
+
+static bool native_collision_rom_word(unsigned address, unsigned *value) {
+  unsigned low, high;
+  if (!native_collision_rom_byte(address, &low) ||
+      !native_collision_rom_byte(address + 1, &high))
+    return false;
+  if (value) *value = low | (high << 8);
+  return true;
+}
+
+static unsigned native_buster_damage(const uint8_t *ram, unsigned enemy,
+                                     unsigned projectile,
+                                     unsigned native_damage_row) {
+  unsigned projectile_class;
+  unsigned enemy_row;
+  unsigned row_directory;
+  unsigned native_y;
+  unsigned damage;
+
+  if (!ram || !projectile_slot_valid(projectile) ||
+      !enemy_slot_valid(enemy) || !native_collision_rom)
+    return 0;
+
+  /* $84:9E15..$9E45 derives Y from the positive-path target row and
+   * projectile class: the word directory entry at $86:EF37 + 2*(enemy+$28),
+   * plus the low byte of projectile+$0A. A positive response then preserves
+   * this Y through $9E58..$9E6E, where the same table address supplies
+   * damage. A pending token carries the row captured by the preceding
+   * accepted hit when the current i-frame row itself reads zero. $9EA9's
+   * projectile+$1A load is only on the negative-response path. */
+  projectile_class = ram[projectile + 0x0a];
+  enemy_row = native_damage_row ? native_damage_row - 1 : ram[enemy + 0x28];
+  if (!native_collision_rom_word(0xef37 + (enemy_row << 1),
+                                 &row_directory))
+    return 0;
+  native_y = (row_directory + projectile_class) & 0xffff;
+  if (!native_collision_rom_byte(0xef37 + native_y, &damage)) return 0;
+  return damage;
 }
 
 static bool upstream_finisher_projectile(const uint8_t *ram,
@@ -554,6 +645,8 @@ static void collision_window_update(MmxSaberCollisionWindow *window,
 
 void MmxSaberAttackCollisionRom(uint8_t *rom, size_t size) {
   uint8_t ground[40], air[40];
+  native_collision_rom = rom;
+  native_collision_rom_size = size;
   MmxSaberHitboxDebugSetRom(rom, size);
   bounds_records_for_window(ground, MMX_SABER_ATTACK_BOUNDS_POINTER);
   bounds_records_for_window(air, MMX_SABER_AIR_BOUNDS_POINTER);
@@ -1037,8 +1130,8 @@ unsigned MmxSaberAttackWeaponTick(uint8_t *ram, unsigned projectile,
   return 0;
 }
 
-unsigned MmxSaberAttackDamage(uint8_t *ram, unsigned enemy,
-                              unsigned projectile, unsigned value) {
+static unsigned saber_attack_damage_core(uint8_t *ram, unsigned enemy,
+                                          unsigned projectile, unsigned value) {
   unsigned bit;
   const MmxSaberAttack *attack;
   if (MmxSaberWaveRuntimeOwns(ram, projectile))
@@ -1059,6 +1152,44 @@ unsigned MmxSaberAttackDamage(uint8_t *ram, unsigned enemy,
   state.hit_slots |= (uint16_t)bit;
   attack = state_attack();
   return attack_tuned_damage(ram, enemy, attack_damage_kind(attack));
+}
+
+unsigned MmxSaberAttackDamage(uint8_t *ram, unsigned enemy,
+                              unsigned projectile, unsigned value) {
+  MmxSaberPriorityClassification classification;
+  unsigned damage;
+
+  /* A response sentinel is the only route that supplies a zero table value
+   * to this callback. Consume its exact identity once and replace the zero
+   * with the accepted Saber/buster damage. */
+  if (MmxSaberPriorityConsumePending(ram, enemy, projectile,
+                                     &classification)) {
+    if (value & 128) return value;
+    if (priority_buster_class(classification.priority_class)) {
+      damage = native_buster_damage(ram, enemy, projectile,
+                                    classification.native_damage_row);
+    } else if (classification.priority_class == MMX_SABER_PRIORITY_CLASS_WAVE &&
+               MmxSaberWaveRuntimeOwns(ram, projectile)) {
+      /* The native row supplied zero, but the wave owner needs a positive
+       * value to enter its ordinary first-contact/pulse state machine. */
+      damage = MmxSaberWaveRuntimeDamage(ram, enemy, projectile, 1);
+    } else {
+      damage = attack_tuned_damage(
+          ram, enemy, priority_damage_kind(classification.priority_class));
+    }
+    if (enemy_slot_valid(enemy))
+      MmxSaberPriorityRecord(ram, enemy, &classification,
+                             MmxSaberPriorityCurrentFrame());
+    return damage;
+  }
+
+  const bool classified = MmxSaberPriorityClassify(
+      ram, projectile, &classification);
+  damage = saber_attack_damage_core(ram, enemy, projectile, value);
+  if (value && !(value & 128) && classified)
+    MmxSaberPriorityRecord(ram, enemy, &classification,
+                           MmxSaberPriorityCurrentFrame());
+  return damage;
 }
 
 unsigned MmxSaberAttackHitbox(const uint8_t *ram, unsigned enemy,

@@ -252,6 +252,7 @@ static const MmxZeroExtension extension = {
     .legacy_slash_request = MmxSaberComboLegacySlashRequest,
     .charge_cap = charge_cap,
     .burst_origin_y = burst_origin_y,
+    .response = MmxSaberPriorityResponse,
     .weapon_tick = MmxSaberAttackWeaponTick,
     .damage = MmxSaberAttackDamage,
     .hitbox = MmxSaberAttackHitbox,

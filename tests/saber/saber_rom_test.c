@@ -202,6 +202,8 @@ static unsigned zero_response_probe_damage(uint8_t *ram, unsigned enemy,
                                            unsigned projectile,
                                            unsigned value) {
   (void)ram;
+  (void)enemy;
+  (void)projectile;
   ++zero_response_probe.damage_calls;
   if (!value) {
     ++zero_response_probe.zero_damage_calls;
@@ -456,6 +458,8 @@ static void load_response_fixture(const char *fixture) {
 static unsigned read_ram_word(const uint8_t *ram, unsigned offset);
 static unsigned empty_enemy_slot(void);
 static unsigned saber_active_slot(void);
+static unsigned apply_test_damage(unsigned enemy, unsigned damage);
+static unsigned saber_damage_boss_slot(void);
 static bool saber_lifecycle_idle(void);
 static bool saber_window_empty(const uint8_t *window);
 static bool saber_wave_record_empty(const uint8_t *record);
@@ -4648,6 +4652,228 @@ static unsigned priority_direct_ground(unsigned target_index) {
   return saber_active_slot();
 }
 
+/* Start a direct combo member without clearing the priority sidecar. The
+ * ordinary classifier tests intentionally reset the complete Saber frame; the
+ * priority tests need the preceding accepted hit to remain in history. */
+static unsigned priority_ground_attack_preserving_history(unsigned target_index) {
+  MmxSaberAttackSnapshot snapshot;
+  MmxSaberAttackResetRam(g_ram);
+  MmxSaberAttackStep(true, true, true, g_ram[0x0c11], 0);
+  MmxSaberAttackRuntimeTick(g_ram);
+  if (!target_index) {
+    snapshot = MmxSaberAttackSnapshotGet();
+    for (unsigned i = 0; i < 32 && snapshot.phase != SABER_PHASE_ACTIVE; ++i) {
+      MmxSaberAttackStep(false, true, true, g_ram[0x0c11], 0);
+      MmxSaberAttackRuntimeTick(g_ram);
+      snapshot = MmxSaberAttackSnapshotGet();
+    }
+  } else {
+    for (unsigned index = 0; index < target_index; ++index) {
+      const MmxSaberAttack *attack = MmxSaberAttackRecord(
+          (MmxSaberPadKind)(SABER_KIND_GROUND1 + index), (uint8_t)index);
+      check(attack != NULL,
+            "priority preserving ground attack record exists");
+      for (unsigned tick = 1; tick < attack->chain_open_tick; ++tick) {
+        MmxSaberAttackStep(false, true, true, g_ram[0x0c11], 0);
+        MmxSaberAttackRuntimeTick(g_ram);
+      }
+      MmxSaberAttackStep(true, true, true, g_ram[0x0c11], 0);
+      MmxSaberAttackRuntimeTick(g_ram);
+    }
+  }
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.phase == SABER_PHASE_ACTIVE,
+        "priority preserving ground attack reaches an active phase");
+  return saber_active_slot();
+}
+
+static unsigned priority_air_attack_preserving_history(void) {
+  MmxSaberAttackSnapshot snapshot;
+  MmxSaberAttackResetRam(g_ram);
+  MmxSaberAttackStepWithWallAndDash(true, false, false, false, false, true,
+                                    g_ram[0x0c11], 0);
+  MmxSaberAttackRuntimeTick(g_ram);
+  snapshot = MmxSaberAttackSnapshotGet();
+  for (unsigned i = 0; i < 32 && snapshot.phase != SABER_PHASE_ACTIVE; ++i) {
+    MmxSaberAttackStepWithWallAndDash(false, false, false, false, false, true,
+                                      g_ram[0x0c11], 0);
+    MmxSaberAttackRuntimeTick(g_ram);
+    snapshot = MmxSaberAttackSnapshotGet();
+  }
+  check(snapshot.kind == SABER_KIND_AIR &&
+            snapshot.phase == SABER_PHASE_ACTIVE,
+        "priority preserving air attack reaches an active phase");
+  return saber_active_slot();
+}
+
+typedef struct SaberBusterOracleSpec {
+  const char *name;
+  MmxSaberPriorityClass priority_class;
+  unsigned priority;
+  unsigned charge_frames;
+  bool second_burst;
+} SaberBusterOracleSpec;
+
+static const SaberBusterOracleSpec kSaberBusterOracleSpecs[] = {
+  {"small", MMX_SABER_PRIORITY_CLASS_CHARGE_SMALL, 2, 30, false},
+  {"full", MMX_SABER_PRIORITY_CLASS_CHARGE_FULL, 2, 90, false},
+  {"max1", MMX_SABER_PRIORITY_CLASS_MAX_SHOT1, 2, 150, false},
+  {"max2", MMX_SABER_PRIORITY_CLASS_MAX_SHOT2, 3, 150, true},
+};
+
+static unsigned priority_start_buster_oracle(
+    const char *fixture, const SaberBusterOracleSpec *spec,
+    unsigned *target, unsigned *walk_frames) {
+  unsigned slot = 0;
+  unsigned first_burst = 0;
+
+  if (target) *target = walk_to_ground_enemy(fixture, walk_frames);
+  check(target && *target == 0xea8,
+        "buster oracle reaches the real Highway enemy slot $0EA8");
+  g_ram[0xbdb] = 0;
+  g_ram[0xc0f] = 3;
+  g_ram[0x1f12] = 0;
+  g_ram[0x1f99] = 0;
+  g_ram[0xbaa] = 0;
+  g_ram[0xbab] = 0;
+  g_ram[0xd1] = 2;
+  g_ram[0xd2] = 4;
+  g_ram[0xd3] = 4;
+  g_ram[0x1f0c] = 0;
+  g_ram[0x1f10] = 0;
+  g_ram[0xbbe] = 0;
+  MmxZeroCancel(g_ram);
+  write_ram_word(g_ram, 0x0bad, read_ram_word(g_ram, *target + 5) - 600);
+  g_ram[0xc11] |= 0x40;
+  g_ram[0xbb9] |= 0x40;
+  g_ram[*target + 0x27] = 16;
+  g_ram[*target + 0x35] = 0;
+  MmxSaberFrameReset();
+
+  release_charge_button(spec->charge_frames, SNES_PAD_X);
+  if (!spec->second_burst) {
+    slot = priority_wait_for_class(spec->priority_class, spec->priority);
+  } else {
+    first_burst = priority_wait_for_class(
+        MMX_SABER_PRIORITY_CLASS_MAX_SHOT1, 2);
+    check(first_burst != 0,
+          "buster oracle publishes the first maximum-shot burst");
+    for (unsigned i = 0; i < 240 &&
+         (MmxZeroGetState().burst || MmxZeroGetState().shot_mask ||
+          g_ram[0xc25]); ++i)
+      frame(0);
+    g_ram[*target + 0x27] = 16;
+    g_ram[*target + 0x35] = 0;
+    frame(SNES_PAD_X);
+    slot = priority_wait_for_class(spec->priority_class, spec->priority);
+  }
+  check(slot != 0, "buster oracle publishes the requested buster class");
+  check(MmxSaberPriorityTuned(spec->priority_class) ==
+            (int)spec->priority,
+        "buster oracle sees the configured priority for the requested class");
+  write_ram_word(g_ram, 0x0bad, read_ram_word(g_ram, *target + 5) - 27);
+  g_ram[*target] = 1;
+  g_ram[*target + 0x27] = 16;
+  g_ram[*target + 0x35] = 0;
+  write_ram_word(g_ram, slot + 5, read_ram_word(g_ram, *target + 5));
+  write_ram_word(g_ram, slot + 8, read_ram_word(g_ram, *target + 8));
+  g_ram[slot + 0x11] |= 0x40;
+  return slot;
+}
+
+/* Enter the generated native collision routine at $849E15 with the real
+ * enemy/projectile slots from the fixture. This keeps the native response and
+ * damage path as the oracle; the test does not reproduce either table lookup. */
+static void native_buster_contact(unsigned enemy, unsigned projectile) {
+  CpuState saved_cpu = g_cpu;
+  RecompReturn result;
+
+  g_cpu.D = (uint16_t)enemy;
+  g_cpu.X = (uint16_t)projectile;
+  g_cpu.DB = 0x86;
+  g_cpu.PB = 0x84;
+  g_cpu.m_flag = 1;
+  g_cpu.x_flag = 0;
+  g_cpu.P = (uint8_t)((g_cpu.P & (uint8_t)~0x38) | 0x20);
+  g_cpu._flag_D = 0;
+  g_cpu.A = 0;
+  g_cpu.Y = 0;
+  g_cpu.host_return_valid = 0;
+  result = cpu_dispatch_call_pc(&g_cpu, 0x849e15, 0x849e12);
+  g_cpu = saved_cpu;
+  check(result == RECOMP_RETURN_NORMAL,
+        "native buster oracle returns from the generated collision routine");
+}
+
+static unsigned measure_native_buster_drop(
+    const char *fixture, const SaberBusterOracleSpec *spec) {
+  unsigned target = 0;
+  unsigned walk_frames = 0;
+  unsigned slot = priority_start_buster_oracle(
+      fixture, spec, &target, &walk_frames);
+  const unsigned initial_hp = g_ram[target + 0x27] & 127;
+  unsigned final_hp = initial_hp;
+  native_buster_contact(target, slot);
+  final_hp = g_ram[target + 0x27] & 127;
+  check(slot != 0, "native buster oracle publishes a real buster slot");
+  printf("reference: buster-native class=%s walk=%u HP=%u->%u drop=%u\n",
+         spec->name, walk_frames, initial_hp, final_hp,
+         initial_hp - final_hp);
+  return initial_hp - final_hp;
+}
+
+static unsigned measure_bypassed_buster_drop(
+    const char *fixture, const SaberBusterOracleSpec *spec) {
+  unsigned target = 0;
+  unsigned walk_frames = 0;
+  unsigned slot = priority_start_buster_oracle(
+      fixture, spec, &target, &walk_frames);
+  unsigned lower_slot = priority_air_attack_preserving_history();
+  unsigned lower_damage = MmxSaberAttackDamage(g_ram, target, lower_slot, 1);
+  unsigned lower_drop = apply_test_damage(target, lower_damage);
+  MmxSaberPriorityHistory lower_history;
+  const bool lower_history_found =
+      MmxSaberPriorityHistoryLookup(g_ram, target, &lower_history);
+  check(lower_slot != 0 && lower_drop == lower_damage && lower_damage != 0 &&
+            lower_history_found &&
+            lower_history.priority == 1,
+        "buster oracle records a real lower-priority Saber HP drop");
+
+  /* This is the native post-hit state observed for the real enemy: row 5 and
+   * timer $46 make the next buster response read zero. The native positive
+   * row remains the row captured by the accepted lower hit. */
+  g_ram[target + 0x28] = 0x05;
+  g_ram[target + 0x35] = 0x46;
+  const unsigned before_bypass = g_ram[target + 0x27] & 127;
+  const unsigned response = MmxZeroResponse(g_ram, target, slot, 0);
+  native_buster_contact(target, slot);
+  const unsigned final_hp = g_ram[target + 0x27] & 127;
+  const unsigned bypass_drop = before_bypass - final_hp;
+  check(response == 1 && bypass_drop != 0 &&
+            final_hp == before_bypass - bypass_drop,
+        "buster oracle bypass produces a real HP drop through the native pending-token path");
+  printf("reference: buster-bypass class=%s walk=%u HP=%u->%u drop=%u\n",
+         spec->name, walk_frames, before_bypass, final_hp, bypass_drop);
+  return bypass_drop;
+}
+
+static void saber_priority_buster_oracle_priorities(bool restore) {
+  const char *package = "megaman-x.character.saber-zero";
+  const char *feature = "saber-zero";
+  const char *small_priority = restore ? "1" : "2";
+  const char *full_priority = restore ? "1" : "2";
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, package, feature,
+            "charge_small_priority", small_priority),
+        "buster oracle sets charge-small priority in the isolated catalog");
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, package, feature,
+            "charge_full_priority", full_priority),
+        "buster oracle sets charge-full priority in the isolated catalog");
+  snes_mod_runtime_activate_plugins_c();
+  check(MmxSaberEnabled(), "buster oracle priority reactivation keeps Saber enabled");
+}
+
 static unsigned priority_direct_context(MmxSaberPadKind expected_kind,
                                          bool grounded, bool wall,
                                          bool dash) {
@@ -4736,6 +4962,239 @@ static void saber_priority_classify_checks(const char *fixture) {
                          "$5600 wave slot classifies correctly");
 
   puts("ok: saber-priority-classify");
+}
+
+static unsigned saber_priority_penguin_room(const char *fixture,
+                                            const char *fallback) {
+  unsigned walk_frames = 0;
+  unsigned target = walk_to_response_enemy(fixture, &walk_frames);
+  if (target != 0x0e68 && fallback && strcmp(fixture, fallback)) {
+    printf("reference: penguin-room has no live response target; using "
+           "penguin-fight fallback at slot $0E68\n");
+    walk_frames = 0;
+    target = walk_to_response_enemy(fallback, &walk_frames);
+  }
+  check(target == 0x0e68 && walk_frames != 0,
+        "penguin priority walk reaches native i-frame enemy slot $0E68");
+  return target;
+}
+
+static void saber_priority_checks(const char *x1_rom, const char *x3_rom,
+                                  const char *fixture, const char *assets,
+                                  const char *fixture_dir) {
+  char room_path[4096];
+  char fight_path[4096];
+  const unsigned enemy = 0x0e68;
+  const unsigned room_damage_row = 0x05;
+  const unsigned room_iframe_timer = 0x46;
+  int written;
+
+  written = snprintf(room_path, sizeof(room_path), "%s/%s", fixture_dir,
+                     "penguin-room.sav");
+  check(written >= 0 && written < (int)sizeof(room_path),
+        "saber-priority penguin-room path fits");
+  written = snprintf(fight_path, sizeof(fight_path), "%s/%s", fixture_dir,
+                     "penguin-fight.sav");
+  check(written >= 0 && written < (int)sizeof(fight_path),
+        "saber-priority penguin-fight path fits");
+  check(readable_file(room_path) && readable_file(fight_path),
+        "saber-priority penguin fixtures exist");
+
+  /* Penguin-room: the fixture's documented native post-hit state is row 5
+   * with timer $46. The first positive Saber hit establishes history; the
+   * following slash 3 calls the real response and damage extension seams
+   * with the native response value forced to zero. */
+  unsigned room_target = saber_priority_penguin_room(room_path, fight_path);
+  check(g_ram[enemy] && (g_ram[enemy + 0x27] & 127),
+        "penguin-room native i-frame target is live at slot $0E68");
+  check(room_target == enemy, "penguin-room priority target uses slot $0E68");
+  MmxSaberFrameReset();
+  unsigned initial_hp = g_ram[enemy + 0x27] & 127;
+  unsigned lower_slot = priority_ground_attack_preserving_history(0);
+  unsigned lower_damage = MmxZeroDamage(g_ram, enemy, lower_slot, 1);
+  unsigned after_lower_hp = g_ram[enemy + 0x27] & 127;
+  apply_test_damage(enemy, lower_damage);
+  after_lower_hp = g_ram[enemy + 0x27] & 127;
+  check(lower_slot != 0 && lower_damage ==
+            MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_SLASH1),
+        "penguin-room lower Saber hit uses the tuned boss slash 1 damage");
+
+  g_ram[enemy + 0x28] = room_damage_row;
+  g_ram[enemy + 0x35] = room_iframe_timer;
+  unsigned higher_slot = priority_ground_attack_preserving_history(2);
+  unsigned higher_response = MmxZeroResponse(g_ram, enemy, higher_slot, 0);
+  unsigned higher_damage = MmxZeroDamage(g_ram, enemy, higher_slot, 0);
+  unsigned after_higher_hp = g_ram[enemy + 0x27] & 127;
+  apply_test_damage(enemy, higher_damage);
+  after_higher_hp = g_ram[enemy + 0x27] & 127;
+  unsigned second_bypass_damage = MmxZeroDamage(g_ram, enemy, higher_slot, 0);
+  check(higher_response == 1 && higher_damage ==
+            MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_SLASH3) &&
+            second_bypass_damage == 0,
+        "strictly higher slash 3 bypasses the native zero exactly once");
+
+  unsigned equal_response = MmxZeroResponse(g_ram, enemy, higher_slot, 0x00);
+  unsigned equal_damage = MmxZeroDamage(g_ram, enemy, higher_slot, 0);
+  unsigned lower_again = priority_ground_attack_preserving_history(0);
+  unsigned lower_response = MmxZeroResponse(g_ram, enemy, lower_again, 0);
+  unsigned lower_again_damage = MmxZeroDamage(g_ram, enemy, lower_again, 0);
+  check(equal_response == 0 && equal_damage == 0 && lower_response == 0 &&
+            lower_again_damage == 0 &&
+            (g_ram[enemy + 0x27] & 127) == after_higher_hp,
+        "equal and lower priority contacts remain swallowed during i-frames");
+  check(MmxZeroResponse(g_ram, enemy, higher_slot, 0x80) == 0x80,
+        "reflection bit 7 is preserved on the response seam");
+  printf("reference: penguin-room enemy=0x%X native_row=0x%02X timer=0x%02X "
+         "HP=%u->%u->%u equal=%u lower=%u once=%u\n",
+         enemy, g_ram[enemy + 0x28], g_ram[enemy + 0x35], initial_hp,
+         after_lower_hp, after_higher_hp, equal_damage, lower_again_damage,
+         second_bypass_damage);
+
+  /* The inclusive window is checked with a higher candidate at frame 71,
+   * after a slash 2 history at frame 0. */
+  saber_priority_penguin_room(room_path, fight_path);
+  MmxSaberFrameReset();
+  unsigned window_lower = priority_ground_attack_preserving_history(1);
+  check(MmxZeroDamage(g_ram, enemy, window_lower, 1) != 0,
+        "window setup records a positive slash 2 hit");
+  g_ram[enemy + 0x28] = room_damage_row;
+  unsigned window_higher = priority_ground_attack_preserving_history(2);
+  for (unsigned i = 0; i < 71; ++i)
+    MmxSaberPriorityObservePrePlayer(g_ram, 0, 0);
+  check(MmxZeroResponse(g_ram, enemy, window_higher, 0) == 0 &&
+            MmxZeroDamage(g_ram, enemy, window_higher, 0) == 0,
+        "a higher priority after window+1 frames cannot bypass");
+
+  /* MmxSaberFrameReset is the same non-serialized state_reset owner path used
+   * by load/rewind. It must retire the eligible history before this candidate. */
+  saber_priority_penguin_room(room_path, fight_path);
+  MmxSaberFrameReset();
+  unsigned reset_lower = priority_ground_attack_preserving_history(0);
+  check(MmxZeroDamage(g_ram, enemy, reset_lower, 1) != 0,
+        "reset setup records a positive slash 1 hit");
+  g_ram[enemy + 0x28] = room_damage_row;
+  MmxSaberFrameReset();
+  unsigned reset_higher = priority_ground_attack_preserving_history(2);
+  check(MmxZeroResponse(g_ram, enemy, reset_higher, 0) == 0 &&
+            MmxZeroDamage(g_ram, enemy, reset_higher, 0) == 0,
+        "state_reset clears history before an otherwise eligible bypass");
+
+  /* Ground combo damage is measured through all three active members. Each
+   * direct member is started without clearing the priority sidecar, so the
+   * positive damage callback records 2 -> 3 -> 4 in one quick sequence. */
+  unsigned walk_frames = 0;
+  unsigned combo_enemy = walk_to_ground_enemy(fixture, &walk_frames);
+  check(combo_enemy == 0xea8,
+        "saber-priority combo reaches the documented Highway enemy slot");
+  g_ram[combo_enemy + 0x27] = 32;
+  unsigned combo_hp[4] = {32, 0, 0, 0};
+  unsigned combo_damage[3] = {0, 0, 0};
+  for (unsigned i = 0; i < 3; ++i) {
+    unsigned slot = priority_ground_attack_preserving_history(i);
+    combo_damage[i] = MmxSaberAttackDamage(g_ram, combo_enemy, slot, 1);
+    apply_test_damage(combo_enemy, combo_damage[i]);
+    combo_hp[i + 1] = g_ram[combo_enemy + 0x27] & 127;
+  }
+  check(combo_damage[0] == MmxSaberTuningNormalDamage(
+                             MMX_SABER_TUNING_DAMAGE_SLASH1) &&
+            combo_damage[1] == MmxSaberTuningNormalDamage(
+                             MMX_SABER_TUNING_DAMAGE_SLASH2) &&
+            combo_damage[2] == MmxSaberTuningNormalDamage(
+                             MMX_SABER_TUNING_DAMAGE_SLASH3),
+        "ground combo records and returns the three tuned normal damages");
+  printf("reference: ground-combo enemy=0x%X walk=%u priorities=2/3/4 "
+         "HP=%u->%u->%u->%u damage=%u/%u/%u\n",
+         combo_enemy, walk_frames, combo_hp[0], combo_hp[1], combo_hp[2],
+         combo_hp[3], combo_damage[0], combo_damage[1], combo_damage[2]);
+
+  /* The buster oracle is empirical: each class first hits the real Highway
+   * enemy through the native collision path, then repeats after a real lower
+   * priority Saber HP drop has put that same enemy in its native i-frame
+   * state. No ROM table byte is read or reconstructed by this test. */
+  saber_priority_buster_oracle_priorities(false);
+  unsigned native_buster_drops[
+      sizeof(kSaberBusterOracleSpecs) / sizeof(kSaberBusterOracleSpecs[0])];
+  unsigned bypass_buster_drops[
+      sizeof(kSaberBusterOracleSpecs) / sizeof(kSaberBusterOracleSpecs[0])];
+  for (unsigned i = 0; i < sizeof(kSaberBusterOracleSpecs) /
+                               sizeof(kSaberBusterOracleSpecs[0]); ++i)
+    native_buster_drops[i] = measure_native_buster_drop(
+        fixture, &kSaberBusterOracleSpecs[i]);
+  for (unsigned i = 0; i < sizeof(kSaberBusterOracleSpecs) /
+                               sizeof(kSaberBusterOracleSpecs[0]); ++i)
+    bypass_buster_drops[i] = measure_bypassed_buster_drop(
+        fixture, &kSaberBusterOracleSpecs[i]);
+  for (unsigned i = 0; i < sizeof(kSaberBusterOracleSpecs) /
+                               sizeof(kSaberBusterOracleSpecs[0]); ++i) {
+    check(native_buster_drops[i] == bypass_buster_drops[i] &&
+              native_buster_drops[i] > 0 && native_buster_drops[i] <= 32,
+          "priority-bypassed buster HP drop equals its native HP oracle");
+    printf("reference: buster-oracle class=%s native_drop=%u bypass_drop=%u\n",
+           kSaberBusterOracleSpecs[i].name, native_buster_drops[i],
+           bypass_buster_drops[i]);
+  }
+  saber_priority_buster_oracle_priorities(true);
+
+  /* Boss bypasses use the tuned boss value directly: no HP-1 clamp. */
+  unsigned boss_walk = 0;
+  unsigned boss_target = walk_to_response_enemy(fight_path, &boss_walk);
+  check(boss_target == enemy && boss_walk != 0,
+        "penguin-fight walk reaches the boss at slot $0E68");
+  MmxSaberFrameReset();
+  unsigned boss = saber_damage_boss_slot();
+  unsigned boss_slash1 = MmxSaberTuningBossDamage(
+      MMX_SABER_TUNING_DAMAGE_SLASH1);
+  unsigned boss_slash3 = MmxSaberTuningBossDamage(
+      MMX_SABER_TUNING_DAMAGE_SLASH3);
+  check(boss != 0 && MmxWidePolicy_IsBossEncounter(g_ram[boss + 0x0a]),
+        "penguin-fight exposes the boss target for priority damage");
+  g_ram[boss + 0x27] = (uint8_t)(boss_slash1 + boss_slash3);
+  unsigned boss_lower = priority_ground_attack_preserving_history(0);
+  unsigned boss_first = MmxSaberAttackDamage(g_ram, boss, boss_lower, 1);
+  apply_test_damage(boss, boss_first);
+  g_ram[boss + 0x28] = room_damage_row;
+  unsigned boss_higher = priority_ground_attack_preserving_history(2);
+  check(MmxZeroResponse(g_ram, boss, boss_higher, 0) == 1,
+        "penguin-fight boss accepts the higher priority bypass response");
+  unsigned boss_bypass = MmxZeroDamage(g_ram, boss, boss_higher, 0);
+  apply_test_damage(boss, boss_bypass);
+  printf("reference: boss kind=0x%02X HP=%u->%u->%u damage=%u/%u\n",
+         g_ram[boss + 0x0a], boss_slash1 + boss_slash3,
+         boss_slash3, g_ram[boss + 0x27] & 127, boss_first, boss_bypass);
+  check(boss_first == boss_slash1 && boss_bypass == boss_slash3 &&
+            (g_ram[boss + 0x27] & 127) == 0,
+        "boss bypass deals the full tuned boss damage and reaches HP zero");
+
+  /* With Saber disabled its extension is not registered, so the same native
+   * zero response and zero damage remain byte-identical and HP is unchanged. */
+  activate_zero(x1_rom, x3_rom, assets, false, false);
+  saber_priority_penguin_room(room_path, fight_path);
+  check(!MmxSaberEnabled(), "saber-priority disabled check turns Saber off");
+  const unsigned disabled_slot = 0x1228;
+  memset(g_ram + disabled_slot, 0, 64);
+  g_ram[disabled_slot] = 1;
+  g_ram[disabled_slot + 0x0a] = 3;
+  g_ram[disabled_slot + 0x3e] = 0x01;
+  g_ram[disabled_slot + 0x3f] = 0x53;
+  g_ram[enemy + 0x27] = 32;
+  unsigned disabled_initial = g_ram[enemy + 0x27] & 127;
+  unsigned disabled_first_response = MmxZeroResponse(g_ram, enemy,
+                                                      disabled_slot, 1);
+  unsigned disabled_first_damage = MmxZeroDamage(g_ram, enemy, disabled_slot, 3);
+  apply_test_damage(enemy, disabled_first_damage);
+  g_ram[enemy + 0x28] = room_damage_row;
+  unsigned disabled_second_response = MmxZeroResponse(g_ram, enemy,
+                                                       disabled_slot, 0);
+  unsigned disabled_second_damage = MmxZeroDamage(g_ram, enemy, disabled_slot, 0);
+  check(disabled_first_response == 1 && disabled_first_damage == 3 &&
+            disabled_second_response == 0 && disabled_second_damage == 0 &&
+            (g_ram[enemy + 0x27] & 127) == disabled_initial - 3,
+        "Saber-disabled sequence leaves the native zero-response hit swallowed");
+  printf("reference: disabled HP=%u->%u response=%u->%u damage=%u->%u\n",
+         disabled_initial, g_ram[enemy + 0x27] & 127,
+         disabled_first_response, disabled_second_response,
+         disabled_first_damage, disabled_second_damage);
+  puts("ok: saber-priority");
 }
 
 static unsigned renderer_world_sprite_count(void) {
@@ -5918,7 +6377,7 @@ int main(int argc, char **argv) {
   check(assets && assets[0], "MMX_ZERO_TEST_ASSETS supplied");
   if (only && (!strcmp(only, "fixtures") || !strcmp(only, "saber-wall") ||
       !strcmp(only, "saber-cancel") || !strcmp(only, "saber-buster-rules") ||
-      !strcmp(only, "saber-damage")))
+      !strcmp(only, "saber-damage") || !strcmp(only, "saber-priority")))
     check(fixture_dir && fixture_dir[0], "MMX_SABER_FIXTURE_DIR supplied");
 
   SDL_SetMainReady();
@@ -5993,6 +6452,7 @@ int main(int argc, char **argv) {
   const bool saber_burst_height = only && !strcmp(only, "saber-burst-height");
   const bool saber_priority_classify =
       only && !strcmp(only, "saber-priority-classify");
+  const bool saber_priority = only && !strcmp(only, "saber-priority");
   const bool saber_wave_travel = only && !strcmp(only, "saber-wave-travel");
   const bool saber_wave_damage = only && !strcmp(only, "saber-wave-damage");
   const bool saber_wave_lifecycle = only && !strcmp(only, "saber-wave-lifecycle");
@@ -6009,6 +6469,7 @@ int main(int argc, char **argv) {
       saber_ground_hit || saber_cancel || saber_lifecycle_load ||
       saber_render_snapshot || saber_buster_rules || saber_burst_height ||
       saber_finisher || saber_priority_classify ||
+      saber_priority ||
       saber_tuning || saber_hitbox_debug || saber_damage ||
       saber_wave_travel || saber_wave_damage || saber_wave_lifecycle ||
       saber_wave_render;
@@ -6082,6 +6543,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-priority-classify runs with the Saber package enabled");
     saber_priority_classify_checks(fixture);
+  } else if (saber_priority) {
+    check(MmxSaberEnabled(),
+          "saber-priority runs with the Saber package enabled");
+    saber_priority_checks(argv[1], x3_rom, fixture, assets, fixture_dir);
   } else if (saber_tuning) {
     check(MmxSaberEnabled(),
           "saber-tuning runs with the Saber package enabled");
@@ -6171,6 +6636,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-package") && strcmp(only, "saber-input") &&
       strcmp(only, "saber-finisher") &&
       strcmp(only, "saber-priority-classify") &&
+      strcmp(only, "saber-priority") &&
       strcmp(only, "saber-tuning") &&
       strcmp(only, "saber-hitbox-debug") &&
       strcmp(only, "saber-damage") &&

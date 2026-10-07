@@ -37,6 +37,9 @@ typedef enum MmxSaberPriorityClass {
 typedef struct MmxSaberPriorityClassification {
   MmxSaberPriorityClass priority_class;
   uint8_t priority;
+  /* Positive-path enemy row plus one, captured with the accepted
+   * lower-priority hit; zero means that the current RAM row should be used. */
+  uint8_t native_damage_row;
 } MmxSaberPriorityClassification;
 
 /* slot is the guest enemy-slot address, not the compact history index. A zero
@@ -47,6 +50,7 @@ typedef struct MmxSaberPriorityHistory {
   uint8_t generation;
   uint8_t stage;
   uint8_t priority;
+  uint8_t native_damage_row;
   uint32_t frame;
 } MmxSaberPriorityHistory;
 
@@ -54,6 +58,19 @@ typedef struct MmxSaberPriorityHistory {
  * when the slot is not owned by a Saber priority class. */
 bool MmxSaberPriorityClassify(const uint8_t *ram, unsigned projectile_slot,
                               MmxSaberPriorityClassification *result);
+
+/* Collision-response seam. Only an exact native zero can arm a token; a
+ * nonzero response, including bit-7 reflection/special responses, is returned
+ * unchanged. */
+unsigned MmxSaberPriorityResponse(uint8_t *ram, unsigned enemy_slot,
+                                  unsigned projectile_slot, unsigned original);
+
+/* Consume the one-shot response token at the damage seam. The classification
+ * returned here is the one captured at response time, so a later projectile
+ * or attack-state change cannot retarget the bypass. */
+bool MmxSaberPriorityConsumePending(
+    const uint8_t *ram, unsigned enemy_slot, unsigned projectile_slot,
+    MmxSaberPriorityClassification *classification);
 
 /* Configuration lookup kept public for tests and future response wiring. */
 int MmxSaberPriorityTuned(MmxSaberPriorityClass priority_class);

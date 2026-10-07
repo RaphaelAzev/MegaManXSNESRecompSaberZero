@@ -207,9 +207,59 @@ static void classifier_checks(void) {
         "dead buster slots are not classified");
 }
 
+static void response_checks(void) {
+  const unsigned enemy = 0x0ea8;
+  const unsigned lower = 0x1228;
+  const unsigned higher = 0x1268;
+  MmxSaberPriorityClassification lower_class = {
+      MMX_SABER_PRIORITY_CLASS_SLASH1, 2};
+  MmxSaberPriorityClassification pending_class;
+
+  memset(ram, 0, sizeof(ram));
+  ram[0x1f7a] = 4;
+  make_enemy(enemy, 0x22);
+  make_projectile(lower, 3, 0x5301);
+  make_projectile(higher, 3, 0x5302);
+  MmxSaberPriorityReset();
+  test_attack = (MmxSaberAttackSnapshot){
+      SABER_KIND_GROUND1, 0, SABER_PHASE_ACTIVE, 0, 0, 0, 0};
+  check(MmxSaberPriorityHistoryRecord(ram, enemy, &lower_class, 0),
+        "response test establishes lower-priority history");
+
+  test_attack.kind = SABER_KIND_GROUND2;
+  check(MmxSaberPriorityResponse(ram, enemy, higher, 0) == 1,
+        "strictly higher Saber response arms the sentinel");
+  check(MmxSaberPriorityConsumePending(ram, enemy, higher, &pending_class) &&
+            pending_class.priority_class == MMX_SABER_PRIORITY_CLASS_SLASH2 &&
+            pending_class.priority == 3,
+        "pending token retains the accepted classification");
+  check(!MmxSaberPriorityConsumePending(ram, enemy, higher, NULL),
+        "pending response token is consumed exactly once");
+
+  MmxSaberPriorityReset();
+  check(MmxSaberPriorityHistoryRecord(ram, enemy, &lower_class, 0),
+        "reflection test establishes lower-priority history");
+  check(MmxSaberPriorityResponse(ram, enemy, higher, 0x80) == 0x80 &&
+            !MmxSaberPriorityConsumePending(ram, enemy, higher, NULL),
+        "bit-7 reflection response is preserved and never bypassed");
+
+  MmxSaberPriorityReset();
+  check(MmxSaberPriorityHistoryRecord(ram, enemy, &lower_class, 0),
+        "window test establishes lower-priority history");
+  for (unsigned i = 0; i < 71; ++i)
+    MmxSaberPriorityObservePrePlayer(ram, 0, 0);
+  check(MmxSaberPriorityResponse(ram, enemy, higher, 0) == 0,
+        "a higher priority after the configured window is not bypassed");
+
+  MmxSaberPriorityReset();
+  check(MmxSaberPriorityResponse(ram, enemy, higher, 0) == 0,
+        "reset clears response history before a new bypass candidate");
+}
+
 int main(void) {
   history_checks();
   classifier_checks();
+  response_checks();
   if (failures) return 1;
   puts("ok: saber-priority");
   return 0;
