@@ -5438,9 +5438,8 @@ static void saber_priority_checks(const char *x1_rom, const char *x3_rom,
   unsigned after_lower_hp = g_ram[enemy + 0x27] & 127;
   apply_test_damage(enemy, lower_damage);
   after_lower_hp = g_ram[enemy + 0x27] & 127;
-  check(lower_slot != 0 && lower_damage ==
-            MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_SLASH1),
-        "penguin-room lower Saber hit uses the tuned boss slash 1 damage");
+  check(lower_slot != 0 && lower_damage == 1,
+        "penguin-room default boss slash 1 damage is 1");
 
   g_ram[enemy + 0x28] = room_damage_row;
   g_ram[enemy + 0x35] = room_iframe_timer;
@@ -5451,10 +5450,9 @@ static void saber_priority_checks(const char *x1_rom, const char *x3_rom,
   apply_test_damage(enemy, higher_damage);
   after_higher_hp = g_ram[enemy + 0x27] & 127;
   unsigned second_bypass_damage = MmxZeroDamage(g_ram, enemy, higher_slot, 0);
-  check(higher_response == 1 && higher_damage ==
-            MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_SLASH3) &&
+  check(higher_response == 1 && higher_damage == 2 &&
             second_bypass_damage == 0,
-        "strictly higher slash 3 bypasses the native zero exactly once");
+        "penguin-room default boss slash 3 damage is 2 and bypasses once");
 
   unsigned equal_response = MmxZeroResponse(g_ram, enemy, higher_slot, 0x00);
   unsigned equal_damage = MmxZeroDamage(g_ram, enemy, higher_slot, 0);
@@ -5571,6 +5569,8 @@ static void saber_priority_checks(const char *x1_rom, const char *x3_rom,
       MMX_SABER_TUNING_DAMAGE_SLASH3);
   check(boss != 0 && MmxWidePolicy_IsBossEncounter(g_ram[boss + 0x0a]),
         "penguin-fight exposes the boss target for priority damage");
+  check(boss_slash1 == 1 && boss_slash3 == 2,
+        "penguin-fight default boss slash damage is 1 and 2");
   g_ram[boss + 0x27] = (uint8_t)(boss_slash1 + boss_slash3);
   unsigned boss_lower = priority_ground_attack_preserving_history(0);
   unsigned boss_first = MmxSaberAttackDamage(g_ram, boss, boss_lower, 1);
@@ -5726,8 +5726,8 @@ static void saber_armadillo_checks(const char *x1_rom, const char *x3_rom,
   check(written >= 0 && written < (int)sizeof(path),
         "Armadillo HP2 fixture path fits");
   check(readable_file(path), "Armadillo HP2 fixture exists");
-  check(expected_slash1 > 0 && expected_slash2 > 0,
-        "Armadillo Saber boss damage values are positive");
+  check(expected_slash1 == 1 && expected_slash2 == 1,
+        "Armadillo Saber default boss slash damage is 1 and 1");
 
   /* (a) A real slash-1 contact on the exposed row is native: it is not
    * admitted by the response seam and its HP drop seeds the history. */

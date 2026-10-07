@@ -135,7 +135,7 @@ id = "boss_slash1_damage"
 label = "Boss slash 1 damage"
 description = "0 = same as the normal value"
 type = "integer"
-default = 0
+default = 1
 min = 0
 max = 32
 step = 1
@@ -146,7 +146,7 @@ id = "boss_slash2_damage"
 label = "Boss slash 2 damage"
 description = "0 = same as the normal value"
 type = "integer"
-default = 0
+default = 1
 min = 0
 max = 32
 step = 1
@@ -157,7 +157,7 @@ id = "boss_slash3_damage"
 label = "Boss slash 3 damage"
 description = "0 = same as the normal value"
 type = "integer"
-default = 0
+default = 2
 min = 0
 max = 32
 step = 1
@@ -168,7 +168,7 @@ id = "boss_air_damage"
 label = "Boss air slash damage"
 description = "0 = same as the normal value"
 type = "integer"
-default = 0
+default = 1
 min = 0
 max = 32
 step = 1
@@ -179,7 +179,7 @@ id = "boss_wall_damage"
 label = "Boss wall slash damage"
 description = "0 = same as the normal value"
 type = "integer"
-default = 0
+default = 1
 min = 0
 max = 32
 step = 1
@@ -190,7 +190,7 @@ id = "boss_dash_damage"
 label = "Boss dash slash damage"
 description = "0 = same as the normal value"
 type = "integer"
-default = 0
+default = 1
 min = 0
 max = 32
 step = 1
@@ -201,7 +201,7 @@ id = "boss_x3_finisher_damage"
 label = "Boss X3 finisher damage"
 description = "0 = same as the normal value"
 type = "integer"
-default = 0
+default = 6
 min = 0
 max = 32
 step = 1
@@ -212,7 +212,7 @@ id = "boss_wave_damage"
 label = "Boss Saber wave damage"
 description = "0 = same as the normal value"
 type = "integer"
-default = 0
+default = 4
 min = 0
 max = 32
 step = 1
