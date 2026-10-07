@@ -1180,6 +1180,14 @@ unsigned MmxSaberAttackDamage(uint8_t *ram, unsigned enemy,
     if (enemy_slot_valid(enemy))
       MmxSaberPriorityRecord(ram, enemy, &classification,
                              MmxSaberPriorityCurrentFrame());
+    /* The token is admitted only for the exposed Armadillo row. Keep this
+     * second gate beside the restore bypass so armor cannot clear +$38 even
+     * if a future response-table value is positive without bit 7. */
+    if (damage > 0 && enemy_slot_valid(enemy) && ram[enemy] != 0 &&
+        (ram[enemy + 0x27] & 0x7f) != 0 && ram[enemy + 0x0a] == 0x14 &&
+        ram[enemy + 0x28] == 0x0b &&
+        ram[enemy + 0x30] == 0)
+      ram[enemy + 0x38] = 0;
     return damage;
   }
 

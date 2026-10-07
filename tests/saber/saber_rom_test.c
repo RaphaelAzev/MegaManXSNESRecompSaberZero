@@ -4781,6 +4781,90 @@ static unsigned priority_start_buster_oracle(
   return slot;
 }
 
+typedef struct ArmadilloPriorityTrace {
+  unsigned response_calls;
+  unsigned native_response;
+  unsigned extension_response;
+  unsigned response_row;
+  unsigned response_timer;
+  unsigned response_kind;
+  unsigned response_projectile;
+  unsigned response_projectile_class;
+  unsigned response_cpu_y;
+  unsigned response_cpu_db;
+  unsigned response_cpu_pb;
+  unsigned response_cpu_x_flag;
+  unsigned response_cpu_m_flag;
+  unsigned response_cpu_p;
+  unsigned response_native_class;
+  unsigned weapons_enabled;
+  unsigned damage_calls;
+  unsigned damage_projectile;
+  unsigned damage_input;
+  unsigned damage_output;
+} ArmadilloPriorityTrace;
+
+static ArmadilloPriorityTrace armadillo_priority_trace;
+static unsigned armadillo_priority_frame;
+
+static unsigned armadillo_priority_response(uint8_t *ram, unsigned enemy,
+                                            unsigned projectile,
+                                            unsigned original) {
+  unsigned response;
+  ++armadillo_priority_trace.response_calls;
+  armadillo_priority_trace.native_response = original;
+  armadillo_priority_trace.response_row = ram[enemy + 0x28];
+  armadillo_priority_trace.response_timer = ram[enemy + 0x38];
+  armadillo_priority_trace.response_kind = ram[enemy + 0x0a];
+  armadillo_priority_trace.response_projectile = projectile;
+  armadillo_priority_trace.response_projectile_class = ram[projectile + 0x0a];
+  armadillo_priority_trace.response_cpu_y = g_cpu.Y;
+  armadillo_priority_trace.response_cpu_db = g_cpu.DB;
+  armadillo_priority_trace.response_cpu_pb = g_cpu.PB;
+  armadillo_priority_trace.response_cpu_x_flag = g_cpu.x_flag;
+  armadillo_priority_trace.response_cpu_m_flag = g_cpu.m_flag;
+  armadillo_priority_trace.response_cpu_p = g_cpu.P;
+  armadillo_priority_trace.response_native_class = ram[0];
+  armadillo_priority_trace.weapons_enabled = MmxWeaponsEnabled();
+  printf("reference: armadillo-frame=%u response native=0x%02X row=0x%02X "
+         "hp=0x%02X +38=0x%02X +39=0x%02X +37=0x%02X +30=0x%02X "
+         "projectile=0x%X pclass=0x%02X Y=0x%04X DB=0x%02X PB=0x%02X "
+         "M=%u X=%u P=0x%02X\n",
+         armadillo_priority_frame, original, ram[enemy + 0x28],
+         ram[enemy + 0x27], ram[enemy + 0x38], ram[enemy + 0x39],
+         ram[enemy + 0x37], ram[enemy + 0x30], projectile,
+         ram[projectile + 0x0a], armadillo_priority_trace.response_cpu_y,
+         armadillo_priority_trace.response_cpu_db,
+         armadillo_priority_trace.response_cpu_pb,
+         armadillo_priority_trace.response_cpu_m_flag,
+         armadillo_priority_trace.response_cpu_x_flag,
+         armadillo_priority_trace.response_cpu_p);
+  response = MmxSaberPriorityResponse(ram, enemy, projectile, original);
+  armadillo_priority_trace.extension_response = response;
+  return response;
+}
+
+static unsigned armadillo_priority_damage(uint8_t *ram, unsigned enemy,
+                                          unsigned projectile,
+                                          unsigned original) {
+  unsigned damage;
+  ++armadillo_priority_trace.damage_calls;
+  armadillo_priority_trace.damage_projectile = projectile;
+  armadillo_priority_trace.damage_input = original;
+  damage = MmxSaberAttackDamage(ram, enemy, projectile, original);
+  armadillo_priority_trace.damage_output = damage;
+  printf("reference: armadillo-frame=%u damage native=0x%02X output=%u "
+         "hp=0x%02X +38=0x%02X +39=0x%02X\n",
+         armadillo_priority_frame, original, damage, ram[enemy + 0x27],
+         ram[enemy + 0x38], ram[enemy + 0x39]);
+  return damage;
+}
+
+static const MmxZeroExtension armadillo_priority_extension = {
+    .response = armadillo_priority_response,
+    .damage = armadillo_priority_damage,
+};
+
 /* Enter the generated native collision routine at $849E15 with the real
  * enemy/projectile slots from the fixture. This keeps the native response and
  * damage path as the oracle; the test does not reproduce either table lookup. */
@@ -4803,6 +4887,38 @@ static void native_buster_contact(unsigned enemy, unsigned projectile) {
   g_cpu = saved_cpu;
   check(result == RECOMP_RETURN_NORMAL,
         "native buster oracle returns from the generated collision routine");
+}
+
+/* Enter Armored Armadillo after his state-handler dispatch at $83B2ED. This
+ * keeps row selection, the post-hit timer, generic collision, and the native
+ * post-collision restore/reaction code in the oracle path. */
+static void native_armadillo_contact(unsigned enemy, unsigned projectile) {
+  CpuState saved_cpu = g_cpu;
+  RecompReturn result;
+
+  g_cpu.D = (uint16_t)enemy;
+  g_cpu.X = (uint16_t)projectile;
+  g_cpu.DB = 0x00;
+  g_cpu.PB = 0x83;
+  g_cpu.m_flag = 1;
+  g_cpu.x_flag = 1;
+  g_cpu.P = (uint8_t)((g_cpu.P & (uint8_t)~0x38) | 0x30);
+  g_cpu._flag_D = 0;
+  g_cpu._flag_C = 0;
+  g_cpu._flag_V = 0;
+  g_cpu._flag_Z = 0;
+  g_cpu._flag_N = 0;
+  g_cpu.A = 0;
+  g_cpu.Y = 0;
+  g_cpu.host_return_valid = 0;
+  result = cpu_dispatch_call_pc(&g_cpu, 0x83b2ed, 0x83b2ea);
+  printf("reference: Armadillo direct dispatch result=%d PB=0x%02X S=0x%04X "
+         "host_return_valid=%u HP=0x%02X timer=0x%02X\n",
+         (int)result, g_cpu.PB, g_cpu.S, g_cpu.host_return_valid,
+         g_ram[enemy + 0x27], g_ram[enemy + 0x38]);
+  g_cpu = saved_cpu;
+  check(result == RECOMP_RETURN_NORMAL || result == RECOMP_RETURN_SKIP_1,
+        "native Armadillo oracle reaches the post-collision continuation");
 }
 
 static unsigned measure_native_buster_drop(
@@ -5195,6 +5311,380 @@ static void saber_priority_checks(const char *x1_rom, const char *x3_rom,
          disabled_first_response, disabled_second_response,
          disabled_first_damage, disabled_second_damage);
   puts("ok: saber-priority");
+}
+
+static void armadillo_fixture_reset(const char *path, unsigned enemy,
+                                    bool saber_extension) {
+  check(RtlLoadSnapshot(path), "armadillo-fight.sav loads");
+  check(MmxZeroActive() && !MmxZeroModern(),
+        "Armadillo fixture runs as upstream X3 Zero");
+  MmxZeroCancel(g_ram);
+  MmxSaberFrameReset();
+  MmxSaberAttackCollisionRom(g_snes->cart->rom, g_snes->cart->romSize);
+  MmxZeroSetExtension(saber_extension ? &armadillo_priority_extension : NULL);
+  check(g_ram[enemy] && g_ram[enemy + 0x0a] == 0x14 &&
+            (g_ram[enemy + 0x27] & 127) == 0x20 && g_ram[enemy + 0x30] == 0,
+        "Armadillo fixture has slot $0E68 kind $14, HP $20, and +$30=0");
+}
+
+static void armadillo_overlap_projectile(unsigned enemy, unsigned projectile) {
+  write_ram_word(g_ram, projectile + 5, read_ram_word(g_ram, enemy + 5));
+  write_ram_word(g_ram, projectile + 8, read_ram_word(g_ram, enemy + 8));
+  g_ram[projectile + 0x11] =
+      (uint8_t)((g_ram[projectile + 0x11] & (uint8_t)~0x40) |
+                (g_ram[0x0c11] & 0x40));
+}
+
+static unsigned armadillo_live_slash(unsigned enemy, unsigned target_index) {
+  MmxSaberPriorityClassification classification;
+  unsigned projectile = priority_ground_attack_preserving_history(target_index);
+
+  check(projectile != 0 &&
+            MmxSaberPriorityClassify(g_ram, projectile, &classification) &&
+            classification.priority_class ==
+                (target_index ? MMX_SABER_PRIORITY_CLASS_SLASH2 :
+                                 MMX_SABER_PRIORITY_CLASS_SLASH1) &&
+            classification.priority == (target_index ? 3 : 2),
+        target_index ? "Armadillo publishes a live slash-2 projectile" :
+                       "Armadillo publishes a live slash-1 projectile");
+  MmxSaberAttackCollisionRom(g_snes->cart->rom, g_snes->cart->romSize);
+  MmxSaberAttackRuntimeTick(g_ram);
+  if (!target_index) {
+    for (unsigned tick = 0; tick < 12 &&
+         read_ram_word(g_ram, projectile + 0x20) != 0xffe4; ++tick) {
+      MmxSaberAttackStep(false, true, true, g_ram[0x0c11], 0);
+      MmxSaberAttackRuntimeTick(g_ram);
+    }
+    check(read_ram_word(g_ram, projectile + 0x20) == 0xffe4,
+          "Armadillo slash-1 reaches its real late active hitbox record");
+  } else {
+    check(read_ram_word(g_ram, projectile + 0x20) == 0xffe8,
+          "Armadillo slash-2 reaches its real active hitbox record");
+  }
+  armadillo_overlap_projectile(enemy, projectile);
+  check(g_ram[projectile] && g_ram[projectile + 0x0a] == 3 &&
+            read_ram_word(g_ram, projectile + 0x20) != 0,
+        target_index ? "Armadillo slash-2 remains a live Saber contact" :
+                       "Armadillo slash-1 remains a live Saber contact");
+  return projectile;
+}
+
+static unsigned armadillo_priority_frame_tick(void) {
+  const MmxZeroState zero = MmxZeroGetState();
+  MmxSaberPriorityObservePrePlayer(g_ram, zero.shot_mask, zero.burst);
+  MmxSaberPriorityObservePlayerEnd(g_ram, zero.shot_mask, zero.burst);
+  armadillo_priority_frame = MmxSaberPriorityCurrentFrame();
+  return armadillo_priority_frame;
+}
+
+static bool armadillo_no_pending(unsigned enemy, unsigned projectile) {
+  MmxSaberPriorityClassification ignored;
+  return !MmxSaberPriorityConsumePending(g_ram, enemy, projectile, &ignored);
+}
+
+static void armadillo_idle_frames(unsigned enemy, unsigned projectile,
+                                  unsigned count) {
+  uint8_t saved_projectile[64];
+  memcpy(saved_projectile, g_ram + projectile, sizeof(saved_projectile));
+  while (count--) {
+    armadillo_priority_frame_tick();
+    memset(g_ram + projectile, 0, sizeof(saved_projectile));
+    native_armadillo_contact(enemy, projectile);
+    memcpy(g_ram + projectile, saved_projectile, sizeof(saved_projectile));
+  }
+}
+
+static void saber_armadillo_checks(const char *x1_rom, const char *x3_rom,
+                                   const char *assets,
+                                   const char *fixture_dir) {
+  const unsigned enemy = 0x0e68;
+  const unsigned expected_slash1 = (unsigned)MmxSaberTuningBossDamage(
+      MMX_SABER_TUNING_DAMAGE_SLASH1);
+  const unsigned expected_slash2 = (unsigned)MmxSaberTuningBossDamage(
+      MMX_SABER_TUNING_DAMAGE_SLASH2);
+  char path[4096];
+  MmxSaberPriorityClassification classification;
+  MmxSaberPriorityHistory history;
+  unsigned slash1;
+  unsigned slash2;
+  unsigned before;
+  unsigned after_first;
+  unsigned after_second;
+  unsigned first_full;
+  unsigned second_full;
+  bool no_pending;
+  int written = snprintf(path, sizeof(path), "%s/%s", fixture_dir,
+                         "armadillo-fight.sav");
+
+  check(written >= 0 && written < (int)sizeof(path),
+        "Armadillo HP2 fixture path fits");
+  check(readable_file(path), "Armadillo HP2 fixture exists");
+  check(expected_slash1 > 0 && expected_slash2 > 0,
+        "Armadillo Saber boss damage values are positive");
+
+  /* (a) A real slash-1 contact on the exposed row is native: it is not
+   * admitted by the response seam and its HP drop seeds the history. */
+  armadillo_fixture_reset(path, enemy, true);
+  printf("reference: Armadillo initial HP=0x%02X +37=0x%02X +38=0x%02X "
+         "+39=0x%02X +30=0x%02X +28=0x%02X\n",
+         g_ram[enemy + 0x27], g_ram[enemy + 0x37], g_ram[enemy + 0x38],
+         g_ram[enemy + 0x39], g_ram[enemy + 0x30], g_ram[enemy + 0x28]);
+  slash1 = armadillo_live_slash(enemy, 0);
+  g_ram[enemy + 0x27] = 0x20;
+  g_ram[enemy + 0x30] = 0;
+  g_ram[enemy + 0x37] = 0;
+  g_ram[enemy + 0x38] = 0;
+  before = g_ram[enemy + 0x27] & 127;
+  memset(&armadillo_priority_trace, 0, sizeof(armadillo_priority_trace));
+  armadillo_priority_frame_tick();
+  native_armadillo_contact(enemy, slash1);
+  after_first = g_ram[enemy + 0x27] & 127;
+  first_full = g_ram[enemy + 0x27];
+  check(armadillo_priority_trace.response_calls == 1 &&
+            armadillo_priority_trace.native_response == 0x11 &&
+            armadillo_priority_trace.extension_response == 0x11 &&
+            armadillo_priority_trace.response_row == 0x0b &&
+            armadillo_priority_trace.response_timer == 0x00 &&
+            armadillo_priority_trace.damage_calls == 1 &&
+            armadillo_priority_trace.damage_input == 0x11 &&
+            armadillo_priority_trace.damage_output == expected_slash1 &&
+            after_first == before - expected_slash1 &&
+            MmxSaberPriorityHistoryLookup(g_ram, enemy, &history) &&
+            history.priority == 2,
+        "Armadillo exposed slash-1 uses native $11 and records its HP drop");
+  printf("reference: armadillo-a frame=%u native=0x%02X extension=0x%02X "
+         "row=0x%02X timer=0x%02X damage=%u HP=0x%02X(%u)->0x%02X(%u) "
+         "+38=0x%02X +39=0x%02X history_priority=%u\n",
+         armadillo_priority_frame, armadillo_priority_trace.native_response,
+         armadillo_priority_trace.extension_response,
+         armadillo_priority_trace.response_row,
+         armadillo_priority_trace.response_timer,
+         armadillo_priority_trace.damage_output, 0x20, before, first_full,
+         after_first, g_ram[enemy + 0x38], g_ram[enemy + 0x39],
+         history.priority);
+
+  /* (b) Slash 2 is the accepted strict upgrade. The native callback sees
+   * protected +$38=$3B and $11, while the token supplies tuned slash-2
+   * damage and clears the restore gate before Armadillo reaches B35C. */
+  slash2 = armadillo_live_slash(enemy, 1);
+  before = g_ram[enemy + 0x27] & 127;
+  memset(&armadillo_priority_trace, 0, sizeof(armadillo_priority_trace));
+  armadillo_priority_frame_tick();
+  native_armadillo_contact(enemy, slash2);
+  after_second = g_ram[enemy + 0x27] & 127;
+  second_full = g_ram[enemy + 0x27];
+  no_pending = armadillo_no_pending(enemy, slash2);
+  check(armadillo_priority_trace.response_calls == 1 &&
+            armadillo_priority_trace.native_response == 0x11 &&
+            armadillo_priority_trace.extension_response == 0x01 &&
+            armadillo_priority_trace.response_row == 0x0b &&
+            armadillo_priority_trace.response_timer == 0x3b &&
+            armadillo_priority_trace.damage_calls == 1 &&
+            armadillo_priority_trace.damage_input == 0x11 &&
+            armadillo_priority_trace.damage_output == expected_slash2 &&
+            after_second == after_first - expected_slash2 && no_pending &&
+            g_ram[enemy + 0x38] == 0x3c && g_ram[enemy + 0x39] == first_full,
+        "Armadillo slash-2 bypass keeps tuned damage after native restore");
+  printf("reference: armadillo-b frame=%u native=0x%02X extension=0x%02X "
+         "row=0x%02X timer=0x%02X damage=%u HP=0x%02X(%u)->0x%02X(%u) "
+         "+38=0x%02X +39=0x%02X pending=%u\n",
+         armadillo_priority_frame, armadillo_priority_trace.native_response,
+         armadillo_priority_trace.extension_response,
+         armadillo_priority_trace.response_row,
+         armadillo_priority_trace.response_timer,
+         armadillo_priority_trace.damage_output, first_full, before,
+         second_full, after_second, g_ram[enemy + 0x38], g_ram[enemy + 0x39],
+         !no_pending);
+  armadillo_idle_frames(enemy, slash2, 3);
+  check((g_ram[enemy + 0x27] & 127) == after_second,
+        "Armadillo keeps the slash-2 HP drop for three later native frames");
+  printf("reference: armadillo-b-later frames=3 HP=0x%02X(%u) +38=0x%02X "
+         "+39=0x%02X\n", g_ram[enemy + 0x27],
+         g_ram[enemy + 0x27] & 127, g_ram[enemy + 0x38], g_ram[enemy + 0x39]);
+
+  /* (c) Equal and lower priority contacts remain native hits that the
+   * protection restore undoes; neither can arm a token. */
+  armadillo_fixture_reset(path, enemy, true);
+  slash1 = armadillo_live_slash(enemy, 0);
+  g_ram[enemy + 0x27] = 0x20;
+  g_ram[enemy + 0x30] = 0;
+  g_ram[enemy + 0x37] = 0;
+  g_ram[enemy + 0x38] = 0;
+  armadillo_priority_frame_tick();
+  native_armadillo_contact(enemy, slash1);
+  before = g_ram[enemy + 0x27] & 127;
+  slash1 = armadillo_live_slash(enemy, 0);
+  memset(&armadillo_priority_trace, 0, sizeof(armadillo_priority_trace));
+  armadillo_priority_frame_tick();
+  native_armadillo_contact(enemy, slash1);
+  after_second = g_ram[enemy + 0x27] & 127;
+  no_pending = armadillo_no_pending(enemy, slash1);
+  check(armadillo_priority_trace.native_response == 0x11 &&
+            armadillo_priority_trace.extension_response == 0x11 &&
+            armadillo_priority_trace.damage_output == expected_slash1 &&
+            after_second == before && no_pending,
+        "Armadillo equal-priority slash-1 follow-up is restored natively");
+  printf("reference: armadillo-c-equal native=0x%02X extension=0x%02X "
+         "damage=%u HP=%u->%u pending=%u timer=0x%02X\n",
+         armadillo_priority_trace.native_response,
+         armadillo_priority_trace.extension_response,
+         armadillo_priority_trace.damage_output, before, after_second,
+         !no_pending, g_ram[enemy + 0x38]);
+
+  armadillo_fixture_reset(path, enemy, true);
+  slash2 = armadillo_live_slash(enemy, 1);
+  g_ram[enemy + 0x27] = 0x20;
+  g_ram[enemy + 0x30] = 0;
+  g_ram[enemy + 0x37] = 0;
+  g_ram[enemy + 0x38] = 0;
+  armadillo_priority_frame_tick();
+  native_armadillo_contact(enemy, slash2);
+  before = g_ram[enemy + 0x27] & 127;
+  slash1 = armadillo_live_slash(enemy, 0);
+  memset(&armadillo_priority_trace, 0, sizeof(armadillo_priority_trace));
+  armadillo_priority_frame_tick();
+  native_armadillo_contact(enemy, slash1);
+  after_second = g_ram[enemy + 0x27] & 127;
+  no_pending = armadillo_no_pending(enemy, slash1);
+  check(armadillo_priority_trace.native_response == 0x11 &&
+            armadillo_priority_trace.extension_response == 0x11 &&
+            armadillo_priority_trace.damage_output == expected_slash1 &&
+            after_second == before && no_pending,
+        "Armadillo lower-priority slash-1 follow-up is restored natively");
+  printf("reference: armadillo-c-lower native=0x%02X extension=0x%02X "
+         "damage=%u HP=%u->%u pending=%u timer=0x%02X\n",
+         armadillo_priority_trace.native_response,
+         armadillo_priority_trace.extension_response,
+         armadillo_priority_trace.damage_output, before, after_second,
+         !no_pending, g_ram[enemy + 0x38]);
+
+  /* (d) The generated X1 table's class-3 row-00 control is a positive
+   * armor response ($4A) in this real fixture, not the old unverified $80
+   * premise. It still restores HP and must not arm a token. A separate
+   * native bit-7 control below verifies the locked reflection rule. */
+  armadillo_fixture_reset(path, enemy, true);
+  slash1 = armadillo_live_slash(enemy, 0);
+  g_ram[enemy + 0x27] = 0x20;
+  g_ram[enemy + 0x30] = 0;
+  g_ram[enemy + 0x37] = 0;
+  g_ram[enemy + 0x38] = 0;
+  armadillo_priority_frame_tick();
+  native_armadillo_contact(enemy, slash1);
+  slash2 = armadillo_live_slash(enemy, 1);
+  before = g_ram[enemy + 0x27] & 127;
+  g_ram[enemy + 0x30] = 0;
+  g_ram[enemy + 0x37] = 1;
+  g_ram[enemy + 0x38] = 0x3c;
+  memset(&armadillo_priority_trace, 0, sizeof(armadillo_priority_trace));
+  armadillo_priority_frame_tick();
+  native_armadillo_contact(enemy, slash2);
+  after_second = g_ram[enemy + 0x27] & 127;
+  no_pending = armadillo_no_pending(enemy, slash2);
+  check(armadillo_priority_trace.response_calls == 1 &&
+            armadillo_priority_trace.response_row == 0x00 &&
+            armadillo_priority_trace.native_response == 0x4a &&
+            armadillo_priority_trace.extension_response == 0x4a &&
+            armadillo_priority_trace.damage_calls == 1 && no_pending &&
+            after_second == before,
+        "Armadillo armor row $00 remains restoring with no token");
+  printf("reference: armadillo-d row=0x%02X native=0x%02X extension=0x%02X "
+         "damage_calls=%u damage=%u HP=%u->%u pending=%u +38=0x%02X\n",
+         armadillo_priority_trace.response_row,
+         armadillo_priority_trace.native_response,
+         armadillo_priority_trace.extension_response,
+         armadillo_priority_trace.damage_calls,
+         armadillo_priority_trace.damage_output, before, after_second,
+         !no_pending, g_ram[enemy + 0x38]);
+
+  check(MmxSaberPriorityResponse(g_ram, enemy, slash2, 0x80) == 0x80 &&
+            armadillo_no_pending(enemy, slash2),
+        "Armadillo bit-7 guard/reflection response remains blocking");
+  printf("reference: armadillo-d-bit7 native=0x80 extension=0x80 "
+         "pending=0\n");
+
+  armadillo_fixture_reset(path, enemy, true);
+  slash1 = armadillo_live_slash(enemy, 0);
+  g_ram[enemy + 0x27] = 0x20;
+  g_ram[enemy + 0x30] = 0;
+  g_ram[enemy + 0x37] = 0;
+  g_ram[enemy + 0x38] = 0;
+  armadillo_priority_frame_tick();
+  native_armadillo_contact(enemy, slash1);
+  slash2 = armadillo_live_slash(enemy, 1);
+  before = g_ram[enemy + 0x27] & 127;
+  g_ram[enemy + 0x37] = 1;
+  g_ram[enemy + 0x38] = 0x3c;
+  g_ram[slash2 + 0x0a] = 4;
+  memset(&armadillo_priority_trace, 0, sizeof(armadillo_priority_trace));
+  armadillo_priority_frame_tick();
+  native_armadillo_contact(enemy, slash2);
+  after_second = g_ram[enemy + 0x27] & 127;
+  no_pending = armadillo_no_pending(enemy, slash2);
+  check(armadillo_priority_trace.response_row == 0x00 &&
+            armadillo_priority_trace.native_response == 0xaa &&
+            armadillo_priority_trace.extension_response == 0xaa &&
+            armadillo_priority_trace.damage_calls == 0 && no_pending &&
+            after_second == before,
+        "Armadillo generated bit-7 armor response remains blocking");
+  printf("reference: armadillo-d-bit7-native row=0x%02X class=0x%02X "
+         "native=0x%02X extension=0x%02X damage_calls=%u HP=%u->%u "
+         "pending=%u +38=0x%02X\n",
+         armadillo_priority_trace.response_row,
+         armadillo_priority_trace.response_projectile_class,
+         armadillo_priority_trace.native_response,
+         armadillo_priority_trace.extension_response,
+         armadillo_priority_trace.damage_calls, before, after_second,
+         !no_pending, g_ram[enemy + 0x38]);
+
+  /* (e) The native +$30 hard skip prevents the response seam from running. */
+  armadillo_fixture_reset(path, enemy, true);
+  slash2 = armadillo_live_slash(enemy, 1);
+  before = g_ram[enemy + 0x27] & 127;
+  g_ram[enemy + 0x30] = 1;
+  g_ram[enemy + 0x37] = 0;
+  g_ram[enemy + 0x38] = 0x3c;
+  memset(&armadillo_priority_trace, 0, sizeof(armadillo_priority_trace));
+  armadillo_priority_frame_tick();
+  native_armadillo_contact(enemy, slash2);
+  after_second = g_ram[enemy + 0x27] & 127;
+  no_pending = armadillo_no_pending(enemy, slash2);
+  check(armadillo_priority_trace.response_calls == 0 &&
+            armadillo_priority_trace.damage_calls == 0 && no_pending &&
+            after_second == before,
+        "Armadillo +$30 hard skip blocks the bypass");
+  printf("reference: armadillo-e +30=0x%02X response_calls=%u damage_calls=%u "
+         "HP=%u->%u pending=%u +38=0x%02X\n", g_ram[enemy + 0x30],
+         armadillo_priority_trace.response_calls,
+         armadillo_priority_trace.damage_calls, before, after_second,
+         !no_pending, g_ram[enemy + 0x38]);
+
+  /* (f) Without the Saber package, the same live two-contact sequence is
+   * swallowed by native Armadillo restore logic. */
+  activate_zero(x1_rom, x3_rom, assets, false, false);
+  check(!MmxSaberEnabled(), "Armadillo disabled control turns Saber off");
+  armadillo_fixture_reset(path, enemy, false);
+  slash1 = armadillo_live_slash(enemy, 0);
+  g_ram[enemy + 0x27] = 0x20;
+  g_ram[enemy + 0x30] = 0;
+  g_ram[enemy + 0x37] = 0;
+  g_ram[enemy + 0x38] = 0;
+  armadillo_priority_frame = 1;
+  native_armadillo_contact(enemy, slash1);
+  before = g_ram[enemy + 0x27] & 127;
+  slash2 = armadillo_live_slash(enemy, 1);
+  armadillo_priority_frame = 2;
+  native_armadillo_contact(enemy, slash2);
+  after_second = g_ram[enemy + 0x27] & 127;
+  check(before < 0x20 && after_second == before,
+        "Saber-disabled Armadillo follow-up is swallowed by native restore");
+  printf("reference: armadillo-f disabled native HP=0x%02X(%u)->0x%02X(%u) "
+         "+38=0x%02X +39=0x%02X\n", 0x20, 0x20, g_ram[enemy + 0x27],
+         after_second, g_ram[enemy + 0x38], g_ram[enemy + 0x39]);
+
+  activate_zero(x1_rom, x3_rom, assets, true, true);
+  MmxZeroSetExtension(MmxSaberFrameExtension());
+  MmxSaberFrameReset();
+  puts("ok: saber-armadillo");
 }
 
 static unsigned renderer_world_sprite_count(void) {
@@ -6377,7 +6867,8 @@ int main(int argc, char **argv) {
   check(assets && assets[0], "MMX_ZERO_TEST_ASSETS supplied");
   if (only && (!strcmp(only, "fixtures") || !strcmp(only, "saber-wall") ||
       !strcmp(only, "saber-cancel") || !strcmp(only, "saber-buster-rules") ||
-      !strcmp(only, "saber-damage") || !strcmp(only, "saber-priority")))
+      !strcmp(only, "saber-damage") || !strcmp(only, "saber-priority") ||
+      !strcmp(only, "saber-armadillo")))
     check(fixture_dir && fixture_dir[0], "MMX_SABER_FIXTURE_DIR supplied");
 
   SDL_SetMainReady();
@@ -6453,6 +6944,7 @@ int main(int argc, char **argv) {
   const bool saber_priority_classify =
       only && !strcmp(only, "saber-priority-classify");
   const bool saber_priority = only && !strcmp(only, "saber-priority");
+  const bool saber_armadillo = only && !strcmp(only, "saber-armadillo");
   const bool saber_wave_travel = only && !strcmp(only, "saber-wave-travel");
   const bool saber_wave_damage = only && !strcmp(only, "saber-wave-damage");
   const bool saber_wave_lifecycle = only && !strcmp(only, "saber-wave-lifecycle");
@@ -6469,7 +6961,7 @@ int main(int argc, char **argv) {
       saber_ground_hit || saber_cancel || saber_lifecycle_load ||
       saber_render_snapshot || saber_buster_rules || saber_burst_height ||
       saber_finisher || saber_priority_classify ||
-      saber_priority ||
+      saber_priority || saber_armadillo ||
       saber_tuning || saber_hitbox_debug || saber_damage ||
       saber_wave_travel || saber_wave_damage || saber_wave_lifecycle ||
       saber_wave_render;
@@ -6547,6 +7039,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-priority runs with the Saber package enabled");
     saber_priority_checks(argv[1], x3_rom, fixture, assets, fixture_dir);
+  } else if (saber_armadillo) {
+    check(MmxSaberEnabled(),
+          "saber-armadillo runs with the Saber package enabled");
+    saber_armadillo_checks(argv[1], x3_rom, assets, fixture_dir);
   } else if (saber_tuning) {
     check(MmxSaberEnabled(),
           "saber-tuning runs with the Saber package enabled");
@@ -6637,6 +7133,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-finisher") &&
       strcmp(only, "saber-priority-classify") &&
       strcmp(only, "saber-priority") &&
+      strcmp(only, "saber-armadillo") &&
       strcmp(only, "saber-tuning") &&
       strcmp(only, "saber-hitbox-debug") &&
       strcmp(only, "saber-damage") &&

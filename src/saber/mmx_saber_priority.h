@@ -59,9 +59,10 @@ typedef struct MmxSaberPriorityHistory {
 bool MmxSaberPriorityClassify(const uint8_t *ram, unsigned projectile_slot,
                               MmxSaberPriorityClassification *result);
 
-/* Collision-response seam. Only an exact native zero can arm a token; a
- * nonzero response, including bit-7 reflection/special responses, is returned
- * unchanged. */
+/* Collision-response seam. Exact native zero can arm a token generally. The
+ * only nonzero admission is a protected positive response from Armadillo's
+ * exposed row $0B for a strictly higher-priority Saber follow-up; bit-7
+ * responses remain unchanged. */
 unsigned MmxSaberPriorityResponse(uint8_t *ram, unsigned enemy_slot,
                                   unsigned projectile_slot, unsigned original);
 

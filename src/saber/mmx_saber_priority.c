@@ -12,7 +12,11 @@ enum {
   MMX_SABER_PRIORITY_ENEMY_FLAGS = 0x03,
   MMX_SABER_PRIORITY_ENEMY_LIVE = 0x00,
   MMX_SABER_PRIORITY_ENEMY_HP = 0x27,
+  MMX_SABER_PRIORITY_ENEMY_ROW = 0x28,
   MMX_SABER_PRIORITY_ENEMY_HARD_SKIP = 0x30,
+  MMX_SABER_PRIORITY_ENEMY_PROTECTION = 0x38,
+  MMX_SABER_PRIORITY_ARMADILLO_KIND = 0x14,
+  MMX_SABER_PRIORITY_ARMADILLO_EXPOSED_ROW = 0x0b,
   MMX_SABER_PRIORITY_PROJECTILE_KIND = 0x0a,
   MMX_SABER_PRIORITY_PROJECTILE_TAG = 0x3e,
   MMX_SABER_PRIORITY_TAG_MASK = 0xff00,
@@ -118,6 +122,24 @@ static bool enemy_forced(const uint8_t *ram, unsigned slot) {
 
 static bool enemy_eligible_target(const uint8_t *ram, unsigned slot) {
   return enemy_live(ram, slot) && !enemy_forced(ram, slot);
+}
+
+static bool armadillo_protected_positive(const uint8_t *ram,
+                                         unsigned enemy_slot,
+                                         unsigned original) {
+  /* Row $00 is Armadillo's armor/guard row in the generated handler. The
+   * native fixture's class-3 table value is positive ($4A), so bit 7 alone is
+   * not enough to protect that row from the nonzero admission. */
+  return original != 0 && !(original & 0x80) &&
+      enemy_index(enemy_slot) < MMX_SABER_PRIORITY_ENEMY_SLOT_COUNT &&
+      ram && ram[enemy_slot + MMX_SABER_PRIORITY_ENEMY_LIVE] != 0 &&
+      (ram[enemy_slot + MMX_SABER_PRIORITY_ENEMY_HP] & 0x7f) != 0 &&
+      ram[enemy_slot + MMX_SABER_PRIORITY_ENEMY_KIND] ==
+          MMX_SABER_PRIORITY_ARMADILLO_KIND &&
+      ram[enemy_slot + MMX_SABER_PRIORITY_ENEMY_ROW] ==
+          MMX_SABER_PRIORITY_ARMADILLO_EXPOSED_ROW &&
+      ram[enemy_slot + MMX_SABER_PRIORITY_ENEMY_HARD_SKIP] == 0 &&
+      ram[enemy_slot + MMX_SABER_PRIORITY_ENEMY_PROTECTION] != 0;
 }
 
 static void clear_history_records(void) {
@@ -327,7 +349,8 @@ unsigned MmxSaberPriorityResponse(uint8_t *ram, unsigned enemy_slot,
    * never inherit a token from an earlier response, including a reflection or
    * another nonzero response. */
   memset(&state.pending, 0, sizeof(state.pending));
-  if (!ram || original != 0 ||
+  if (!ram || (original != 0 &&
+               !armadillo_protected_positive(ram, enemy_slot, original)) ||
       !MmxSaberPriorityClassify(ram, projectile_slot, &candidate))
     return original;
   /* Classification synchronizes stage state, so sample the frame only after
