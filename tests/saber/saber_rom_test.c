@@ -2052,15 +2052,85 @@ static void saber_ground_lifecycle_checks(const char *fixture) {
   puts("ok: saber-ground-lifecycle");
 }
 
-static const uint8_t kOldSaberGroundBounds[40] = {
-    7, 232, 11, 14, 29, 241, 18, 23, 37, 253, 16, 11, 37, 0, 16, 8,
+static const uint8_t kSaberGroundBounds[40] = {
+    7, 228, 12, 10, 28, 237, 19, 19, 36, 1, 17, 15, 36, 10, 17, 6,
     24, 251, 14, 13, 13, 251, 42, 13, 235, 251, 18, 13,
-    248, 240, 18, 19, 30, 240, 36, 24, 39, 245, 29, 19};
+    248, 236, 19, 14, 30, 247, 37, 29, 38, 252, 30, 25};
 
-static const uint8_t kOldSaberAirBounds[40] = {
-    17, 240, 16, 13, 15, 249, 30, 20, 14, 253, 42, 24, 244, 250, 18, 12,
-    31, 246, 33, 19, 22, 0, 23, 15, 14, 1, 16, 12, 25, 255, 36, 9,
-    46, 254, 29, 10, 14, 245, 24, 4};
+static const uint8_t kSaberAirBounds[40] = {
+    16, 232, 17, 12, 14, 240, 30, 19, 13, 244, 42, 23, 243, 242, 18, 11,
+    31, 246, 33, 19, 22, 0, 23, 15, 14, 1, 16, 12, 24, 1, 37, 17,
+    45, 0, 30, 17, 14, 241, 24, 6};
+
+static const uint8_t kUnchangedSlash2Bounds[12] = {
+    24, 251, 14, 13, 13, 251, 42, 13, 235, 251, 18, 13};
+
+static const uint8_t kUnchangedWallBounds[12] = {
+    31, 246, 33, 19, 22, 0, 23, 15, 14, 1, 16, 12};
+
+static int saber_record_top(const uint8_t record[4]) {
+  return (int8_t)record[1] - record[3];
+}
+
+static int saber_record_bottom(const uint8_t record[4]) {
+  return (int8_t)record[1] + record[3];
+}
+
+static void saber_refit_rom_checks(void) {
+  static const uint8_t old_slash1_late[4] = {37, 0, 16, 8};
+  static const uint8_t old_slash3_late[4] = {39, 245, 29, 19};
+  static const uint8_t old_air_late[4] = {244, 250, 18, 12};
+  static const uint8_t old_dash_middle[4] = {46, 254, 29, 10};
+  const uint8_t *ground = g_snes->cart->rom + 0x37fd8;
+  const uint8_t *air = g_snes->cart->rom + 0x37f40;
+  const uint8_t *slash1_late = ground + 12;
+  const uint8_t *slash3_late = ground + 36;
+  const uint8_t *air_late = air + 12;
+  const uint8_t *dash_middle = air + 32;
+
+  printf("reference: refit edges slash1_bottom=%d/%d slash3_bottom=%d/%d "
+         "air_top_bottom=%d,%d/%d,%d dash_top_bottom=%d,%d/%d,%d\n",
+         saber_record_bottom(slash1_late),
+         saber_record_bottom(old_slash1_late),
+         saber_record_bottom(slash3_late),
+         saber_record_bottom(old_slash3_late),
+         saber_record_top(air_late), saber_record_bottom(air_late),
+         saber_record_top(old_air_late), saber_record_bottom(old_air_late),
+         saber_record_top(dash_middle), saber_record_bottom(dash_middle),
+         saber_record_top(old_dash_middle),
+         saber_record_bottom(old_dash_middle));
+
+  check(!memcmp(slash1_late, kSaberGroundBounds + 12, 4),
+        "slash 1 late ROM record installs the measured bytes");
+  check(saber_record_bottom(slash1_late) >
+                saber_record_bottom(old_slash1_late) &&
+            saber_record_bottom(slash1_late) > 0,
+        "slash 1 late ROM record reaches below the feet line");
+  check(!memcmp(slash3_late, kSaberGroundBounds + 36, 4),
+        "slash 3 late ROM record installs the measured bytes");
+  check(saber_record_bottom(slash3_late) >
+                saber_record_bottom(old_slash3_late) &&
+            saber_record_bottom(slash3_late) > 0,
+        "slash 3 late ROM record reaches below the feet line");
+  check(!memcmp(air_late, kSaberAirBounds + 12, 4),
+        "air late ROM record installs the measured bytes");
+  check(saber_record_top(air_late) < saber_record_top(old_air_late) &&
+            saber_record_bottom(air_late) < saber_record_bottom(old_air_late),
+        "air late ROM record moves both its top and bottom upward");
+  check(!memcmp(dash_middle, kSaberAirBounds + 32, 4),
+        "dash ROM record installs the measured bytes");
+  check(saber_record_top(dash_middle) <
+                saber_record_top(old_dash_middle) &&
+            saber_record_bottom(dash_middle) >
+                saber_record_bottom(old_dash_middle),
+        "dash ROM record grows at both the top and bottom");
+  check(!memcmp(ground + 16, kUnchangedSlash2Bounds,
+                sizeof(kUnchangedSlash2Bounds)),
+        "slash 2 ROM records remain byte-identical");
+  check(!memcmp(air + 16, kUnchangedWallBounds,
+                sizeof(kUnchangedWallBounds)),
+        "wall ROM records remain byte-identical");
+}
 
 static unsigned abs_difference(unsigned a, unsigned b) {
   return a > b ? a - b : b - a;
@@ -2424,9 +2494,9 @@ static void saber_ground_hit_checks(const char *fixture) {
          target, read_ram_word(g_ram, target + 5), read_ram_word(g_ram, target + 8));
 
   frame(0);
-  check(!memcmp(g_snes->cart->rom + 0x37fd8, kOldSaberGroundBounds, 40) &&
-            !memcmp(g_snes->cart->rom + 0x37f40, kOldSaberAirBounds, 40),
-        "Saber collision windows equal the old ground and air rectangles");
+  check(!memcmp(g_snes->cart->rom + 0x37fd8, kSaberGroundBounds, 40) &&
+            !memcmp(g_snes->cart->rom + 0x37f40, kSaberAirBounds, 40),
+        "Saber collision windows install the measured ground and air rectangles");
 
   initial_hp = g_ram[target + 0x27] & 127;
   bit = 1u << ((target - 0xe68) / 64);
@@ -2552,7 +2622,7 @@ static void saber_ground_hit_checks(const char *fixture) {
         "foreign collision data leaves slashes animating with no hitbox");
   memcpy(g_snes->cart->rom + 0x37fd8, saved_ground, sizeof(saved_ground));
   MmxSaberAttackCollisionRom(g_snes->cart->rom, g_snes->cart->romSize);
-  check(!memcmp(g_snes->cart->rom + 0x37fd8, kOldSaberGroundBounds, 40),
+  check(!memcmp(g_snes->cart->rom + 0x37fd8, kSaberGroundBounds, 40),
         "restored collision window is owned and idempotent");
   puts("ok: saber-ground-hit");
 }
@@ -2684,8 +2754,8 @@ static void saber_air_checks(const char *fixture) {
       }
     }
   }
-  check(!memcmp(g_snes->cart->rom + 0x37f40, kOldSaberAirBounds, 40),
-        "air slash keeps the old $37F40 collision records installed");
+  check(!memcmp(g_snes->cart->rom + 0x37f40, kSaberAirBounds, 40),
+        "air slash keeps the measured $37F40 collision records installed");
   check(startup_empty && active_ok,
         "air ACTIVE owns one tagged slot anchored to its old air collision record");
   check(direct_damage_ok,
@@ -2837,8 +2907,8 @@ static void saber_dash_checks(const char *fixture) {
   check(native[0].vx == 0x0375,
         "native Highway dash reference keeps the old X1 VX 0x0375");
   check(!memcmp(g_snes->cart->rom + 0x37f40 + 28,
-                kOldSaberAirBounds + 28, 12),
-        "dash slash keeps the old $FF5C records in the $37F40 window");
+                kSaberAirBounds + 28, 12),
+        "dash slash keeps the measured $FF5C records in the $37F40 window");
 
   load_fixture(fixture);
   MmxSaberFrameReset();
@@ -4392,7 +4462,10 @@ static bool debug_rects_overlap(const MmxRenderDebugRect *a,
 }
 
 static void saber_hitbox_debug_checks(const char *fixture) {
-  static const int8_t old_slash1_record[4] = {7, -24, 11, 14};
+  static const int8_t slash1_record[4] = {7, -28, 12, 10};
+  uint8_t x3_finisher_before[40];
+  uint8_t native_weapon_before[32];
+  uint8_t wave_before[MMX_SABER_WAVE_COLLISION_RECORD_BYTES];
   MmxRenderDebugRect rects[64];
   MmxRenderDebugRect slash_rect = {0};
   unsigned target, walk_frames = 0, count;
@@ -4403,6 +4476,22 @@ static void saber_hitbox_debug_checks(const char *fixture) {
   load_fixture(fixture);
   MmxSaberFrameReset();
   frame(0);
+  memcpy(x3_finisher_before, g_snes->cart->rom + 0x37fb0,
+         sizeof(x3_finisher_before));
+  memcpy(native_weapon_before, g_snes->cart->rom + 0x37f80,
+         sizeof(native_weapon_before));
+  memcpy(wave_before, g_snes->cart->rom + MMX_SABER_WAVE_COLLISION_ROM_OFFSET,
+         sizeof(wave_before));
+  MmxSaberAttackCollisionRom(g_snes->cart->rom, g_snes->cart->romSize);
+  saber_refit_rom_checks();
+  check(!memcmp(g_snes->cart->rom + 0x37fb0, x3_finisher_before,
+                sizeof(x3_finisher_before)) &&
+            !memcmp(g_snes->cart->rom + 0x37f80, native_weapon_before,
+                    sizeof(native_weapon_before)),
+        "X3 finisher and native weapon ROM records remain byte-identical");
+  check(!memcmp(g_snes->cart->rom + MMX_SABER_WAVE_COLLISION_ROM_OFFSET,
+                wave_before, sizeof(wave_before)),
+        "wave ROM record remains byte-identical after Saber window install");
   MmxRendererBeginFrame(g_ram);
   check(!MmxSaberTuningShowHitboxes() &&
             MmxRendererDebugRectSnapshot(rects, 64) == 0,
@@ -4434,17 +4523,17 @@ static void saber_hitbox_debug_checks(const char *fixture) {
       }
     if (snapshot.phase == SABER_PHASE_ACTIVE && snapshot.tick == 4) {
       const unsigned slot = saber_active_slot();
-      int center_x = old_slash1_record[0];
+      int center_x = slash1_record[0];
       bool found = false;
       check(slot != 0 && (g_ram[slot + 0x11] & 0x40) == 0,
             "right-facing slash publishes the unmirrored native orientation");
       if (g_ram[slot + 0x11] & 0x40) center_x = -center_x;
       slash_rect.world_x = (int16_t)read_ram_word(g_ram, 0x0bad) +
-          center_x - old_slash1_record[2];
+          center_x - slash1_record[2];
       slash_rect.world_y = (int16_t)read_ram_word(g_ram, 0x0bb0) +
-          old_slash1_record[1] - old_slash1_record[3];
-      slash_rect.w = (uint16_t)(old_slash1_record[2] * 2 + 1);
-      slash_rect.h = (uint16_t)(old_slash1_record[3] * 2 + 1);
+          slash1_record[1] - slash1_record[3];
+      slash_rect.w = (uint16_t)(slash1_record[2] * 2 + 1);
+      slash_rect.h = (uint16_t)(slash1_record[3] * 2 + 1);
       slash_rect.rgb555 = MMX_SABER_HITBOX_CYAN;
       for (unsigned r = 0; r < count; ++r)
         if (rects[r].rgb555 == MMX_SABER_HITBOX_CYAN &&
@@ -4454,8 +4543,8 @@ static void saber_hitbox_debug_checks(const char *fixture) {
           found = true;
           break;
         }
-      check(found && slash_rect.w == 23 && slash_rect.h == 29,
-            "ACTIVE slash 1 exposes the independent old collision record bounds");
+      check(found && slash_rect.w == 25 && slash_rect.h == 21,
+            "ACTIVE slash 1 exposes the measured collision record bounds");
       slash_record_checked = found;
     }
     if ((g_ram[target + 0x27] & 127) < hp_before && active_cyan_found) {
@@ -4492,17 +4581,17 @@ static void saber_hitbox_debug_checks(const char *fixture) {
     count = MmxRendererDebugRectSnapshot(rects, 64);
     if (snapshot.phase == SABER_PHASE_ACTIVE && snapshot.tick == 4) {
       const unsigned slot = saber_active_slot();
-      int center_x = -old_slash1_record[0];
+      int center_x = -slash1_record[0];
       bool found = false;
       check(slot != 0 && (g_ram[slot + 0x11] & 0x40) != 0,
             "left-facing slash publishes native bit $40 for the mirrored record");
-      if (g_ram[slot + 0x11] & 0x40) center_x = -old_slash1_record[0];
+      if (g_ram[slot + 0x11] & 0x40) center_x = -slash1_record[0];
       slash_rect.world_x = (int16_t)read_ram_word(g_ram, 0x0bad) +
-          center_x - old_slash1_record[2];
+          center_x - slash1_record[2];
       slash_rect.world_y = (int16_t)read_ram_word(g_ram, 0x0bb0) +
-          old_slash1_record[1] - old_slash1_record[3];
-      slash_rect.w = (uint16_t)(old_slash1_record[2] * 2 + 1);
-      slash_rect.h = (uint16_t)(old_slash1_record[3] * 2 + 1);
+          slash1_record[1] - slash1_record[3];
+      slash_rect.w = (uint16_t)(slash1_record[2] * 2 + 1);
+      slash_rect.h = (uint16_t)(slash1_record[3] * 2 + 1);
       slash_rect.rgb555 = MMX_SABER_HITBOX_CYAN;
       for (unsigned r = 0; r < count; ++r)
         if (rects[r].rgb555 == MMX_SABER_HITBOX_CYAN &&
@@ -4513,7 +4602,7 @@ static void saber_hitbox_debug_checks(const char *fixture) {
           break;
         }
       check(found,
-            "left-facing ACTIVE slash mirrors the old record's X center offset");
+            "left-facing ACTIVE slash mirrors the measured record's X center offset");
       left_record_checked = found;
     }
     if (!left_record_checked) frame(0);
@@ -6837,8 +6926,8 @@ static void saber_lifecycle_load_checks(const char *x1_rom,
   load_fixture(fixture);
   MmxSaberFrameReset();
   frame(0);
-  check(!memcmp(g_snes->cart->rom + 0x37fd8, kOldSaberGroundBounds, 40) &&
-            !memcmp(g_snes->cart->rom + 0x37f40, kOldSaberAirBounds, 40),
+  check(!memcmp(g_snes->cart->rom + 0x37fd8, kSaberGroundBounds, 40) &&
+            !memcmp(g_snes->cart->rom + 0x37f40, kSaberAirBounds, 40),
         "disable probe starts with both Saber collision windows installed");
   activate_zero(x1_rom, x3_rom, assets, false, false);
   check(saber_window_empty(g_snes->cart->rom + 0x37fd8) &&
@@ -6847,8 +6936,8 @@ static void saber_lifecycle_load_checks(const char *x1_rom,
   activate_zero(x1_rom, x3_rom, assets, true, true);
   load_fixture(fixture);
   frame(0);
-  check(!memcmp(g_snes->cart->rom + 0x37fd8, kOldSaberGroundBounds, 40) &&
-            !memcmp(g_snes->cart->rom + 0x37f40, kOldSaberAirBounds, 40),
+  check(!memcmp(g_snes->cart->rom + 0x37fd8, kSaberGroundBounds, 40) &&
+            !memcmp(g_snes->cart->rom + 0x37f40, kSaberAirBounds, 40),
         "re-enabling Saber reinstalls both collision windows");
 
   free(airborne_snapshot);

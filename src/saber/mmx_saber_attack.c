@@ -13,13 +13,13 @@
 
 /* The native records are center offset, center offset, and half-extents.
  * Ground pointers use $FFD8 + 4*segment; air starts at $FF40, wall at
- * $FF50, and dash at $FF5C.  Values are copied from the donor table without
- * retuning; later units will install/use these records. */
+ * $FF50, and dash at $FF5C.  The four refit attack tables below are measured
+ * against the rendered saber blade; the other tables remain donor records. */
 static const MmxSaberBoundsSegment kGroundSlash1Bounds[] = {
-    {4, 5, 7, -24, 11, 14},
-    {6, 7, 29, -15, 18, 23},
-    {8, 9, 37, -3, 16, 11},
-    {10, 11, 37, 0, 16, 8}};
+    {4, 5, 7, -28, 12, 10},
+    {6, 7, 28, -19, 19, 19},
+    {8, 9, 36, 1, 17, 15},
+    {10, 11, 36, 10, 17, 6}};
 
 static const MmxSaberBoundsSegment kGroundSlash2Bounds[] = {
     {0, 3, 24, -5, 14, 13},
@@ -27,15 +27,15 @@ static const MmxSaberBoundsSegment kGroundSlash2Bounds[] = {
     {8, 11, -21, -5, 18, 13}};
 
 static const MmxSaberBoundsSegment kGroundFinisherBounds[] = {
-    {0, 5, -8, -16, 18, 19},
-    {6, 9, 30, -16, 36, 24},
-    {10, 13, 39, -11, 29, 19}};
+    {0, 5, -8, -20, 19, 14},
+    {6, 9, 30, -9, 37, 29},
+    {10, 13, 38, -4, 30, 25}};
 
 static const MmxSaberBoundsSegment kAirSlashBounds[] = {
-    {4, 5, 17, -16, 16, 13},
-    {6, 7, 15, -7, 30, 20},
-    {8, 9, 14, -3, 42, 24},
-    {10, 11, -12, -6, 18, 12}};
+    {4, 5, 16, -24, 17, 12},
+    {6, 7, 14, -16, 30, 19},
+    {8, 9, 13, -12, 42, 23},
+    {10, 11, -13, -14, 18, 11}};
 
 static const MmxSaberBoundsSegment kWallSlashBounds[] = {
     {0, 3, 31, -10, 33, 19},
@@ -43,9 +43,9 @@ static const MmxSaberBoundsSegment kWallSlashBounds[] = {
     {8, 11, 14, 1, 16, 12}};
 
 static const MmxSaberBoundsSegment kDashSlashBounds[] = {
-    {2, 5, 25, -1, 36, 9},
-    {6, 9, 46, -2, 29, 10},
-    {10, 11, 14, -11, 24, 4}};
+    {2, 5, 24, 1, 37, 17},
+    {6, 9, 45, 0, 30, 17},
+    {10, 11, 14, -15, 24, 6}};
 
 /* Ported from old src/mmx_saber.c:260-400.  In particular, keep the numeric
  * timing values here independent of the ROM test's old-table oracle. */
