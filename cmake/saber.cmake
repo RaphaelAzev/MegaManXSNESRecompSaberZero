@@ -253,6 +253,8 @@ if(BUILD_TESTING)
         "${_saber_render_source}" "${_saber_assets_source}"
         "${_saber_wave_source}"
         "${_saber_attack_source}" "${_saber_wave_runtime_source}" "${_saber_sfx_source}"
+        "${_saber_tuning_source}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/mmx_wide_policy.c"
         "${SNESRECOMP_ROOT}/runner/src/sha256.c")
     target_include_directories(mmx_saber_render_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"

@@ -2,7 +2,9 @@
 
 #include <string.h>
 
+#include "../mmx_wide_policy.h"
 #include "../mmx_zero.h"
+#include "mmx_saber_tuning.h"
 
 enum {
   MMX_SABER_WAVE_SLOT_BYTES = 64,
@@ -67,6 +69,21 @@ static bool live(const uint8_t *ram, unsigned slot) {
 static bool target_slot_valid(unsigned enemy) {
   return enemy >= 0xe68 && enemy < 0x1228 &&
       (enemy & (MMX_SABER_WAVE_SLOT_BYTES - 1)) == 0x28;
+}
+
+static unsigned clamp_tuned_damage(int damage) {
+  if (damage < 0) return 0;
+  if (damage > 32) return 32;
+  return (unsigned)damage;
+}
+
+static unsigned wave_tuned_damage(const uint8_t *ram, unsigned enemy) {
+  const bool boss = ram && target_slot_valid(enemy) &&
+      MmxWidePolicy_IsBossEncounter(ram[enemy + 0x0a]);
+  const int damage = boss ?
+      MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_WAVE) :
+      MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_WAVE);
+  return clamp_tuned_damage(damage);
 }
 
 static bool identity_recorded(const uint8_t *ram, unsigned slot) {
@@ -418,7 +435,7 @@ unsigned MmxSaberWaveRuntimeDamage(uint8_t *ram, unsigned enemy,
     target[slot + MMX_SABER_WAVE_ID_MARKER] =
         MMX_SABER_WAVE_ID_MARKER_VALUE;
     putword(target + slot + 0x20, 0);
-    return MMX_SABER_WAVE_DAMAGE;
+    return wave_tuned_damage(target, enemy);
   }
   if (target[slot + MMX_SABER_WAVE_SLOT_STATE] !=
       MMX_SABER_WAVE_SLOT_STATE_CUTTING) {
@@ -447,7 +464,7 @@ unsigned MmxSaberWaveRuntimeDamage(uint8_t *ram, unsigned enemy,
         MMX_SABER_WAVE_PULSE_FRAMES;
     putword(target + slot + 0x20, 0);
   }
-  return MMX_SABER_WAVE_DAMAGE;
+  return wave_tuned_damage(target, enemy);
 }
 
 unsigned MmxSaberWaveRuntimeHitbox(const uint8_t *ram, unsigned enemy,

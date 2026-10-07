@@ -3,7 +3,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "../mmx_wide_policy.h"
+#include "../mmx_zero.h"
 #include "mmx_saber_sfx.h"
+#include "mmx_saber_tuning.h"
 #include "mmx_saber_wave_runtime.h"
 
 /* The native records are center offset, center offset, and half-extents.
@@ -255,6 +258,52 @@ static bool projectile_slot_valid(unsigned d) {
 
 static bool enemy_slot_valid(unsigned d) {
   return d >= 0xe68 && d < 0x1228 && (d & 63) == 0x28;
+}
+
+static unsigned clamp_tuned_damage(int damage) {
+  if (damage < 0) return 0;
+  if (damage > 32) return 32;
+  return (unsigned)damage;
+}
+
+static MmxSaberTuningDamageKind attack_damage_kind(
+    const MmxSaberAttack *attack) {
+  if (!attack) return MMX_SABER_TUNING_DAMAGE_COUNT;
+  switch (attack->kind) {
+    case SABER_KIND_AIR:
+      return MMX_SABER_TUNING_DAMAGE_AIR;
+    case SABER_KIND_WALL:
+      return MMX_SABER_TUNING_DAMAGE_WALL;
+    case SABER_KIND_DASH:
+      return MMX_SABER_TUNING_DAMAGE_DASH;
+    case SABER_KIND_GROUND1:
+    case SABER_KIND_GROUND2:
+    case SABER_KIND_GROUND3:
+      switch (attack->index) {
+        case 0: return MMX_SABER_TUNING_DAMAGE_SLASH1;
+        case 1: return MMX_SABER_TUNING_DAMAGE_SLASH2;
+        default: return MMX_SABER_TUNING_DAMAGE_SLASH3;
+      }
+    default:
+      return MMX_SABER_TUNING_DAMAGE_COUNT;
+  }
+}
+
+static unsigned attack_tuned_damage(const uint8_t *ram, unsigned enemy,
+                                    MmxSaberTuningDamageKind kind) {
+  const bool boss = ram && enemy_slot_valid(enemy) &&
+      MmxWidePolicy_IsBossEncounter(ram[enemy + 0x0a]);
+  const int damage = boss ? MmxSaberTuningBossDamage(kind) :
+      MmxSaberTuningNormalDamage(kind);
+  return clamp_tuned_damage(damage);
+}
+
+static bool upstream_finisher_projectile(const uint8_t *ram,
+                                         unsigned projectile) {
+  const MmxZeroState zero = MmxZeroGetState();
+  return ram && projectile_slot_valid(projectile) && ram[projectile] &&
+      projectile == zero.projectile && zero.slash &&
+      word(ram + projectile + 0x3e) == 0x5a53;
 }
 
 static bool saber_tag_family(unsigned tag) {
@@ -989,15 +1038,25 @@ unsigned MmxSaberAttackWeaponTick(uint8_t *ram, unsigned projectile,
 unsigned MmxSaberAttackDamage(uint8_t *ram, unsigned enemy,
                               unsigned projectile, unsigned value) {
   unsigned bit;
+  const MmxSaberAttack *attack;
   if (MmxSaberWaveRuntimeOwns(ram, projectile))
     return MmxSaberWaveRuntimeDamage(ram, enemy, projectile, value);
+  /* The upstream X3 finisher owns the $5A53 tag and its hit mask.  The
+   * extension is installed only for Saber, so this positive-path filter can
+   * replace upstream's 16 without changing plain Zero. */
+  if (upstream_finisher_projectile(ram, projectile)) {
+    if (!enemy_slot_valid(enemy) || !value || (value & 128)) return value;
+    return attack_tuned_damage(ram, enemy,
+                               MMX_SABER_TUNING_DAMAGE_X3_FINISHER);
+  }
   if (!saber_projectile_owned(ram, projectile) || !enemy_slot_valid(enemy) ||
       !value || (value & 128))
     return value;
   bit = 1u << ((enemy - 0xe68) / 64);
   if (state.hit_slots & bit) return 0;
   state.hit_slots |= (uint16_t)bit;
-  return 3;
+  attack = state_attack();
+  return attack_tuned_damage(ram, enemy, attack_damage_kind(attack));
 }
 
 unsigned MmxSaberAttackHitbox(const uint8_t *ram, unsigned enemy,
