@@ -238,6 +238,7 @@ if(BUILD_TESTING)
     add_executable(mmx_saber_render_test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/saber/mmx_saber_render_test.c"
         "${_saber_render_source}" "${_saber_assets_source}"
+        "${_saber_wave_source}"
         "${_saber_attack_source}" "${_saber_wave_runtime_source}" "${_saber_sfx_source}"
         "${SNESRECOMP_ROOT}/runner/src/sha256.c")
     target_include_directories(mmx_saber_render_test PRIVATE
@@ -270,7 +271,8 @@ if(BUILD_TESTING)
         "${SNESRECOMP_ROOT}/runner/src")
     target_compile_definitions(mmx_saber_renderer_draw_test PRIVATE
         MMX_SABER_RENDER_CACHE_DIR="${_saber_cache_dir}"
-        MMX_SABER_DRAW_ZERO_PATH="${CMAKE_CURRENT_BINARY_DIR}/tmp/saber-render-draw-zero.bin")
+        MMX_SABER_DRAW_ZERO_PATH="${CMAKE_CURRENT_BINARY_DIR}/tmp/saber-render-draw-zero.bin"
+        MMX_SABER_DRAW_WEAPON_PATH="${CMAKE_CURRENT_BINARY_DIR}/tmp/saber-render-draw-weapon.bin")
     add_test(NAME mmx_saber_renderer_draw COMMAND mmx_saber_renderer_draw_test)
     set_tests_properties(mmx_saber_renderer_draw PROPERTIES SKIP_RETURN_CODE 77)
     if(MSVC)

@@ -37,6 +37,8 @@ static bool saber_overlay_provider(MmxRenderPlayerOverlay *out) {
 
 static void saber_activation_failed(void) {
   MmxRendererSetPlayerOverlayProvider(NULL);
+  MmxRendererSetWorldSpriteProvider(NULL);
+  MmxSaberRenderSetWave(NULL);
   MmxZeroSetExtension(NULL);
   MmxSaberFrameReset();
 }
@@ -212,6 +214,8 @@ static int prepare_wave(const char rom[4096], char wave_path[4096]) {
 
 static void release_saber_assets(void) {
   MmxRendererSetPlayerOverlayProvider(NULL);
+  MmxRendererSetWorldSpriteProvider(NULL);
+  MmxSaberRenderSetWave(NULL);
   MmxSaberWaveRuntimeSetCollisionRecord(NULL, 0);
   MmxSaberWaveFree(g_saber_wave);
   MmxSaberAssetsFree(g_saber_assets);
@@ -283,6 +287,8 @@ static int load_saber_wave(const char *wave_path, char reason[256]) {
   MmxSaberWave *wave;
   char local_reason[128];
 
+  MmxRendererSetWorldSpriteProvider(NULL);
+  MmxSaberRenderSetWave(NULL);
   MmxSaberWaveFree(g_saber_wave);
   g_saber_wave = NULL;
   wave = MmxSaberWaveLoadFile(wave_path, local_reason, sizeof(local_reason));
@@ -361,6 +367,8 @@ static void activate(void) {
   MmxZeroSetExtension(MmxSaberFrameExtension());
   g_mmx_saber_enabled = true;
   MmxRendererSetPlayerOverlayProvider(saber_overlay_provider);
+  MmxSaberRenderSetWave(g_saber_wave);
+  MmxRendererSetWorldSpriteProvider(MmxSaberRenderProvideWorldSprites);
   fprintf(stderr, "[mmx-saber-zero] saber-v1.bin, ride-zero-v1.bin, and "
                   "x3-saber-wave-v1.bin loaded\n");
   fprintf(stderr, "[mmx-saber-zero] Saber Zero 0.0.1 enabled; starting as %s\n",
@@ -370,6 +378,8 @@ static void activate(void) {
 static void reset(void) {
   g_mmx_saber_enabled = false;
   MmxRendererSetPlayerOverlayProvider(NULL);
+  MmxRendererSetWorldSpriteProvider(NULL);
+  MmxSaberRenderSetWave(NULL);
   MmxZeroSetExtension(NULL);
   MmxSaberFrameReset();
   MmxSaberSfxResetRuntime();

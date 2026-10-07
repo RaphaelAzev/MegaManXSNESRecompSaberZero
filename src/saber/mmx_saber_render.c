@@ -1,9 +1,11 @@
 #include "mmx_saber_render.h"
 #include "mmx_zero.h"
+#include "mmx_saber_wave_runtime.h"
 
 #include <string.h>
 
 static uint16_t flash_palette[256];
+static const MmxSaberWave *render_wave;
 
 static void clear_overlay(MmxRenderPlayerOverlay *out) {
   if (out) memset(out, 0, sizeof(*out));
@@ -137,4 +139,59 @@ bool MmxSaberRenderResolve(const MmxSaberAssets *assets,
                            MmxRenderPlayerOverlay *out) {
   return MmxSaberRenderResolveSnapshot(assets, MmxSaberAttackGetSnapshot(),
                                         out);
+}
+
+bool MmxSaberRenderResolveWaveSnapshot(const MmxSaberWave *wave,
+                                       uint8_t age, int16_t world_x,
+                                       int16_t world_y, bool facing_left,
+                                       MmxRenderWorldSprite *out) {
+  const MmxSaberWaveFrame *frame;
+  unsigned total_ticks, step_count, step;
+
+  if (out) memset(out, 0, sizeof(*out));
+  if (!out || !wave) return false;
+  total_ticks = MmxSaberWaveTotalTicks(wave);
+  step_count = MmxSaberWaveStepCount(wave);
+  if (!total_ticks || !step_count) return false;
+
+  /* Match the old renderer's wave row: age wraps at the 32-tick sidecar
+   * cycle, then the sidecar frame advances every two ticks.
+   * oldsaber/saber-zero-variant:src/mmx_renderer.c:987-988. */
+  step = ((unsigned)age % total_ticks) / 2u % step_count;
+  frame = MmxSaberWaveFrameForStep(wave, (uint16_t)step);
+  if (!frame || !frame->pixels || !frame->width || !frame->height)
+    return false;
+
+  out->pixels = frame->pixels;
+  out->width = frame->width;
+  out->height = frame->height;
+  out->origin_x = frame->origin_x;
+  out->origin_y = frame->origin_y;
+  out->world_x = world_x;
+  out->world_y = world_y;
+  out->facing_left = facing_left;
+  out->palette = MmxSaberWavePalette(wave);
+  out->palette_count = MmxSaberWavePaletteCount(wave);
+  out->z = 0xa680;
+  return out->palette && out->palette_count;
+}
+
+void MmxSaberRenderSetWave(const MmxSaberWave *wave) {
+  render_wave = wave;
+}
+
+unsigned MmxSaberRenderProvideWorldSprites(MmxRenderWorldSprite *out,
+                                           unsigned max) {
+  MmxSaberWaveRuntimeLiveWave live[8];
+  unsigned live_count, count = 0;
+  if (!render_wave || !out || !max) return 0;
+  live_count = MmxSaberWaveRuntimeLiveWaves(live,
+                                             max < 8 ? max : 8);
+  for (unsigned i = 0; i < live_count; ++i) {
+    if (MmxSaberRenderResolveWaveSnapshot(render_wave, live[i].age,
+            live[i].world_x, live[i].world_y, live[i].facing_left,
+            &out[count]))
+      ++count;
+  }
+  return count;
 }

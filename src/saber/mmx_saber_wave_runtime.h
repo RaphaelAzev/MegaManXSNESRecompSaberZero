@@ -50,6 +50,14 @@ void MmxSaberWaveRuntimeReset(uint8_t *ram);
 
 bool MmxSaberWaveRuntimeOwns(const uint8_t *ram, unsigned slot);
 bool MmxSaberWaveRuntimeActive(const uint8_t *ram);
+typedef struct MmxSaberWaveRuntimeLiveWave {
+  int16_t world_x, world_y;
+  uint8_t age;
+  /* This is the old wave compositor's mirror bit from slot+$11. */
+  bool facing_left;
+} MmxSaberWaveRuntimeLiveWave;
+unsigned MmxSaberWaveRuntimeLiveWaves(MmxSaberWaveRuntimeLiveWave *out,
+                                      unsigned max);
 unsigned MmxSaberWaveRuntimeWeaponTick(uint8_t *ram, unsigned slot,
                                        unsigned value);
 unsigned MmxSaberWaveRuntimeDamage(uint8_t *ram, unsigned enemy,

@@ -1,4 +1,6 @@
 #include "mmx_renderer.h"
+#include "mmx_weapon_combat.h"
+#include "mmx_weapons.h"
 #include "mmx_zero.h"
 #include "saber/mmx_saber_assets.h"
 
@@ -13,6 +15,9 @@
 #endif
 #ifndef MMX_SABER_DRAW_ZERO_PATH
 #define MMX_SABER_DRAW_ZERO_PATH "saber-render-draw-zero.bin"
+#endif
+#ifndef MMX_SABER_DRAW_WEAPON_PATH
+#define MMX_SABER_DRAW_WEAPON_PATH "saber-render-draw-weapon.bin"
 #endif
 
 static const uint8_t kSaberManifestSha[32] = {
@@ -30,12 +35,18 @@ static Ppu ppu;
 static uint32_t stock[256 * 224], output[MMX_RENDER_MAX_WIDTH * 224];
 static uint32_t right_output[256 * 224];
 static MmxRenderPlayerOverlay provider_overlay;
+static MmxRenderWorldSprite provider_world[8];
+static unsigned provider_world_count;
 static uint8_t body_pixels[] = {
   1, 2, 0, 0, 0,
   0, 3, 2, 0, 0,
   0, 0, 0, 3, 1,
 };
 static uint8_t blade_pixels[] = {1, 3, 1};
+static const uint8_t world_pixels[] = {
+  1, 2, 0,
+  3, 1, 2,
+};
 static const uint16_t overlay_palette[] = {0, 31, 31 << 5, 31 << 10};
 
 static void check(bool okay, const char *message) {
@@ -70,6 +81,12 @@ static uint32_t checksum_region(const uint32_t *pixels) {
 static bool provide_overlay(MmxRenderPlayerOverlay *out) {
   *out = provider_overlay;
   return true;
+}
+
+static unsigned provide_world(MmxRenderWorldSprite *out, unsigned max) {
+  unsigned count = provider_world_count < max ? provider_world_count : max;
+  if (count) memcpy(out, provider_world, count * sizeof(*out));
+  return count;
 }
 
 static void write_zero_asset(void) {
@@ -121,6 +138,8 @@ static void scene(void) {
   memset(rom, 0, sizeof(rom));
   memset(stock, 0, sizeof(stock));
   MmxRendererSetPlayerOverlayProvider(NULL);
+  MmxRendererSetWorldSpriteProvider(NULL);
+  provider_world_count = 0;
   MmxRendererReset();
   MmxRendererSetRom(rom, sizeof(rom));
   g_mmx_custom_renderer = true;
@@ -155,13 +174,57 @@ static void scene(void) {
   MmxRendererLatchSprites();
 }
 
+static void render_view(MmxRenderView view);
+
 static void render(void) {
+  render_view((MmxRenderView){256, 0, 4.0 / 3.0});
+}
+
+static void render_view(MmxRenderView view) {
   memset(output, 0, sizeof(output));
   MmxRendererBeginFrame(ram);
   for (unsigned y = 1; y <= 224; ++y) MmxRendererCaptureLine(&ppu, y);
   check(MmxRendererEndFrame(stock), "offscreen renderer frame captures");
-  check(MmxRendererDraw(output, (MmxRenderView){256, 0, 4.0 / 3.0}, false),
+  check(MmxRendererDraw(output, view, false),
         "offscreen renderer frame draws");
+}
+
+static void capture_and_draw(MmxRenderView view) {
+  for (unsigned y = 1; y <= 224; ++y) MmxRendererCaptureLine(&ppu, y);
+  check(MmxRendererEndFrame(stock), "offscreen renderer snapshot captures");
+  check(MmxRendererDraw(output, view, false),
+        "offscreen renderer snapshot draws");
+}
+
+static void write_weapon_asset(void) {
+  enum { RECORD_BYTES = 612 + 38 + 5 + 8 + 1, SIZE = 12 + 8 * RECORD_BYTES };
+  uint8_t *data = (uint8_t *)calloc(SIZE, 1);
+  FILE *file;
+  check(data != NULL, "temporary weapon-effect cache allocates");
+  memcpy(data, "MMXWEAP5", 8);
+  put_word(data, 8, 8);
+  put_word(data, 10, 0);
+  for (unsigned weapon = 0; weapon < 8; ++weapon) {
+    unsigned pos = 12 + weapon * RECORD_BYTES;
+    data[pos] = 2;
+    data[pos + 1] = (uint8_t)(weapon + 1);
+    data[pos + 2] = 1;
+    put_word(data, pos + 612, weapon == 3 ? 70 : weapon + 1);
+    put_word(data, pos + 614, 1);
+    put_word(data, pos + 616, 5);
+    /* The effect uses group-color index 1; make it blue so the world sprite's
+     * later red pixel proves that the lower-z weapon effect was present. */
+    put_word(data, pos + 620, 31 << 10);
+    data[pos + 650] = 1;
+    put_word(data, pos + 659, 1);
+    put_word(data, pos + 661, 1);
+    data[pos + 663] = 1;
+  }
+  file = fopen(MMX_SABER_DRAW_WEAPON_PATH, "wb");
+  check(file != NULL && fwrite(data, SIZE, 1, file) == 1 &&
+            fclose(file) == 0,
+        "temporary weapon-effect cache writes");
+  free(data);
 }
 
 static MmxRenderPlayerOverlay synthetic_overlay(bool left, uint8_t layer) {
@@ -176,6 +239,122 @@ static MmxRenderPlayerOverlay synthetic_overlay(bool left, uint8_t layer) {
   overlay.palette_count = sizeof(overlay_palette) / sizeof(overlay_palette[0]);
   overlay.facing_left = left;
   return overlay;
+}
+
+static MmxRenderWorldSprite synthetic_world(bool left, int32_t x, int32_t y,
+                                            uint16_t z) {
+  return (MmxRenderWorldSprite){
+    world_pixels, 3, 2, 0, 0, x, y, left, overlay_palette,
+    sizeof(overlay_palette) / sizeof(overlay_palette[0]), z};
+}
+
+static void world_sprite_geometry_and_snapshot(void) {
+  MmxRenderWorldSprite snapshot[8];
+  const MmxRenderView narrow = {256, 0, 4.0 / 3.0};
+  const MmxRenderView wide = {342, 43, 16.0 / 9.0};
+
+  scene();
+  render_view(narrow);
+  memcpy(right_output, output, sizeof(right_output));
+
+  scene();
+  MmxRendererSetWorldSpriteProvider(provide_world);
+  render_view(narrow);
+  check(!memcmp(right_output, output, sizeof(right_output)),
+        "an empty world snapshot preserves the native renderer output exactly");
+
+  scene();
+  provider_world[0] = synthetic_world(false, 40, 40, 0xb680);
+  provider_world_count = 1;
+  MmxRendererSetWorldSpriteProvider(provide_world);
+  render_view(narrow);
+  check(MmxRendererWorldSpriteSnapshot(snapshot, 8) == 1 &&
+            snapshot[0].world_x == 40 && snapshot[0].world_y == 40,
+        "BeginFrame captures one independent world sprite snapshot");
+  check(output[40 * 256 + 40] == 0xff0000 &&
+            output[40 * 256 + 41] == 0x00ff00 &&
+            output[41 * 256 + 40] == 0x0000ff &&
+            output[41 * 256 + 41] == 0xff0000 &&
+            output[41 * 256 + 42] == 0x00ff00,
+        "world coordinates and signed origin land on the expected pixels");
+
+  scene();
+  provider_world[0] = synthetic_world(true, 40, 40, 0xb680);
+  provider_world_count = 1;
+  MmxRendererSetWorldSpriteProvider(provide_world);
+  render_view(narrow);
+  check(output[40 * 256 + 39] == 0xff0000 &&
+            output[40 * 256 + 38] == 0x00ff00 &&
+            output[41 * 256 + 39] == 0x0000ff &&
+            output[41 * 256 + 38] == 0xff0000 &&
+            output[41 * 256 + 37] == 0x00ff00,
+        "left-facing world sprites mirror around the world anchor");
+
+  scene();
+  provider_world[0] = synthetic_world(false, -1, 40, 0xb680);
+  provider_world_count = 1;
+  MmxRendererSetWorldSpriteProvider(provide_world);
+  render_view(narrow);
+  check(output[40 * 256] == 0x00ff00 &&
+            output[41 * 256] == 0xff0000,
+        "partially offscreen world sprites clip at the narrow view edge");
+
+  scene();
+  provider_world[0] = synthetic_world(false, 0, 40, 0xb680);
+  provider_world_count = 1;
+  MmxRendererSetWorldSpriteProvider(provide_world);
+  render_view(wide);
+  check(output[40 * wide.width + wide.extra] == 0xff0000 &&
+            output[40 * wide.width + wide.extra + 2] == 0,
+        "world sprites clip and project through the widescreen margin");
+
+  /* Change the provider's live record after BeginFrame. Draw must retain the
+   * copied world coordinate, just as it retains the player overlay snapshot. */
+  scene();
+  provider_world[0] = synthetic_world(false, 40, 40, 0xb680);
+  provider_world_count = 1;
+  MmxRendererSetWorldSpriteProvider(provide_world);
+  MmxRendererBeginFrame(ram);
+  provider_world[0].world_x = 80;
+  capture_and_draw(narrow);
+  check(output[40 * 256 + 40] == 0xff0000 &&
+            output[40 * 256 + 80] == 0,
+        "world coordinates are snapshotted before mid-frame provider changes");
+}
+
+static void world_sprite_composes_after_weapon_effect(void) {
+  MmxWeaponCombatState combat = {0};
+  const MmxRenderView view = {256, 0, 4.0 / 3.0};
+
+  write_weapon_asset();
+  check(MmxWeaponsLoadPage(MMX_SABER_DRAW_WEAPON_PATH, 1),
+        "temporary weapon-effect cache loads");
+  combat.shots[0].active = 1;
+  combat.shots[0].age = 1;
+  combat.shots[0].page = 1;
+  combat.shots[0].weapon = 4;
+  combat.shots[0].group = 70;
+  combat.shots[0].pose = 0;
+  combat.shots[0].x = 40 << 8;
+  combat.shots[0].y = 40 << 8;
+
+  scene();
+  MmxWeaponsSetCombatState(combat);
+  render_view(view);
+  check(output[40 * 256 + 40] == 0x0000ff,
+        "the synthetic weapon effect occupies the lower-z pixel first");
+
+  scene();
+  provider_world[0] = synthetic_world(false, 40, 40, 0xb680);
+  provider_world_count = 1;
+  MmxRendererSetWorldSpriteProvider(provide_world);
+  render_view(view);
+  check(output[40 * 256 + 40] == 0xff0000,
+        "the world sprite draws above a lower-z weapon-effect pixel");
+
+  MmxWeaponsDisable();
+  check(remove(MMX_SABER_DRAW_WEAPON_PATH) == 0,
+        "temporary weapon-effect cache removes");
 }
 
 static void inactive_matches_baseline(void) {
@@ -323,12 +502,15 @@ int main(void) {
 
   write_zero_asset();
   inactive_matches_baseline();
+  world_sprite_geometry_and_snapshot();
+  world_sprite_composes_after_weapon_effect();
   body_geometry_and_mirror();
   blade_order();
   donor_origin_and_palette(assets);
   invisible_zero_is_empty();
   MmxSaberAssetsFree(assets);
   MmxRendererSetPlayerOverlayProvider(NULL);
+  MmxRendererSetWorldSpriteProvider(NULL);
   MmxZeroDisable();
   g_mmx_custom_renderer = false;
   g_mmx_render_asset_repairs = true;

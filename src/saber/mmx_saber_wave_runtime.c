@@ -269,6 +269,25 @@ bool MmxSaberWaveRuntimeActive(const uint8_t *ram) {
   return false;
 }
 
+unsigned MmxSaberWaveRuntimeLiveWaves(MmxSaberWaveRuntimeLiveWave *out,
+                                      unsigned max) {
+  unsigned count = 0;
+  if (!runtime_ram || !max) return 0;
+  for (unsigned slot = MMX_SABER_WAVE_SLOT_FIRST;
+       slot < MMX_SABER_WAVE_SLOT_END && count < max;
+       slot += MMX_SABER_WAVE_SLOT_BYTES) {
+    if (!live(runtime_ram, slot)) continue;
+    if (out) {
+      out[count].world_x = (int16_t)word(runtime_ram + slot + 5);
+      out[count].world_y = (int16_t)word(runtime_ram + slot + 8);
+      out[count].age = runtime_ram[slot + MMX_SABER_WAVE_SLOT_AGE];
+      out[count].facing_left = (runtime_ram[slot + 0x11] & 0x40) != 0;
+    }
+    ++count;
+  }
+  return count;
+}
+
 static bool target_live(const uint8_t *ram, unsigned slot) {
   unsigned enemy;
   if (!live(ram, slot) ||

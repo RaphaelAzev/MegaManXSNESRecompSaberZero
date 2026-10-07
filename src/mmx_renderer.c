@@ -63,6 +63,10 @@ static size_t rom_size;
 static MmxRenderStats stats;
 static MmxRendererPlayerOverlayProvider player_overlay_provider;
 static MmxRenderPlayerOverlay frame_player_overlay;
+enum { MAX_WORLD_SPRITES = 8 };
+static MmxRendererWorldSpriteProvider world_sprite_provider;
+static MmxRenderWorldSprite frame_world_sprites[MAX_WORLD_SPRITES];
+static unsigned frame_world_sprite_count;
 static uint8_t door_cache[512 * 512];
 static int airport_sky_width;
 typedef struct SubmarineBody {
@@ -136,9 +140,21 @@ void MmxRendererSetPlayerOverlayProvider(
 MmxRenderPlayerOverlay MmxRendererPlayerOverlaySnapshot(void) {
   return frame_player_overlay;
 }
+void MmxRendererSetWorldSpriteProvider(MmxRendererWorldSpriteProvider provider) {
+  world_sprite_provider = provider;
+  if (!provider) frame_world_sprite_count = 0;
+}
+unsigned MmxRendererWorldSpriteSnapshot(MmxRenderWorldSprite *out,
+                                        unsigned max) {
+  unsigned count = frame_world_sprite_count < max ? frame_world_sprite_count : max;
+  if (out && count)
+    memcpy(out, frame_world_sprites, count * sizeof(*out));
+  return count;
+}
 void MmxRendererReset(void) {
   memset(&frame_zero, 0, sizeof(frame_zero));
   memset(&frame_player_overlay, 0, sizeof(frame_player_overlay));
+  frame_world_sprite_count = 0;
   frame.valid = false; frame.captured = 0;
   building_count = latched_count = 0;
   building_stage = latched_stage = 0xff;
@@ -329,12 +345,24 @@ static void trace_objects(const uint8_t *ram) {
 }
 void MmxRendererBeginFrame(const uint8_t ram[0x20000]) {
   MmxRenderPlayerOverlay overlay;
+  MmxRenderWorldSprite world_sprites[MAX_WORLD_SPRITES];
+  unsigned world_sprite_count = 0;
   memset(&frame_coop,0,sizeof(frame_coop));
   memset(&overlay, 0, sizeof(overlay));
   if (player_overlay_provider && player_overlay_provider(&overlay))
     frame_player_overlay = overlay;
   else
     memset(&frame_player_overlay, 0, sizeof(frame_player_overlay));
+  memset(world_sprites, 0, sizeof(world_sprites));
+  if (world_sprite_provider)
+    world_sprite_count = world_sprite_provider(world_sprites,
+                                               MAX_WORLD_SPRITES);
+  if (world_sprite_count > MAX_WORLD_SPRITES)
+    world_sprite_count = MAX_WORLD_SPRITES;
+  frame_world_sprite_count = world_sprite_count;
+  if (world_sprite_count)
+    memcpy(frame_world_sprites, world_sprites,
+           world_sprite_count * sizeof(*frame_world_sprites));
   trace_objects(ram);
   frame.valid = false; frame.captured = 0;
   memcpy(frame.ram, ram, sizeof(frame.ram));
@@ -1262,6 +1290,26 @@ static void player_overlay_plane_row(
     }
   }
 }
+static void world_sprite_row(const MmxRenderWorldSprite *sprite, int y,
+                             MmxRenderView view, uint16_t *objects,
+                             int *object_colors) {
+  int sx, sy, row;
+  if (!sprite || !sprite->pixels || !sprite->width || !sprite->height ||
+      !sprite->palette || !sprite->palette_count) return;
+  sx = (int)(sprite->world_x - (int32_t)view_camera(frame.ram, 0x1e4d));
+  sy = (int)(sprite->world_y - (int32_t)view_camera(frame.ram, 0x1e50));
+  row = y - sy - sprite->origin_y;
+  if (row < 0 || row >= sprite->height) return;
+  for (int col = 0; col < sprite->width; ++col) {
+    unsigned pixel = sprite->pixels[row * sprite->width + col];
+    int dx = sx + (sprite->facing_left ?
+        -1 - sprite->origin_x - col : sprite->origin_x + col) + view.extra;
+    if (!pixel || pixel >= sprite->palette_count ||
+        dx < 0 || dx >= view.width) continue;
+    objects[dx] = (uint16_t)(sprite->z | pixel);
+    object_colors[dx] = sprite->palette[pixel];
+  }
+}
 bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
   if (!out || !frame.valid || view.width < 256 || view.width > MMX_RENDER_MAX_WIDTH ||
       view.extra != (view.width - 256) / 2 || (view.width & 1)) return false;
@@ -1598,6 +1646,8 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
       if (frame_coop.initialized && frame_coop.players[frame_coop.current^1].status==MMX_COOP_ALIVE && !frame_coop.scene_owner)
         weapon_effects_row(&frame_coop.players[frame_coop.current^1].combat,&p,r,y,view,objects,object_colors);
     }
+    if (stage) for (unsigned i = 0; i < frame_world_sprite_count; ++i)
+      world_sprite_row(&frame_world_sprites[i], y, view, objects, object_colors);
     if (swapping) teleport_actor_row(frame.ram,&frame_zero,&p,r,y,view,objects,object_colors);
     if(coop_hud) coop_hud_row(&p,r,y,view,hud,objects,object_colors);
     for (int sx = 0; sx < view.width; ++sx) {

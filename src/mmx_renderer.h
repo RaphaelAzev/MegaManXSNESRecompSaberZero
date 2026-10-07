@@ -41,6 +41,27 @@ void MmxRendererSetPlayerOverlayProvider(
     MmxRendererPlayerOverlayProvider provider);
 MmxRenderPlayerOverlay MmxRendererPlayerOverlaySnapshot(void);
 
+/* A presentation-only world sprite. The renderer owns camera projection,
+ * horizontal mirroring, clipping, and compositor placement. */
+typedef struct MmxRenderWorldSprite {
+  const uint8_t *pixels;
+  uint16_t width, height;
+  int16_t origin_x, origin_y;
+  int32_t world_x, world_y;
+  bool facing_left;
+  const uint16_t *palette;
+  unsigned palette_count;
+  uint16_t z;
+} MmxRenderWorldSprite;
+
+typedef unsigned (*MmxRendererWorldSpriteProvider)(MmxRenderWorldSprite *out,
+                                                   unsigned max);
+
+void MmxRendererSetWorldSpriteProvider(MmxRendererWorldSpriteProvider provider);
+/* Copy the immutable snapshot captured by BeginFrame. */
+unsigned MmxRendererWorldSpriteSnapshot(MmxRenderWorldSprite *out,
+                                        unsigned max);
+
 extern bool g_mmx_custom_renderer;
 extern bool g_mmx_custom_hud;
 extern bool g_mmx_expanded_sprites;

@@ -378,10 +378,45 @@ static void check_tuple(const MmxSaberAssets *assets, unsigned animation_index,
         "resolver returns the exact donor planes, palette, layer, and facing");
 }
 
+static void wave_sequence_checks(const MmxSaberWave *wave) {
+  static const uint8_t expected_frames[34] = {
+    0, 0, 1, 1, 2, 2, 3, 3,
+    0, 0, 1, 1, 2, 2, 3, 3,
+    0, 0, 1, 1, 2, 2, 3, 3,
+    0, 0, 1, 1, 2, 2, 3, 3,
+    0, 0,
+  };
+  for (unsigned age = 0; age < sizeof(expected_frames); ++age) {
+    MmxRenderWorldSprite actual;
+    const MmxSaberWaveFrame *expected = MmxSaberWaveFrameAt(
+        wave, expected_frames[age]);
+    check(expected != NULL &&
+              MmxSaberRenderResolveWaveSnapshot(wave, (uint8_t)age,
+                  320, 224, false, &actual),
+          "wave resolver accepts every old-cycle age");
+    check(actual.pixels == expected->pixels && actual.width == expected->width &&
+              actual.height == expected->height &&
+              actual.origin_x == expected->origin_x &&
+              actual.origin_y == expected->origin_y && actual.world_x == 320 &&
+              actual.world_y == 224 && !actual.facing_left &&
+              actual.palette == MmxSaberWavePalette(wave) &&
+              actual.palette_count == MmxSaberWavePaletteCount(wave) &&
+              actual.z == 0xa680,
+          "wave resolver selects the hard-coded old two-tick frame sequence");
+  }
+  MmxRenderWorldSprite right, left;
+  check(MmxSaberRenderResolveWaveSnapshot(wave, 2, 320, 224, false, &right) &&
+            MmxSaberRenderResolveWaveSnapshot(wave, 2, 320, 224, true, &left) &&
+            !right.facing_left && left.facing_left,
+        "wave resolver carries the slot facing into the mirror flag");
+}
+
 int main(void) {
   char path[4096];
+  char wave_path[4096];
   char reason[128] = {0};
   MmxSaberAssets *assets;
+  MmxSaberWave *wave;
 
   if (!MMX_SABER_RENDER_CACHE_DIR[0] ||
       !join_path(path, sizeof(path), MMX_SABER_RENDER_CACHE_DIR,
@@ -403,6 +438,26 @@ int main(void) {
             reason[0] ? reason : "unknown reason");
     return 1;
   }
+  if (!join_path(wave_path, sizeof(wave_path), MMX_SABER_RENDER_CACHE_DIR,
+                 "x3-saber-wave-v1.bin")) {
+    MmxSaberAssetsFree(assets);
+    fprintf(stderr, "FAIL: Saber wave cache path is not configured\n");
+    return 1;
+  }
+  file = fopen(wave_path, "rb");
+  if (!file) {
+    printf("SKIPPED: private Saber wave sidecar is absent (%s)\n", wave_path);
+    MmxSaberAssetsFree(assets);
+    return 77;
+  }
+  fclose(file);
+  wave = MmxSaberWaveLoadFile(wave_path, reason, sizeof(reason));
+  if (!wave) {
+    fprintf(stderr, "FAIL: Saber wave sidecar rejected: %s\n",
+            reason[0] ? reason : "unknown reason");
+    MmxSaberAssetsFree(assets);
+    return 1;
+  }
 
   for (unsigned animation = 0; animation < 7; ++animation)
     for (unsigned tuple = 0; tuple < 4; ++tuple)
@@ -419,12 +474,14 @@ int main(void) {
         "idle attack state resolves inactive");
   check(!MmxSaberRenderResolve(NULL, &live) && !live.active,
         "missing sidecar resolves inactive");
+  wave_sequence_checks(wave);
 
   MmxSaberAssets *flash_assets = make_flash_assets();
   check(flash_assets != NULL, "in-memory body-and-blade flash sidecar parses");
   charge_flash_checks(flash_assets);
   MmxSaberAssetsFree(flash_assets);
 
+  MmxSaberWaveFree(wave);
   MmxSaberAssetsFree(assets);
   puts("MMX SABER RENDER CHECKS PASSED");
   return 0;

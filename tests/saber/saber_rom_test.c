@@ -3834,6 +3834,71 @@ static unsigned saber_wave_launch(const char *fixture, bool left) {
   return slot;
 }
 
+static unsigned renderer_world_sprite_count(void) {
+  MmxRenderWorldSprite snapshot[8];
+  return MmxRendererWorldSpriteSnapshot(snapshot,
+                                        sizeof(snapshot) / sizeof(snapshot[0]));
+}
+
+static void saber_wave_render_checks(const char *x1_rom, const char *x3_rom,
+                                     const char *fixture, const char *assets) {
+  unsigned slot = saber_wave_launch(fixture, false);
+  bool live_snapshots = true;
+
+  /* The provider is sampled once before each draw frame. A reservation is not
+   * live, while the published slot remains one world sprite until retirement. */
+  for (unsigned i = 0; i < 12 && MmxSaberWaveRuntimeOwns(g_ram, slot); ++i) {
+    MmxRendererBeginFrame(g_ram);
+    live_snapshots &= renderer_world_sprite_count() == 1;
+    saber_wave_keep_onscreen(slot);
+    frame(0);
+  }
+  check(live_snapshots,
+        "BeginFrame snapshots one world sprite for every live wave frame");
+
+  while (MmxSaberWaveRuntimeOwns(g_ram, slot)) {
+    MmxRendererBeginFrame(g_ram);
+    live_snapshots &= renderer_world_sprite_count() == 1;
+    saber_wave_keep_onscreen(slot);
+    frame(0);
+  }
+  MmxRendererBeginFrame(g_ram);
+  check(live_snapshots && renderer_world_sprite_count() == 0,
+        "the world snapshot becomes empty immediately after wave retirement");
+
+  slot = saber_wave_launch(fixture, false);
+  while (MmxZeroGetState().slash) {
+    saber_wave_keep_onscreen(slot);
+    frame(0);
+  }
+  frame(SNES_PAD_SELECT);
+  check(MmxZeroSwapping(), "wave-render exchange probe starts the X exchange");
+  bool exchange_snapshots = true;
+  bool reached_x = !MmxZeroActive();
+  for (unsigned i = 0; i < 80 && MmxZeroSwapping(); ++i) {
+    MmxRendererBeginFrame(g_ram);
+    exchange_snapshots &= renderer_world_sprite_count() == 1;
+    reached_x |= !MmxZeroActive();
+    saber_wave_keep_onscreen(slot);
+    frame(0);
+  }
+  MmxRendererBeginFrame(g_ram);
+  check(reached_x && !MmxZeroActive() && exchange_snapshots &&
+            MmxSaberWaveRuntimeOwns(g_ram, slot) &&
+            renderer_world_sprite_count() == 1,
+        "the live world wave remains visible during exchange to X");
+
+  /* Disable through the real plugin path: the provider is cleared before the
+   * runtime reset and sidecar release, so its prior snapshot is gone now. */
+  activate_zero(x1_rom, x3_rom, assets, false, false);
+  check(renderer_world_sprite_count() == 0,
+        "disabling Saber clears the world-sprite snapshot immediately");
+  MmxRendererBeginFrame(g_ram);
+  check(renderer_world_sprite_count() == 0,
+        "a disabled Saber provider yields no world sprites on the next frame");
+  puts("ok: saber-wave-render");
+}
+
 static bool saber_wave_record_matches_asset(void) {
   const char *cache = getenv("MMX_SABER_TEST_CACHE");
   char path[4096];
@@ -4721,6 +4786,7 @@ int main(int argc, char **argv) {
   const bool saber_wave_travel = only && !strcmp(only, "saber-wave-travel");
   const bool saber_wave_damage = only && !strcmp(only, "saber-wave-damage");
   const bool saber_wave_lifecycle = only && !strcmp(only, "saber-wave-lifecycle");
+  const bool saber_wave_render = only && !strcmp(only, "saber-wave-render");
   const bool saber_ground_hit = only && !strcmp(only, "saber-ground-hit");
   const bool saber_render_snapshot = only && !strcmp(only, "saber-render-snapshot");
   const bool x3_zero_specials = only && !strcmp(only, "x3-zero-specials");
@@ -4731,7 +4797,8 @@ int main(int argc, char **argv) {
       saber_air || saber_wall || saber_dash || saber_land || saber_ground_lifecycle ||
       saber_ground_hit || saber_cancel || saber_lifecycle_load ||
       saber_render_snapshot || saber_buster_rules || saber_finisher ||
-      saber_wave_travel || saber_wave_damage || saber_wave_lifecycle;
+      saber_wave_travel || saber_wave_damage || saber_wave_lifecycle ||
+      saber_wave_render;
   SpecialCounts upstream_specials = {0};
   if (saber_input || saber_buster_rules) {
     activate_zero(argv[1], x3_rom, assets, false, false);
@@ -4801,6 +4868,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-wave-lifecycle runs with the Saber package enabled");
     saber_wave_lifecycle_checks(argv[1], x3_rom, fixture, assets);
+  } else if (saber_wave_render) {
+    check(MmxSaberEnabled(),
+          "saber-wave-render runs with the Saber package enabled");
+    saber_wave_render_checks(argv[1], x3_rom, fixture, assets);
   } else if (saber_ground_hit) {
     check(MmxSaberEnabled(),
           "saber-ground-hit runs with the Saber package enabled");
@@ -4871,6 +4942,7 @@ int main(int argc, char **argv) {
         strcmp(only, "saber-wave-travel") &&
         strcmp(only, "saber-wave-damage") &&
         strcmp(only, "saber-wave-lifecycle") &&
+        strcmp(only, "saber-wave-render") &&
         strcmp(only, "saber-ground-hit") &&
         strcmp(only, "saber-render-snapshot") &&
         strcmp(only, "zero-hook-parity") &&
