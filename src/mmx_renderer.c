@@ -38,6 +38,20 @@ typedef struct Frame {
   bool expand;
 } Frame;
 static Frame frame;
+
+typedef struct PilotOverlayAlignment {
+  bool evaluated;
+  bool valid;
+  int dx;
+  int dy;
+} PilotOverlayAlignment;
+
+static PilotOverlayAlignment pilot_overlay_alignment;
+
+static void reset_pilot_overlay_alignment(void) {
+  memset(&pilot_overlay_alignment, 0, sizeof(pilot_overlay_alignment));
+}
+
 static MmxZeroState frame_zero;
 static MmxWeaponsState frame_weapons;
 static MmxWeaponCombatState frame_weapon_combat;
@@ -169,6 +183,7 @@ unsigned MmxRendererDebugRectSnapshot(MmxRenderDebugRect *out,
 void MmxRendererReset(void) {
   memset(&frame_zero, 0, sizeof(frame_zero));
   memset(&frame_player_overlay, 0, sizeof(frame_player_overlay));
+  reset_pilot_overlay_alignment();
   frame_world_sprite_count = 0;
   frame_debug_rect_count = 0;
   frame.valid = false; frame.captured = 0;
@@ -365,6 +380,7 @@ void MmxRendererBeginFrame(const uint8_t ram[0x20000]) {
   MmxRenderDebugRect debug_rects[MAX_DEBUG_RECTS];
   unsigned world_sprite_count = 0;
   unsigned debug_rect_count = 0;
+  reset_pilot_overlay_alignment();
   memset(&frame_coop,0,sizeof(frame_coop));
   memset(&overlay, 0, sizeof(overlay));
   if (player_overlay_provider && player_overlay_provider(&overlay))
@@ -437,6 +453,134 @@ void MmxRendererBeginFrame(const uint8_t ram[0x20000]) {
     if (!found && frame.expanded_count < MAX_PIECES) frame.expanded[frame.expanded_count++] = p;
   }
 }
+static bool pilot_overlay_oam_match(const Piece *piece) {
+  for (unsigned line = 0; line < 224; ++line) {
+    const Raster *r = &frame.lines[line];
+    for (unsigned slot = 16; slot < 128; ++slot) {
+      unsigned pos = r->oam[slot * 2];
+      unsigned hi = r->high_oam[slot / 4] >> (slot % 4 * 2);
+      int ox = (pos & 255) | ((hi & 1) << 8);
+      if (ox >= 256) ox -= 512;
+      if (ox == piece->x && (pos >> 8) == ((unsigned)piece->y & 255) &&
+          r->oam[slot * 2 + 1] == piece->attr) return true;
+    }
+  }
+  return false;
+}
+static void align_wide_pilot_overlay(const MmxRenderPlayerOverlay *overlay,
+                                     unsigned animation, int *zx, int *zy) {
+  const MmxRenderPlayerOverlayPlane *plane = overlay ? &overlay->body : NULL;
+  int native_left = 10000, native_top = 10000;
+  int native_right = -10000, native_bottom = -10000;
+  int overlay_left = 10000, overlay_top = 10000;
+  int overlay_right = -10000, overlay_bottom = -10000;
+  if (!plane || !plane->pixels || plane->width <= MMX_ZERO_WIDTH ||
+      !plane->height || !overlay->palette || !overlay->palette_count ||
+      !zx || !zy) return;
+  if (pilot_overlay_alignment.evaluated) {
+    if (pilot_overlay_alignment.valid) {
+      *zx += pilot_overlay_alignment.dx;
+      *zy += pilot_overlay_alignment.dy;
+    }
+    return;
+  }
+  pilot_overlay_alignment.evaluated = true;
+  for (unsigned i = 0; i < frame.piece_count; ++i) {
+    const Piece *piece = &frame.pieces[i];
+    if (piece->object != 0xba8 || piece->animation != animation ||
+        !pilot_overlay_oam_match(piece)) continue;
+    if (piece->x < native_left) native_left = piece->x;
+    if (piece->y < native_top) native_top = piece->y;
+    if (piece->x + piece->size - 1 > native_right)
+      native_right = piece->x + piece->size - 1;
+    if (piece->y + piece->size - 1 > native_bottom)
+      native_bottom = piece->y + piece->size - 1;
+  }
+  if (native_left > native_right || native_top > native_bottom) return;
+  native_left -= view_dx;
+  native_right -= view_dx;
+  native_top -= view_dy;
+  native_bottom -= view_dy;
+  for (int row = 0; row < plane->height; ++row) for (int col = 0; col < plane->width; ++col) {
+    unsigned pixel = plane->pixels[row * plane->width + col];
+    int x, y;
+    if (!pixel || pixel >= overlay->palette_count) continue;
+    x = *zx + (overlay->facing_left ? 63 - (plane->origin_x + col) :
+        plane->origin_x + col - 64);
+    y = *zy - 64 + plane->origin_y + row;
+    if (x < overlay_left) overlay_left = x;
+    if (y < overlay_top) overlay_top = y;
+    if (x > overlay_right) overlay_right = x;
+    if (y > overlay_bottom) overlay_bottom = y;
+  }
+  if (overlay_left > overlay_right || overlay_top > overlay_bottom) return;
+  /* Align the authored cockpit canvas by its visible bounds. The native pilot
+   * OAM is the stable pose anchor; the player/armor positions are the same
+   * world point, but are not the visible Zero anchor inside the wide canvas. */
+  pilot_overlay_alignment.dx =
+      (native_left + native_right - overlay_left - overlay_right) / 2;
+  pilot_overlay_alignment.dy =
+      (native_top + native_bottom - overlay_top - overlay_bottom) / 2;
+  pilot_overlay_alignment.valid = true;
+  *zx += pilot_overlay_alignment.dx;
+  *zy += pilot_overlay_alignment.dy;
+}
+/* Kept out of the public header: the Saber ROM test uses the renderer's
+ * captured OAM and the translation actually applied by Draw to assert the
+ * real presentation result, without duplicating the alignment decision. */
+bool MmxRendererRidePilotBoundsForTest(int native_box[4], int drawn_box[4]) {
+  const MmxRenderPlayerOverlayPlane *plane = &frame_player_overlay.body;
+  int native_left = 10000, native_top = 10000;
+  int native_right = -10000, native_bottom = -10000;
+  int overlay_left = 10000, overlay_top = 10000;
+  int overlay_right = -10000, overlay_bottom = -10000;
+  int zx, zy;
+  unsigned animation;
+  if (!native_box || !drawn_box || !frame.valid ||
+      !frame_player_overlay.active || frame.ram[0x0baa] != 0x2c ||
+      !plane->pixels || !plane->width || !plane->height ||
+      !frame_player_overlay.palette || !frame_player_overlay.palette_count ||
+      !pilot_overlay_alignment.valid) return false;
+  animation = frame.ram[0x0bbe];
+  if (animation != 0x6a && animation != 0x6b) return false;
+  for (unsigned i = 0; i < frame.piece_count; ++i) {
+    const Piece *piece = &frame.pieces[i];
+    if (piece->object != 0xba8 || piece->animation != animation ||
+        !pilot_overlay_oam_match(piece)) continue;
+    if (piece->x - view_dx < native_left) native_left = piece->x - view_dx;
+    if (piece->y - view_dy < native_top) native_top = piece->y - view_dy;
+    if (piece->x + piece->size - 1 - view_dx > native_right)
+      native_right = piece->x + piece->size - 1 - view_dx;
+    if (piece->y + piece->size - 1 - view_dy > native_bottom)
+      native_bottom = piece->y + piece->size - 1 - view_dy;
+  }
+  if (native_left > native_right || native_top > native_bottom) return false;
+  zx = (int16_t)(word(frame.ram, 0x0bad) - view_camera(frame.ram, 0x1e4d));
+  zy = (int16_t)(word(frame.ram, 0x0bb0) - view_camera(frame.ram, 0x1e50)) +
+      MmxZeroPoseOffsetY(frame.ram);
+  for (int row = 0; row < plane->height; ++row) for (int col = 0; col < plane->width; ++col) {
+    unsigned pixel = plane->pixels[row * plane->width + col];
+    int x, y;
+    if (!pixel || pixel >= frame_player_overlay.palette_count) continue;
+    x = zx + (frame_player_overlay.facing_left ?
+        63 - (plane->origin_x + col) : plane->origin_x + col - 64);
+    y = zy - 64 + plane->origin_y + row;
+    if (x < overlay_left) overlay_left = x;
+    if (y < overlay_top) overlay_top = y;
+    if (x > overlay_right) overlay_right = x;
+    if (y > overlay_bottom) overlay_bottom = y;
+  }
+  if (overlay_left > overlay_right || overlay_top > overlay_bottom) return false;
+  native_box[0] = native_left;
+  native_box[1] = native_top;
+  native_box[2] = native_right;
+  native_box[3] = native_bottom;
+  drawn_box[0] = overlay_left + pilot_overlay_alignment.dx;
+  drawn_box[1] = overlay_top + pilot_overlay_alignment.dy;
+  drawn_box[2] = overlay_right + pilot_overlay_alignment.dx;
+  drawn_box[3] = overlay_bottom + pilot_overlay_alignment.dy;
+  return true;
+}
 void MmxRendererCaptureLine(const Ppu *p, unsigned line) {
   if (!p || line < 1 || line > 224 || line != frame.captured + 1) return;
   Raster *r = &frame.lines[line - 1];
@@ -490,6 +634,7 @@ bool MmxRendererLoadCapture(const char *path) {
   if (!f) return false;
   uint32_t h[3] = {0};
   frame.valid = false;
+  reset_pilot_overlay_alignment();
   memset(&frame_zero, 0, sizeof(frame_zero));
   memset(&frame_weapons, 0, sizeof(frame_weapons));
   memset(&frame_weapon_combat, 0, sizeof(frame_weapon_combat));
@@ -1583,6 +1728,9 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
             body=MmxZeroMenuPose();
           }
           if (player_overlay) {
+            if (pilot)
+              align_wide_pilot_overlay(&frame_player_overlay, s.animation,
+                                       &zx, &zy);
             unsigned z = ((((s.attr >> 12) & 3) * 4 + 2) << 12) | 0x680;
             if (frame_player_overlay.blade_layer == 1)
               player_overlay_plane_row(&frame_player_overlay.blade,

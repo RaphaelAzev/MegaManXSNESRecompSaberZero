@@ -24,6 +24,10 @@
 #include "recomp_launcher.h"
 #include "snes/interp_bridge.h"
 
+/* Test-only renderer probe; the implementation stays out of the public API. */
+extern bool MmxRendererRidePilotBoundsForTest(int native_box[4],
+                                              int drawn_box[4]);
+
 enum {
   SABER_CHARGE_TIER_1_FRAME = 21,
   SABER_CHARGE_TIER_2_FRAME = 81,
@@ -118,6 +122,18 @@ static void load_fixture(const char *fixture);
 static bool saber_track_x1_charged;
 static bool saber_saw_x1_charged;
 static unsigned zero_state_reset_calls;
+
+typedef struct RidePilotMeasuredPoses {
+  bool neutral_left;
+  bool walk_left;
+  bool punch_left;
+  bool walk_right;
+  bool punch_right;
+  bool jump_left;
+  bool landing_left;
+} RidePilotMeasuredPoses;
+
+static RidePilotMeasuredPoses ride_pilot_measured;
 
 static void zero_state_reset_probe(uint8_t *ram) {
   (void)ram;
@@ -391,6 +407,86 @@ static void saber_render_snapshot_checks(const char *fixture) {
   puts("ok: saber-render-snapshot");
 }
 
+static uint32_t ride_pilot_render_output[256 * 224];
+
+static uint64_t renderer_frame_hash(const uint32_t *pixels) {
+  uint64_t hash = UINT64_C(1469598103934665603);
+  for (unsigned i = 0; i < 256 * 224; ++i) {
+    hash ^= pixels[i];
+    hash *= UINT64_C(1099511628211);
+  }
+  return hash;
+}
+
+static bool ride_pilot_render_bounds(int native_box[4], int drawn_box[4]) {
+  check(MmxRendererDraw(ride_pilot_render_output,
+                        (MmxRenderView){256, 0, 4.0 / 3.0}, false),
+        "Ride pilot renderer draws the captured frame");
+  return MmxRendererRidePilotBoundsForTest(native_box, drawn_box);
+}
+
+static bool ride_pilot_expected_box(const char *label, unsigned pose,
+                                    const int native_box[4], int expected[4]) {
+  if (!strcmp(label, "neutral") && pose == 0)
+    memcpy(expected, (int[4]){114, 105, 137, 122}, 4 * sizeof(*expected));
+  else if ((!strcmp(label, "walk-left") || !strcmp(label, "walk-right")) &&
+           pose == 1)
+    memcpy(expected, (int[4]){116, 101, 139, 118}, 4 * sizeof(*expected));
+  else if ((!strcmp(label, "punch-left") || !strcmp(label, "punch-right")) &&
+           pose == 2)
+    memcpy(expected, (int[4]){116, 102, 139, 119}, 4 * sizeof(*expected));
+  else if (!strcmp(label, "jump") && pose == 6)
+    memcpy(expected, (int[4]){114, 97, 137, 114}, 4 * sizeof(*expected));
+  else if (!strcmp(label, "landing") && pose == 6)
+    memcpy(expected, (int[4]){114, 60, 137, 77}, 4 * sizeof(*expected));
+  else
+    return false;
+  return !memcmp(native_box, expected, 4 * sizeof(*expected));
+}
+
+static void ride_pilot_record_box(const char *label, unsigned pose,
+                                  bool facing_left) {
+  int native_box[4], drawn_box[4];
+  int expected_box[4];
+  bool *seen = NULL;
+  char message[160];
+  if ((!strcmp(label, "neutral") && pose == 0 && facing_left))
+    seen = &ride_pilot_measured.neutral_left;
+  else if ((!strcmp(label, "walk-left") && pose == 1 && facing_left))
+    seen = &ride_pilot_measured.walk_left;
+  else if ((!strcmp(label, "punch-left") && pose == 2 && facing_left))
+    seen = &ride_pilot_measured.punch_left;
+  else if ((!strcmp(label, "walk-right") && pose == 1 && !facing_left))
+    seen = &ride_pilot_measured.walk_right;
+  else if ((!strcmp(label, "punch-right") && pose == 2 && !facing_left))
+    seen = &ride_pilot_measured.punch_right;
+  else if ((!strcmp(label, "jump") && pose == 6 && facing_left))
+    seen = &ride_pilot_measured.jump_left;
+  else if ((!strcmp(label, "landing") && pose == 6 && facing_left))
+    seen = &ride_pilot_measured.landing_left;
+  if (!ride_pilot_render_bounds(native_box, drawn_box)) return;
+  if (!ride_pilot_expected_box(label, pose, native_box, expected_box)) return;
+  if (!seen || *seen) return;
+  *seen = true;
+  printf("reference: ride-bbox %s pose=%u facing=%s native=(%d,%d)-(%d,%d) "
+         "drawn=(%d,%d)-(%d,%d) delta=(%d,%d,%d,%d)\n", label, pose,
+         facing_left ? "L" : "R", native_box[0], native_box[1],
+         native_box[2], native_box[3], drawn_box[0], drawn_box[1],
+         drawn_box[2], drawn_box[3], drawn_box[0] - native_box[0],
+         drawn_box[1] - native_box[1], drawn_box[2] - native_box[2],
+         drawn_box[3] - native_box[3]);
+  for (unsigned edge = 0; edge < 4; ++edge) {
+    snprintf(message, sizeof(message),
+             "Ride pilot %s pose %u %s edge %u is within 2 px",
+             label, pose, facing_left ? "left" : "right", edge);
+    check(abs(drawn_box[edge] - native_box[edge]) <= 2, message);
+  }
+}
+
+static void reload_ride_fixture(const char *path) {
+  check(RtlLoadSnapshot(path), "ride-armor.sav reloads");
+}
+
 static void saber_ride_pilot_sequence(const char *label, unsigned input,
                                        unsigned count,
                                        const MmxSaberAssets *oracle) {
@@ -401,7 +497,6 @@ static void saber_ride_pilot_sequence(const char *label, unsigned input,
     const MmxSaberFrame *expected;
 
     frame(input);
-    MmxRendererBeginFrame(g_ram);
     actual = MmxRendererPlayerOverlaySnapshot();
     pose = g_ram[0x0bbf] & 0x7f;
     expected = MmxSaberAssetsFrameForStep(
@@ -422,6 +517,7 @@ static void saber_ride_pilot_sequence(const char *label, unsigned input,
               actual.blade.height == 0 && actual.blade_layer == 0 &&
               actual.facing_left == ((g_ram[0x0bb9] & 0x40) != 0),
           "Ride Armor renderer overlay follows the live native pose");
+    ride_pilot_record_box(label, pose, actual.facing_left);
     printf("%s%u", i ? " " : "", pose);
   }
   puts("");
@@ -438,10 +534,26 @@ static void saber_ride_pilot_checks(const char *fixture_dir) {
   check(g_ram[0x0baa] == 0x2c && g_ram[0x0bbe] == 0x6a &&
             (g_ram[0x0e22] & 0x40) != 0 && g_ram[0x0bbf] < 23,
         "ride-armor.sav starts in the $6A Ride Armor pilot action");
+  memset(&ride_pilot_measured, 0, sizeof(ride_pilot_measured));
   MmxSaberFrameReset();
   saber_ride_pilot_sequence("neutral", 0, 8, oracle);
-  saber_ride_pilot_sequence("walking", SNES_PAD_RIGHT, 8, oracle);
-  saber_ride_pilot_sequence("X-attack", SNES_PAD_X, 8, oracle);
+  reload_ride_fixture(path);
+  MmxSaberFrameReset();
+  saber_ride_pilot_sequence("walk-right", SNES_PAD_LEFT, 8, oracle);
+  saber_ride_pilot_sequence("punch-right", SNES_PAD_X, 8, oracle);
+  reload_ride_fixture(path);
+  MmxSaberFrameReset();
+  saber_ride_pilot_sequence("walk-left", SNES_PAD_RIGHT, 8, oracle);
+  saber_ride_pilot_sequence("punch-left", SNES_PAD_X, 8, oracle);
+  reload_ride_fixture(path);
+  MmxSaberFrameReset();
+  saber_ride_pilot_sequence("jump", SNES_PAD_B, 12, oracle);
+  saber_ride_pilot_sequence("landing", 0, 20, oracle);
+  check(ride_pilot_measured.neutral_left && ride_pilot_measured.walk_left &&
+            ride_pilot_measured.punch_left && ride_pilot_measured.walk_right &&
+            ride_pilot_measured.punch_right && ride_pilot_measured.jump_left &&
+            ride_pilot_measured.landing_left,
+        "Ride pilot measured poses all have native and drawn bounding boxes");
 
   load_fixture(getenv("MMX_ZERO_TEST_FIXTURE"));
   MmxSaberFrameReset();
@@ -450,6 +562,21 @@ static void saber_ride_pilot_checks(const char *fixture_dir) {
   check(g_ram[0x0baa] != 0x2c &&
             !MmxRendererPlayerOverlaySnapshot().active,
         "standing save0 has no Ride Armor overlay");
+  MmxSaberFrameReset();
+  frame(SNES_PAD_Y);
+  check(g_ram[0x0baa] != 0x2c &&
+            MmxRendererPlayerOverlaySnapshot().active,
+        "save0 ground slash has an ordinary Saber overlay");
+  check(MmxRendererDraw(ride_pilot_render_output,
+                        (MmxRenderView){256, 0, 4.0 / 3.0}, false),
+        "save0 ground slash renderer draws");
+  uint64_t ground_slash_hash = renderer_frame_hash(ride_pilot_render_output);
+  printf("reference: save0 ground slash render hash=%016llx\n",
+         (unsigned long long)ground_slash_hash);
+  check(ground_slash_hash == UINT64_C(0x143974c8e7809858),
+        "ordinary Saber attack render is byte-identical to the locked reference");
+  check(!MmxRendererRidePilotBoundsForTest((int[4]){0}, (int[4]){0}),
+        "ordinary Saber overlay does not use pilot alignment");
   MmxSaberAssetsFree(oracle);
   puts("ok: saber-ride-pilot");
 }
