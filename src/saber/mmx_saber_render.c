@@ -81,12 +81,12 @@ bool MmxSaberRenderResolveSnapshot(const MmxSaberAssets *assets,
   if (!out || !assets || snapshot.phase == SABER_PHASE_IDLE)
     return false;
 
-  /* Match oldsaber/saber-zero-variant:src/mmx_saber.c:1347-1349. The
-   * attack record, rather than the cached animation-step convenience field,
-   * owns the donor animation ID. */
+  /* The attack kind remains the owner of timing/collision semantics, while
+   * the snapshot animation ID owns the visual donor.  Landing can therefore
+   * keep an AIR owner and hand only its current visual tick to SaberLand. */
   attack = MmxSaberAttackRecord(snapshot.kind, snapshot.index);
   if (!attack) return false;
-  animation = MmxSaberAssetsAnimationById(assets, attack->visual_animation);
+  animation = MmxSaberAssetsAnimationById(assets, snapshot.anim_id);
   if (!animation || !animation->total_ticks) return false;
 
   /* Match oldsaber/saber-zero-variant:src/mmx_saber.c:1351-1355: an attack
@@ -95,11 +95,11 @@ bool MmxSaberRenderResolveSnapshot(const MmxSaberAssets *assets,
       (uint16_t)(animation->total_ticks - 1);
   for (uint16_t i = 0; i < animation->step_count; ++i) {
     const MmxSaberStep *step = MmxSaberAssetsAnimationStep(
-        assets, attack->visual_animation, i);
+        assets, snapshot.anim_id, i);
     if (!step) return false;
     if (tick < step->duration_ticks) {
       frame = MmxSaberAssetsFrameForStep(assets,
-                                         attack->visual_animation, i);
+                                         snapshot.anim_id, i);
       break;
     }
     tick = (uint16_t)(tick - step->duration_ticks);
