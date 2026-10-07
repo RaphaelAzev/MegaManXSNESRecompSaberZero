@@ -880,6 +880,11 @@ unsigned MmxZeroWeaponTick(uint8_t r[0x20000], unsigned d, unsigned active) {
   return extension && extension->weapon_tick ?
       extension->weapon_tick(r, d, value) : value;
 }
+unsigned MmxZeroResponse(uint8_t *r, unsigned enemy, unsigned projectile,
+                         unsigned original) {
+  return extension && extension->response ?
+      extension->response(r, enemy, projectile, original) : original;
+}
 unsigned MmxZeroDamage(uint8_t r[0x20000], unsigned enemy, unsigned projectile, unsigned original) {
   unsigned value = original;
   if (poses && own_projectile(r, projectile) && projectile == state.projectile &&

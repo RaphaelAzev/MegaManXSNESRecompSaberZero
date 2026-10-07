@@ -52,13 +52,22 @@ fi
 # asked by name. A full run executes the default pass plus every named group,
 # each in its own isolated catalog/cache copy. Add new groups to this list.
 named_groups=(saber-assets saber-input saber-ground-1 saber-ground-combo saber-air saber-wall saber-dash saber-cancel saber-land saber-ground-hit saber-render-snapshot saber-wave-render
-  saber-ground-lifecycle saber-lifecycle-load saber-buster-rules saber-finisher saber-wave-travel saber-wave-damage saber-wave-lifecycle zero-extension zero-hook-parity saber-package x3-zero-specials fixtures)
+  saber-ground-lifecycle saber-lifecycle-load saber-buster-rules saber-finisher saber-wave-travel saber-wave-damage saber-wave-lifecycle zero-extension zero-hook-parity zero-response-seam saber-package x3-zero-specials fixtures)
 if [[ -z "${MMX_SABER_TEST_ONLY:-}" && -z "${MMX_SABER_RUNNER_PASS:-}" ]]; then
   failed=()
   MMX_SABER_RUNNER_PASS=1 bash "${BASH_SOURCE[0]}" "$@" || failed+=(default)
   for group in "${named_groups[@]}"; do
-    MMX_SABER_RUNNER_PASS=1 MMX_SABER_TEST_ONLY="$group" \
-      bash "${BASH_SOURCE[0]}" "$@" || failed+=("$group")
+    if [[ "$group" == zero-response-seam ]]; then
+      env -u SNESRECOMP_LLE_BOUNCE MMX_SABER_RUNNER_PASS=1 \
+        MMX_SABER_TEST_ONLY="$group" bash "${BASH_SOURCE[0]}" "$@" ||
+        failed+=("$group")
+      SNESRECOMP_LLE_BOUNCE=0 MMX_SABER_RUNNER_PASS=1 \
+        MMX_SABER_TEST_ONLY="$group" bash "${BASH_SOURCE[0]}" "$@" ||
+        failed+=("${group}-interpreted")
+    else
+      MMX_SABER_RUNNER_PASS=1 MMX_SABER_TEST_ONLY="$group" \
+        bash "${BASH_SOURCE[0]}" "$@" || failed+=("$group")
+    fi
   done
   if [[ ${#failed[@]} -eq 0 ]]; then
     printf 'PASS: all Saber ROM passes (default + %s named groups)\n' \

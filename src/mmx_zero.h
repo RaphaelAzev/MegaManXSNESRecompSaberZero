@@ -26,6 +26,8 @@ typedef struct MmxZeroExtension {
   void (*collision_rom)(uint8_t *rom, size_t size);
   void (*state_reset)(uint8_t *ram);
   bool (*legacy_slash_request)(const uint8_t *ram);
+  unsigned (*response)(uint8_t *ram, unsigned enemy, unsigned projectile,
+                       unsigned value);
 } MmxZeroExtension;
 typedef struct MmxZeroState {
   uint16_t charge, slash, projectile;
@@ -93,6 +95,8 @@ unsigned MmxZeroMuzzle(const uint8_t ram[0x20000], unsigned object,
 unsigned MmxZeroWeaponOrigin(const uint8_t ram[0x20000], unsigned object,
                              unsigned axis, unsigned original);
 unsigned MmxZeroWeaponTick(uint8_t ram[0x20000], unsigned object, unsigned active);
+unsigned MmxZeroResponse(uint8_t *ram, unsigned enemy, unsigned projectile,
+                         unsigned original);
 unsigned MmxZeroDamage(uint8_t ram[0x20000], unsigned enemy, unsigned projectile, unsigned original);
 unsigned MmxZeroHitbox(const uint8_t ram[0x20000], unsigned enemy, unsigned projectile, unsigned original);
 MmxZeroState MmxZeroGetState(void);

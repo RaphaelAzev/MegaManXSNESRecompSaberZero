@@ -114,6 +114,115 @@ static void zero_state_reset_probe(uint8_t *ram) {
 }
 
 typedef struct {
+  bool override_zero;
+  unsigned chosen_damage;
+  unsigned current_frame;
+  unsigned calls;
+  unsigned enemy;
+  unsigned projectile;
+  unsigned value;
+  unsigned first_positive_frame;
+  unsigned first_positive_enemy;
+  unsigned first_positive_projectile;
+  unsigned first_positive_value;
+  unsigned first_positive_timer;
+  unsigned zero_frame;
+  unsigned zero_enemy;
+  unsigned zero_projectile;
+  unsigned zero_value;
+  unsigned override_frame;
+  unsigned override_enemy;
+  unsigned override_projectile;
+  unsigned override_value;
+  unsigned override_timer;
+  unsigned zero_response_calls;
+  unsigned damage_calls;
+  unsigned zero_damage_calls;
+  unsigned zero_damage_frame;
+  unsigned zero_damage_enemy;
+  unsigned zero_damage_projectile;
+  unsigned zero_damage_value;
+  unsigned last_frame;
+  unsigned last_enemy;
+  unsigned last_projectile;
+  unsigned last_value;
+  unsigned last_timer;
+  unsigned zero_timer;
+} ZeroResponseProbe;
+
+static ZeroResponseProbe zero_response_probe;
+
+static unsigned zero_response_probe_callback(uint8_t *ram, unsigned enemy,
+                                             unsigned projectile,
+                                             unsigned value) {
+  zero_response_probe.last_frame = zero_response_probe.current_frame;
+  zero_response_probe.last_enemy = enemy;
+  zero_response_probe.last_projectile = projectile;
+  zero_response_probe.last_value = value;
+  zero_response_probe.last_timer = ram[enemy + 0x35];
+  if (!zero_response_probe.calls) {
+    zero_response_probe.enemy = enemy;
+    zero_response_probe.projectile = projectile;
+    zero_response_probe.value = value;
+  }
+  if (value && !zero_response_probe.first_positive_frame) {
+    zero_response_probe.first_positive_frame = zero_response_probe.current_frame;
+    zero_response_probe.first_positive_enemy = enemy;
+    zero_response_probe.first_positive_projectile = projectile;
+    zero_response_probe.first_positive_value = value;
+    zero_response_probe.first_positive_timer = ram[enemy + 0x35];
+  }
+  if (!value) {
+    ++zero_response_probe.zero_response_calls;
+    if (!zero_response_probe.zero_frame) {
+      zero_response_probe.zero_frame = zero_response_probe.current_frame;
+      zero_response_probe.zero_enemy = enemy;
+      zero_response_probe.zero_projectile = projectile;
+      zero_response_probe.zero_value = value;
+      zero_response_probe.zero_timer = ram[enemy + 0x35];
+    }
+    if (zero_response_probe.override_zero &&
+        !zero_response_probe.override_frame) {
+      zero_response_probe.override_frame = zero_response_probe.current_frame;
+      zero_response_probe.override_enemy = enemy;
+      zero_response_probe.override_projectile = projectile;
+      zero_response_probe.override_value = value;
+      zero_response_probe.override_timer = ram[enemy + 0x35];
+    }
+  }
+  ++zero_response_probe.calls;
+  return zero_response_probe.override_zero && !value ? 1 : value;
+}
+
+static unsigned zero_response_probe_damage(uint8_t *ram, unsigned enemy,
+                                           unsigned projectile,
+                                           unsigned value) {
+  (void)ram;
+  ++zero_response_probe.damage_calls;
+  if (!value) {
+    ++zero_response_probe.zero_damage_calls;
+    if (!zero_response_probe.zero_damage_frame) {
+      zero_response_probe.zero_damage_frame = zero_response_probe.current_frame;
+      zero_response_probe.zero_damage_enemy = enemy;
+      zero_response_probe.zero_damage_projectile = projectile;
+      zero_response_probe.zero_damage_value = value;
+    }
+    if (zero_response_probe.chosen_damage)
+      return zero_response_probe.chosen_damage;
+  }
+  return value;
+}
+
+static const MmxZeroExtension zero_response_extension = {
+  .damage = zero_response_probe_damage,
+  .response = zero_response_probe_callback,
+};
+
+static const MmxZeroExtension zero_response_observer_extension = {
+  .response = zero_response_probe_callback,
+};
+
+typedef struct {
   unsigned births;
   unsigned live_frames;
   unsigned live_samples;
@@ -324,6 +433,13 @@ static void load_fixture(const char *fixture) {
   check(g_ram[0xba9] == 2 && g_ram[0xbaa] == 0 && g_ram[0xbdb] == 0 &&
             !g_ram[0x1f99] && (g_ram[0xbd3] & 4),
         "fixture is Highway standing with the buster selected");
+  MmxZeroCancel(g_ram);
+}
+
+static void load_response_fixture(const char *fixture) {
+  check(RtlLoadSnapshot(fixture), "response fixture loads");
+  check(MmxZeroActive() && !MmxZeroModern(),
+        "response fixture runs as upstream X3 Zero");
   MmxZeroCancel(g_ram);
 }
 
@@ -1821,6 +1937,53 @@ static unsigned abs_difference(unsigned a, unsigned b) {
   return a > b ? a - b : b - a;
 }
 
+static unsigned response_enemy_near_player(void) {
+  const unsigned zero_x = read_ram_word(g_ram, 0x0bad);
+  const unsigned zero_y = read_ram_word(g_ram, 0x0bb0);
+  unsigned best = 0;
+  unsigned best_distance = 0xffff;
+  for (unsigned d = 0xe68; d < 0x1228; d += 64) {
+    unsigned enemy_x, enemy_y, distance;
+    if (!g_ram[d] || !g_ram[d + 14] || !g_ram[d + 0x27] ||
+        g_ram[d + 10] != 2 || g_ram[d + 0x30])
+      continue;
+    enemy_x = read_ram_word(g_ram, d + 5);
+    enemy_y = read_ram_word(g_ram, d + 8);
+    distance = abs_difference(enemy_x, zero_x) + abs_difference(enemy_y, zero_y);
+    if (distance < best_distance) {
+      best = d;
+      best_distance = distance;
+    }
+  }
+  return best;
+}
+
+static unsigned walk_to_response_enemy(const char *fixture,
+                                       unsigned *walk_frames) {
+  unsigned target = 0;
+  load_response_fixture(fixture);
+  MmxSaberFrameReset();
+  for (unsigned i = 0; i < 300 && !target; ++i) {
+    target = response_enemy_near_player();
+    if (target) {
+      const int dx = (int)read_ram_word(g_ram, target + 5) -
+          (int)read_ram_word(g_ram, 0x0bad);
+      const int dy = (int)read_ram_word(g_ram, target + 8) -
+          (int)read_ram_word(g_ram, 0x0bb0);
+      if (abs(dx) <= 48 && abs(dy) <= 48) {
+        if (walk_frames) *walk_frames = i;
+        return target;
+      }
+      target = 0;
+      frame(dx >= 0 ? SNES_PAD_RIGHT : SNES_PAD_LEFT);
+    } else {
+      frame(0);
+    }
+  }
+  if (walk_frames) *walk_frames = 300;
+  return target;
+}
+
 static unsigned reachable_ground_enemy(void) {
   const unsigned zero_x = read_ram_word(g_ram, 0x0bad);
   const unsigned zero_y = read_ram_word(g_ram, 0x0bb0);
@@ -1856,6 +2019,239 @@ static unsigned walk_to_ground_enemy(const char *fixture,
     if (target && walk_frames) *walk_frames = i + 1;
   }
   return target;
+}
+
+typedef struct {
+  unsigned target;
+  unsigned walk_frames;
+  unsigned initial_hp;
+  unsigned after_first_hp;
+  unsigned native_final_hp;
+  unsigned final_hp;
+  unsigned first_damage;
+  unsigned iframe_damage;
+  unsigned override_damage;
+  unsigned calls;
+  unsigned enemy;
+  unsigned projectile;
+  unsigned value;
+  unsigned first_frame;
+  unsigned first_enemy;
+  unsigned first_projectile;
+  unsigned first_value;
+  unsigned iframe_frame;
+  unsigned iframe_enemy;
+  unsigned iframe_projectile;
+  unsigned iframe_value;
+  unsigned iframe_timer;
+  unsigned override_frame;
+  unsigned override_enemy;
+  unsigned override_projectile;
+  unsigned override_value;
+  unsigned override_timer;
+  unsigned zero_response_calls;
+  unsigned damage_calls;
+  unsigned native_damage_calls;
+  unsigned zero_damage_calls;
+  unsigned zero_damage_frame;
+  unsigned zero_damage_enemy;
+  unsigned zero_damage_projectile;
+  unsigned zero_damage_value;
+} ZeroResponseRun;
+
+static void zero_response_contact_run(const char *fixture, bool use_extension,
+                                      ZeroResponseRun *run) {
+  memset(run, 0, sizeof(*run));
+  run->target = walk_to_ground_enemy(fixture, &run->walk_frames);
+  check(run->target == 0xea8 && run->walk_frames == 213,
+        "response seam walk reaches Highway enemy $0EA8 in 213 frames");
+  run->initial_hp = g_ram[run->target + 0x27] & 127;
+  memset(&zero_response_probe, 0, sizeof(zero_response_probe));
+  zero_response_probe.current_frame = 1;
+  MmxZeroSetExtension(use_extension ? &zero_response_observer_extension : NULL);
+
+  frame(SNES_PAD_Y);
+  for (unsigned i = 0; i < 90; ++i) {
+    zero_response_probe.current_frame = i + 2;
+    frame(0);
+  }
+
+  MmxZeroSetExtension(NULL);
+  run->final_hp = g_ram[run->target + 0x27] & 127;
+  run->first_damage = run->initial_hp > run->final_hp ?
+      run->initial_hp - run->final_hp : 0;
+  run->calls = zero_response_probe.calls;
+  run->enemy = zero_response_probe.enemy;
+  run->projectile = zero_response_probe.projectile;
+  run->value = zero_response_probe.value;
+}
+
+static void zero_response_iframe_run(const char *fixture, bool override_zero,
+                                     ZeroResponseRun *run) {
+  unsigned frame_number = 1;
+  unsigned first_hp = 0;
+
+  memset(run, 0, sizeof(*run));
+  run->target = walk_to_response_enemy(fixture, &run->walk_frames);
+  check(run->target != 0,
+        "response seam i-frame walk reaches a native boss enemy");
+  run->initial_hp = g_ram[run->target + 0x27] & 127;
+  memset(&zero_response_probe, 0, sizeof(zero_response_probe));
+  zero_response_probe.override_zero = override_zero;
+  zero_response_probe.chosen_damage = override_zero ? 2 : 0;
+  MmxZeroSetExtension(override_zero ? &zero_response_extension :
+                      &zero_response_observer_extension);
+
+  for (unsigned attempt = 0; attempt < 120 && !first_hp; ++attempt) {
+    unsigned before = g_ram[run->target + 0x27] & 127;
+    zero_response_probe.current_frame = frame_number++;
+    frame(attempt ? 0 : SNES_PAD_Y);
+    first_hp = g_ram[run->target + 0x27] & 127;
+    if (first_hp >= before) first_hp = 0;
+  }
+  run->after_first_hp = first_hp;
+
+  /* Release Y before the second shot. It reaches the same enemy while the
+   * native post-hit timer is active, selecting the zero response row. */
+  zero_response_probe.current_frame = frame_number++;
+  frame(SNES_PAD_Y);
+  for (unsigned attempt = 0; attempt < 120 && !zero_response_probe.zero_frame;
+       ++attempt) {
+    zero_response_probe.current_frame = frame_number++;
+    frame(0);
+  }
+
+  run->native_final_hp = g_ram[run->target + 0x27] & 127;
+  run->native_damage_calls = zero_response_probe.damage_calls;
+
+  MmxZeroSetExtension(NULL);
+  run->final_hp = run->native_final_hp;
+  if (override_zero) run->override_damage = run->after_first_hp > run->final_hp ?
+      run->after_first_hp - run->final_hp : 0;
+
+  run->first_damage = run->initial_hp > run->after_first_hp ?
+      run->initial_hp - run->after_first_hp : 0;
+  run->iframe_damage = run->after_first_hp > run->final_hp ?
+      run->after_first_hp - run->final_hp : 0;
+  run->calls = zero_response_probe.calls;
+  run->enemy = zero_response_probe.enemy;
+  run->projectile = zero_response_probe.projectile;
+  run->value = zero_response_probe.value;
+  run->first_frame = zero_response_probe.first_positive_frame;
+  run->first_enemy = zero_response_probe.first_positive_enemy;
+  run->first_projectile = zero_response_probe.first_positive_projectile;
+  run->first_value = zero_response_probe.first_positive_value;
+  run->iframe_frame = zero_response_probe.zero_frame;
+  run->iframe_enemy = zero_response_probe.zero_enemy;
+  run->iframe_projectile = zero_response_probe.zero_projectile;
+  run->iframe_value = zero_response_probe.zero_value;
+  run->iframe_timer = zero_response_probe.zero_timer;
+  run->override_frame = zero_response_probe.override_frame;
+  run->override_enemy = zero_response_probe.override_enemy;
+  run->override_projectile = zero_response_probe.override_projectile;
+  run->override_value = zero_response_probe.override_value;
+  run->override_timer = zero_response_probe.override_timer;
+  run->zero_response_calls = zero_response_probe.zero_response_calls;
+  run->damage_calls = zero_response_probe.damage_calls;
+  run->zero_damage_calls = zero_response_probe.zero_damage_calls;
+  run->zero_damage_frame = zero_response_probe.zero_damage_frame;
+  run->zero_damage_enemy = zero_response_probe.zero_damage_enemy;
+  run->zero_damage_projectile = zero_response_probe.zero_damage_projectile;
+  run->zero_damage_value = zero_response_probe.zero_damage_value;
+  printf("reference: iframe probe target=0x%X walk=%u first=(%u,%u,0x%X) "
+         "native_zero=(%u,%u,0x%X,timer=0x%02X) "
+         "override_zero=(%u,%u,0x%X,timer=0x%02X) "
+         "HP=%u->%u->%u->%u damage=%u/%u/%u calls=%u/%u\n",
+         run->target, run->walk_frames, run->first_frame, run->first_value,
+         run->first_projectile, run->iframe_frame, run->iframe_value,
+         run->iframe_projectile, run->iframe_timer, run->override_frame,
+         run->override_value, run->override_projectile, run->override_timer,
+         run->initial_hp, run->after_first_hp, run->native_final_hp,
+         run->final_hp, run->first_damage, run->iframe_damage,
+         run->override_damage, run->native_damage_calls, run->damage_calls);
+}
+
+static void zero_response_seam_checks(const char *fixture,
+                                      const char *fixture_dir) {
+  ZeroResponseRun baseline, passthrough, native_iframe, overridden_iframe;
+  char fallback[4096];
+
+  check(!MmxSaberEnabled(),
+        "zero-response-seam runs with Saber disabled");
+  zero_response_contact_run(fixture, false, &baseline);
+  check(baseline.first_damage != 0,
+        "upstream buster contact loses HP without an extension");
+
+  zero_response_contact_run(fixture, true, &passthrough);
+  check(passthrough.calls != 0 && passthrough.enemy == passthrough.target &&
+            passthrough.projectile >= 0x1228 &&
+            passthrough.projectile < 0x1428 &&
+            (passthrough.projectile & 63) == 0x28,
+        "response callback records the Highway enemy and buster slot");
+  check(passthrough.first_damage == baseline.first_damage,
+        "returning the original response preserves native HP loss");
+
+  check(snprintf(fallback, sizeof(fallback), "%s/%s", fixture_dir,
+                 "penguin-fight.sav") < (int)sizeof(fallback),
+        "response seam fallback fixture path fits");
+  check(readable_file(fallback),
+        "response seam fallback penguin fixture exists");
+  printf("reference: save0 Highway buster contacts stayed positive; "
+         "using penguin-fight.sav native i-frame fallback\n");
+  zero_response_iframe_run(fallback, false, &native_iframe);
+  check(native_iframe.first_value != 0 && native_iframe.first_damage != 0 &&
+            native_iframe.iframe_frame != 0 && native_iframe.iframe_value == 0,
+        "the second buster contact observes native zero response during i-frames");
+  check(native_iframe.iframe_damage == 0 &&
+            native_iframe.native_final_hp == native_iframe.after_first_hp &&
+            native_iframe.native_damage_calls == 0 &&
+            native_iframe.zero_damage_calls == 0,
+        "native zero response skips damage and leaves the i-frame HP unchanged");
+
+  RtlReset(1);
+  zero_response_iframe_run(fallback, true, &overridden_iframe);
+  check(overridden_iframe.first_value != 0 &&
+            overridden_iframe.first_damage == native_iframe.first_damage &&
+            overridden_iframe.iframe_frame != 0 &&
+            overridden_iframe.iframe_value == 0,
+        "the override run reaches the same native zero response contact");
+  check(overridden_iframe.override_frame == overridden_iframe.iframe_frame &&
+            overridden_iframe.override_value == 0 &&
+            overridden_iframe.override_enemy == overridden_iframe.target &&
+            overridden_iframe.override_damage == 2 &&
+            overridden_iframe.iframe_damage == 2 &&
+            overridden_iframe.final_hp == overridden_iframe.after_first_hp - 2,
+        "response zero-to-one override lets the damage callback drop HP by 2");
+  check(overridden_iframe.zero_damage_calls == 1 &&
+            overridden_iframe.damage_calls == 2 &&
+            overridden_iframe.zero_damage_frame == overridden_iframe.override_frame &&
+            overridden_iframe.zero_damage_enemy == overridden_iframe.override_enemy &&
+            overridden_iframe.zero_damage_projectile == overridden_iframe.override_projectile &&
+            overridden_iframe.zero_damage_value == 0,
+        "the i-frame damage callback runs after the response override");
+  check(native_iframe.iframe_frame == overridden_iframe.iframe_frame &&
+            native_iframe.iframe_enemy == overridden_iframe.override_enemy &&
+            native_iframe.iframe_projectile == overridden_iframe.override_projectile &&
+            native_iframe.target == overridden_iframe.target &&
+            native_iframe.walk_frames == overridden_iframe.walk_frames,
+        "native and overridden i-frame contacts use the same enemy and shot");
+
+  printf("reference: response path=%s first_frame=%u first_value=%u "
+         "native_i_frame_frame=%u native_i_frame_value=%u "
+         "override_i_frame_frame=%u override_i_frame_value=%u "
+         "timer=0x%02X initial_hp=%u after_first=%u native_final=%u "
+         "override_final=%u damage_calls=%u/%u\n",
+         getenv("SNESRECOMP_LLE_BOUNCE") &&
+             !strcmp(getenv("SNESRECOMP_LLE_BOUNCE"), "0") ?
+             "interpreted" : "compiled",
+         native_iframe.first_frame, native_iframe.first_value,
+         native_iframe.iframe_frame, native_iframe.iframe_value,
+         overridden_iframe.iframe_frame, overridden_iframe.override_value,
+         native_iframe.iframe_timer, native_iframe.initial_hp,
+         native_iframe.after_first_hp, native_iframe.final_hp,
+         overridden_iframe.final_hp, native_iframe.damage_calls,
+         overridden_iframe.damage_calls);
+  puts("ok: zero-response-seam");
 }
 
 static unsigned saber_record_pointer(const MmxSaberAttackSnapshot *snapshot) {
@@ -4791,6 +5187,7 @@ int main(int argc, char **argv) {
   const bool saber_render_snapshot = only && !strcmp(only, "saber-render-snapshot");
   const bool x3_zero_specials = only && !strcmp(only, "x3-zero-specials");
   const bool zero_hook_parity = only && !strcmp(only, "zero-hook-parity");
+  const bool zero_response_seam = only && !strcmp(only, "zero-response-seam");
   const bool fixtures = only && !strcmp(only, "fixtures");
   const bool saber_enabled_group = saber_package || zero_extension ||
       saber_input || saber_ground_1 || saber_ground_combo ||
@@ -4882,6 +5279,8 @@ int main(int argc, char **argv) {
     saber_render_snapshot_checks(fixture);
   } else if (zero_hook_parity) {
     zero_hook_parity_checks(fixture);
+  } else if (zero_response_seam) {
+    zero_response_seam_checks(fixture, fixture_dir);
   } else if (x3_zero_specials) {
     upstream_specials = x3_zero_specials_checks(fixture);
   } else if (fixtures) {
@@ -4946,6 +5345,7 @@ int main(int argc, char **argv) {
         strcmp(only, "saber-ground-hit") &&
         strcmp(only, "saber-render-snapshot") &&
         strcmp(only, "zero-hook-parity") &&
+        strcmp(only, "zero-response-seam") &&
         strcmp(only, "zero-extension") &&
         strcmp(only, "saber-assets") &&
         strcmp(only, "fixtures")) {
