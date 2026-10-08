@@ -312,6 +312,70 @@ static bool priority_buster_class(MmxSaberPriorityClass priority_class) {
       priority_class == MMX_SABER_PRIORITY_CLASS_MAX_SHOT2;
 }
 
+static bool priority_saber_class(MmxSaberPriorityClass priority_class) {
+  return priority_class >= MMX_SABER_PRIORITY_CLASS_SLASH1 &&
+      priority_class <= MMX_SABER_PRIORITY_CLASS_WAVE;
+}
+
+static bool priority_bypass_class(MmxSaberPriorityClass priority_class) {
+  return priority_saber_class(priority_class) ||
+      priority_buster_class(priority_class);
+}
+
+typedef struct MmxSaberBossProtectionRule {
+  uint8_t kind;
+  uint8_t hit_state;
+  uint8_t hit_substate;
+  uint8_t timer_offset;
+} MmxSaberBossProtectionRule;
+
+/* These are Saber-owned escape rules for native reaction handlers that can
+ * restore a live hit state after a priority-token damage callback. Keep the
+ * table explicit: other bosses use different timers or different mechanisms.
+ */
+static const MmxSaberBossProtectionRule kSaberBossProtectionRules[] = {
+  {0x02, 0x04, 0x0a, 0x35}, /* Chill Penguin */
+};
+
+static const MmxSaberBossProtectionRule *saber_boss_protection_rule(
+    uint8_t kind) {
+  for (unsigned i = 0; i < sizeof(kSaberBossProtectionRules) /
+                             sizeof(kSaberBossProtectionRules[0]); ++i) {
+    if (kSaberBossProtectionRules[i].kind == kind)
+      return &kSaberBossProtectionRules[i];
+  }
+  return NULL;
+}
+
+static void clear_boss_protection_for_lethal_bypass(
+    uint8_t *ram, unsigned enemy,
+    const MmxSaberPriorityClassification *classification, unsigned damage) {
+  const MmxSaberBossProtectionRule *rule;
+  const unsigned hp = ram && enemy_slot_valid(enemy) ?
+      ram[enemy + 0x27] & 0x7f : 0;
+  const MmxSaberPriorityClass priority_class = classification ?
+      classification->priority_class : MMX_SABER_PRIORITY_CLASS_NONE;
+
+  /* Chill Penguin's native hit reaction keeps the object in state $04/substate
+   * $0A while its post-hit timer at +$35 is nonzero. A priority follow-up is
+   * admitted through the response sentinel and reaches this callback with HP
+   * already at its lethal value, but native's subsequent state handling can
+   * restore that hit reaction instead of retaining the $84:9E99 state-$06
+   * defeat transition. The table keeps this exception per-kind, and the
+   * token-class predicate includes every Saber and Saber-mode buster class.
+   */
+  rule = ram && enemy_slot_valid(enemy) ?
+      saber_boss_protection_rule(ram[enemy + 0x0a]) : NULL;
+  if (!ram || !classification ||
+      !priority_bypass_class(priority_class) || !rule ||
+      !enemy_slot_valid(enemy) || !ram[enemy] ||
+      ram[enemy + 0x01] != rule->hit_state ||
+      ram[enemy + 0x02] != rule->hit_substate ||
+      !ram[enemy + rule->timer_offset] || !hp || damage < hp)
+    return;
+  ram[enemy + rule->timer_offset] = 0;
+}
+
 static MmxSaberTuningDamageKind priority_damage_kind(
     MmxSaberPriorityClass priority_class) {
   switch (priority_class) {
@@ -1188,6 +1252,8 @@ unsigned MmxSaberAttackDamage(uint8_t *ram, unsigned enemy,
         ram[enemy + 0x28] == 0x0b &&
         ram[enemy + 0x30] == 0)
       ram[enemy + 0x38] = 0;
+    clear_boss_protection_for_lethal_bypass(ram, enemy, &classification,
+                                            damage);
     return damage;
   }
 

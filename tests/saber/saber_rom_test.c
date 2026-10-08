@@ -7414,6 +7414,589 @@ static void saber_context_checks(const char *fixture, const char *fixture_dir) {
   puts("ok: saber-contexts");
 }
 
+extern const char *g_last_recomp_func;
+
+typedef struct SaberBossDeathTraceFrame {
+  unsigned number;
+  unsigned input;
+  unsigned before_live;
+  unsigned before_hp;
+  unsigned before_state;
+  unsigned before_substate;
+  unsigned before_action;
+  unsigned before_kind;
+  unsigned before_row;
+  unsigned before_protection;
+  unsigned before_flags;
+  unsigned before_hard_skip;
+  unsigned after_live;
+  unsigned after_hp;
+  unsigned after_state;
+  unsigned after_substate;
+  unsigned after_action;
+  unsigned after_kind;
+  unsigned after_row;
+  unsigned after_protection;
+  unsigned after_flags;
+  unsigned after_hard_skip;
+  unsigned response_calls;
+  unsigned response_original;
+  unsigned response_value;
+  unsigned response_class;
+  unsigned damage_calls;
+  unsigned damage_original;
+  unsigned damage_value;
+  unsigned damage_class;
+  unsigned damage_hp;
+  unsigned damage_protection;
+} SaberBossDeathTraceFrame;
+
+static const MmxZeroExtension *saber_boss_trace_base;
+static MmxZeroExtension saber_boss_trace_extension;
+static SaberBossDeathTraceFrame *saber_boss_trace_current;
+static unsigned saber_boss_trace_target;
+
+static unsigned saber_boss_trace_byte(unsigned offset) {
+  return saber_boss_trace_target ? g_ram[saber_boss_trace_target + offset] : 0;
+}
+
+static unsigned saber_boss_trace_response(uint8_t *ram, unsigned enemy,
+                                          unsigned projectile,
+                                          unsigned original) {
+  unsigned value;
+  if (saber_boss_trace_current && enemy == saber_boss_trace_target) {
+    MmxSaberPriorityClassification classification;
+    ++saber_boss_trace_current->response_calls;
+    saber_boss_trace_current->response_original = original;
+    saber_boss_trace_current->response_class =
+        MmxSaberPriorityClassify(ram, projectile, &classification) ?
+        classification.priority_class : MMX_SABER_PRIORITY_CLASS_NONE;
+  }
+  value = saber_boss_trace_base && saber_boss_trace_base->response ?
+      saber_boss_trace_base->response(ram, enemy, projectile, original) : original;
+  if (saber_boss_trace_current && enemy == saber_boss_trace_target)
+    saber_boss_trace_current->response_value = value;
+  return value;
+}
+
+static unsigned saber_boss_trace_damage(uint8_t *ram, unsigned enemy,
+                                        unsigned projectile, unsigned original) {
+  unsigned value;
+  if (saber_boss_trace_current && enemy == saber_boss_trace_target) {
+    MmxSaberPriorityClassification classification;
+    ++saber_boss_trace_current->damage_calls;
+    saber_boss_trace_current->damage_original = original;
+    saber_boss_trace_current->damage_hp = ram[enemy + 0x27];
+    saber_boss_trace_current->damage_class =
+        MmxSaberPriorityClassify(ram, projectile, &classification) ?
+        classification.priority_class : MMX_SABER_PRIORITY_CLASS_NONE;
+  }
+  value = saber_boss_trace_base && saber_boss_trace_base->damage ?
+      saber_boss_trace_base->damage(ram, enemy, projectile, original) : original;
+  if (saber_boss_trace_current && enemy == saber_boss_trace_target) {
+    saber_boss_trace_current->damage_value = value;
+    saber_boss_trace_current->damage_protection = ram[enemy + 0x35];
+  }
+  return value;
+}
+
+static void saber_boss_trace_install(unsigned target) {
+  saber_boss_trace_target = target;
+  saber_boss_trace_base = MmxSaberFrameExtension();
+  check(saber_boss_trace_base != NULL,
+        "boss-death trace receives the Saber extension");
+  saber_boss_trace_extension = *saber_boss_trace_base;
+  saber_boss_trace_extension.response = saber_boss_trace_response;
+  saber_boss_trace_extension.damage = saber_boss_trace_damage;
+  MmxZeroSetExtension(&saber_boss_trace_extension);
+}
+
+static void saber_boss_trace_restore(void) {
+  MmxZeroSetExtension(MmxSaberFrameExtension());
+  saber_boss_trace_current = NULL;
+  saber_boss_trace_base = NULL;
+  saber_boss_trace_target = 0;
+}
+
+static void saber_boss_trace_sample_before(SaberBossDeathTraceFrame *trace) {
+  trace->before_live = saber_boss_trace_byte(0);
+  trace->before_hp = saber_boss_trace_byte(0x27);
+  trace->before_state = saber_boss_trace_byte(1);
+  trace->before_substate = saber_boss_trace_byte(2);
+  trace->before_action = saber_boss_trace_byte(3);
+  trace->before_kind = saber_boss_trace_byte(0x0a);
+  trace->before_row = saber_boss_trace_byte(0x28);
+  trace->before_protection = saber_boss_trace_byte(0x35);
+  trace->before_flags = saber_boss_trace_byte(0x30);
+  trace->before_hard_skip = saber_boss_trace_byte(0x38);
+}
+
+static void saber_boss_trace_sample_after(SaberBossDeathTraceFrame *trace) {
+  trace->after_live = saber_boss_trace_byte(0);
+  trace->after_hp = saber_boss_trace_byte(0x27);
+  trace->after_state = saber_boss_trace_byte(1);
+  trace->after_substate = saber_boss_trace_byte(2);
+  trace->after_action = saber_boss_trace_byte(3);
+  trace->after_kind = saber_boss_trace_byte(0x0a);
+  trace->after_row = saber_boss_trace_byte(0x28);
+  trace->after_protection = saber_boss_trace_byte(0x35);
+  trace->after_flags = saber_boss_trace_byte(0x30);
+  trace->after_hard_skip = saber_boss_trace_byte(0x38);
+}
+
+typedef struct SaberBossDeathResult {
+  bool first_hit;
+  bool bypass_hit;
+  bool lethal;
+  bool defeat_started;
+  unsigned first_class;
+  unsigned bypass_class;
+  unsigned lethal_class;
+  unsigned first_hit_frame;
+  unsigned lethal_frame;
+  unsigned defeat_frame;
+  unsigned final_live;
+  unsigned final_hp;
+  unsigned final_state;
+  unsigned final_substate;
+  unsigned final_action;
+  unsigned final_protection;
+} SaberBossDeathResult;
+
+enum { SABER_BOSS_DEFEAT_N = 1 };
+
+static SaberBossDeathTraceFrame saber_boss_trace_frame(unsigned number,
+                                                       unsigned input,
+                                                       bool print_line) {
+  SaberBossDeathTraceFrame trace = {0};
+  trace.number = number;
+  trace.input = input;
+  saber_boss_trace_sample_before(&trace);
+  saber_boss_trace_current = &trace;
+  frame(input);
+  saber_boss_trace_current = NULL;
+  saber_boss_trace_sample_after(&trace);
+  if (print_line || trace.response_calls || trace.damage_calls ||
+      trace.before_hp != trace.after_hp || trace.before_state != trace.after_state ||
+      trace.before_substate != trace.after_substate || trace.before_action != trace.after_action ||
+      trace.before_live != trace.after_live) {
+    printf("boss-trace f=%u input=0x%X live=%u/%u hp=%u/%u state=%02X/%02X sub=%02X/%02X action=%02X/%02X "
+           "kind=%02X/%02X row=%02X/%02X prot=%02X/%02X flags=%02X/%02X hard=%02X/%02X "
+           "response=%u:%u->%u class=%u damage=%u:%u->%u class=%u "
+           "damage_hp=%02X damage_prot=%02X last=%s\n",
+           trace.number, trace.input, trace.before_live, trace.after_live,
+           trace.before_hp, trace.after_hp, trace.before_state, trace.after_state,
+           trace.before_substate, trace.after_substate, trace.before_action,
+           trace.after_action, trace.before_kind, trace.after_kind,
+           trace.before_row, trace.after_row, trace.before_protection,
+           trace.after_protection, trace.before_flags, trace.after_flags,
+           trace.before_hard_skip, trace.after_hard_skip,
+           trace.response_calls, trace.response_original, trace.response_value,
+           trace.response_class, trace.damage_calls, trace.damage_original,
+           trace.damage_value, trace.damage_class,
+           trace.damage_hp, trace.damage_protection,
+           g_last_recomp_func ? g_last_recomp_func : "?");
+  }
+  return trace;
+}
+
+static void saber_boss_death_result_update(SaberBossDeathResult *result,
+                                           const SaberBossDeathTraceFrame *trace) {
+  const unsigned before_hp = trace->before_hp & 127;
+  const unsigned after_hp = trace->after_hp & 127;
+  result->final_live = trace->after_live;
+  result->final_hp = trace->after_hp;
+  result->final_state = trace->after_state;
+  result->final_substate = trace->after_substate;
+  result->final_action = trace->after_action;
+  result->final_protection = trace->after_protection;
+  if (!result->first_hit && trace->damage_calls && trace->damage_value &&
+      before_hp > after_hp && after_hp) {
+    result->first_hit = true;
+    result->first_class = trace->damage_class;
+    result->first_hit_frame = trace->number;
+  }
+  if (!result->bypass_hit && trace->response_calls && trace->response_original == 0 &&
+      trace->response_value == 1 && trace->damage_calls &&
+      trace->damage_original == 0 && trace->damage_value) {
+    result->bypass_hit = true;
+    result->bypass_class = trace->damage_class;
+  }
+  if (!result->lethal && trace->damage_calls && trace->damage_value &&
+      before_hp && !after_hp) {
+    result->lethal = true;
+    result->lethal_class = trace->damage_class;
+    result->lethal_frame = trace->number;
+  }
+  if (!result->defeat_started && result->lethal && !after_hp &&
+      trace->after_state == 6) {
+    result->defeat_started = true;
+    result->defeat_frame = trace->number;
+  }
+}
+
+static unsigned saber_boss_near_player(unsigned expected_kind) {
+  const unsigned zero_x = read_ram_word(g_ram, 0x0bad);
+  const unsigned zero_y = read_ram_word(g_ram, 0x0bb0);
+  unsigned best = 0;
+  unsigned best_distance = 0xffff;
+  for (unsigned d = 0xe68; d < 0x1228; d += 64) {
+    unsigned enemy_x, enemy_y, distance;
+    if (!g_ram[d] || !g_ram[d + 14] || !(g_ram[d + 0x27] & 127) ||
+        g_ram[d + 0x30] || !MmxWidePolicy_IsBossEncounter(g_ram[d + 0x0a]) ||
+        (expected_kind && g_ram[d + 0x0a] != expected_kind))
+      continue;
+    enemy_x = read_ram_word(g_ram, d + 5);
+    enemy_y = read_ram_word(g_ram, d + 8);
+    distance = abs_difference(enemy_x, zero_x) + abs_difference(enemy_y, zero_y);
+    if (distance < best_distance) {
+      best = d;
+      best_distance = distance;
+    }
+  }
+  return best;
+}
+
+static unsigned saber_boss_walk_to(const char *fixture, unsigned expected_kind,
+                                    unsigned *walk_frames) {
+  unsigned target = 0;
+  load_response_fixture(fixture);
+  MmxSaberFrameReset();
+  for (unsigned i = 0; i < 360 && !target; ++i) {
+    target = saber_boss_near_player(expected_kind);
+    if (target) {
+      const int dx = (int)read_ram_word(g_ram, target + 5) -
+          (int)read_ram_word(g_ram, 0x0bad);
+      const int dy = (int)read_ram_word(g_ram, target + 8) -
+          (int)read_ram_word(g_ram, 0x0bb0);
+      if (abs(dx) <= 24 && abs(dy) <= 24) {
+        if (walk_frames) *walk_frames = i;
+        return target;
+      }
+      target = 0;
+      frame(dx >= 0 ? SNES_PAD_RIGHT : SNES_PAD_LEFT);
+    } else {
+      frame(0);
+    }
+  }
+  if (walk_frames) *walk_frames = 360;
+  return target;
+}
+
+static void saber_boss_trace_prepare(const char *fixture, unsigned kind,
+                                     unsigned hp, unsigned *target) {
+  unsigned walk_frames = 0;
+  *target = saber_boss_walk_to(fixture, kind, &walk_frames);
+  check(*target != 0, "boss-death walk reaches the requested boss");
+  printf("boss-trace setup kind=0x%02X target=0x%X walk=%u Zero=(%u,%u) Boss=(%u,%u) "
+         "hp=%02X state=%02X/%02X/%02X row=%02X prot=%02X flags=%02X\n",
+         g_ram[*target + 0x0a], *target, walk_frames,
+         read_ram_word(g_ram, 0x0bad), read_ram_word(g_ram, 0x0bb0),
+         read_ram_word(g_ram, *target + 5), read_ram_word(g_ram, *target + 8),
+         g_ram[*target + 0x27], g_ram[*target + 1], g_ram[*target + 2],
+         g_ram[*target + 3], g_ram[*target + 0x28], g_ram[*target + 0x35],
+         g_ram[*target + 0x30]);
+  MmxZeroCancel(g_ram);
+  MmxSaberFrameReset();
+  g_ram[*target + 0x27] = (uint8_t)hp;
+  g_ram[*target + 0x35] = 0;
+  saber_boss_trace_install(*target);
+}
+
+static void saber_boss_trace_finish(void) {
+  saber_boss_trace_restore();
+}
+
+static SaberBossDeathResult saber_boss_trace_plain(const char *fixture,
+                                                   unsigned kind) {
+  SaberBossDeathResult result = {0};
+  unsigned target;
+  saber_boss_trace_prepare(fixture, kind, 1, &target);
+  printf("boss-trace case=plain target=0x%X\n", target);
+  SaberBossDeathTraceFrame trace = saber_boss_trace_frame(0, SNES_PAD_Y, true);
+  saber_boss_death_result_update(&result, &trace);
+  for (unsigned i = 1; i < 60; ++i) {
+    trace = saber_boss_trace_frame(i, 0, false);
+    saber_boss_death_result_update(&result, &trace);
+    if (result.defeat_started && i >= result.defeat_frame + SABER_BOSS_DEFEAT_N)
+      break;
+  }
+  saber_boss_trace_finish();
+  return result;
+}
+
+static SaberBossDeathResult saber_boss_trace_bypass(const char *fixture,
+                                                    unsigned kind) {
+  SaberBossDeathResult result = {0};
+  unsigned target;
+  const unsigned initial_hp = 2;
+  saber_boss_trace_prepare(fixture, kind, initial_hp, &target);
+  printf("boss-trace case=bypass target=0x%X\n", target);
+  SaberBossDeathTraceFrame trace = saber_boss_trace_frame(0, SNES_PAD_Y, true);
+  saber_boss_death_result_update(&result, &trace);
+  unsigned followup = 0;
+  for (unsigned i = 1; i < 60; ++i) {
+    trace = saber_boss_trace_frame(i, 0, false);
+    saber_boss_death_result_update(&result, &trace);
+    if (result.first_hit) {
+      followup = i + 1;
+      break;
+    }
+  }
+  check(followup != 0, "boss-death first Penguin/Mammoth slash lands");
+  trace = saber_boss_trace_frame(followup, SNES_PAD_Y, true);
+  saber_boss_death_result_update(&result, &trace);
+  for (unsigned i = followup + 1; i < followup + 40; ++i) {
+    trace = saber_boss_trace_frame(i, 0, false);
+    saber_boss_death_result_update(&result, &trace);
+    if (result.defeat_started && i >= result.defeat_frame + SABER_BOSS_DEFEAT_N)
+      break;
+    if (result.lethal && !result.defeat_started && i >= result.lethal_frame + 12)
+      break;
+  }
+  saber_boss_trace_finish();
+  return result;
+}
+
+static void saber_boss_print_result(const char *label,
+                                    const SaberBossDeathResult *result);
+
+static void saber_boss_trace_buster(const char *fixture, unsigned kind) {
+  SaberBossDeathResult result = {0};
+  unsigned target;
+  saber_boss_trace_prepare(fixture, kind, 1, &target);
+  printf("boss-trace case=buster target=0x%X\n", target);
+  SaberBossDeathTraceFrame trace = saber_boss_trace_frame(0, SNES_PAD_X, true);
+  saber_boss_death_result_update(&result, &trace);
+  for (unsigned i = 1; i < 90; ++i) {
+    trace = saber_boss_trace_frame(i, 0, false);
+    saber_boss_death_result_update(&result, &trace);
+    if (result.lethal && result.defeat_started &&
+        i >= result.defeat_frame + SABER_BOSS_DEFEAT_N)
+      break;
+  }
+  saber_boss_trace_finish();
+  saber_boss_print_result("penguin-buster", &result);
+}
+
+static SaberBossDeathResult saber_boss_trace_buster_bypass(const char *fixture,
+                                                           unsigned kind) {
+  SaberBossDeathResult result = {0};
+  unsigned target;
+  unsigned number = 0;
+
+  /* A full Saber-mode charge emits maximum shot 1, then maximum shot 2 after
+   * the first burst retires. Charge before walking back to the boss: the
+   * native max-shot release has a real flight time, so the fixture's live
+   * boss must be near Zero at the release edge. */
+  saber_boss_trace_prepare(fixture, kind, 32, &target);
+  g_ram[0x1f99] |= 2; /* X1 arm upgrade: retain the Saber-mode charge chain. */
+  printf("boss-trace case=buster-bypass target=0x%X\n", target);
+  for (unsigned i = 0; i < 360 && MmxZeroGetState().charge < 200;
+       ++i, ++number) {
+    SaberBossDeathTraceFrame trace = saber_boss_trace_frame(number, SNES_PAD_X,
+                                                            false);
+    saber_boss_death_result_update(&result, &trace);
+  }
+  check(MmxZeroGetState().charge >= 200,
+        "boss-death buster bypass reaches a full live Saber-mode charge");
+
+  /* Keep the charged state live while the real fixture walk closes the final
+   * gap. The last direction also makes the native burst face the boss. */
+  for (unsigned i = 0; i < 360; ++i, ++number) {
+    const int dx = (int)read_ram_word(g_ram, target + 5) -
+        (int)read_ram_word(g_ram, 0x0bad);
+    const int dy = (int)read_ram_word(g_ram, target + 8) -
+        (int)read_ram_word(g_ram, 0x0bb0);
+    unsigned input = SNES_PAD_X;
+    if (abs(dx) > 20) input |= dx >= 0 ? SNES_PAD_RIGHT : SNES_PAD_LEFT;
+    SaberBossDeathTraceFrame trace = saber_boss_trace_frame(number, input,
+                                                            false);
+    saber_boss_death_result_update(&result, &trace);
+    if (abs(dx) <= 24 && abs(dy) <= 24 && g_ram[target + 1] == 4 &&
+        g_ram[target + 2] == 0)
+      break;
+  }
+  check(abs((int)read_ram_word(g_ram, target + 5) -
+            (int)read_ram_word(g_ram, 0x0bad)) <= 24 &&
+        abs((int)read_ram_word(g_ram, target + 8) -
+            (int)read_ram_word(g_ram, 0x0bb0)) <= 24,
+        "boss-death buster bypass walks the charged Zero onto Penguin");
+
+  /* The first low-priority X shot above is deliberately nonlethal. Reset the
+   * fixture HP at the real max-shot release edge: max shot 1 then max shot 2
+   * must be the two visible damage events in this asserted kill. */
+  result = (SaberBossDeathResult){0};
+  g_ram[target + 0x27] = 6;
+  g_ram[target + 0x35] = 0;
+  printf("boss-trace buster-bypass-release target=0x%X Zero=(%u,%u) "
+         "Boss=(%u,%u) hp=%02X\n", target, read_ram_word(g_ram, 0x0bad),
+         read_ram_word(g_ram, 0x0bb0), read_ram_word(g_ram, target + 5),
+         read_ram_word(g_ram, target + 8), g_ram[target + 0x27]);
+  {
+    SaberBossDeathTraceFrame trace = saber_boss_trace_frame(number++, 0, true);
+    saber_boss_death_result_update(&result, &trace);
+  }
+  for (unsigned i = 0; i < 17; ++i, ++number) {
+    const int side = g_ram[0x0c11] & 0x40 ? 40 : -40;
+    write_ram_word(g_ram, target + 5,
+                   (unsigned)((int)read_ram_word(g_ram, 0x0bad) + side));
+    write_ram_word(g_ram, target + 8, read_ram_word(g_ram, 0x0bb0));
+    SaberBossDeathTraceFrame trace = saber_boss_trace_frame(number, 0, false);
+    saber_boss_death_result_update(&result, &trace);
+  }
+  {
+    const int side = g_ram[0x0c11] & 0x40 ? 40 : -40;
+    write_ram_word(g_ram, target + 5,
+                   (unsigned)((int)read_ram_word(g_ram, 0x0bad) + side));
+    write_ram_word(g_ram, target + 8, read_ram_word(g_ram, 0x0bb0));
+    SaberBossDeathTraceFrame trace = saber_boss_trace_frame(number++, SNES_PAD_X,
+                                                            true);
+    saber_boss_death_result_update(&result, &trace);
+  }
+  for (unsigned i = 0; i < 80; ++i, ++number) {
+    const int side = g_ram[0x0c11] & 0x40 ? 40 : -40;
+    write_ram_word(g_ram, target + 5,
+                   (unsigned)((int)read_ram_word(g_ram, 0x0bad) + side));
+    write_ram_word(g_ram, target + 8, read_ram_word(g_ram, 0x0bb0));
+    SaberBossDeathTraceFrame trace = saber_boss_trace_frame(number, 0, false);
+    saber_boss_death_result_update(&result, &trace);
+    if (result.defeat_started && i >= result.defeat_frame + SABER_BOSS_DEFEAT_N)
+      break;
+  }
+  saber_boss_trace_finish();
+  saber_boss_print_result("penguin-buster-bypass", &result);
+  return result;
+}
+
+static void saber_boss_trace_finisher(const char *fixture, unsigned kind) {
+  SaberBossDeathResult result = {0};
+  unsigned target = 0;
+  unsigned walk_frames = 0;
+  bool opened = false;
+
+  load_response_fixture(fixture);
+  MmxSaberFrameReset();
+  for (unsigned i = 0; i < 360 && !target; ++i) {
+    target = saber_boss_near_player(kind);
+    if (target) {
+      const int dx = (int)read_ram_word(g_ram, target + 5) -
+          (int)read_ram_word(g_ram, 0x0bad);
+      const int dy = (int)read_ram_word(g_ram, target + 8) -
+          (int)read_ram_word(g_ram, 0x0bb0);
+      if (abs(dx) <= 24 && abs(dy) <= 24) {
+        walk_frames = i;
+        break;
+      }
+      target = 0;
+      frame(dx >= 0 ? SNES_PAD_RIGHT : SNES_PAD_LEFT);
+    } else {
+      frame(0);
+    }
+  }
+  check(target != 0, "boss-death finisher walk reaches Penguin");
+  g_ram[target + 0x27] = 32;
+  g_ram[target + 0x35] = 0;
+  release_charge_button(150, SNES_PAD_X);
+  for (unsigned i = 0; i < 240 &&
+       (MmxZeroGetState().burst || MmxZeroGetState().shot_mask || g_ram[0xc25]); ++i)
+    frame(0);
+  frame(SNES_PAD_X);
+  if (MmxSaberComboWindowTicks()) opened = true;
+  for (unsigned i = 0; i < 120 && !opened; ++i) {
+    frame(0);
+    opened = MmxSaberComboWindowTicks() != 0;
+  }
+  printf("boss-trace finisher-setup target=0x%X walk=%u opened=%u window=%u "
+         "combo=%u burst=%u shotmask=%02X c25=%02X hp=%02X "
+         "state=%02X/%02X/%02X prot=%02X\n", target, walk_frames, opened,
+         MmxSaberComboWindowTicks(), MmxZeroGetState().combo,
+         MmxZeroGetState().burst, MmxZeroGetState().shot_mask, g_ram[0xc25],
+         g_ram[target + 0x27], g_ram[target + 1], g_ram[target + 2],
+         g_ram[target + 3], g_ram[target + 0x35]);
+  if (!opened || !g_ram[target]) {
+    puts("boss-trace result=penguin-finisher unreachable");
+    puts("boss-trace result=penguin-wave unreachable (finisher window not opened)");
+    return;
+  }
+  g_ram[target + 0x27] = 1;
+  g_ram[target + 0x35] = 0;
+  saber_boss_trace_install(target);
+  printf("boss-trace case=finisher target=0x%X\n", target);
+  SaberBossDeathTraceFrame trace = saber_boss_trace_frame(0, SNES_PAD_Y, true);
+  saber_boss_death_result_update(&result, &trace);
+  for (unsigned i = 1; i < 90; ++i) {
+    trace = saber_boss_trace_frame(i, 0, false);
+    saber_boss_death_result_update(&result, &trace);
+    if (result.lethal && result.defeat_started &&
+        i >= result.defeat_frame + SABER_BOSS_DEFEAT_N)
+      break;
+  }
+  saber_boss_trace_finish();
+  saber_boss_print_result("penguin-finisher", &result);
+}
+
+static void saber_boss_print_result(const char *label,
+                                    const SaberBossDeathResult *result) {
+  printf("boss-trace result=%s first=%u bypass=%u lethal=%u defeat=%u "
+         "frames=first:%u lethal:%u defeat:%u final=live:%u hp:%02X "
+         "state:%02X/%02X/%02X prot:%02X classes=first:%u bypass:%u lethal:%u\n",
+         label, result->first_hit, result->bypass_hit, result->lethal,
+         result->defeat_started, result->first_hit_frame, result->lethal_frame,
+         result->defeat_frame, result->final_live, result->final_hp,
+         result->final_state, result->final_substate, result->final_action,
+         result->final_protection, result->first_class, result->bypass_class,
+         result->lethal_class);
+}
+
+static void saber_boss_death_checks(const char *fixture_dir) {
+  char penguin[4096];
+  char mammoth[4096];
+  check(snprintf(penguin, sizeof(penguin), "%s/%s", fixture_dir,
+                 "penguin-fight.sav") < (int)sizeof(penguin),
+        "boss-death Penguin fixture path fits");
+  check(snprintf(mammoth, sizeof(mammoth), "%s/%s", fixture_dir,
+                 "mammoth-fight.sav") < (int)sizeof(mammoth),
+        "boss-death Mammoth fixture path fits");
+  check(readable_file(penguin) && readable_file(mammoth),
+        "boss-death Penguin and Mammoth fixtures exist");
+
+  const SaberBossDeathResult penguin_plain = saber_boss_trace_plain(penguin, 0x02);
+  const SaberBossDeathResult penguin_bypass = saber_boss_trace_bypass(penguin, 0x02);
+  const SaberBossDeathResult mammoth_bypass = saber_boss_trace_bypass(mammoth, 0);
+  const SaberBossDeathResult penguin_buster_bypass =
+      saber_boss_trace_buster_bypass(penguin, 0x02);
+  saber_boss_trace_buster(penguin, 0x02);
+  saber_boss_trace_finisher(penguin, 0x02);
+  saber_boss_print_result("penguin-plain", &penguin_plain);
+  saber_boss_print_result("penguin-bypass", &penguin_bypass);
+  saber_boss_print_result("mammoth-bypass", &mammoth_bypass);
+  check(penguin_plain.lethal && penguin_plain.defeat_started &&
+      penguin_plain.defeat_frame <= penguin_plain.lethal_frame + SABER_BOSS_DEFEAT_N &&
+      (penguin_plain.final_hp & 127) == 0 && penguin_plain.final_state == 6,
+      "boss-death Penguin plain slash starts native defeat and stops alive state");
+  check(penguin_bypass.first_hit && penguin_bypass.bypass_hit && penguin_bypass.lethal &&
+      penguin_bypass.defeat_started &&
+      penguin_bypass.defeat_frame <= penguin_bypass.lethal_frame + SABER_BOSS_DEFEAT_N &&
+      (penguin_bypass.final_hp & 127) == 0 && penguin_bypass.final_state == 6,
+      "boss-death Penguin priority-bypass kill starts native defeat and stops alive state");
+  check(mammoth_bypass.first_hit && mammoth_bypass.bypass_hit && mammoth_bypass.lethal &&
+      mammoth_bypass.defeat_started &&
+      mammoth_bypass.defeat_frame <= mammoth_bypass.lethal_frame + SABER_BOSS_DEFEAT_N &&
+      (mammoth_bypass.final_hp & 127) == 0 && mammoth_bypass.final_state == 6,
+      "boss-death Mammoth priority-bypass control starts native defeat");
+  check(penguin_buster_bypass.first_hit && penguin_buster_bypass.bypass_hit &&
+      penguin_buster_bypass.first_class == MMX_SABER_PRIORITY_CLASS_MAX_SHOT1 &&
+      penguin_buster_bypass.bypass_class == MMX_SABER_PRIORITY_CLASS_MAX_SHOT2 &&
+      penguin_buster_bypass.lethal && penguin_buster_bypass.defeat_started &&
+      penguin_buster_bypass.defeat_frame <=
+          penguin_buster_bypass.lethal_frame + SABER_BOSS_DEFEAT_N &&
+      (penguin_buster_bypass.final_hp & 127) == 0 &&
+      penguin_buster_bypass.final_state == 6,
+      "boss-death Penguin max-shot buster bypass starts native defeat");
+  puts("ok: saber-boss-death");
+}
+
 int main(int argc, char **argv) {
   check(argc == 2, "X1 ROM supplied");
   const char *fixture = getenv("MMX_ZERO_TEST_FIXTURE");
@@ -7429,7 +8012,8 @@ int main(int argc, char **argv) {
       !strcmp(only, "saber-damage") || !strcmp(only, "saber-priority") ||
       !strcmp(only, "saber-armadillo") ||
       !strcmp(only, "saber-ride-pilot") ||
-      !strcmp(only, "saber-contexts")))
+      !strcmp(only, "saber-contexts") ||
+      !strcmp(only, "saber-boss-death")))
     check(fixture_dir && fixture_dir[0], "MMX_SABER_FIXTURE_DIR supplied");
 
   SDL_SetMainReady();
@@ -7514,6 +8098,7 @@ int main(int argc, char **argv) {
   const bool saber_ground_hit = only && !strcmp(only, "saber-ground-hit");
   const bool saber_render_snapshot = only && !strcmp(only, "saber-render-snapshot");
   const bool saber_ride_pilot = only && !strcmp(only, "saber-ride-pilot");
+  const bool saber_boss_death = only && !strcmp(only, "saber-boss-death");
   const bool x3_zero_specials = only && !strcmp(only, "x3-zero-specials");
   const bool zero_hook_parity = only && !strcmp(only, "zero-hook-parity");
   const bool zero_response_seam = only && !strcmp(only, "zero-response-seam");
@@ -7528,7 +8113,7 @@ int main(int argc, char **argv) {
       saber_priority || saber_armadillo ||
       saber_tuning || saber_hitbox_debug || saber_damage ||
       saber_wave_travel || saber_wave_damage || saber_wave_lifecycle ||
-      saber_wave_render || saber_ride_pilot;
+      saber_wave_render || saber_ride_pilot || saber_boss_death;
   SpecialCounts upstream_specials = {0};
   BurstHeight upstream_burst[2] = {{0}};
   BurstHeight upstream_airborne = {0};
@@ -7652,6 +8237,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-ride-pilot runs with the Saber package enabled");
     saber_ride_pilot_checks(fixture_dir);
+  } else if (saber_boss_death) {
+    check(MmxSaberEnabled(),
+          "saber-boss-death runs with the Saber package enabled");
+    saber_boss_death_checks(fixture_dir);
   } else if (zero_hook_parity) {
     zero_hook_parity_checks(fixture);
   } else if (zero_response_seam) {
