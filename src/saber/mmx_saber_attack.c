@@ -317,15 +317,13 @@ static bool priority_saber_class(MmxSaberPriorityClass priority_class) {
       priority_class <= MMX_SABER_PRIORITY_CLASS_WAVE;
 }
 
-static bool priority_bypass_class(MmxSaberPriorityClass priority_class) {
+static bool saber_owned_damage_class(MmxSaberPriorityClass priority_class) {
   return priority_saber_class(priority_class) ||
       priority_buster_class(priority_class);
 }
 
 typedef struct MmxSaberBossProtectionRule {
   uint8_t kind;
-  uint8_t hit_state;
-  uint8_t hit_substate;
   uint8_t timer_offset;
 } MmxSaberBossProtectionRule;
 
@@ -334,7 +332,7 @@ typedef struct MmxSaberBossProtectionRule {
  * table explicit: other bosses use different timers or different mechanisms.
  */
 static const MmxSaberBossProtectionRule kSaberBossProtectionRules[] = {
-  {0x02, 0x04, 0x0a, 0x35}, /* Chill Penguin */
+  {0x02, 0x35}, /* Chill Penguin */
 };
 
 static const MmxSaberBossProtectionRule *saber_boss_protection_rule(
@@ -347,7 +345,7 @@ static const MmxSaberBossProtectionRule *saber_boss_protection_rule(
   return NULL;
 }
 
-static void clear_boss_protection_for_lethal_bypass(
+static void clear_boss_protection_for_lethal_saber_damage(
     uint8_t *ram, unsigned enemy,
     const MmxSaberPriorityClassification *classification, unsigned damage) {
   const MmxSaberBossProtectionRule *rule;
@@ -356,21 +354,17 @@ static void clear_boss_protection_for_lethal_bypass(
   const MmxSaberPriorityClass priority_class = classification ?
       classification->priority_class : MMX_SABER_PRIORITY_CLASS_NONE;
 
-  /* Chill Penguin's native hit reaction keeps the object in state $04/substate
-   * $0A while its post-hit timer at +$35 is nonzero. A priority follow-up is
-   * admitted through the response sentinel and reaches this callback with HP
-   * already at its lethal value, but native's subsequent state handling can
-   * restore that hit reaction instead of retaining the $84:9E99 state-$06
-   * defeat transition. The table keeps this exception per-kind, and the
-   * token-class predicate includes every Saber and Saber-mode buster class.
-   */
+  /* Chill Penguin's native state-4 handler gates its HP-zero -> state-$06
+   * branch on +$35. The collision/damage seam can run after that handler has
+   * advanced to a different action/substate, so matching one visible state is
+   * incomplete. A lethal Saber-owned damage event must retire this native
+   * protection timer regardless of the current substate; the table remains
+   * per-kind because other bosses use different protection mechanisms. */
   rule = ram && enemy_slot_valid(enemy) ?
       saber_boss_protection_rule(ram[enemy + 0x0a]) : NULL;
   if (!ram || !classification ||
-      !priority_bypass_class(priority_class) || !rule ||
+      !saber_owned_damage_class(priority_class) || !rule ||
       !enemy_slot_valid(enemy) || !ram[enemy] ||
-      ram[enemy + 0x01] != rule->hit_state ||
-      ram[enemy + 0x02] != rule->hit_substate ||
       !ram[enemy + rule->timer_offset] || !hp || damage < hp)
     return;
   ram[enemy + rule->timer_offset] = 0;
@@ -1252,14 +1246,17 @@ unsigned MmxSaberAttackDamage(uint8_t *ram, unsigned enemy,
         ram[enemy + 0x28] == 0x0b &&
         ram[enemy + 0x30] == 0)
       ram[enemy + 0x38] = 0;
-    clear_boss_protection_for_lethal_bypass(ram, enemy, &classification,
-                                            damage);
+    clear_boss_protection_for_lethal_saber_damage(ram, enemy, &classification,
+                                                  damage);
     return damage;
   }
 
   const bool classified = MmxSaberPriorityClassify(
       ram, projectile, &classification);
   damage = saber_attack_damage_core(ram, enemy, projectile, value);
+  if (value && !(value & 128) && classified)
+    clear_boss_protection_for_lethal_saber_damage(ram, enemy, &classification,
+                                                  damage);
   if (value && !(value & 128) && classified)
     MmxSaberPriorityRecord(ram, enemy, &classification,
                            MmxSaberPriorityCurrentFrame());
