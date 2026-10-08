@@ -8,6 +8,176 @@ jump, and an air dash.
 [Download](https://github.com/mstan/MegaManXSNESRecomp/releases/latest) |
 [Getting started](#quick-start-pre-built-release) | [Netplay setup](docs/netplay.md)
 
+## Saber Zero fork
+
+This repository is a fork of [Mega Man X Recompiled](https://github.com/mstan/MegaManXSNESRecomp).
+The fork is maintained at
+[RaphaelAzev/MegaManXSNESRecompSaberZero](https://github.com/RaphaelAzev/MegaManXSNESRecompSaberZero).
+It keeps the upstream game, launcher, weapons, widescreen, and optional character
+packages, and adds the optional **Saber Zero** package described below.
+
+Saber Zero is a single-player character package. It is disabled by default. In
+the launcher, provide your own **Mega Man X USA** ROM for the game and your own
+**Mega Man X3 USA** ROM in the package's resource selection, then enable
+**Characters → Saber Zero**. The package's **Starting character** option defaults
+to Zero; **Select** still performs the normal X/Zero exchange while playing.
+ROMs are never included in this repository or its releases.
+
+The Saber Zero sprites and sound effects come from the [Zashiko Mod](assets/saber-zero/CREDITS.md).
+They are included for non-commercial use. This project is not monetized, and
+the donor assets must not be used commercially.
+
+### Saber Zero controls and attacks
+
+The package keeps the native controls for movement and menus, with the following
+Saber mapping:
+
+| Input | Saber Zero behavior |
+|-------|--------------------|
+| **Y** | Saber. On the ground, press for slash 1 and press again during the combo windows for the 3-hit ground combo. In the air it starts an air slash; while clinging to a wall it starts a wall slash; during a grounded dash it starts a dash slash. Holding Y is one press, not an automatic combo. |
+| **X** | Buster when the buster is selected, or the selected special weapon otherwise. Hold X to charge the buster and release it to fire; charge/release behavior is preserved through a Saber swing as described below. |
+| **B** | Native jump. |
+| **A** | Native dash. A direction remains native; a swing locks or masks movement/cancellation edges only for the attack phases that require it. |
+| **Select** | Native X/Zero exchange when standing in a valid exchange context. |
+| **L/R, Start, directions** | Continue to use the native weapon/menu/movement controls. |
+
+The ground combo is slash 1 → slash 2 → slash 3. The first two swings accept
+the next Y edge in their chain window and can buffer an early edge; slash 3 has
+no fourth swing. Air, wall, and dash slashes are single attacks. Native jump,
+dash, hurt, death, and character-exchange states still cancel or suppress Saber
+ownership according to the current action, and a held direction cannot turn an
+accepted swing.
+
+### Buster, finisher, and wave behavior
+
+Saber Zero uses the X3 Zero charge path with a Saber-specific cap. Charge reaches
+tiers at 21, 81, and 141 held frames, then caps at 200 frames (tier 8); it does
+not enter the upstream tier-10/third legacy route. The lower releases fire the
+normal X3 buster classes. A capped charge produces the two-shot class-3 burst,
+and the second shot is emitted at the same height as the first. A physical X
+press or release during a Saber slash, finisher, or wave-shooting animation
+cannot create a buster or special projectile in that locked animation. A held
+charge and a release are retained so the first eligible frame after the swing
+can complete the buster action.
+
+To use the X3 finisher and Saber wave, release a capped charge for the first
+class-3 shot, press X again for the second shot, then press Y during the
+finisher window opened by that second burst. The default window is 27 frames;
+the option table below can tune it. The X3 finisher starts first, and the Saber
+wave is published during the finisher sequence. If the projectile pool cannot
+reserve a wave slot, the window edge is still consumed and no wave is created.
+X is gated for the duration of the finisher and wave-shooting animation.
+
+### Hit priority
+
+Each eligible hit records a priority. A later follow-up with a **higher**
+priority can break an enemy's ordinary invincibility within the configured
+window; equal or lower priorities do not. The default window is 70 frames. This
+does not remove native forced-hit or reflection protections, and the special
+Armadillo positive-response case remains limited to its exposed row.
+
+The default priority ladder is:
+
+| Priority | Actions |
+|----------|---------|
+| 1 | Air slash, wall slash, small charge, full charge |
+| 2 | Ground slash 1, max shot 1 |
+| 3 | Ground slash 2, max shot 2 |
+| 4 | Ground slash 3, X3 finisher |
+| 5 | Dash slash, Saber wave |
+
+The Ride Armor pilot is drawn with the Saber donor overlay and aligned to the
+native Ride Armor cockpit position and facing. With **Show hitboxes** enabled,
+the custom renderer outlines enemy, Zero, and Saber attack hitboxes.
+
+### Saber Zero package options
+
+The package has 31 numeric tuning options plus `show_hitboxes`.
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `start` | `zero` | Starting character; `x` is also available. |
+| `slash1_damage` | `3` | Normal damage for ground slash 1. |
+| `slash2_damage` | `3` | Normal damage for ground slash 2. |
+| `slash3_damage` | `8` | Normal damage for ground slash 3. |
+| `x3_finisher_damage` | `16` | Normal damage for the X3 finisher. |
+| `air_damage` | `3` | Normal damage for an air slash. |
+| `wall_damage` | `3` | Normal damage for a wall slash. |
+| `dash_damage` | `3` | Normal damage for a dash slash. |
+| `wave_damage` | `6` | Normal damage for each Saber wave pulse. |
+| `boss_slash1_damage` | `1` | Boss damage for ground slash 1; `0` means use the normal value. |
+| `boss_slash2_damage` | `1` | Boss damage for ground slash 2; `0` means use the normal value. |
+| `boss_slash3_damage` | `2` | Boss damage for ground slash 3; `0` means use the normal value. |
+| `boss_air_damage` | `1` | Boss damage for an air slash; `0` means use the normal value. |
+| `boss_wall_damage` | `1` | Boss damage for a wall slash; `0` means use the normal value. |
+| `boss_dash_damage` | `1` | Boss damage for a dash slash; `0` means use the normal value. |
+| `boss_x3_finisher_damage` | `6` | Boss damage for the X3 finisher; `0` means use the normal value. |
+| `boss_wave_damage` | `4` | Boss damage for a Saber wave pulse; `0` means use the normal value. |
+| `slash1_priority` | `2` | Priority of ground slash 1. |
+| `slash2_priority` | `3` | Priority of ground slash 2. |
+| `slash3_priority` | `4` | Priority of ground slash 3. |
+| `air_priority` | `1` | Priority of an air slash. |
+| `wall_priority` | `1` | Priority of a wall slash. |
+| `dash_priority` | `5` | Priority of a dash slash. |
+| `charge_small_priority` | `1` | Priority of a small charged buster shot. |
+| `charge_full_priority` | `1` | Priority of a full charged buster shot. |
+| `max_shot1_priority` | `2` | Priority of the first max-charge shot. |
+| `max_shot2_priority` | `3` | Priority of the second max-charge shot. |
+| `x3_finisher_priority` | `4` | Priority of the X3 finisher. |
+| `wave_priority` | `5` | Priority of the Saber wave. |
+| `priority_window_frames` | `70` | Frames in which a higher-priority follow-up can break ordinary invincibility. |
+| `finisher_window_frames` | `27` | Frames in which Y can trigger the X3 finisher after the second max shot. |
+| `saber_swing_volume` | `50` | Saber swing sound-effect volume. |
+| `show_hitboxes` | `false` | Draw debug hitboxes in the custom renderer. |
+
+### Planned Saber Zero features
+
+The planned roadmap includes collecting armor parts for Zero: legs for a double
+jump and air dash, arms for a purple saber and more damage, and other parts to
+be defined. It also includes additional Zero saber techniques and replacing
+dialogue and other relevant cutscene content with Zero-related entries.
+
+### Conflicts and unsupported modes
+
+Saber Zero is single-player. It does not support netplay yet, and it does not
+support the upstream X / Zero co-op mode. Do not enable it with the original
+**Add Zero** package or **X / Zero Co-op** package: they are mutually exclusive.
+The manifests make Saber Zero claim the existing `megaman-x.zero` plugin key;
+the Zero plugin also guards both the co-op feature and the Saber Zero feature.
+
+The other preloaded manifests checked for this fork use separate plugin keys:
+X2/X3 weapons, widescreen, password saves, MSU-1, and the diagnostics packages
+do not claim `megaman-x.zero`. That is a plugin-level compatibility check, not a
+promise that every combination has been playtested. The upstream co-op and
+netplay sections later in this README describe the upstream packages, not Saber
+Zero support.
+
+### Building this fork with MSYS2/MinGW
+
+On Windows, use Git Bash with the MSYS2 MinGW toolchain, CMake, Ninja, SDL3,
+Git, and Python. From the repository checkout, a prepared fork build can be
+built and tested with:
+
+```bash
+export PATH="/c/msys64/mingw64/bin:$PATH"
+cd MegaManXSNESRecompSaberZero
+cmake --build build-mingw
+ctest --test-dir build-mingw --output-on-failure
+bash tools/saber/run_saber_rom_tests.sh
+```
+
+The fork build still needs the player's own Mega Man X USA and Mega Man X3 USA
+ROMs for play and ROM-backed tests. The full build command intentionally has no
+target so that all configured targets are compiled. `build-mingw` uses Ninja
+through CMake. On a fresh checkout, configure a new tree once before running
+the build command:
+
+```bash
+cmake -S . -B build-mingw -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DMMX_STATE_TESTS=ON
+```
+
+
 <a href="https://www.youtube.com/watch?v=TDysNWWJ25g">
   <img src="https://i.ytimg.com/vi/TDysNWWJ25g/maxresdefault.jpg" width="880" alt="Watch the Mega Man X Recompiled gameplay showcase on YouTube">
 </a>
