@@ -1,6 +1,7 @@
 #include "mmx_saber_frame.h"
 
 #include "mmx_saber_attack.h"
+#include "mmx_saber_armor.h"
 #include "mmx_saber_combo.h"
 #include "mmx_saber_hitbox_debug.h"
 #include "mmx_saber_input.h"
@@ -23,6 +24,7 @@ static unsigned charge_cap(void) {
 
 static void state_reset(uint8_t *ram) {
   if (ram) frame_ram = ram;
+  MmxSaberArmorApplyStageStart(ram);
   MmxSaberHitboxDebugSetRam(ram);
   if (ram)
     MmxSaberAttackResetRam(ram);

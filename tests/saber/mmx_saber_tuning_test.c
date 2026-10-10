@@ -149,6 +149,7 @@ static void check_manifest_defaults(const char *program_path) {
     {"finisher_window_frames", tuning->finisher_window_frames, false},
     {"saber_swing_volume", tuning->saber_swing_volume, false},
     {"show_hitboxes", tuning->show_hitboxes ? 1 : 0, false},
+    {"start_all_upgrades", tuning->start_all_upgrades ? 1 : 0, false},
   };
   const unsigned spec_count = sizeof(specs) / sizeof(specs[0]);
   char line[256];
@@ -244,6 +245,8 @@ static void check_defaults(void) {
         "window and volume defaults match the manifest");
   check(!tuning->show_hitboxes && !MmxSaberTuningShowHitboxes(),
         "show_hitboxes defaults off");
+  check(!tuning->start_all_upgrades && !MmxSaberTuningStartAllUpgrades(),
+        "start_all_upgrades defaults off");
   check(MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_SLASH3) == 2,
         "boss slash 3 default returns the tuned boss value");
 }
@@ -267,6 +270,7 @@ static void check_each_id_maps_to_field(void) {
     {"priority_window_frames", "71"}, {"finisher_window_frames", "60"},
     {"saber_swing_volume", "90"},
     {"show_hitboxes", "true"},
+    {"start_all_upgrades", "true"},
   };
   FakeOptions source = {options, sizeof(options) / sizeof(options[0])};
   static const int expected_boss[] = {21, 22, 23, 27, 24, 25, 26, 28};
@@ -294,6 +298,9 @@ static void check_each_id_maps_to_field(void) {
         "swing volume option id maps to its field");
   check(MmxSaberTuningGet()->show_hitboxes && MmxSaberTuningShowHitboxes(),
         "boolean show_hitboxes option maps to its field");
+  check(MmxSaberTuningGet()->start_all_upgrades &&
+            MmxSaberTuningStartAllUpgrades(),
+        "boolean start_all_upgrades option maps to its field");
 }
 
 static void check_clamping_and_invalid_fallback(void) {
@@ -305,6 +312,7 @@ static void check_clamping_and_invalid_fallback(void) {
     {"finisher_window_frames", "61"},
     {"saber_swing_volume", "-10"},
     {"wave_priority", "10"},
+    {"start_all_upgrades", "not-a-boolean"},
     {"air_damage", "3x"},
     {"show_hitboxes", "not-a-boolean"},
   };
@@ -329,6 +337,8 @@ static void check_clamping_and_invalid_fallback(void) {
         "trailing text falls back to the normal damage default");
   check(!MmxSaberTuningShowHitboxes(),
         "invalid boolean falls back to show_hitboxes off");
+  check(!MmxSaberTuningStartAllUpgrades(),
+        "invalid boolean falls back to start_all_upgrades off");
 }
 
 static void check_boss_semantics(void) {

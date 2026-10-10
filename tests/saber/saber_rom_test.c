@@ -17,6 +17,7 @@
 #include "saber/mmx_saber_priority.h"
 #include "saber/mmx_saber_sfx.h"
 #include "saber/mmx_saber_tuning.h"
+#include "saber/mmx_saber_armor.h"
 #include "saber/mmx_saber_wave.h"
 #include "saber/mmx_saber_wave_runtime.h"
 #include "mmx_wide_policy.h"
@@ -4659,6 +4660,59 @@ static void saber_finisher_checks(const char *fixture) {
   saber_finisher_no_emission_checks(fixture);
   puts("ok: saber-finisher");
 }
+static void saber_armor_checks(const char *fixture) {
+  const char *package = "megaman-x.character.saber-zero";
+  const char *feature = "saber-zero";
+  MmxSaberArmorFlags flags;
+
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, package, feature,
+            "start_all_upgrades", "false"),
+        "test catalog disables start_all_upgrades");
+  snes_mod_runtime_activate_plugins_c();
+  check(MmxSaberEnabled() && !MmxSaberTuningStartAllUpgrades(),
+        "start_all_upgrades off reactivation keeps Saber enabled");
+
+  load_fixture(fixture);
+  g_ram[0x1f99] = 0x80;
+  /* Exact stage/checkpoint seam used by hook $00:9DCA. */
+  MmxZeroHealthRespawn(g_ram);
+  frame(0);
+  printf("reference: start_all_upgrades=off stage upgrades=0x%02X\n",
+         g_ram[0x1f99]);
+  check(g_ram[0x1f99] == 0x80,
+        "start_all_upgrades off leaves $1F99 unchanged at stage start");
+  flags = MmxSaberArmorCurrent();
+  check(!flags.head && !flags.arms && !flags.body && !flags.legs &&
+            !flags.black,
+        "start_all_upgrades off exposes no armor flags");
+
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, package, feature,
+            "start_all_upgrades", "true"),
+        "test catalog enables start_all_upgrades");
+  snes_mod_runtime_activate_plugins_c();
+  check(MmxSaberEnabled() && MmxSaberTuningStartAllUpgrades(),
+        "start_all_upgrades on reactivation keeps Saber enabled");
+
+  load_fixture(fixture);
+  g_ram[0x1f99] = 0x80;
+  /* Exact stage/checkpoint seam used by hook $00:9DCA. */
+  MmxZeroHealthRespawn(g_ram);
+  frame(0);
+  printf("reference: start_all_upgrades=on stage upgrades=0x%02X\n",
+         g_ram[0x1f99]);
+  check(g_ram[0x1f99] == 0x8f,
+        "start_all_upgrades on ORs all four low armor bits at stage start");
+  flags = MmxSaberArmorCurrent();
+  check(flags.head && flags.arms && flags.body && flags.legs && flags.black,
+        "start_all_upgrades on exposes all armor flags and Black Zero");
+  frame(0);
+  check(g_ram[0x1f99] == 0x8f,
+        "stage armor write does not repeat or alter bits on next frame");
+  puts("ok: saber-armor");
+}
+
 
 static void saber_tuning_checks(void) {
   check(g_mod_provider->feature_set_option(
@@ -8500,6 +8554,7 @@ int main(int argc, char **argv) {
   const bool saber_package = only && !strcmp(only, "saber-package");
   const bool saber_finisher = only && !strcmp(only, "saber-finisher");
   const bool saber_tuning = only && !strcmp(only, "saber-tuning");
+  const bool saber_armor = only && !strcmp(only, "saber-armor");
   const bool saber_hitbox_debug = only && !strcmp(only, "saber-hitbox-debug");
   const bool saber_damage = only && !strcmp(only, "saber-damage");
   const bool zero_extension = only && !strcmp(only, "zero-extension");
@@ -8541,6 +8596,7 @@ int main(int argc, char **argv) {
       saber_finisher || saber_priority_classify ||
       saber_priority || saber_armadillo ||
       saber_tuning || saber_hitbox_debug || saber_damage ||
+      saber_armor ||
       saber_wave_travel || saber_wave_damage || saber_wave_lifecycle ||
       saber_wave_render || saber_ride_pilot || saber_boss_death;
   SpecialCounts upstream_specials = {0};
@@ -8625,6 +8681,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-armadillo runs with the Saber package enabled");
     saber_armadillo_checks(argv[1], x3_rom, assets, fixture_dir);
+  } else if (saber_armor) {
+    check(MmxSaberEnabled(),
+          "saber-armor runs with the Saber package enabled");
+    saber_armor_checks(fixture);
   } else if (saber_tuning) {
     check(MmxSaberEnabled(),
           "saber-tuning runs with the Saber package enabled");
@@ -8720,6 +8780,7 @@ int main(int argc, char **argv) {
         strcmp(only, "x3-post-charge") && strcmp(only, "x1-native") &&
         strcmp(only, "x3-zero-specials") &&
       strcmp(only, "saber-package") && strcmp(only, "saber-input") &&
+      strcmp(only, "saber-armor") &&
       strcmp(only, "saber-finisher") &&
       strcmp(only, "saber-priority-classify") &&
       strcmp(only, "saber-priority") &&

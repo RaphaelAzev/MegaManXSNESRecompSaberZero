@@ -43,6 +43,7 @@ typedef struct MmxSaberTuning {
   int finisher_window_frames;
   int saber_swing_volume;
   bool show_hitboxes;
+  bool start_all_upgrades;
 } MmxSaberTuning;
 
 /* The reader returns true when it supplied a value for option_id. */
@@ -62,6 +63,7 @@ int MmxSaberTuningPriorityWindowFrames(void);
 int MmxSaberTuningFinisherWindowFrames(void);
 int MmxSaberTuningSaberSwingVolume(void);
 bool MmxSaberTuningShowHitboxes(void);
+bool MmxSaberTuningStartAllUpgrades(void);
 
 /* Short name for call sites that already establish the Saber context. */
 int MmxSaberTuningSwingVolume(void);

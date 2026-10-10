@@ -22,6 +22,7 @@ static MmxSaberTuning g_tuning = {
   27,
   50,
   false,
+  false,
 };
 
 static MmxSaberTuningOption k_options[] = {
@@ -90,6 +91,7 @@ static MmxSaberTuningOption k_options[] = {
    &g_tuning.finisher_window_frames},
   {"saber_swing_volume", 50, 0, 200, &g_tuning.saber_swing_volume},
   {"show_hitboxes", 0, 0, 1, &g_tuning.show_hitboxes, true},
+  {"start_all_upgrades", 0, 0, 1, &g_tuning.start_all_upgrades, true},
 };
 
 static bool parse_integer(const char *text, int *out) {
@@ -181,6 +183,10 @@ int MmxSaberTuningSaberSwingVolume(void) {
 
 bool MmxSaberTuningShowHitboxes(void) {
   return g_tuning.show_hitboxes;
+}
+
+bool MmxSaberTuningStartAllUpgrades(void) {
+  return g_tuning.start_all_upgrades;
 }
 
 int MmxSaberTuningSwingVolume(void) {

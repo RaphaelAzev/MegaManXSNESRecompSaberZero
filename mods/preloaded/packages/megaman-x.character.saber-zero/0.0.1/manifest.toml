@@ -43,6 +43,14 @@ default = false
 
 [[option]]
 feature = "saber-zero"
+id = "start_all_upgrades"
+label = "Start with all upgrades"
+description = "Gives all four armor parts at stage start; meant for testing and stored in the password like collected parts."
+type = "boolean"
+default = false
+
+[[option]]
+feature = "saber-zero"
 id = "slash1_damage"
 label = "Slash 1 damage"
 description = "Normal damage dealt by the first ground slash."
