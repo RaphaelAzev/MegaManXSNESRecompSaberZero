@@ -1,11 +1,32 @@
 #include "mmx_saber_render.h"
+#include "mmx_saber_armor.h"
+#include "mmx_saber_black_zero.h"
 #include "mmx_zero.h"
 #include "mmx_saber_wave_runtime.h"
 
 #include <string.h>
 
 static uint16_t flash_palette[256];
+static uint16_t black_zero_palette[256];
+static const uint16_t *black_zero_source;
+static unsigned black_zero_source_count;
+static bool black_zero_palette_cached;
 static const MmxSaberWave *render_wave;
+
+/* Asset palette identity owns conversion lifetime; draw calls reuse buffer. */
+static const uint16_t *select_overlay_palette(const uint16_t *palette,
+                                              uint16_t palette_count,
+                                              bool black_zero) {
+  if (!black_zero || !palette || !palette_count) return palette;
+  if (!black_zero_palette_cached || black_zero_source != palette ||
+      black_zero_source_count != palette_count) {
+    MmxSaberBlackZeroPalette(palette, palette_count, black_zero_palette);
+    black_zero_source = palette;
+    black_zero_source_count = palette_count;
+    black_zero_palette_cached = true;
+  }
+  return black_zero_palette;
+}
 
 static void clear_overlay(MmxRenderPlayerOverlay *out) {
   if (out) memset(out, 0, sizeof(*out));
@@ -119,7 +140,9 @@ bool MmxSaberRenderResolveSnapshot(const MmxSaberAssets *assets,
   out->blade.origin_x = frame->blade.origin_x;
   out->blade.origin_y = frame->blade.origin_y;
   out->blade_layer = frame->blade_layer;
-  out->palette = MmxSaberAssetsPalette(assets);
+  out->palette = select_overlay_palette(
+      MmxSaberAssetsPalette(assets), MmxSaberAssetsPaletteCount(assets),
+      MmxSaberArmorCurrent().black);
   out->palette_count = MmxSaberAssetsPaletteCount(assets);
   MmxZeroState zero = MmxZeroGetState();
   if (MmxZeroChargeFlashPaletteIndex(&zero) >= 0) {
@@ -164,7 +187,9 @@ bool MmxSaberRenderResolveRide(const MmxSaberAssets *assets,
   out->body.height = frame->body.height;
   out->body.origin_x = frame->body.origin_x;
   out->body.origin_y = frame->body.origin_y;
-  out->palette = MmxSaberAssetsPalette(assets);
+  out->palette = select_overlay_palette(
+      MmxSaberAssetsPalette(assets), MmxSaberAssetsPaletteCount(assets),
+      MmxSaberArmorCurrent().black);
   out->palette_count = MmxSaberAssetsPaletteCount(assets);
   /* Ride art is authored in the opposite horizontal orientation from the
    * native pilot/armor facing, like the Saber attack sheets. */

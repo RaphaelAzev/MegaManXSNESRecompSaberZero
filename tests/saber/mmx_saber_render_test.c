@@ -1,4 +1,6 @@
 #include "mmx_saber_render.h"
+#include "mmx_saber_armor.h"
+#include "mmx_saber_black_zero.h"
 #include "mmx_zero.h"
 #include "sha256.h"
 
@@ -16,8 +18,14 @@
 static MmxZeroState test_zero_state;
 static uint16_t test_zero_colors[128];
 static uint16_t test_charge_colors[3][16];
+static bool test_black_zero;
 
 bool MmxZeroActive(void) { return true; }
+MmxSaberArmorFlags MmxSaberArmorCurrent(void) {
+  MmxSaberArmorFlags flags = {0};
+  flags.black = test_black_zero;
+  return flags;
+}
 MmxZeroState MmxZeroGetState(void) { return test_zero_state; }
 const uint16_t *MmxZeroColors(void) { return test_zero_colors; }
 int MmxZeroChargeFlashPaletteIndex(const MmxZeroState *s) {
@@ -283,6 +291,78 @@ static bool find_blade_snapshot(const MmxSaberAssets *assets,
   return false;
 }
 
+static void black_zero_render_checks(const MmxSaberAssets *assets,
+                                     const MmxSaberAssets *ride) {
+  const uint16_t *base = MmxSaberAssetsPalette(assets);
+  const uint16_t *ride_base = MmxSaberAssetsPalette(ride);
+  uint16_t base_count = MmxSaberAssetsPaletteCount(assets);
+  uint16_t ride_count = MmxSaberAssetsPaletteCount(ride);
+  uint16_t expected_black[256] = {0};
+  uint16_t expected_flash[256] = {0};
+  uint16_t normal_flash[256] = {0};
+  MmxSaberAttackSnapshot snapshot;
+  const MmxSaberFrame *expected;
+  MmxRenderPlayerOverlay actual;
+  const uint16_t *cached;
+  uint8_t ram[0x20000] = {0};
+
+  /* The shipped sheets keep the blade in separate frames, so use the first
+   * ground-slash tuple (body plane) as the overlay frame under test. */
+  snapshot = (MmxSaberAttackSnapshot){
+    kKinds[0], kIndices[0], SABER_PHASE_ACTIVE, kOldTuples[0][0].tick, 1,
+    0, 0x40};
+  expected = MmxSaberAssetsFrameForStep(assets, 1, kOldTuples[0][0].step);
+  check(expected != NULL,
+        "Black Zero render test finds an overlay frame");
+  MmxSaberBlackZeroPalette(base, base_count, expected_black);
+  test_zero_state = (MmxZeroState){0};
+  test_black_zero = false;
+  check(MmxSaberRenderResolveSnapshot(assets, snapshot, &actual) &&
+            actual.palette == base && actual.palette_count == base_count,
+        "normal overlay state keeps the loaded palette");
+  test_black_zero = true;
+  check(MmxSaberRenderResolveSnapshot(assets, snapshot, &actual) &&
+            actual.palette != base &&
+            !memcmp(actual.palette, expected_black,
+                    (size_t)base_count * sizeof(*base)) &&
+            actual.palette_count == base_count,
+        "Black Zero overlay uses the converted palette");
+  cached = actual.palette;
+  check(MmxSaberRenderResolveSnapshot(assets, snapshot, &actual) &&
+            actual.palette == cached,
+        "Black Zero overlay reuses its cached palette");
+
+  test_zero_state.charge = 30;
+  test_zero_state.charge_phase = 0;
+  expected_flash_palette(expected_flash, expected_black, base_count,
+                         MmxZeroBodyColors(&test_zero_state));
+  expected_flash_palette(normal_flash, base, base_count,
+                         MmxZeroBodyColors(&test_zero_state));
+  check(memcmp(expected_flash, normal_flash,
+               (size_t)base_count * sizeof(*base)) != 0 &&
+            MmxSaberRenderResolveSnapshot(assets, snapshot, &actual) &&
+            !memcmp(actual.palette, expected_flash,
+                    (size_t)base_count * sizeof(*base)),
+        "charge flash ranks against the Black Zero palette");
+
+  ram[0x0baa] = 0x2c;
+  MmxSaberBlackZeroPalette(ride_base, ride_count, expected_black);
+  test_zero_state = (MmxZeroState){0};
+  test_black_zero = false;
+  check(MmxSaberRenderResolveRide(ride, ram, &actual) &&
+            actual.palette == ride_base && actual.palette_count == ride_count,
+        "normal Ride Armor pilot keeps the loaded palette");
+  test_black_zero = true;
+  check(MmxSaberRenderResolveRide(ride, ram, &actual) &&
+            actual.palette != ride_base &&
+            !memcmp(actual.palette, expected_black,
+                    (size_t)ride_count * sizeof(*ride_base)) &&
+            actual.palette_count == ride_count,
+        "Black Zero Ride Armor pilot uses the converted palette");
+
+  test_black_zero = false;
+  test_zero_state = (MmxZeroState){0};
+}
 static unsigned first_pixel(const MmxSaberPlane *plane) {
   size_t size = (size_t)plane->width * plane->height;
   for (size_t i = 0; i < size; ++i) if (plane->pixels[i]) return plane->pixels[i];
@@ -573,6 +653,7 @@ int main(void) {
   MmxSaberAssets *flash_assets = make_flash_assets();
   check(flash_assets != NULL, "in-memory body-and-blade flash sidecar parses");
   charge_flash_checks(flash_assets);
+  black_zero_render_checks(assets, ride);
   MmxSaberAssetsFree(flash_assets);
 
   MmxSaberWaveFree(wave);
