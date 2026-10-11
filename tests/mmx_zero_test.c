@@ -1,8 +1,12 @@
 #include "mmx_zero.h"
+#include "saber/mmx_saber_black_zero.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* Exercise the real Saber callback without widening the standalone target. */
+#include "../src/saber/mmx_saber_black_zero.c"
 
 static uint8_t ram[0x20000], before[0x20000], rom[0x180000], clean[0x180000];
 static const uint16_t *color_hook_table;
@@ -107,6 +111,28 @@ static void color_checks(void) {
   assert(MmxZeroColors() == native && MmxZeroBodyColors(&normal) == native + 16);
 
   assert(MmxZeroLoad("zero-test.bin"));
+}
+static void death_orb_color_checks(void) {
+  static const uint16_t source[] = {0x739C, 0x3DFE, 0x295E, 0x001F, 0x009C};
+  static const uint16_t expected[] = {0x739C, 0x2D6B, 0x1CE7, 0x0CA5, 0x2D6B};
+  static const MmxZeroExtension extension = {
+      .death_orb_color = MmxSaberBlackZeroDeathOrbColor};
+  uint16_t native[128] = {0};
+
+  MmxZeroSetExtension(&extension);
+  MmxSaberBlackZeroNativeColorsUpdate(false, false, NULL);
+  for (unsigned i = 0; i < sizeof(source) / sizeof(source[0]); ++i)
+    assert(MmxZeroDeathOrbColor(source[i]) == source[i]);
+
+  MmxSaberBlackZeroNativeColorsUpdate(true, false, native);
+  for (unsigned i = 0; i < sizeof(source) / sizeof(source[0]); ++i)
+    assert(MmxZeroDeathOrbColor(source[i]) == expected[i]);
+  assert(MmxZeroDeathOrbColor(0x739C) == 0x739C);
+  assert(MmxZeroDeathOrbColor(0x7FFF) == 0x7FFF);
+
+  MmxZeroSetExtension(NULL);
+  assert(MmxZeroDeathOrbColor(0x3DFE) == 0x3DFE);
+  MmxSaberBlackZeroNativeColorsUpdate(false, false, NULL);
 }
 static void charge_rate_checks(void) {
   static const MmxZeroExtension charge_extension = {
@@ -275,6 +301,7 @@ int main(void) {
   assert(MmxZeroUpgradeBits(0x81971c, 0) == 0);
   asset("zero-test.bin", false); assert(MmxZeroLoad("zero-test.bin"));
   color_checks();
+  death_orb_color_checks();
   assert(MmxZeroUpgradeBits(0x81971c, 2) == 10);
   assert(MmxZeroUpgradeBits(0x8197da, 0) == 0); /* Special charge stays upgrade-gated. */
   assert(MmxZeroMuzzle(ram,0x1228,0,0,16) == 24);

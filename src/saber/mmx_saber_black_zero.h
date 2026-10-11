@@ -22,6 +22,7 @@ void MmxSaberBlackZeroNativeColors(const uint16_t src[128],
 void MmxSaberBlackZeroNativeColorsUpdate(bool black, bool arms,
                                          const uint16_t *native);
 const uint16_t *MmxSaberBlackZeroNativeColorsHook(const uint16_t *native);
+uint16_t MmxSaberBlackZeroDeathOrbColor(uint16_t native);
 
 #ifdef __cplusplus
 }

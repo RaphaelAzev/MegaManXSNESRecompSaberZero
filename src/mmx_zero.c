@@ -218,6 +218,10 @@ bool MmxZeroDeathOrbRed(const uint8_t r[0x20000], unsigned orb) {
   return poses && r && orb >= 0x1928 && orb < 0x1d08 && !((orb - 0x1928) % 32) &&
       r[orb] && r[orb + 10] == 14 && r[orb + 2] == 0x5a;
 }
+uint16_t MmxZeroDeathOrbColor(uint16_t native) {
+  return extension && extension->death_orb_color ?
+      extension->death_orb_color(native) : native;
+}
 const uint8_t *MmxZeroMenuPose(void) { return poses; }
 static void animation_record(unsigned offset) {
   if (offset < 272 || offset + 3 > sizeof(animation) || !animation[offset] || animation[offset + 2] >= 117) {

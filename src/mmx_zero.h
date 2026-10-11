@@ -35,6 +35,7 @@ typedef struct MmxZeroExtension {
   int (*burst_origin_y)(const uint8_t *ram, unsigned shot_index,
                         int native_y, int paired_y);
   unsigned (*charge_rate)(void);                    /* Q8.8 per frame; 0 = default 0x100 */
+  uint16_t (*death_orb_color)(uint16_t native);     /* Zero-owned death-orb pixel */
 } MmxZeroExtension;
 typedef struct MmxZeroState {
   uint16_t charge, slash, projectile;
@@ -80,6 +81,7 @@ const uint8_t *MmxZeroChargePose(const MmxZeroState *snapshot);
 bool MmxZeroHasChargeArt(void);
 void MmxZeroDeathOrbSpawn(uint8_t ram[0x20000], unsigned source, unsigned orb);
 bool MmxZeroDeathOrbRed(const uint8_t ram[0x20000], unsigned orb);
+uint16_t MmxZeroDeathOrbColor(uint16_t native);
 bool MmxZeroNativeChargeObject(unsigned object, unsigned kind);
 const uint8_t *MmxZeroMenuPose(void);
 /* Original X3 BGR555 badge pixel; -2 is transparent, -1 retains native art. */

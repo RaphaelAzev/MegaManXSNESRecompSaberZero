@@ -271,6 +271,7 @@ static const MmxZeroExtension extension = {
     .player_end = player_end,
     .modern_movement = modern_movement,
     .colors = MmxSaberBlackZeroNativeColorsHook,
+    .death_orb_color = MmxSaberBlackZeroDeathOrbColor,
     .legacy_intent = legacy_intent,
     .legacy_slash_request = MmxSaberComboLegacySlashRequest,
     .charge_cap = charge_cap,

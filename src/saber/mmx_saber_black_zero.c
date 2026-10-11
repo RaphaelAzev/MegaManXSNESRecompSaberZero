@@ -46,6 +46,25 @@ void MmxSaberBlackZeroPalette(const uint16_t *src, unsigned count,
   }
 }
 
+static uint16_t black_zero_death_orb_grey(uint16_t color) {
+  unsigned red = color & 31u;
+  unsigned green = (color >> 5) & 31u;
+  unsigned blue = (color >> 10) & 31u;
+  if (red <= green || red <= blue) return color;
+  /* The X asset's red-tinted ramp is 0x3DFE, 0x295E, 0x001F.
+   * Match its non-red channel brightness to Black Zero's light, mid and dark
+   * armour greys. Exact table values are handled before this fallback. */
+  unsigned brightness = green + blue;
+  return brightness >= 26 ? 0x2D6B : brightness >= 16 ? 0x1CE7 : 0x0CA5;
+}
+
+uint16_t MmxSaberBlackZeroDeathOrbColor(uint16_t native) {
+  uint16_t mapped;
+  if (!native_black) return native;
+  MmxSaberBlackZeroPalette(&native, 1, &mapped);
+  return mapped != native ? mapped : black_zero_death_orb_grey(native);
+}
+
 uint16_t MmxSaberPurpleBlade(uint16_t bgr555) {
   unsigned red = bgr555 & 31u;
   unsigned green = (bgr555 >> 5) & 31u;
