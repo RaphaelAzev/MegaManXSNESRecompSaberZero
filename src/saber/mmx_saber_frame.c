@@ -2,6 +2,7 @@
 
 #include "mmx_saber_attack.h"
 #include "mmx_saber_armor.h"
+#include "mmx_saber_black_zero.h"
 #include "mmx_saber_combo.h"
 #include "mmx_saber_hitbox_debug.h"
 #include "mmx_saber_input.h"
@@ -34,6 +35,7 @@ static void state_reset(uint8_t *ram) {
   MmxSaberPriorityReset();
   MmxSaberComboReset(ram);
   MmxSaberAttackResetCueCount();
+  MmxSaberBlackZeroNativeColorsUpdate(false, NULL);
   release_pending = false;
   previous_y = false;
   clear_frame_state();
@@ -176,10 +178,17 @@ static void pre_player(uint8_t *ram) {
      * Zero lifecycle transition. Do not touch any native input byte. */
     MmxSaberComboCancel(ram);
     MmxSaberAttackResetRam(ram);
+    MmxSaberBlackZeroNativeColorsUpdate(false, NULL);
     release_pending = false;
     previous_y = ram && (ram[0x00ac] & 0x40) != 0;
     return;
   }
+
+  MmxSaberArmorFlags armor = MmxSaberArmorCurrent();
+  if (armor.black)
+    MmxSaberBlackZeroNativeColorsUpdate(true, MmxZeroColors());
+  else
+    MmxSaberBlackZeroNativeColorsUpdate(false, NULL);
 
   physical = read_physical_pad(ram);
   saber = MmxSaberAttackPadState(release_pending);
@@ -254,6 +263,7 @@ static int burst_origin_y(const uint8_t *ram, unsigned shot_index,
 static const MmxZeroExtension extension = {
     .pre_player = pre_player,
     .player_end = player_end,
+    .colors = MmxSaberBlackZeroNativeColorsHook,
     .legacy_intent = legacy_intent,
     .legacy_slash_request = MmxSaberComboLegacySlashRequest,
     .charge_cap = charge_cap,

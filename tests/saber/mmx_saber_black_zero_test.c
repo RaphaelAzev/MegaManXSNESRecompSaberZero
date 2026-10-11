@@ -12,6 +12,44 @@ static void check(int ok, const char *message) {
   printf("ok: %s\n", message);
 }
 
+static void native_color_indices(void) {
+  uint16_t source[128], actual[128];
+  for (unsigned i = 0; i < 128; ++i) {
+    source[i] = (uint16_t)(0x4000 + i);
+    actual[i] = 0x7FFF;
+  }
+  MmxSaberBlackZeroNativeColors(source, actual);
+  for (unsigned i = 0; i < 128; ++i) {
+    uint16_t expected = source[i];
+    if (i == 23) expected = 0x2D6B;
+    if (i == 24) expected = 0x1CE7;
+    if (i == 25) expected = 0x0CA5;
+    if (i == 29) expected = 0x4EF9;
+    if (i == 30) expected = 0x2DD1;
+    if (i == 31) expected = 0x0C63;
+    check(actual[i] == expected,
+          "native Black Zero changes only body indices 23, 24, 25, 29, 30, and 31");
+  }
+}
+
+static void native_cache_lifecycle(void) {
+  uint16_t source[128];
+  for (unsigned i = 0; i < 128; ++i) source[i] = (uint16_t)(0x5000 + i);
+  MmxSaberBlackZeroNativeColorsUpdate(true, source);
+  const uint16_t *replacement = MmxSaberBlackZeroNativeColorsHook(source);
+  check(replacement && replacement != source && replacement[23] == 0x2D6B,
+        "native color hook returns cached Black Zero colours");
+  uint16_t changed[128];
+  for (unsigned i = 0; i < 128; ++i) changed[i] = (uint16_t)(0x6000 + i);
+  MmxSaberBlackZeroNativeColorsUpdate(true, changed);
+  replacement = MmxSaberBlackZeroNativeColorsHook(changed);
+  check(replacement && replacement[0] == 0x6000 && replacement[23] == 0x2D6B,
+        "native color hook rebuilds when native table pointer changes");
+  MmxSaberBlackZeroNativeColorsUpdate(false, NULL);
+  check(!MmxSaberBlackZeroNativeColorsHook(source),
+        "native color hook clears after Black Zero is disabled");
+}
+
 int main(void) {
   static const uint16_t source[] = {
     0x0000, 0x1284, 0x0B08,
@@ -26,6 +64,8 @@ int main(void) {
   uint16_t actual[sizeof(source) / sizeof(source[0]) + 1];
   unsigned count = (unsigned)(sizeof(source) / sizeof(source[0]));
 
+  native_color_indices();
+  native_cache_lifecycle();
   for (unsigned i = 0; i < sizeof(actual) / sizeof(actual[0]); ++i)
     actual[i] = 0x7FFF;
   MmxSaberBlackZeroPalette(source, count, actual);

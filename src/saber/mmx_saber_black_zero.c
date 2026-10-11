@@ -1,5 +1,8 @@
 #include "mmx_saber_black_zero.h"
 
+#include <stddef.h>
+#include <string.h>
+
 typedef struct MmxSaberBlackZeroColor {
   uint16_t source;
   uint16_t target;
@@ -21,6 +24,10 @@ static const MmxSaberBlackZeroColor k_black_zero_colors[] = {
   {0x010D, 0x214C},
 };
 
+static const uint16_t *native_source;
+static uint16_t native_colors[128];
+static bool native_black;
+
 void MmxSaberBlackZeroPalette(const uint16_t *src, unsigned count,
                               uint16_t *dst) {
   if (!src || !dst) return;
@@ -36,4 +43,35 @@ void MmxSaberBlackZeroPalette(const uint16_t *src, unsigned count,
     }
     dst[i] = color;
   }
+}
+
+void MmxSaberBlackZeroNativeColors(const uint16_t src[128],
+                                   uint16_t dst[128]) {
+  if (!src || !dst) return;
+  memcpy(dst, src, 128 * sizeof(*dst));
+  dst[23] = 0x2D6B;
+  dst[24] = 0x1CE7;
+  dst[25] = 0x0CA5;
+  dst[29] = 0x4EF9;
+  dst[30] = 0x2DD1;
+  dst[31] = 0x0C63;
+}
+
+void MmxSaberBlackZeroNativeColorsUpdate(bool black,
+                                         const uint16_t *native) {
+  if (!black || !native) {
+    native_source = NULL;
+    native_black = false;
+    return;
+  }
+  if (native_black && native == native_colors) return;
+  if (!native_black || native_source != native) {
+    MmxSaberBlackZeroNativeColors(native, native_colors);
+    native_source = native;
+  }
+  native_black = true;
+}
+
+const uint16_t *MmxSaberBlackZeroNativeColorsHook(const uint16_t *native) {
+  return native_black && native == native_source ? native_colors : NULL;
 }

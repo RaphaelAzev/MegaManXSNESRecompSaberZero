@@ -18,6 +18,7 @@ typedef struct MmxZeroLegacyIntent {
 typedef struct MmxZeroExtension {
   void (*pre_player)(uint8_t *ram);                 /* $815C, before SlideTick */
   void (*player_end)(uint8_t *ram);                 /* $8165, after MmxZeroPlayerEnd */
+  const uint16_t *(*colors)(const uint16_t *native); /* 128-entry replacement or NULL */
   unsigned (*weapon_tick)(uint8_t *ram, unsigned d, unsigned value);
   unsigned (*damage)(uint8_t *ram, unsigned d, unsigned x, unsigned value);
   unsigned (*hitbox)(const uint8_t *ram, unsigned d, unsigned x, unsigned value);

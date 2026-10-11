@@ -5,9 +5,14 @@
 #include <string.h>
 
 static uint8_t ram[0x20000], before[0x20000], rom[0x180000], clean[0x180000];
-static void asset(const char *path) {
+static const uint16_t *color_hook_table;
+static const uint16_t *color_hook(const uint16_t *native) {
+  (void)native;
+  return color_hook_table;
+}
+static void asset(const char *path, bool modern) {
   FILE *f = fopen(path, "wb"); assert(f);
-  const uint8_t header[] = {'M','M','X','Z','E','R','O','6',128,0,128,0,64,0,64,0,117,0,35,0};
+  const uint8_t header[] = {'M','M','X','Z','E','R','O',modern ? '7' : '6',128,0,128,0,64,0,64,0,117,0,35,0};
   uint8_t page[16384] = {0};
   assert(fwrite(header, sizeof(header), 1, f) == 1);
   assert(fwrite(page, 256, 1, f) == 1);
@@ -39,6 +44,17 @@ static void asset(const char *path) {
   muzzle[0] = 2; muzzle[122] = 255; muzzle[123] = 232;
   assert(fwrite(muzzle,sizeof(muzzle),1,f) == 1);
   for (unsigned i = 0; i < MMX_ZERO_POSES; ++i) assert(fwrite(page, sizeof(page), 1, f) == 1);
+  if (modern) {
+    uint8_t flash[96] = {0};
+    for (unsigned i = 0; i < 48; ++i) {
+      unsigned color = 0x0200 + i;
+      flash[i * 2] = (uint8_t)color;
+      flash[i * 2 + 1] = (uint8_t)(color >> 8);
+    }
+    assert(fwrite(flash, sizeof(flash), 1, f) == 1);
+    for (unsigned i = 0; i < MMX_ZERO_CHARGE_POSES; ++i)
+      assert(fwrite(page, sizeof(page), 1, f) == 1);
+  }
   assert(!fclose(f));
 }
 static void player(void) {
@@ -51,6 +67,38 @@ static int ceiling;
 static bool ceiling_query(const uint8_t *r, int x, int y) { (void)r; (void)x; return y < ceiling; }
 static void tick(unsigned held, unsigned pressed) {
   ram[0xbdf] = held; ram[0xbe3] = pressed; MmxZeroPlayerTick(ram);
+}
+static void color_checks(void) {
+  static const MmxZeroExtension colors_extension = {.colors = color_hook};
+  uint16_t replacement[128];
+  for (unsigned i = 0; i < 128; ++i) replacement[i] = (uint16_t)(0x4000 + i);
+
+  MmxZeroSetExtension(NULL);
+  const uint16_t *native = MmxZeroColors();
+  MmxZeroState normal = {0};
+  assert(MmxZeroColors() == native && MmxZeroBodyColors(&normal) == native + 16);
+
+  color_hook_table = replacement;
+  MmxZeroSetExtension(&colors_extension);
+  assert(MmxZeroColors() == replacement &&
+         MmxZeroBodyColors(&normal) == replacement + 16);
+
+  asset("zero-test-modern.bin", true);
+  assert(MmxZeroLoad("zero-test-modern.bin"));
+  MmxZeroSetState((MmxZeroState){.charge = 25});
+  MmxZeroState flashing = MmxZeroGetState();
+  const uint16_t *body = MmxZeroBodyColors(&flashing);
+  assert(body != replacement + 16 && body[0] == 0x0200 && body[15] == 0x020F);
+
+  color_hook_table = NULL;
+  MmxZeroSetState((MmxZeroState){0});
+  normal = MmxZeroGetState();
+  native = MmxZeroColors();
+  assert(native != replacement && MmxZeroBodyColors(&normal) == native + 16);
+  MmxZeroSetExtension(NULL);
+  assert(MmxZeroColors() == native && MmxZeroBodyColors(&normal) == native + 16);
+
+  assert(MmxZeroLoad("zero-test.bin"));
 }
 static void modern_checks(void) {
   MmxZeroSetTerrainQuery(NULL);
@@ -98,7 +146,8 @@ int main(void) {
   player(); memcpy(before, ram, sizeof(ram));
   tick(0,0); assert(!memcmp(before, ram, sizeof(ram)));
   assert(MmxZeroUpgradeBits(0x81971c, 0) == 0);
-  asset("zero-test.bin"); assert(MmxZeroLoad("zero-test.bin"));
+  asset("zero-test.bin", false); assert(MmxZeroLoad("zero-test.bin"));
+  color_checks();
   assert(MmxZeroUpgradeBits(0x81971c, 2) == 10);
   assert(MmxZeroUpgradeBits(0x8197da, 0) == 0); /* Special charge stays upgrade-gated. */
   assert(MmxZeroMuzzle(ram,0x1228,0,0,16) == 24);
@@ -271,7 +320,7 @@ int main(void) {
   modern_checks();
   MmxZeroDisable(); MmxZeroSetCollisionRom(rom,sizeof(rom));
   assert(!memcmp(rom,clean,sizeof(rom)));
-  remove("zero-test.bin"); remove("zero-test-bad.bin");
+  remove("zero-test.bin"); remove("zero-test-modern.bin"); remove("zero-test-bad.bin");
   puts("Zero: asset validation, collision restoration, combo, damage, cancellation and state tests passed");
   return 0;
 }
