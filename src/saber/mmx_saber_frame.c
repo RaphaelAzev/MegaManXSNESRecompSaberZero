@@ -103,6 +103,17 @@ static void write_native_pad(uint8_t *ram, MmxSaberNativePad native) {
   ram[0x0be3] = native.action_pressed;
 }
 
+/* Mirrors native $81:9FE1-$81:A003.  Native runs this before the Saber pad
+ * is written, so apply the same repeat cadence to the mapped pad afterward. */
+static void mirror_native_fire_wave_repeat(uint8_t *ram, bool fire_blocked) {
+  if (fire_blocked || ram[0x0bdb] != 0x08 || !(ram[0x0bdf] & 0x40))
+    return;
+  if (--ram[0x0c20] == 0) {
+    ram[0x0c20] = 0x02;
+    ram[0x0be3] |= 0x40;
+  }
+}
+
 static uint8_t native_horizontal_direction(const uint8_t *ram) {
   return ram ? (uint8_t)(ram[0x0bdf] & MMX_SABER_NATIVE_HORIZONTAL_BITS) : 0;
 }
@@ -266,6 +277,7 @@ static void pre_player(uint8_t *ram) {
   /* The computed view is the sole input write for this frame. There is no
    * restore step: the native player and the legacy callback consume it. */
   write_native_pad(ram, out.native);
+  mirror_native_fire_wave_repeat(ram, out.fire_blocked || zero.hurt);
   frame_intent = out.legacy;
   frame_override = out.legacy_override;
   frame_computed = true;

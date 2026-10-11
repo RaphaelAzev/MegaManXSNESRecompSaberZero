@@ -42,11 +42,11 @@ enum {
   SABER_TIER_8_RELEASE_CLASS = 3,
   SABER_FULL_RELEASE_CLASS = 3,
   SABER_FULL_RELEASE_SHOTS = 2,
-  SABER_FIRE_WAVE_FRAMES = 90,
-  SABER_FIRE_WAVE_BIRTHS = 4,
-  SABER_FIRE_WAVE_LIVE_FRAMES = 41,
-  SABER_FIRE_WAVE_LIVE_SAMPLES = 85,
-  SABER_FIRE_WAVE_PEAK = 4,
+  SABER_CHAMELEON_STING_FRAMES = 90,
+  SABER_CHAMELEON_STING_BIRTHS = 4,
+  SABER_CHAMELEON_STING_LIVE_FRAMES = 41,
+  SABER_CHAMELEON_STING_LIVE_SAMPLES = 85,
+  SABER_CHAMELEON_STING_PEAK = 4,
   /* These are measured from the pure upstream X3 Zero group below. */
   X3_ZERO_FIRE_WAVE_BIRTHS = 4,
   X3_ZERO_FIRE_WAVE_LIVE_FRAMES = 39,
@@ -1666,24 +1666,24 @@ static void x3_post_charge_checks(const char *fixture, unsigned button) {
 static void native_x1_checks(const char *fixture) {
   load_fixture(fixture);
   switch_to_x();
-  select_native_weapon(2); /* Fire Wave. */
+  select_native_weapon(2); /* Chameleon Sting. */
   unsigned char previous[8] = {0};
   unsigned births = 0, live_frames = 0, peak_live = 0, live_samples = 0;
-  for (unsigned i = 0; i < SABER_FIRE_WAVE_FRAMES; ++i) {
+  for (unsigned i = 0; i < SABER_CHAMELEON_STING_FRAMES; ++i) {
     frame(SNES_PAD_Y);
-    unsigned live = projectiles(8); /* X1 Fire Wave's native flame class. */
+    unsigned live = projectiles(8); /* X1 Chameleon Sting's native class. */
     births += new_projectiles(8, previous);
     live_frames += live != 0;
     live_samples += live;
     if (live > peak_live) peak_live = live;
   }
-  check(births == SABER_FIRE_WAVE_BIRTHS &&
-            live_frames == SABER_FIRE_WAVE_LIVE_FRAMES &&
-            live_samples == SABER_FIRE_WAVE_LIVE_SAMPLES &&
-            peak_live == SABER_FIRE_WAVE_PEAK,
-        "native X1 Fire Wave matches its 90-frame reference counts");
-  printf("reference: Fire Wave held %u frames births=%u live_frames=%u live_samples=%u peak=%u\n",
-         SABER_FIRE_WAVE_FRAMES, births, live_frames, live_samples, peak_live);
+  check(births == SABER_CHAMELEON_STING_BIRTHS &&
+            live_frames == SABER_CHAMELEON_STING_LIVE_FRAMES &&
+            live_samples == SABER_CHAMELEON_STING_LIVE_SAMPLES &&
+            peak_live == SABER_CHAMELEON_STING_PEAK,
+        "native X1 Chameleon Sting matches its 90-frame reference counts");
+  printf("reference: Chameleon Sting held %u frames births=%u live_frames=%u live_samples=%u peak=%u\n",
+         SABER_CHAMELEON_STING_FRAMES, births, live_frames, live_samples, peak_live);
 
   load_fixture(fixture);
   switch_to_x();
@@ -1703,74 +1703,173 @@ static void native_x1_checks(const char *fixture) {
   puts("ok: x1-native-weapons");
 }
 
-/* Issue #2: with the arms part, X1 turns a held special into a charge
- * ($81:97DA tests $1F99 & $02), so held Fire Wave does not stream for X
- * either. Saber Zero must follow X's rule for every armor state. */
-static FireWaveCounts measure_fire_wave_armor(const char *fixture,
-                                               bool use_x,
-                                               uint8_t armor,
-                                               unsigned *charge_max) {
-  FireWaveCounts counts = {0};
+enum {
+  FIRE_WAVE_ROUTE_WEAPON = 4,
+  FIRE_WAVE_ROUTE_SELECTED = 0x08,
+  FIRE_WAVE_ROUTE_KIND = 0x0a,
+  FIRE_WAVE_ROUTE_ENERGY = 0x1f8d,
+  FIRE_WAVE_ROUTE_HOLD_FRAMES = 120,
+  FIRE_WAVE_ROUTE_LATE_FRAMES = 30
+};
+
+typedef struct FireWaveRouteProbe {
+  unsigned births;
+  unsigned peak_live;
+  unsigned late_live_frames;
+  unsigned late_live_samples;
+  unsigned late_live[FIRE_WAVE_ROUTE_LATE_FRAMES];
+  unsigned energy_before;
+  unsigned energy_after;
+  unsigned charge_max;
+} FireWaveRouteProbe;
+
+static void trace_real_fire_wave(const char *actor, uint8_t armor,
+                                 unsigned frame_number, unsigned live) {
+  printf("trace: real-fire-wave actor=%s armor=0x%02X frame=%u "
+         "selected=0x%02X "
+         "pad[0BDE/0BDF/0BE1/0BE2/0BE3]="
+         "%02X/%02X/%02X/%02X/%02X "
+         "repeat[0C20]=%02X water[0C18]=%02X "
+         "live_kind_0A=%u energy[1F8D]=0x%04X charge[0C00]=%u slots=",
+         actor, armor, frame_number, g_ram[0x0bdb],
+         g_ram[0x0bde], g_ram[0x0bdf], g_ram[0x0be1],
+         g_ram[0x0be2], g_ram[0x0be3],
+         g_ram[0x0c20], g_ram[0x0c18], live,
+         read_ram_word(g_ram, FIRE_WAVE_ROUTE_ENERGY),
+         g_ram[0x0c00]);
+
+  for (unsigned i = 0; i < 8; ++i) {
+    const unsigned d = 0x1228 + i * 0x40;
+    if (g_ram[d])
+      printf("%s%u:%02X/%02X", i ? "," : "", i,
+             g_ram[d + 0x0a], g_ram[d + 0x01]);
+    else
+      printf("%s%u:--/--", i ? "," : "", i);
+  }
+  putchar('\n');
+}
+
+static FireWaveRouteProbe measure_real_fire_wave_route(
+    const char *fixture, bool use_x, uint8_t armor, bool trace) {
+  FireWaveRouteProbe result = {0};
   unsigned char previous[8] = {0};
   const unsigned button = use_x ? SNES_PAD_Y : SNES_PAD_X;
+  const char *actor = use_x ? "X" : "SaberZero";
 
   load_fixture(fixture);
   MmxSaberFrameReset();
   if (use_x) switch_to_x();
 
-  select_native_weapon(2); /* Fire Wave. */
+  select_native_weapon(FIRE_WAVE_ROUTE_WEAPON);
+  check(g_ram[0x0bdb] == FIRE_WAVE_ROUTE_SELECTED,
+        "real Fire Wave selection is native command 0x08");
+
   g_ram[0x1f99] = armor;
-  *charge_max = 0;
+  g_ram[FIRE_WAVE_ROUTE_ENERGY] = 0x00;
+  g_ram[FIRE_WAVE_ROUTE_ENERGY + 1] = 0xdc;
+  result.energy_before = read_ram_word(g_ram, FIRE_WAVE_ROUTE_ENERGY);
+  shot_presence(FIRE_WAVE_ROUTE_KIND, previous);
 
-  for (unsigned i = 0; i < 90; ++i) {
+  for (unsigned i = 0; i < FIRE_WAVE_ROUTE_HOLD_FRAMES; ++i) {
     frame(button);
-    const unsigned live = projectiles(8);
 
-    counts.births += new_projectiles(8, previous);
-    counts.live_frames += live != 0;
-    counts.live_samples += live;
-    if (live > counts.peak) counts.peak = live;
-    if (g_ram[0x0c00] > *charge_max) *charge_max = g_ram[0x0c00];
+    const unsigned live = projectiles(FIRE_WAVE_ROUTE_KIND);
+    result.births += new_projectiles(FIRE_WAVE_ROUTE_KIND, previous);
+    if (live > result.peak_live) result.peak_live = live;
+    if (g_ram[0x0c00] > result.charge_max)
+      result.charge_max = g_ram[0x0c00];
+
+    if (i >= FIRE_WAVE_ROUTE_HOLD_FRAMES - FIRE_WAVE_ROUTE_LATE_FRAMES) {
+      const unsigned late =
+          i - (FIRE_WAVE_ROUTE_HOLD_FRAMES - FIRE_WAVE_ROUTE_LATE_FRAMES);
+      result.late_live[late] = live;
+      result.late_live_frames += live != 0;
+      result.late_live_samples += live;
+    }
+
+    if (trace && (i + 1) % 10 == 0)
+      trace_real_fire_wave(actor, armor, i + 1, live);
   }
 
-  return counts;
+  result.energy_after = read_ram_word(g_ram, FIRE_WAVE_ROUTE_ENERGY);
+  return result;
+}
+
+static unsigned real_fire_wave_spent(const FireWaveRouteProbe *result) {
+  const unsigned before = result->energy_before & 0x3fff;
+  const unsigned after = result->energy_after & 0x3fff;
+  return before >= after ? before - after : 0;
+}
+
+static void print_real_fire_wave_result(
+    const char *actor, uint8_t armor, const FireWaveRouteProbe *result) {
+  printf("reference: real Fire Wave actor=%s armor=0x%02X "
+         "births=%u peak=%u late_live_frames=%u/%u spent=0x%04X "
+         "charge_max=%u\n",
+         actor, armor, result->births, result->peak_live,
+         result->late_live_frames, FIRE_WAVE_ROUTE_LATE_FRAMES,
+         real_fire_wave_spent(result), result->charge_max);
 }
 
 static void saber_fire_wave_armor_checks(const char *fixture) {
   static const uint8_t armor[] = {0x00, 0x02, 0x0f};
 
   for (unsigned i = 0; i < sizeof(armor) / sizeof(armor[0]); ++i) {
-    unsigned x_charge = 0;
-    unsigned zero_charge = 0;
-    const FireWaveCounts x =
-        measure_fire_wave_armor(fixture, true, armor[i], &x_charge);
-    const FireWaveCounts zero =
-        measure_fire_wave_armor(fixture, false, armor[i], &zero_charge);
-    const bool arms = (armor[i] & 0x02) != 0;
+    const FireWaveRouteProbe x =
+        measure_real_fire_wave_route(fixture, true, armor[i], false);
+    const FireWaveRouteProbe zero =
+        measure_real_fire_wave_route(fixture, false, armor[i], false);
+    const unsigned x_spent = real_fire_wave_spent(&x);
+    const unsigned zero_spent = real_fire_wave_spent(&zero);
+    bool failed =
+        x.late_live_frames != FIRE_WAVE_ROUTE_LATE_FRAMES ||
+        zero.late_live_frames != x.late_live_frames ||
+        zero.births != x.births ||
+        zero.peak_live != x.peak_live ||
+        zero.charge_max != x.charge_max;
+
+    if (armor[i] == 0x00 || armor[i] == 0x02)
+      failed |= zero_spent != x_spent;
+    else
+      failed |= zero_spent * 2 != x_spent;
+
+    print_real_fire_wave_result("X", armor[i], &x);
+    print_real_fire_wave_result("SaberZero", armor[i], &zero);
+    if (failed) {
+      (void)measure_real_fire_wave_route(fixture, true, armor[i], true);
+      (void)measure_real_fire_wave_route(fixture, false, armor[i], true);
+    }
+
     char what[128];
-
-    printf("reference: Fire Wave armor=0x%02X "
-           "X births=%u live_frames=%u live_samples=%u peak=%u charge=%u "
-           "Saber births=%u live_frames=%u live_samples=%u peak=%u charge=%u\n",
-           armor[i],
-           x.births, x.live_frames, x.live_samples, x.peak, x_charge,
-           zero.births, zero.live_frames, zero.live_samples, zero.peak,
-           zero_charge);
+    snprintf(what, sizeof(what),
+             "Fire Wave late live frames match X and equal 30 (armor 0x%02X)",
+             armor[i]);
+    check(x.late_live_frames == FIRE_WAVE_ROUTE_LATE_FRAMES &&
+              zero.late_live_frames == x.late_live_frames,
+          what);
 
     snprintf(what, sizeof(what),
-             "held Fire Wave charges for X only with arms (armor 0x%02X)",
-             armor[i]);
-    check(arms ? x_charge >= 2 : x_charge == 0, what);
-
-    snprintf(what, sizeof(what),
-             "held Saber Fire Wave charges exactly like X (armor 0x%02X)",
-             armor[i]);
-    check(zero_charge == x_charge, what);
-
-    snprintf(what, sizeof(what),
-             "Saber Fire Wave births match X with armor 0x%02X",
-             armor[i]);
+             "Saber Fire Wave births match X (armor 0x%02X)", armor[i]);
     check(zero.births == x.births, what);
+
+    snprintf(what, sizeof(what),
+             "Saber Fire Wave peak matches X (armor 0x%02X)", armor[i]);
+    check(zero.peak_live == x.peak_live, what);
+
+    snprintf(what, sizeof(what),
+             "Saber Fire Wave charge max matches X (armor 0x%02X)", armor[i]);
+    check(zero.charge_max == x.charge_max, what);
+
+    if (armor[i] == 0x0f) {
+      snprintf(what, sizeof(what),
+               "Saber head part halves Fire Wave spend versus X (armor 0x%02X)",
+               armor[i]);
+      check(zero_spent * 2 == x_spent, what);
+    } else {
+      snprintf(what, sizeof(what),
+               "Saber Fire Wave spend matches X (armor 0x%02X)", armor[i]);
+      check(zero_spent == x_spent, what);
+    }
   }
 
   puts("ok: saber-fire-wave-armor");
@@ -1783,7 +1882,7 @@ static FireWaveCounts measure_fire_wave(const char *fixture, unsigned button) {
   load_fixture(fixture);
   MmxSaberFrameReset();
   select_native_weapon(2); /* Fire Wave. */
-  for (unsigned i = 0; i < SABER_FIRE_WAVE_FRAMES; ++i) {
+  for (unsigned i = 0; i < SABER_CHAMELEON_STING_FRAMES; ++i) {
     frame(button);
     unsigned live = projectiles(8);
     counts.births += new_projectiles(8, previous);
@@ -1821,7 +1920,7 @@ static void print_special_reference(const char *label,
                                     const SpecialCounts *counts) {
   printf("reference: %s Fire Wave held %u frames births=%u live_frames=%u "
          "live_samples=%u peak=%u\n",
-         label, SABER_FIRE_WAVE_FRAMES, counts->fire_wave.births,
+         label, SABER_CHAMELEON_STING_FRAMES, counts->fire_wave.births,
          counts->fire_wave.live_frames, counts->fire_wave.live_samples,
          counts->fire_wave.peak);
   printf("reference: %s Storm Tornado one tap frames=%u projectiles=%u\n",
