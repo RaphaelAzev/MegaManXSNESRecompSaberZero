@@ -309,6 +309,39 @@ static void aerial_charge_checks(void) {
   MmxZeroResetState();
   player();
 }
+static void platform_grounded_checks(void) {
+  static const MmxZeroExtension movement_extension = {
+      .modern_movement = modern_movement_hook};
+  MmxZeroState spent = {0};
+  spent.modern.jump_used = spent.modern.dash_used = 1;
+
+  MmxZeroSetTerrainQuery(NULL);
+  MmxZeroSetModern(false);
+  modern_movement_hook_value = true;
+  MmxZeroSetExtension(&movement_extension);
+
+  player();
+  MmxZeroSetState(spent);
+  ram[0xbd3] = 0; ram[0xbd4] = 4; ram[0xbaa] = 0;
+  ram[0xbe2] = ram[0xbe3] = 0;
+  MmxZeroMovementTick(ram);
+  MmxZeroState s = MmxZeroGetState();
+  assert(!s.modern.jump_used && !s.modern.dash_used);
+
+  player();
+  MmxZeroSetState(spent);
+  ram[0xbd3] = ram[0xbd4] = 0; ram[0xbaa] = 8;
+  ram[0xbe2] = ram[0xbe3] = 0;
+  MmxZeroMovementTick(ram);
+  s = MmxZeroGetState();
+  assert(s.modern.jump_used == 1 && s.modern.dash_used == 1);
+
+  modern_movement_hook_value = false;
+  MmxZeroSetExtension(NULL);
+  MmxZeroSetModern(false);
+  MmxZeroResetState();
+  player();
+}
 static void modern_checks(void) {
   static const MmxZeroExtension movement_extension = {
       .modern_movement = modern_movement_hook};
@@ -572,6 +605,7 @@ int main(void) {
   assert(MmxZeroActive()); /* A saved character wins over the start choice. */
   MmxZeroSetStartCharacter(false); MmxZeroResetState(); assert(MmxZeroActive());
   aerial_charge_checks();
+  platform_grounded_checks();
   modern_checks();
   MmxZeroDisable(); MmxZeroSetCollisionRom(rom,sizeof(rom));
   assert(!memcmp(rom,clean,sizeof(rom)));

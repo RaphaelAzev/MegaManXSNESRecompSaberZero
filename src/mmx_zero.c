@@ -685,7 +685,7 @@ static void end_air_dash(uint8_t *r) {
 void MmxZeroMovementTick(uint8_t r[0x20000]) {
   if (!modern_movement() || !r) return;
   if (!movement_playable(r)) { end_air_dash(r); return; }
-  bool grounded = (r[0xbd3] & 4) != 0;
+  bool grounded = (r[0xbd3] & 4) || (r[0xbd4] & 4);
   unsigned action = r[0xbaa];
   /* Wall contact restores aerial options, like landing. A menu, weapon
    * change or attack cancellation never grants another midair action. */
