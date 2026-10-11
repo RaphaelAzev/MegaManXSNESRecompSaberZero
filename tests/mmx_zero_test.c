@@ -244,6 +244,71 @@ static void charge_rate_checks(void) {
   assert(!MmxZeroGetState().charge && !MmxZeroGetState().modern.charge_fraction);
   MmxZeroSetExtension(NULL);
 }
+static void aerial_charge_checks(void) {
+  static const MmxZeroExtension movement_extension = {
+      .modern_movement = modern_movement_hook};
+  static const uint8_t native_charge[] = {0x40, 2, 8, 1, 1};
+  MmxZeroState held = {.charge = 81, .charge_phase = 7};
+  held.modern.charge_fraction = 128;
+
+  MmxZeroSetTerrainQuery(NULL);
+  MmxZeroSetModern(false);
+  modern_movement_hook_value = true;
+  MmxZeroSetExtension(&movement_extension);
+  assert(!MmxZeroModern());
+
+  player();
+  MmxZeroSetState(held);
+  ram[0xbd3] = 0; ram[0xbaa] = 8; ram[0xbab] = 2;
+  memcpy(ram + 0xbff, native_charge, sizeof(native_charge));
+  ram[0xc2a] = 3; ram[0xc2f] |= 64;
+  ram[0xc98] = ram[0xca2] = 1;
+  ram[0xd58] = ram[0xd62] = 1;
+  ram[0xbe3] = 128;
+  MmxZeroMovementTick(ram);
+  MmxZeroState s = MmxZeroGetState();
+  assert(s.modern.jump_used == 1 && s.charge == held.charge &&
+         s.charge_phase == held.charge_phase &&
+         s.modern.charge_fraction == held.modern.charge_fraction);
+  assert(!memcmp(ram + 0xbff, native_charge, sizeof(native_charge)) &&
+         ram[0xc2a] == 3 && (ram[0xc2f] & 64) && ram[0xba3] == 0 &&
+         ram[0xc98] == 1 && ram[0xca2] == 1 &&
+         ram[0xd58] == 1 && ram[0xd62] == 1);
+  ram[0xbdf] = 64;
+  MmxZeroPlayerTick(ram);
+  assert(MmxZeroGetState().charge != 0);
+
+  player();
+  MmxZeroSetState(held);
+  ram[0xbd3] = 0; ram[0xbaa] = 8; ram[0xbab] = 2;
+  memcpy(ram + 0xbff, native_charge, sizeof(native_charge));
+  ram[0xc2a] = 3; ram[0xc2f] |= 64;
+  ram[0xc98] = ram[0xca2] = 1;
+  ram[0xd58] = ram[0xd62] = 1;
+  ram[0xbe2] = 128;
+  MmxZeroMovementTick(ram);
+  s = MmxZeroGetState();
+  assert(s.modern.dash_used == 1 && s.charge == held.charge &&
+         s.charge_phase == held.charge_phase &&
+         s.modern.charge_fraction == held.modern.charge_fraction);
+  assert(!memcmp(ram + 0xbff, native_charge, sizeof(native_charge)) &&
+         ram[0xc2a] == 3 && (ram[0xc2f] & 64) && ram[0xba3] == 0 &&
+         ram[0xc98] == 1 && ram[0xca2] == 1 &&
+         ram[0xd58] == 1 && ram[0xd62] == 1);
+
+  player();
+  MmxZeroSetState((MmxZeroState){.charge = 81, .slash = 1});
+  ram[0xbd3] = 0; ram[0xbaa] = 8; ram[0xbab] = 2; ram[0xbe3] = 128;
+  MmxZeroMovementTick(ram);
+  s = MmxZeroGetState();
+  assert(!s.slash && !s.charge);
+
+  modern_movement_hook_value = false;
+  MmxZeroSetExtension(NULL);
+  MmxZeroSetModern(false);
+  MmxZeroResetState();
+  player();
+}
 static void modern_checks(void) {
   static const MmxZeroExtension movement_extension = {
       .modern_movement = modern_movement_hook};
@@ -506,6 +571,7 @@ int main(void) {
   MmxZeroState start = MmxZeroGetState(); start.active_x = 0; MmxZeroSetState(start);
   assert(MmxZeroActive()); /* A saved character wins over the start choice. */
   MmxZeroSetStartCharacter(false); MmxZeroResetState(); assert(MmxZeroActive());
+  aerial_charge_checks();
   modern_checks();
   MmxZeroDisable(); MmxZeroSetCollisionRom(rom,sizeof(rom));
   assert(!memcmp(rom,clean,sizeof(rom)));

@@ -500,6 +500,20 @@ void MmxZeroCancel(uint8_t ram[0x20000]) {
   reset_charge_progress();
   state.modern.slash_buffer = state.modern.hit_phase = 0;
 }
+static void cancel_keep_charge(uint8_t *r) {
+  if (state.slash || state.combo || state.burst) {
+    MmxZeroCancel(r);
+    return;
+  }
+  if (r) release_projectile(r);
+  else state.projectile = 0;
+  state.slash = 0;
+  state.air = state.facing = 0;
+  state.hit_slots = 0;
+  memset((uint8_t *)&state + MMX_ZERO_ANIMATION_STATE_SIZE, 0,
+         MMX_ZERO_COMBAT_STATE_SIZE - MMX_ZERO_ANIMATION_STATE_SIZE);
+  state.modern.slash_buffer = state.modern.hit_phase = 0;
+}
 static unsigned free_projectile(const uint8_t *r) {
   for (unsigned d = 0x1228; d < 0x1428; d += 64)
     if (!word(r + d)) return d;
@@ -682,7 +696,7 @@ void MmxZeroMovementTick(uint8_t r[0x20000]) {
   bool air = !grounded && (action == 6 || action == 8 || state.modern.dash_ticks);
   if (air && (r[0xbe3] & 128) && !state.modern.jump_used &&
       (!terrain_query || !standing_blocked(r))) {
-    end_air_dash(r); MmxZeroCancel(r);
+    end_air_dash(r); cancel_keep_charge(r);
     state.modern.jump_used = 1;
     r[0xbaa] = 6; r[0xbab] = 0; r[0xbfd] = 0;
     /* Same initial jump speed/gravity as X1/X3's native action-6 row at
@@ -697,7 +711,7 @@ void MmxZeroMovementTick(uint8_t r[0x20000]) {
     end_air_dash(r);
   if (air && !state.modern.dash_ticks && !state.modern.dash_used &&
       (r[0xbe2] & 128)) {
-    MmxZeroCancel(r);
+    cancel_keep_charge(r);
     state.modern.dash_used = 1; state.modern.dash_ticks = 18;
     state.modern.dash_facing = (r[0xbdf] & 3) == 1 ? 64 :
         (r[0xbdf] & 3) == 2 ? 0 : r[0xc11] & 64;
