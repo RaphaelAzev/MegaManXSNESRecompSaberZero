@@ -2962,6 +2962,85 @@ static void saber_legs_dash_case(const char *fixture, bool legs) {
                "Saber without legs does not start an air dash");
 }
 
+static void saber_legs_charge_case(const char *fixture) {
+  unsigned char previous[8];
+  MmxZeroState state;
+  unsigned charge_before_jump;
+  unsigned charge_before_double_jump;
+  unsigned charge_after_double_jump;
+  unsigned charge_before_dash;
+  unsigned charge_after_dash;
+  unsigned charge_before_release;
+  unsigned charge_after_release;
+  unsigned jump_action;
+  unsigned jump_used;
+  unsigned dash_action;
+  unsigned dash_ticks;
+  unsigned dash_c06;
+  unsigned release_births;
+  unsigned charged_shots;
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  g_ram[0x1f99] = MMX_SABER_ARMOR_LEGS_BIT;
+
+  hold_charge_button(SABER_CHARGE_TIER_1_FRAME, SNES_PAD_X);
+  charge_before_jump = MmxZeroGetState().charge;
+  for (unsigned i = 0; i < 5; ++i)
+    frame(SNES_PAD_X | SNES_PAD_B);
+  for (unsigned i = 0; i < 4; ++i)
+    frame(SNES_PAD_X);
+
+  charge_before_double_jump = MmxZeroGetState().charge;
+  frame(SNES_PAD_X | SNES_PAD_B);
+  state = MmxZeroGetState();
+  charge_after_double_jump = state.charge;
+  jump_action = g_ram[0x0baa];
+  jump_used = state.modern.jump_used;
+
+  hold_charge_button(4, SNES_PAD_X);
+  charge_before_dash = MmxZeroGetState().charge;
+  frame(SNES_PAD_X | SNES_PAD_A | SNES_PAD_RIGHT);
+  state = MmxZeroGetState();
+  charge_after_dash = state.charge;
+  dash_action = g_ram[0x0baa];
+  dash_ticks = state.modern.dash_ticks;
+  dash_c06 = g_ram[0x0c06];
+
+  hold_charge_button(4, SNES_PAD_X);
+  charge_before_release = MmxZeroGetState().charge;
+  memset(previous, 0, sizeof(previous));
+  (void)new_native_charged_projectiles(previous);
+  frame(0);
+  charge_after_release = MmxZeroGetState().charge;
+  release_births = new_native_charged_projectiles(previous);
+  charged_shots = release_births;
+  for (unsigned i = 0; i < 8 && charged_shots == 0; ++i) {
+    frame(0);
+    charged_shots += new_native_charged_projectiles(previous);
+  }
+
+  printf("reference: saber-legs-charge $1F99=0x%02X "
+         "charge_ground=%u charge_before_double=%u "
+         "charge_after_double=%u charge_before_dash=%u "
+         "charge_after_dash=%u charge_before_release=%u "
+         "charge_after_release=%u jump_action=0x%02X jump_used=%u "
+         "dash_action=0x%02X dash_ticks=%u c06=0x%02X "
+         "release_births=%u charged_shots=%u\n",
+         g_ram[0x1f99], charge_before_jump, charge_before_double_jump,
+         charge_after_double_jump, charge_before_dash, charge_after_dash,
+         charge_before_release, charge_after_release, jump_action, jump_used,
+         dash_action, dash_ticks, dash_c06, release_births, charged_shots);
+
+  check(jump_used == 1 && charge_before_double_jump >= charge_before_jump &&
+            charge_after_double_jump >= charge_before_double_jump,
+        "Saber legs preserves charge through jump and double jump");
+  check(dash_ticks != 0 && charge_after_dash >= charge_before_dash,
+        "Saber legs preserves charge through the air dash");
+  check(charged_shots >= 1,
+        "Saber legs release emits a new charged buster shot");
+}
+
 static void saber_legs_checks(const char *fixture) {
   check(MmxSaberEnabled() && !MmxZeroModern(),
         "saber-legs runs with legacy Zero behavior and Saber enabled");
@@ -2969,6 +3048,7 @@ static void saber_legs_checks(const char *fixture) {
   saber_legs_jump_case(fixture, true);
   saber_legs_dash_case(fixture, false);
   saber_legs_dash_case(fixture, true);
+  saber_legs_charge_case(fixture);
   puts("ok: saber-legs");
 }
 
