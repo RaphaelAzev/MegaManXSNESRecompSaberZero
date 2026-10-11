@@ -5599,6 +5599,61 @@ static void native_buster_contact(unsigned enemy, unsigned projectile) {
         "native buster oracle returns from the generated collision routine");
 }
 
+/* Run the native player-damage routine $84:9F2A (called from $82:A618) on
+ * incoming damage `damage`, returning the HP it removed. */
+static unsigned native_player_damage(unsigned damage) {
+  CpuState saved_cpu = g_cpu;
+  RecompReturn result;
+  unsigned before;
+  g_ram[0x0bcf] = (uint8_t)((g_ram[0x0bcf] & 0x80) | 28);
+  before = g_ram[0x0bcf] & 0x7f;
+  g_ram[0x0bce] = (uint8_t)damage;
+  g_cpu.DB = 0x00;
+  g_cpu.PB = 0x84;
+  g_cpu.m_flag = 1;
+  g_cpu.x_flag = 1;
+  g_cpu.P = (uint8_t)((g_cpu.P & (uint8_t)~0x08) | 0x30);
+  g_cpu._flag_D = 0;
+  g_cpu.A = 0;
+  g_cpu.X = 0;
+  g_cpu.Y = 0;
+  g_cpu.host_return_valid = 0;
+  result = cpu_dispatch_call_pc(&g_cpu, 0x849f2a, 0x82a618);
+  g_cpu = saved_cpu;
+  check(result == RECOMP_RETURN_NORMAL,
+        "native player damage routine returns normally");
+  return before - (g_ram[0x0bcf] & 0x7f);
+}
+
+static void saber_body_damage_case(const char *who, unsigned damage,
+                                   unsigned upgrades) {
+  unsigned lost_plain, lost_body;
+  const unsigned halved = (damage >> 1) + (damage & 1);
+  g_ram[0x1f99] = (uint8_t)(upgrades & ~0x04u);
+  lost_plain = native_player_damage(damage);
+  g_ram[0x1f99] = (uint8_t)(upgrades | 0x04u);
+  lost_body = native_player_damage(damage);
+  printf("reference: saber-body-damage %s dmg=%u no-body=%u body=%u\n",
+         who, damage, lost_plain, lost_body);
+  check(lost_plain == damage, "native damage without body armor is full");
+  check(lost_body == halved,
+        "native damage with body armor is halved, rounding odd values up");
+}
+
+static void saber_body_damage_checks(const char *fixture) {
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  check(MmxZeroActive(), "saber-body-damage starts as Saber Zero");
+  saber_body_damage_case("zero", 10, g_ram[0x1f99]);
+  saber_body_damage_case("zero", 11, g_ram[0x1f99]);
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  switch_to_x();
+  saber_body_damage_case("x", 10, g_ram[0x1f99]);
+  saber_body_damage_case("x", 11, g_ram[0x1f99]);
+  puts("ok: saber-body-damage");
+}
+
 /* Enter Armored Armadillo after his state-handler dispatch at $83B2ED. This
  * keeps row selection, the post-hit timer, generic collision, and the native
  * post-collision restore/reaction code in the oracle path. */
@@ -8902,6 +8957,7 @@ int main(int argc, char **argv) {
   const bool saber_finisher = only && !strcmp(only, "saber-finisher");
   const bool saber_tuning = only && !strcmp(only, "saber-tuning");
   const bool saber_armor = only && !strcmp(only, "saber-armor");
+  const bool saber_body_damage = only && !strcmp(only, "saber-body-damage");
   const bool saber_arms_charge = only && !strcmp(only, "saber-arms-charge");
   const bool saber_head_ammo = only && !strcmp(only, "saber-head-ammo");
   const bool saber_hitbox_debug = only && !strcmp(only, "saber-hitbox-debug");
@@ -8947,7 +9003,7 @@ int main(int argc, char **argv) {
       saber_priority || saber_armadillo ||
       saber_tuning || saber_hitbox_debug || saber_damage ||
       saber_head_ammo ||
-      saber_armor || saber_arms_charge ||
+      saber_armor || saber_arms_charge || saber_body_damage ||
       saber_wave_travel || saber_wave_damage || saber_wave_lifecycle ||
       saber_wave_render || saber_ride_pilot || saber_boss_death;
   SpecialCounts upstream_specials = {0};
@@ -9039,6 +9095,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-armor runs with the Saber package enabled");
     saber_armor_checks(fixture);
+  } else if (saber_body_damage) {
+    check(MmxSaberEnabled(),
+          "saber-body-damage runs with the Saber package enabled");
+    saber_body_damage_checks(fixture);
   } else if (saber_arms_charge) {
     check(MmxSaberEnabled(),
           "saber-arms-charge runs with the Saber package enabled");
@@ -9144,6 +9204,7 @@ int main(int argc, char **argv) {
         strcmp(only, "x3-zero-specials") &&
       strcmp(only, "saber-package") && strcmp(only, "saber-input") &&
       strcmp(only, "saber-armor") &&
+      strcmp(only, "saber-body-damage") &&
       strcmp(only, "saber-arms-charge") &&
       strcmp(only, "saber-finisher") &&
       strcmp(only, "saber-priority-classify") &&

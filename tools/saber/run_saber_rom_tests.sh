@@ -53,7 +53,7 @@ fi
 # each in its own isolated catalog/cache copy. Add new groups to this list.
 named_groups=(saber-assets saber-input saber-ground-1 saber-ground-combo saber-air saber-legs saber-wall saber-dash saber-cancel saber-land saber-ground-hit saber-render-snapshot saber-wave-render
   saber-ground-lifecycle saber-lifecycle-load saber-contexts saber-buster-rules saber-burst-height saber-finisher saber-priority-classify saber-priority saber-armadillo saber-tuning saber-hitbox-debug saber-damage saber-wave-travel saber-wave-damage saber-wave-lifecycle saber-ride-pilot saber-boss-death zero-extension zero-hook-parity zero-response-seam saber-package x3-zero-specials fixtures)
-named_groups+=(saber-armor)
+named_groups+=(saber-armor saber-body-damage)
 named_groups+=(saber-arms-charge)
 named_groups+=(saber-head-ammo)
 if [[ -z "${MMX_SABER_TEST_ONLY:-}" && -z "${MMX_SABER_RUNNER_PASS:-}" ]]; then
