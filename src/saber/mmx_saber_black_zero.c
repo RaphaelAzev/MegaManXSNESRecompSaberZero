@@ -27,6 +27,7 @@ static const MmxSaberBlackZeroColor k_black_zero_colors[] = {
 static const uint16_t *native_source;
 static uint16_t native_colors[128];
 static bool native_black;
+static bool native_arms;
 
 void MmxSaberBlackZeroPalette(const uint16_t *src, unsigned count,
                               uint16_t *dst) {
@@ -73,33 +74,63 @@ unsigned MmxSaberPurpleBladePalette(const uint16_t *src, unsigned count,
   return shared;
 }
 
-void MmxSaberBlackZeroNativeColors(const uint16_t src[128],
-                                   uint16_t dst[128]) {
-  if (!src || !dst) return;
-  memcpy(dst, src, 128 * sizeof(*dst));
-  dst[23] = 0x2D6B;
-  dst[24] = 0x1CE7;
-  dst[25] = 0x0CA5;
-  dst[29] = 0x4EF9;
-  dst[30] = 0x2DD1;
-  dst[31] = 0x0C63;
+static bool green_hued(uint16_t bgr555) {
+  unsigned red = bgr555 & 31u;
+  unsigned green = (bgr555 >> 5) & 31u;
+  unsigned blue = (bgr555 >> 10) & 31u;
+  return green > red && green > blue;
 }
 
-void MmxSaberBlackZeroNativeColorsUpdate(bool black,
+static void purple_native_range(uint16_t dst[128], unsigned first) {
+  for (unsigned i = first; i < first + 16; ++i)
+    if (green_hued(dst[i])) dst[i] = MmxSaberPurpleBlade(dst[i]);
+}
+
+void MmxSaberBlackZeroNativeColors(const uint16_t src[128], bool black,
+                                   bool arms, uint16_t dst[128]) {
+  if (!src || !dst) return;
+  memcpy(dst, src, 128 * sizeof(*dst));
+  if (black) {
+    dst[23] = 0x2D6B;
+    dst[24] = 0x1CE7;
+    dst[25] = 0x0CA5;
+    dst[29] = 0x4EF9;
+    dst[30] = 0x2DD1;
+    dst[31] = 0x0C63;
+  }
+  if (arms) {
+    purple_native_range(dst, 16);
+    purple_native_range(dst, 48);
+  }
+}
+
+void MmxSaberBlackZeroNativeColorsUpdate(bool black, bool arms,
                                          const uint16_t *native) {
-  if (!black || !native) {
+  const uint16_t *source = native;
+  if ((!black && !arms) || !native) {
     native_source = NULL;
     native_black = false;
+    native_arms = false;
     return;
   }
-  if (native_black && native == native_colors) return;
-  if (!native_black || native_source != native) {
-    MmxSaberBlackZeroNativeColors(native, native_colors);
-    native_source = native;
+  /* MmxZeroColors() returns this cache after the first replacement. Keep the
+   * raw table pointer as the cache key when that happens. */
+  if (native == native_colors) source = native_source;
+  if (!source) {
+    native_source = NULL;
+    native_black = false;
+    native_arms = false;
+    return;
   }
-  native_black = true;
+  if (native_source == source && native_black == black &&
+      native_arms == arms) return;
+  MmxSaberBlackZeroNativeColors(source, black, arms, native_colors);
+  native_source = source;
+  native_black = black;
+  native_arms = arms;
 }
 
 const uint16_t *MmxSaberBlackZeroNativeColorsHook(const uint16_t *native) {
-  return native_black && native == native_source ? native_colors : NULL;
+  return (native_black || native_arms) && native == native_source ?
+      native_colors : NULL;
 }

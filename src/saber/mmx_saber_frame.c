@@ -39,7 +39,7 @@ static void state_reset(uint8_t *ram) {
   MmxSaberPriorityReset();
   MmxSaberComboReset(ram);
   MmxSaberAttackResetCueCount();
-  MmxSaberBlackZeroNativeColorsUpdate(false, NULL);
+  MmxSaberBlackZeroNativeColorsUpdate(false, false, NULL);
   release_pending = false;
   previous_y = false;
   clear_frame_state();
@@ -169,6 +169,7 @@ static void pre_player(uint8_t *ram) {
   MmxSaberPadSaber pre_native_saber;
   MmxSaberPadZero zero;
   MmxSaberPhysicalPad physical;
+  MmxSaberArmorFlags armor;
 
   MmxSaberHitboxDebugSetRam(ram);
   frame_ram = ram;
@@ -177,22 +178,19 @@ static void pre_player(uint8_t *ram) {
   if (MmxSaberWaveRuntimeObserveStage(ram))
     MmxSaberComboCancel(ram);
   clear_frame_state();
+  armor = MmxSaberArmorCurrent();
+  MmxSaberBlackZeroNativeColorsUpdate(
+      armor.black, armor.arms,
+      (armor.black || armor.arms) ? MmxZeroColors() : NULL);
   if (!zero_frame_context(ram)) {
     /* This also handles an exchange to X, title/menu frames, and an upstream
      * Zero lifecycle transition. Do not touch any native input byte. */
     MmxSaberComboCancel(ram);
     MmxSaberAttackResetRam(ram);
-    MmxSaberBlackZeroNativeColorsUpdate(false, NULL);
     release_pending = false;
     previous_y = ram && (ram[0x00ac] & 0x40) != 0;
     return;
   }
-
-  MmxSaberArmorFlags armor = MmxSaberArmorCurrent();
-  if (armor.black)
-    MmxSaberBlackZeroNativeColorsUpdate(true, MmxZeroColors());
-  else
-    MmxSaberBlackZeroNativeColorsUpdate(false, NULL);
 
   physical = read_physical_pad(ram);
   saber = MmxSaberAttackPadState(release_pending);

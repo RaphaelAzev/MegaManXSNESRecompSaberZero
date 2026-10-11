@@ -18,6 +18,7 @@
 #include "saber/mmx_saber_sfx.h"
 #include "saber/mmx_saber_tuning.h"
 #include "saber/mmx_saber_armor.h"
+#include "saber/mmx_saber_black_zero.h"
 #include "saber/mmx_saber_wave.h"
 #include "saber/mmx_saber_wave_runtime.h"
 #include "mmx_wide_policy.h"
@@ -4732,6 +4733,8 @@ static void saber_armor_checks(const char *fixture) {
   const char *package = "megaman-x.character.saber-zero";
   const char *feature = "saber-zero";
   MmxSaberArmorFlags flags;
+  const uint16_t *native;
+  const uint16_t *replacement;
 
   check(g_mod_provider->feature_set_option(
             g_mod_provider->ctx, package, feature,
@@ -4778,6 +4781,21 @@ static void saber_armor_checks(const char *fixture) {
   frame(0);
   check(g_ram[0x1f99] == 0x8f,
         "stage armor write does not repeat or alter bits on next frame");
+
+  load_fixture(fixture);
+  g_ram[0x1f99] = 0x0f;
+  MmxZeroHealthRespawn(g_ram);
+  MmxSaberFrameReset();
+  native = MmxZeroColors();
+  frame(0);
+  replacement = MmxSaberBlackZeroNativeColorsHook(native);
+  check(replacement && replacement != native && replacement[23] == 0x2D6B,
+        "playable Zero frame caches Black Zero native colours");
+  g_ram[0xbcf] = 0;
+  frame(0);
+  replacement = MmxSaberBlackZeroNativeColorsHook(native);
+  check(replacement && replacement[23] == 0x2D6B,
+        "not-playable Zero frame keeps Black Zero native colours");
   puts("ok: saber-armor");
 }
 

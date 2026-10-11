@@ -17,8 +17,9 @@ unsigned MmxSaberPurpleBladePalette(const uint16_t *src, unsigned count,
                                     const uint8_t *body_indices,
                                     uint16_t *dst);
 void MmxSaberBlackZeroNativeColors(const uint16_t src[128],
+                                   bool black, bool arms,
                                    uint16_t dst[128]);
-void MmxSaberBlackZeroNativeColorsUpdate(bool black,
+void MmxSaberBlackZeroNativeColorsUpdate(bool black, bool arms,
                                          const uint16_t *native);
 const uint16_t *MmxSaberBlackZeroNativeColorsHook(const uint16_t *native);
 
