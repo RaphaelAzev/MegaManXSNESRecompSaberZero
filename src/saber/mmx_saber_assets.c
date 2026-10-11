@@ -425,6 +425,16 @@ const MmxSaberFrame *MmxSaberAssetsFrameForStep(const MmxSaberAssets *assets,
   return &assets->frames[step->frame_index];
 }
 
+uint16_t MmxSaberAssetsFrameCount(const MmxSaberAssets *assets) {
+  return assets ? assets->frame_count : 0;
+}
+
+const MmxSaberFrame *MmxSaberAssetsFrameAt(const MmxSaberAssets *assets,
+                                           uint16_t frame_index) {
+  return assets && frame_index < assets->frame_count ?
+      &assets->frames[frame_index] : NULL;
+}
+
 const uint16_t *MmxSaberAssetsPalette(const MmxSaberAssets *assets) {
   return assets ? assets->palette : NULL;
 }

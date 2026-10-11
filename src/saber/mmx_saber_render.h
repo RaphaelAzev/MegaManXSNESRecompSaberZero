@@ -32,6 +32,10 @@ bool MmxSaberRenderResolveWaveSnapshot(const MmxSaberWave *wave,
                                        int16_t world_y, bool facing_left,
                                        MmxRenderWorldSprite *out);
 
+/* Number of nonzero blade palette indices shared with body pixels in the
+ * currently indexed overlay asset. */
+unsigned MmxSaberRenderSharedBladePaletteCount(void);
+
 /* Saber-owned world-sprite provider lifecycle. */
 void MmxSaberRenderSetWave(const MmxSaberWave *wave);
 unsigned MmxSaberRenderProvideWorldSprites(MmxRenderWorldSprite *out,

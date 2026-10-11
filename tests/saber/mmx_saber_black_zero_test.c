@@ -12,6 +12,36 @@ static void check(int ok, const char *message) {
   printf("ok: %s\n", message);
 }
 
+
+static void purple_blade_values(void) {
+  check(MmxSaberPurpleBlade(0x2388) == 0x7115,
+        "purple blade maps 0x2388 to 0x7115");
+  check(MmxSaberPurpleBlade(0x42A5) == 0x54AF,
+        "purple blade maps 0x42A5 to 0x54AF");
+  check(MmxSaberPurpleBlade(0x1CE7) == 0x1CE5,
+        "purple blade maps 0x1CE7 to 0x1CE5");
+  check(MmxSaberPurpleBlade(0x0000) == 0x0000,
+        "purple blade leaves 0x0000 transparent");
+}
+
+static void purple_blade_palette(void) {
+  static const uint16_t source[] = {
+    0x0000, 0x2388, 0x1CE7, 0x42A5, 0x7FFF,
+  };
+  static const uint8_t blade_indices[] = {0, 1, 0, 1, 1};
+  static const uint8_t body_indices[] = {0, 0, 1, 0, 1};
+  static const uint16_t expected[] = {
+    0x0000, 0x7115, 0x1CE7, 0x54AF, 0x7FFF,
+  };
+  uint16_t actual[sizeof(source) / sizeof(source[0])];
+  unsigned shared = MmxSaberPurpleBladePalette(
+      source, sizeof(source) / sizeof(source[0]), blade_indices,
+      body_indices, actual);
+  check(shared == 1,
+        "purple blade palette reports one shared blade index");
+  check(!memcmp(actual, expected, sizeof(expected)),
+        "purple blade palette recolours only listed non-shared indices");
+}
 static void native_color_indices(void) {
   uint16_t source[128], actual[128];
   for (unsigned i = 0; i < 128; ++i) {
@@ -64,6 +94,8 @@ int main(void) {
   uint16_t actual[sizeof(source) / sizeof(source[0]) + 1];
   unsigned count = (unsigned)(sizeof(source) / sizeof(source[0]));
 
+  purple_blade_values();
+  purple_blade_palette();
   native_color_indices();
   native_cache_lifecycle();
   for (unsigned i = 0; i < sizeof(actual) / sizeof(actual[0]); ++i)

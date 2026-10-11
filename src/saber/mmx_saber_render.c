@@ -7,25 +7,126 @@
 #include <string.h>
 
 static uint16_t flash_palette[256];
-static uint16_t black_zero_palette[256];
-static const uint16_t *black_zero_source;
-static unsigned black_zero_source_count;
-static bool black_zero_palette_cached;
+static uint16_t overlay_palette[256];
+static const uint16_t *overlay_source;
+static uint16_t overlay_source_count;
+static bool overlay_black;
+static bool overlay_arms;
+static bool overlay_palette_cached;
+static uint8_t overlay_body_indices[256];
+static uint8_t overlay_blade_indices[256];
+static const uint16_t *index_source;
+static uint16_t index_source_count;
+static bool palette_indices_cached;
+static unsigned shared_blade_palette_count;
+static uint16_t purple_wave_palette[MMX_SABER_WAVE_PALETTE_COUNT];
+static const uint16_t *purple_wave_source;
+static uint16_t purple_wave_source_count;
+static bool purple_wave_palette_cached;
 static const MmxSaberWave *render_wave;
 
-/* Asset palette identity owns conversion lifetime; draw calls reuse buffer. */
-static const uint16_t *select_overlay_palette(const uint16_t *palette,
-                                              uint16_t palette_count,
-                                              bool black_zero) {
-  if (!black_zero || !palette || !palette_count) return palette;
-  if (!black_zero_palette_cached || black_zero_source != palette ||
-      black_zero_source_count != palette_count) {
-    MmxSaberBlackZeroPalette(palette, palette_count, black_zero_palette);
-    black_zero_source = palette;
-    black_zero_source_count = palette_count;
-    black_zero_palette_cached = true;
+static void mark_palette_indices(const MmxSaberPlane *plane,
+                                 uint16_t palette_count,
+                                 uint8_t *indices) {
+  size_t pixel_count;
+  if (!plane || !plane->pixels || !indices) return;
+  pixel_count = (size_t)plane->width * plane->height;
+  for (size_t i = 0; i < pixel_count; ++i) {
+    uint8_t index = plane->pixels[i];
+    if (index && index < palette_count) indices[index] = 1;
   }
-  return black_zero_palette;
+}
+
+static void cache_palette_indices(const MmxSaberAssets *assets,
+                                  const uint16_t *palette,
+                                  uint16_t palette_count) {
+  memset(overlay_body_indices, 0, sizeof(overlay_body_indices));
+  memset(overlay_blade_indices, 0, sizeof(overlay_blade_indices));
+  for (uint16_t i = 0; i < MmxSaberAssetsFrameCount(assets); ++i) {
+    const MmxSaberFrame *frame = MmxSaberAssetsFrameAt(assets, i);
+    if (!frame) continue;
+    mark_palette_indices(&frame->body, palette_count, overlay_body_indices);
+    mark_palette_indices(&frame->blade, palette_count, overlay_blade_indices);
+  }
+  {
+    bool any_blade = false;
+    for (unsigned i = 1; i < palette_count; ++i)
+      if (overlay_blade_indices[i]) any_blade = true;
+    /* The shipped Zashiko sheets draw the blade inside the body plane, so
+     * there are no blade-plane pixels. Zero's body has no green, so treat
+     * green-hued entries as the blade there. */
+    if (!any_blade) {
+      for (unsigned i = 1; i < palette_count; ++i) {
+        const unsigned red = palette[i] & 31u;
+        const unsigned green = (palette[i] >> 5) & 31u;
+        const unsigned blue = (palette[i] >> 10) & 31u;
+        if (green > red && green > blue) {
+          overlay_blade_indices[i] = 1;
+          overlay_body_indices[i] = 0;
+        }
+      }
+    }
+  }
+  shared_blade_palette_count = 0;
+  for (unsigned i = 1; i < palette_count; ++i)
+    if (overlay_body_indices[i] && overlay_blade_indices[i])
+      ++shared_blade_palette_count;
+  index_source = palette;
+  index_source_count = palette_count;
+  palette_indices_cached = true;
+}
+
+/* Asset palette identity owns conversion lifetime; draw calls reuse buffer. */
+static const uint16_t *select_overlay_palette(const MmxSaberAssets *assets,
+                                              const uint16_t *palette,
+                                              uint16_t palette_count,
+                                              bool black_zero,
+                                              bool arms) {
+  if (!palette || !palette_count) return palette;
+  if (!palette_indices_cached || index_source != palette ||
+      index_source_count != palette_count) {
+    palette_indices_cached = false;
+    shared_blade_palette_count = 0;
+  }
+  if (!black_zero && !arms) return palette;
+  if (arms && !palette_indices_cached)
+    cache_palette_indices(assets, palette, palette_count);
+  if (!overlay_palette_cached || overlay_source != palette ||
+      overlay_source_count != palette_count || overlay_black != black_zero ||
+      overlay_arms != arms) {
+    if (black_zero)
+      MmxSaberBlackZeroPalette(palette, palette_count, overlay_palette);
+    else
+      memcpy(overlay_palette, palette,
+             (size_t)palette_count * sizeof(*overlay_palette));
+    shared_blade_palette_count = arms ?
+        MmxSaberPurpleBladePalette(overlay_palette, palette_count,
+                                    overlay_blade_indices, overlay_body_indices,
+                                    overlay_palette) : 0;
+    overlay_source = palette;
+    overlay_source_count = palette_count;
+    overlay_black = black_zero;
+    overlay_arms = arms;
+    overlay_palette_cached = true;
+  }
+  return overlay_palette;
+}
+
+static const uint16_t *select_wave_palette(const MmxSaberWave *wave,
+                                           bool arms) {
+  const uint16_t *palette = MmxSaberWavePalette(wave);
+  uint16_t palette_count = MmxSaberWavePaletteCount(wave);
+  if (!arms || !palette || palette_count != MMX_SABER_WAVE_PALETTE_COUNT)
+    return palette;
+  if (!purple_wave_palette_cached || purple_wave_source != palette ||
+      purple_wave_source_count != palette_count) {
+    for (unsigned i = 0; i < palette_count; ++i)
+      purple_wave_palette[i] = palette[i] ? MmxSaberPurpleBlade(palette[i]) : 0;
+    purple_wave_source = palette;
+    purple_wave_source_count = palette_count;
+    purple_wave_palette_cached = true;
+  }
+  return purple_wave_palette;
 }
 
 static void clear_overlay(MmxRenderPlayerOverlay *out) {
@@ -96,6 +197,7 @@ bool MmxSaberRenderResolveSnapshot(const MmxSaberAssets *assets,
   const MmxSaberAttack *attack;
   const MmxSaberAnimation *animation;
   const MmxSaberFrame *frame = NULL;
+  MmxSaberArmorFlags armor;
   uint16_t tick;
 
   clear_overlay(out);
@@ -140,9 +242,10 @@ bool MmxSaberRenderResolveSnapshot(const MmxSaberAssets *assets,
   out->blade.origin_x = frame->blade.origin_x;
   out->blade.origin_y = frame->blade.origin_y;
   out->blade_layer = frame->blade_layer;
+  armor = MmxSaberArmorCurrent();
   out->palette = select_overlay_palette(
-      MmxSaberAssetsPalette(assets), MmxSaberAssetsPaletteCount(assets),
-      MmxSaberArmorCurrent().black);
+      assets, MmxSaberAssetsPalette(assets), MmxSaberAssetsPaletteCount(assets),
+      armor.black, armor.arms);
   out->palette_count = MmxSaberAssetsPaletteCount(assets);
   MmxZeroState zero = MmxZeroGetState();
   if (MmxZeroChargeFlashPaletteIndex(&zero) >= 0) {
@@ -164,6 +267,7 @@ bool MmxSaberRenderResolveRide(const MmxSaberAssets *assets,
                                MmxRenderPlayerOverlay *out) {
   const MmxSaberAnimation *animation;
   const MmxSaberFrame *frame;
+  MmxSaberArmorFlags armor;
   unsigned pose;
 
   clear_overlay(out);
@@ -187,9 +291,10 @@ bool MmxSaberRenderResolveRide(const MmxSaberAssets *assets,
   out->body.height = frame->body.height;
   out->body.origin_x = frame->body.origin_x;
   out->body.origin_y = frame->body.origin_y;
+  armor = MmxSaberArmorCurrent();
   out->palette = select_overlay_palette(
-      MmxSaberAssetsPalette(assets), MmxSaberAssetsPaletteCount(assets),
-      MmxSaberArmorCurrent().black);
+      assets, MmxSaberAssetsPalette(assets), MmxSaberAssetsPaletteCount(assets),
+      armor.black, false);
   out->palette_count = MmxSaberAssetsPaletteCount(assets);
   /* Ride art is authored in the opposite horizontal orientation from the
    * native pilot/armor facing, like the Saber attack sheets. */
@@ -235,10 +340,14 @@ bool MmxSaberRenderResolveWaveSnapshot(const MmxSaberWave *wave,
   out->world_x = world_x;
   out->world_y = world_y;
   out->facing_left = facing_left;
-  out->palette = MmxSaberWavePalette(wave);
+  out->palette = select_wave_palette(wave, MmxSaberArmorCurrent().arms);
   out->palette_count = MmxSaberWavePaletteCount(wave);
   out->z = 0xa680;
   return out->palette && out->palette_count;
+}
+
+unsigned MmxSaberRenderSharedBladePaletteCount(void) {
+  return shared_blade_palette_count;
 }
 
 void MmxSaberRenderSetWave(const MmxSaberWave *wave) {

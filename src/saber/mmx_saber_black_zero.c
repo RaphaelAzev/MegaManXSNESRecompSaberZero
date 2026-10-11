@@ -45,6 +45,34 @@ void MmxSaberBlackZeroPalette(const uint16_t *src, unsigned count,
   }
 }
 
+uint16_t MmxSaberPurpleBlade(uint16_t bgr555) {
+  unsigned red = bgr555 & 31u;
+  unsigned green = (bgr555 >> 5) & 31u;
+  unsigned blue = (bgr555 >> 10) & 31u;
+  unsigned new_red = (green * 3u) / 4u;
+  unsigned new_green = red < blue ? red : blue;
+  return (uint16_t)(new_red | (new_green << 5) | (green << 10));
+}
+
+unsigned MmxSaberPurpleBladePalette(const uint16_t *src, unsigned count,
+                                    const uint8_t *blade_indices,
+                                    const uint8_t *body_indices,
+                                    uint16_t *dst) {
+  unsigned shared = 0;
+  if (!src || !dst) return 0;
+  if (count > 256u) count = 256u;
+  for (unsigned i = 0; i < count; ++i) {
+    dst[i] = src[i];
+    if (i && blade_indices && blade_indices[i]) {
+      if (body_indices && body_indices[i])
+        ++shared;
+      else
+        dst[i] = MmxSaberPurpleBlade(src[i]);
+    }
+  }
+  return shared;
+}
+
 void MmxSaberBlackZeroNativeColors(const uint16_t src[128],
                                    uint16_t dst[128]) {
   if (!src || !dst) return;

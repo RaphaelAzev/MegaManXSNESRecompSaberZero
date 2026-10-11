@@ -63,6 +63,9 @@ const MmxSaberStep *MmxSaberAssetsAnimationStep(const MmxSaberAssets *assets,
 const MmxSaberFrame *MmxSaberAssetsFrameForStep(const MmxSaberAssets *assets,
                                                 uint16_t animation_id,
                                                 uint16_t step_index);
+uint16_t MmxSaberAssetsFrameCount(const MmxSaberAssets *assets);
+const MmxSaberFrame *MmxSaberAssetsFrameAt(const MmxSaberAssets *assets,
+                                           uint16_t frame_index);
 
 const uint16_t *MmxSaberAssetsPalette(const MmxSaberAssets *assets);
 uint16_t MmxSaberAssetsPaletteCount(const MmxSaberAssets *assets);
