@@ -3,7 +3,7 @@ id = "megaman-x.character.saber-zero"
 version = "0.0.1"
 name = "Saber Zero"
 author = "mstan"
-description = "Single-player Saber Zero package shell using upstream X3 Zero behavior with no gameplay changes yet. Requires your Mega Man X3 USA ROM."
+description = "Single-player Saber Zero package with X1 armor upgrades and Black Zero, using upstream X3 Zero behavior. Requires your Mega Man X3 USA ROM."
 license = "PolyForm-Noncommercial-1.0.0"
 resolver = "declarative"
 save_compatibility = "requires-same-mods"
@@ -15,7 +15,7 @@ rom_sha256 = "b8f70a6e7fb93819f79693578887e2c11e196bdf1ac6ddc7cb924b1ad0be2d32"
 [[feature]]
 id = "saber-zero"
 name = "Saber Zero"
-description = "Enable the single-player Saber Zero package shell with upstream X3 Zero behavior. Requires your Mega Man X3 USA ROM."
+description = "Enable the single-player Saber Zero package with X1 armor upgrades and Black Zero, using upstream X3 Zero behavior. Requires your Mega Man X3 USA ROM."
 group = "Characters"
 default_enabled = false
 

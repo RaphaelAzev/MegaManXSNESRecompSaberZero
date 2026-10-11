@@ -27,6 +27,9 @@ The Saber Zero sprites and sound effects come from the [Zashiko Mod](assets/sabe
 They are included for non-commercial use. This project is not monetized, and
 the donor assets must not be used commercially.
 
+Saber Zero can collect X1's armor upgrades as Zero, including double jump, air
+dash, charged special weapons, and Black Zero's black-and-grey appearance.
+
 ### Saber Zero controls and attacks
 
 The package keeps the native controls for movement and menus, with the following
@@ -92,11 +95,13 @@ the custom renderer outlines enemy, Zero, and Saber attack hitboxes.
 
 ### Saber Zero package options
 
-The package has 31 numeric tuning options plus `show_hitboxes`.
+The package has `start`, `start_all_upgrades`, 31 numeric tuning options, and
+`show_hitboxes`.
 
 | Option | Default | Meaning |
 |--------|---------|---------|
 | `start` | `zero` | Starting character; `x` is also available. |
+| `start_all_upgrades` | `false` | Give Zero all four X1 armor parts at stage or checkpoint start; intended for testing. |
 | `slash1_damage` | `3` | Normal damage for ground slash 1. |
 | `slash2_damage` | `3` | Normal damage for ground slash 2. |
 | `slash3_damage` | `8` | Normal damage for ground slash 3. |
@@ -130,12 +135,14 @@ The package has 31 numeric tuning options plus `show_hitboxes`.
 | `saber_swing_volume` | `50` | Saber swing sound-effect volume. |
 | `show_hitboxes` | `false` | Draw debug hitboxes in the custom renderer. |
 
-### Planned Saber Zero features
+### Saber Zero armor upgrades and Black Zero
 
-The planned roadmap includes collecting armor parts for Zero: legs for a double
-jump and air dash, arms for a purple saber and more damage, and other parts to
-be defined. It also includes additional Zero saber techniques and replacing
-dialogue and other relevant cutscene content with Zero-related entries.
+Zero shares X1's armor parts with X. All four parts unlock Black Zero, with
+black-and-grey armor, pale hair, and grey death orbs. The Black Zero palette
+uses colour values from the MMX3 Zero Project romhack; no ROM data is included.
+
+Additional Zero saber techniques and Zero-related dialogue and other cutscene
+entries remain planned.
 
 ### Conflicts and unsupported modes
 

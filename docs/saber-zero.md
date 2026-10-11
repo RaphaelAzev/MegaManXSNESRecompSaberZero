@@ -4,7 +4,7 @@ Saber Zero is an optional, single-player character package in this fork of
 [Mega Man X Recompiled](https://github.com/mstan/MegaManXSNESRecomp). It uses
 the X3 Zero character shell and adds a Saber attack owner, X3 finisher/wave
 sequence, priority-aware follow-ups, donor sprites and sound effects, Ride
-Armor pilot art, and an optional hitbox overlay.
+Armor pilot art, X1 armor upgrades, Black Zero, and an optional hitbox overlay.
 
 The package is disabled by default. Enable **Characters → Saber Zero** in the
 launcher, choose the player's **Mega Man X USA** ROM for the game, and provide a
@@ -121,9 +121,43 @@ native OAM result rather than a fixed screen offset.
 debug rectangles for the enemy, Zero, and Saber attack boxes. It is a renderer
 debug option; it does not change collision or damage.
 
+## Armor upgrades and Black Zero
+
+Zero can collect X1's four armor parts alongside X. The parts use the shared
+native `$1F99` bits, so capsules work for both characters and collected parts
+persist through the password like X's parts. The package option
+`start_all_upgrades` grants all four parts at stage or checkpoint start while
+Zero is active; it is intended for testing, and the granted parts persist in
+the password like collected parts.
+
+| Part | Effect |
+|------|--------|
+| Legs (`$08`) | Double jump and air dash. Zero's ground dash remains innate. |
+| Arms (`$02`) | Purple saber blade and Saber wave. Adds 2 damage to every Saber attack, or 1 against bosses, after tuned damage and before the 32-point cap. A full buster charge fires charged X1 special weapons. |
+| Body (`$04`) | X1's native damage halving. Odd damage rounds up. |
+| Head (`$01`) | Buster charges at 1.5 times the normal rate. X1 special weapons cost half energy using fixed-point accounting, so whole-unit costs alternate. Breaks the helmet blocks X breaks in Flame Mammoth. |
+| All four parts | Black Zero: black and grey armor with pale hair. The appearance also applies on death and boss defeat. Death orbs use grey. |
+
+The Black Zero palette follows the MMX3 Zero Project romhack. This repository
+contains colour constants only; it does not distribute ROM data. See the
+[credits](../assets/saber-zero/CREDITS.md).
+
+## Generic Zero extension hooks
+
+`MmxZeroExtension` exposes these optional generic hooks for Zero behavior. An
+absent hook preserves the original behavior:
+
+| Hook | Purpose |
+|------|---------|
+| `colors` | Supply the Zero palette. |
+| `modern_movement` | Enable aerial modern movement actions. |
+| `charge_rate` | Supply the charge increment in Q8.8 fixed-point units per frame. |
+| `weapon_cost` | Adjust a weapon's energy cost. |
+| `death_orb_color` | Supply a Zero-owned death-orb pixel color. |
+
 ## Package options and defaults
 
-The manifest exposes `start`, 31 numeric tuning options, and
+The manifest exposes `start`, `start_all_upgrades`, 31 numeric tuning options, and
 `show_hitboxes`. Normal damage values accept 1–32; boss damage accepts 0–32,
 where 0 means “use the matching normal value”; priority values accept 1–9.
 The window ranges are 30–120 frames for priority and 12–60 frames for the
@@ -131,7 +165,7 @@ finisher. Swing volume ranges from 0–200 in steps of 10.
 
 | Group | Options and defaults |
 |-------|----------------------|
-| Character/debug | `start=zero`; `show_hitboxes=false` |
+| Character/debug | `start=zero`; `start_all_upgrades=false`; `show_hitboxes=false` |
 | Normal damage | `slash1_damage=3`, `slash2_damage=3`, `slash3_damage=8`, `x3_finisher_damage=16`, `air_damage=3`, `wall_damage=3`, `dash_damage=3`, `wave_damage=6` |
 | Boss damage | `boss_slash1_damage=1`, `boss_slash2_damage=1`, `boss_slash3_damage=2`, `boss_air_damage=1`, `boss_wall_damage=1`, `boss_dash_damage=1`, `boss_x3_finisher_damage=6`, `boss_wave_damage=4` |
 | Priority | `slash1_priority=2`, `slash2_priority=3`, `slash3_priority=4`, `air_priority=1`, `wall_priority=1`, `dash_priority=5`, `charge_small_priority=1`, `charge_full_priority=1`, `max_shot1_priority=2`, `max_shot2_priority=3`, `x3_finisher_priority=4`, `wave_priority=5` |
@@ -154,10 +188,8 @@ bosses were surveyed, but only Chill Penguin, Mammoth, and Armadillo were
 played through during this pass. Treat other boss interactions as needing more
 playtesting.
 
-Planned work includes Zero armor parts: legs for double jump and air dash,
-arms for a purple saber and more damage, with the other parts still to be
-defined. Additional Zero saber techniques and Zero-related dialogue and other
-cutscene entries are also planned.
+Additional Zero saber techniques and Zero-related dialogue and other cutscene
+entries remain planned.
 
 ## Running the tests
 
