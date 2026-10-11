@@ -10,6 +10,7 @@
 #include "mmx_saber_wave_runtime.h"
 
 static bool release_pending;
+static bool release_pending_from_special;
 static bool previous_y;
 static MmxZeroLegacyIntent frame_intent;
 static bool frame_computed;
@@ -53,6 +54,7 @@ static void state_reset(uint8_t *ram) {
   MmxSaberAttackResetCueCount();
   MmxSaberBlackZeroNativeColorsUpdate(false, false, NULL);
   release_pending = false;
+  release_pending_from_special = false;
   previous_y = false;
   clear_frame_state();
 }
@@ -204,7 +206,15 @@ static void pre_player(uint8_t *ram) {
     return;
   }
 
+  /* A special release latch belongs to its special charge.  Do not let a
+   * later buster selection turn it into a legacy buster release. */
+  if (release_pending_from_special && ram[0x0bdb] == 0) {
+    release_pending = false;
+    release_pending_from_special = false;
+  }
+
   physical = read_physical_pad(ram);
+  const bool release_pending_before = release_pending;
   saber = MmxSaberAttackPadState(release_pending);
   pre_native_saber = saber;
   MmxSaberAttackObservePreNative(ram);
@@ -221,7 +231,8 @@ static void pre_player(uint8_t *ram) {
       (ram[0x0bdb] == 0) && x_charge_owned,
       ram[0x0baa] == 0x0e,
       zero_dead_or_reset(ram),
-      (ram[0x0bd3] & 4) || (ram[0x0bd4] & 4)};
+      (ram[0x0bd3] & 4) || (ram[0x0bd4] & 4),
+      ram[0x0bdb] != 0 && ram[0x0c00] >= 2};
 
   /* Classify the physical edge first, advance the Saber owner second, and
    * only then compute/write the native pad.  saber_pressed is phase-independent,
@@ -256,6 +267,11 @@ static void pre_player(uint8_t *ram) {
   frame_intent = out.legacy;
   frame_override = out.legacy_override;
   frame_computed = true;
+  if (!out.release_pending)
+    release_pending_from_special = false;
+  else if (!release_pending_before && !zero.buster_selected &&
+           zero.special_charging)
+    release_pending_from_special = true;
   release_pending = out.release_pending;
   previous_y = (physical.buttons & MMX_SABER_PAD_Y) != 0;
   last_wrote_input = true;

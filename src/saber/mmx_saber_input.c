@@ -102,10 +102,28 @@ MmxSaberPadOut MmxSaberComputePad(MmxSaberPhysicalPad phys,
   if (!zero.buster_selected) {
     out.legacy_override = false;
     if (is_slashing) {
-      clear_fire(&out.native);
+      if (zero.special_charging) {
+        if (!zero.hurt && x_pressed && out.release_pending)
+          out.release_pending = false;
+        if (!x_held)
+          out.release_pending = true;
+        set_fire(&out.native, false, true, false);
+      } else {
+        clear_fire(&out.native);
+      }
       out.fire_blocked = true;
+    } else if (zero.special_charging && out.release_pending && !x_held) {
+      /* A release latched during the slash belongs to this special charge. */
+      clear_fire(&out.native);
+      out.release_pending = false;
+      out.fire_blocked = false;
     } else {
-      set_fire(&out.native, x_previous, x_held, x_pressed && !zero.hurt);
+      const bool pending_held =
+          zero.special_charging && out.release_pending && x_held;
+      set_fire(&out.native, x_previous, x_held,
+               x_pressed && !zero.hurt && !pending_held);
+      if (pending_held)
+        out.release_pending = false;
       out.fire_blocked = false;
     }
   } else {

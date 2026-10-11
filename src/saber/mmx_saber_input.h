@@ -75,6 +75,7 @@ typedef struct MmxSaberPadZero {
   bool hurt;
   bool dead_or_reset;
   bool grounded;
+  bool special_charging;
 } MmxSaberPadZero;
 
 typedef struct MmxSaberPadOut {

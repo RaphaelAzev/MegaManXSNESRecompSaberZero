@@ -113,6 +113,18 @@ static void check_table(void) {
        {false, false, false, true},
        expected(no_fire(mask_ground(base)), false, false, false, false, true,
                 false, false, false)},
+      {"R3a special charging slash held",
+       physical_pad(true, true, false, false), base,
+       {SABER_PHASE_ACTIVE, SABER_KIND_GROUND1, false, false, false},
+       {false, false, false, true, true},
+       expected(mask_ground(x_shoot(base, false, true, false)), false, false,
+                false, false, true, false, false, false)},
+      {"R3b special charging slash released",
+       physical_pad(false, true, false, false), base,
+       {SABER_PHASE_ACTIVE, SABER_KIND_GROUND1, false, false, false},
+       {false, false, false, true, true},
+       expected(mask_ground(x_shoot(base, false, true, false)), false, false,
+                false, false, true, true, false, false)},
       {"R4 buster idle", physical_pad(true, false, true, true), base,
        {SABER_PHASE_IDLE, SABER_KIND_NONE, false, false, false},
        {true, false, false, true},
@@ -191,6 +203,35 @@ static void check_table(void) {
     } else {
       printf("ok: table %s\n", cases[i].name);
     }
+  }
+}
+
+static void check_special_charge_sequence(void) {
+  const MmxSaberNativePad base = mapped_pad();
+  MmxSaberPadSaber saber = {
+      SABER_PHASE_ACTIVE, SABER_KIND_GROUND1, false, false, false};
+  const MmxSaberPadZero zero = {false, false, false, true, true};
+  MmxSaberPadOut out = MmxSaberComputePad(
+      physical_pad(false, true, false, false), base, saber, zero);
+  if (!native_equal(out.native, mask_ground(x_shoot(base, false, true, false))) ||
+      !out.fire_blocked || !out.release_pending) {
+    printf("FAIL: special release was not buffered during slash\n");
+    ++failures;
+  } else {
+    printf("ok: special release buffered during slash\n");
+  }
+
+  saber.phase = SABER_PHASE_IDLE;
+  saber.kind = SABER_KIND_NONE;
+  saber.release_pending = out.release_pending;
+  out = MmxSaberComputePad(
+      physical_pad(false, false, false, false), base, saber, zero);
+  if (!native_equal(out.native, no_fire(base)) || out.release_pending ||
+      out.fire_blocked) {
+    printf("FAIL: special release was not delivered after slash\n");
+    ++failures;
+  } else {
+    printf("ok: special release delivered after slash\n");
   }
 }
 
@@ -376,6 +417,7 @@ static void check_startup_edges(void) {
 
 int main(void) {
   check_table();
+  check_special_charge_sequence();
   check_exhaustive_properties();
   check_cr1_sequence();
   check_startup_edges();
