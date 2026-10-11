@@ -72,7 +72,9 @@ static bool zero_frame_context(const uint8_t *ram) {
   return ram && MmxZeroActive() && !MmxZeroSwapping() &&
       ram[0xd1] == 2 && ram[0xd2] == 4 && ram[0xd3] == 4 &&
       ram[0xba9] == 2 && (ram[0xbcf] & 127) && !ram[0x1f0c] &&
-      ram[0x1f10] < 6 && ram[0xbbe] != 0x6b && ram[0xbaa] != 0x2c;
+      ram[0x1f10] < 6 && ram[0xbbe] != 0x6b && ram[0xbaa] != 0x2c &&
+      /* Native restraint/freeze action ($84:9FEB / Chill Penguin ice). */
+      ram[0xbaa] != 0x1e;
 }
 
 static MmxSaberPhysicalPad read_physical_pad(const uint8_t *ram) {

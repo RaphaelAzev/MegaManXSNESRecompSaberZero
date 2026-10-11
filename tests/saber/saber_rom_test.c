@@ -5409,6 +5409,238 @@ static unsigned saber_weapon_ammo_word(unsigned weapon) {
   return read_ram_word(g_ram, 0x1f85 + weapon * 2) & 0x3fff;
 }
 
+static unsigned saber_frozen_penguin_boss(void) {
+  for (unsigned d = 0x0e68; d < 0x1228; d += 0x40) {
+    if (g_ram[d] && g_ram[d + 0x0e] && g_ram[d + 0x27] &&
+        g_ram[d + 0x0a] == 0x02 && !g_ram[d + 0x30])
+      return d;
+  }
+  return 0;
+}
+
+static unsigned saber_frozen_ice_actor(unsigned *counter) {
+  for (unsigned d = 0x1428; d <= 0x15e8; d += 0x40) {
+    /* Chill Penguin's ice pieces are attack objects $1A; the pieces that
+     * encase the player show the statue animation $68 (state 4, $C451). */
+    if (g_ram[d] && g_ram[d + 0x01] == 0x04 &&
+        g_ram[d + 0x0a] == 0x1a && g_ram[d + 0x16] == 0x68 &&
+        read_ram_word(g_ram, d + 0x20) == 0xc451) {
+      if (counter) *counter = read_ram_word(g_ram, d + 0x1a);
+      return d;
+    }
+  }
+  if (counter) *counter = 0;
+  return 0;
+}
+
+static void saber_frozen_checks(const char *fixture_dir) {
+  char path[4096];
+  int written;
+  unsigned ice = 0;
+  unsigned ice_counter = 0;
+  unsigned found_frame = 0;
+  size_t snapshot_capacity;
+  size_t snapshot_size;
+  uint8_t *snapshot;
+
+  check(fixture_dir && fixture_dir[0],
+        "saber-frozen receives a fixture directory");
+  written = snprintf(path, sizeof(path), "%s/%s", fixture_dir,
+                     "penguin-fight.sav");
+  check(written >= 0 && written < (int)sizeof(path),
+        "saber-frozen fixture path fits");
+  check(readable_file(path), "penguin-fight.sav exists for saber-frozen");
+  check(RtlLoadSnapshot(path), "penguin-fight.sav loads for saber-frozen");
+  check(MmxZeroActive() && !MmxZeroModern() && g_ram[0x1f7a] == 8,
+        "saber-frozen fixture is the Chill Penguin stage");
+  check(g_ram[0x0bdb] == 0,
+        "penguin-fight freeze route starts with the buster selected");
+  MmxZeroCancel(g_ram);
+  MmxSaberFrameReset();
+
+  for (unsigned frame_number = 0;
+       frame_number < 1800 && !ice; ++frame_number) {
+    unsigned input = 0;
+    const unsigned boss = saber_frozen_penguin_boss();
+    if (boss) {
+      const int dx = (int)read_ram_word(g_ram, boss + 5) -
+          (int)read_ram_word(g_ram, 0x0bad);
+      if (abs(dx) > 32)
+        input = dx >= 0 ? SNES_PAD_RIGHT : SNES_PAD_LEFT;
+    }
+    frame(input);
+    if (g_ram[0x0baa] == 0x1e) {
+      unsigned candidate_counter = 0;
+      const unsigned candidate = saber_frozen_ice_actor(&candidate_counter);
+      if (candidate) {
+        ice = candidate;
+        ice_counter = candidate_counter;
+        found_frame = frame_number + 1;
+      }
+    }
+  }
+
+  printf("reference: saber-frozen found=%u frame=%u actor=0x%04X counter=%u\n",
+         ice != 0, found_frame, ice, ice_counter);
+  check(ice != 0,
+        "saber-frozen reaches a real Chill Penguin freeze");
+  check(g_ram[0x0baa] == 0x1e,
+        "saber-frozen route holds native action $1E");
+
+  snapshot_capacity = RtlSaveSnapshotToMemory(NULL, 0);
+  snapshot = malloc(snapshot_capacity);
+  check(snapshot_capacity != 0 && snapshot != NULL,
+        "saber-frozen allocates a freeze snapshot");
+  snapshot_size = RtlSaveSnapshotToMemory(snapshot, snapshot_capacity);
+  check(snapshot_size != 0,
+        "saber-frozen saves the real freeze snapshot");
+
+  {
+    unsigned before_counter = 0;
+    unsigned after_counter = 0;
+    unsigned quiet_counter = 0;
+    unsigned char previous_native[8] = {0};
+    unsigned native_births;
+    const unsigned before_ice = saber_frozen_ice_actor(&before_counter);
+    const unsigned cues = MmxSaberAttackCueCount();
+    (void)new_native_projectiles(previous_native);
+    check(RtlLoadSnapshotFromMemory(snapshot, snapshot_size),
+          "saber-frozen restores the Saber probe snapshot");
+    frame(SNES_PAD_Y);
+    native_births = new_native_projectiles(previous_native);
+    const MmxSaberAttackSnapshot after =
+        MmxSaberAttackSnapshotGet();
+    const unsigned after_ice = saber_frozen_ice_actor(&after_counter);
+    check(before_ice != 0 && after_ice != 0 &&
+              after.phase == SABER_PHASE_IDLE &&
+              MmxSaberAttackCueCount() == cues &&
+              tagged_projectiles() == 0 && g_ram[0x0baa] == 0x1e,
+          "saber-frozen Y starts no Saber slash or Saber projectile");
+    check(native_births == 0,
+          "saber-frozen Y starts no native projectile");
+    (void)after_ice;
+    (void)quiet_counter;
+  }
+
+  {
+    /* Y is X1's fire button, and native ice counts any new press as a mash.
+     * Mashing Y must break the ice well before standing still does. */
+    unsigned idle_frames = 0;
+    unsigned mash_frames = 0;
+    check(RtlLoadSnapshotFromMemory(snapshot, snapshot_size),
+          "saber-frozen restores the idle mash-timing snapshot");
+    while (idle_frames < 90 && g_ram[0x0baa] == 0x1e) {
+      frame(0);
+      ++idle_frames;
+    }
+    check(RtlLoadSnapshotFromMemory(snapshot, snapshot_size),
+          "saber-frozen restores the Y mash-timing snapshot");
+    while (mash_frames < 90 && g_ram[0x0baa] == 0x1e) {
+      frame((mash_frames & 1) ? 0 : SNES_PAD_Y);
+      ++mash_frames;
+    }
+    printf("reference: saber-frozen idle=%u mash=%u action=0x%02X\n",
+           idle_frames, mash_frames, g_ram[0x0baa]);
+    check(idle_frames == 90 && mash_frames < 90 && g_ram[0x0baa] != 0x0e,
+          "saber-frozen mashing Y breaks the ice; standing still does not");
+  }
+
+  {
+    unsigned char previous_native[8] = {0};
+    unsigned native_births = 0;
+    bool stayed_frozen = true;
+    check(RtlLoadSnapshotFromMemory(snapshot, snapshot_size),
+          "saber-frozen restores the buster probe snapshot");
+    check(g_ram[0x0bdb] == 0,
+          "saber-frozen buster probe restores buster selection");
+    (void)new_native_projectiles(previous_native);
+    for (unsigned held = 0; held < 30; ++held) {
+      frame(SNES_PAD_X);
+      native_births += new_native_projectiles(previous_native);
+      if (g_ram[0x0baa] != 0x1e) stayed_frozen = false;
+    }
+    frame(0);
+    native_births += new_native_projectiles(previous_native);
+    if (g_ram[0x0baa] != 0x1e) stayed_frozen = false;
+    check(stayed_frozen,
+          "saber-frozen buster press and 30 held frames stay frozen");
+    check(native_births == 0 && tagged_projectiles() == 0,
+          "saber-frozen buster press fires no native or Saber projectile");
+  }
+
+  {
+    unsigned char previous_native[8] = {0};
+    unsigned native_births = 0;
+    bool stayed_frozen = true;
+    unsigned energy_before;
+    check(RtlLoadSnapshotFromMemory(snapshot, snapshot_size),
+          "saber-frozen restores the special probe snapshot");
+    select_native_weapon(5);
+    check(g_ram[0x0baa] == 0x1e,
+          "saber-frozen weapon selection stays inside the freeze");
+    energy_before = saber_weapon_ammo_word(5);
+    check(energy_before > 0,
+          "saber-frozen Storm Tornado has energy");
+    (void)new_native_projectiles(previous_native);
+    frame(SNES_PAD_X);
+    native_births += new_native_projectiles(previous_native);
+    if (g_ram[0x0baa] != 0x1e) stayed_frozen = false;
+    frame(0);
+    native_births += new_native_projectiles(previous_native);
+    if (g_ram[0x0baa] != 0x1e) stayed_frozen = false;
+    check(stayed_frozen,
+          "saber-frozen special press and release stay frozen");
+    check(native_births == 0 && tagged_projectiles() == 0,
+          "saber-frozen special press fires no native or Saber projectile");
+    check(saber_weapon_ammo_word(5) == energy_before,
+          "saber-frozen special press spends no weapon energy");
+  }
+
+  check(RtlLoadSnapshotFromMemory(snapshot, snapshot_size),
+        "saber-frozen restores the snapshot for mash release");
+  unsigned mash_frames = 0;
+  while (mash_frames < 600 && g_ram[0x0baa] == 0x1e) {
+    frame(SNES_PAD_Y);
+    ++mash_frames;
+    if (g_ram[0x0baa] != 0x1e) break;
+    frame(0);
+    ++mash_frames;
+  }
+  printf("reference: saber-frozen release frames=%u action=0x%02X "
+         "counter-actor=0x%04X\n",
+         mash_frames, g_ram[0x0baa],
+         saber_frozen_ice_actor(NULL));
+  check(g_ram[0x0baa] != 0x1e,
+        "saber-frozen mash reaches the native release");
+  for (unsigned settle = 0;
+       settle < 4 && (g_ram[0x0baa] || g_ram[0x0bab] || g_ram[0x0c16]);
+       ++settle)
+    frame(0);
+  check(g_ram[0x0baa] == 0 && g_ram[0x0bab] == 0 && g_ram[0x0c16] == 0,
+        "saber-frozen release restores native freeze bytes to zero");
+  /* The breath can encase Zero again right after he breaks free. Keep
+   * mashing out of every freeze and press Y on free frames until a slash
+   * starts outside the freeze. */
+  bool slash_started = false;
+  unsigned refreezes = 0;
+  unsigned resume_frames = 0;
+  bool was_frozen = false;
+  for (; resume_frames < 900 && !slash_started; ++resume_frames) {
+    const bool frozen = g_ram[0x0baa] == 0x1e;
+    if (frozen && !was_frozen) ++refreezes;
+    was_frozen = frozen;
+    frame((resume_frames & 1) ? 0 : SNES_PAD_Y);
+    if (g_ram[0x0baa] != 0x1e &&
+        MmxSaberAttackSnapshotGet().phase != SABER_PHASE_IDLE)
+      slash_started = true;
+  }
+  printf("reference: saber-frozen resume frames=%u refreezes=%u action=0x%02X\n",
+         resume_frames, refreezes, g_ram[0x0baa]);
+  check(slash_started,
+        "Saber resumes on Y after the real Chill Penguin freeze ends");
+  free(snapshot);
+  puts("ok: saber-frozen");
+}
 static unsigned saber_normal_ammo_spend(const char *fixture, unsigned weapon,
                                         uint8_t armor, unsigned shots,
                                         unsigned *before, unsigned *after) {
@@ -9365,6 +9597,7 @@ int main(int argc, char **argv) {
   check(x3_rom && x3_rom[0], "MMX_COOP_X3_ROM supplied");
   check(assets && assets[0], "MMX_ZERO_TEST_ASSETS supplied");
   if (only && (!strcmp(only, "fixtures") || !strcmp(only, "saber-legs") ||
+      !strcmp(only, "saber-frozen") ||
       !strcmp(only, "saber-wall") ||
       !strcmp(only, "saber-cancel") || !strcmp(only, "saber-buster-rules") ||
       !strcmp(only, "saber-damage") || !strcmp(only, "saber-priority") ||
@@ -9454,6 +9687,7 @@ int main(int argc, char **argv) {
   const bool saber_ground_1 = only && !strcmp(only, "saber-ground-1");
   const bool saber_ground_combo = only && !strcmp(only, "saber-ground-combo");
   const bool saber_legs = only && !strcmp(only, "saber-legs");
+  const bool saber_frozen = only && !strcmp(only, "saber-frozen");
   const bool saber_air = only && !strcmp(only, "saber-air");
   const bool saber_wall = only && !strcmp(only, "saber-wall");
   const bool saber_dash = only && !strcmp(only, "saber-dash");
@@ -9482,7 +9716,7 @@ int main(int argc, char **argv) {
   const bool fixtures = only && !strcmp(only, "fixtures");
   const bool saber_enabled_group = saber_package || zero_extension ||
       saber_input || saber_ground_1 || saber_ground_combo ||
-      saber_air || saber_legs || saber_wall || saber_dash || saber_land || saber_ground_lifecycle ||
+      saber_air || saber_legs || saber_frozen || saber_wall || saber_dash || saber_land || saber_ground_lifecycle ||
       saber_ground_hit || saber_cancel || saber_lifecycle_load ||
       saber_contexts ||
       saber_render_snapshot || saber_buster_rules || saber_burst_height ||
@@ -9530,6 +9764,10 @@ int main(int argc, char **argv) {
   } else if (saber_legs) {
     check(MmxSaberEnabled(), "saber-legs runs with the Saber package enabled");
     saber_legs_checks(fixture, fixture_dir);
+  } else if (saber_frozen) {
+    check(MmxSaberEnabled(),
+          "saber-frozen runs with the Saber package enabled");
+    saber_frozen_checks(fixture_dir);
   } else if (saber_wall) {
     check(MmxSaberEnabled(), "saber-wall runs with the Saber package enabled");
     saber_wall_checks(fixture_dir);
@@ -9703,6 +9941,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-ground-1") &&
       strcmp(only, "saber-ground-combo") &&
       strcmp(only, "saber-legs") &&
+      strcmp(only, "saber-frozen") &&
       strcmp(only, "saber-air") &&
       strcmp(only, "saber-wall") &&
       strcmp(only, "saber-dash") &&
