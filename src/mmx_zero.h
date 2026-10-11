@@ -36,6 +36,7 @@ typedef struct MmxZeroExtension {
                         int native_y, int paired_y);
   unsigned (*charge_rate)(void);                    /* Q8.8 per frame; 0 = default 0x100 */
   uint16_t (*death_orb_color)(uint16_t native);     /* Zero-owned death-orb pixel */
+  unsigned (*weapon_cost)(unsigned weapon_id, unsigned cost, bool charged);
 } MmxZeroExtension;
 typedef struct MmxZeroState {
   uint16_t charge, slash, projectile;
@@ -94,6 +95,7 @@ bool MmxZeroSlideHold(uint8_t ram[0x20000], unsigned pc);
 /* Before the player state dispatch: re-enter the dash if Zero cannot stand. */
 void MmxZeroSlideTick(uint8_t ram[0x20000]);
 unsigned MmxZeroUpgradeBits(unsigned pc, unsigned original);
+unsigned MmxZeroWeaponCost(unsigned weapon_id, unsigned cost, bool charged);
 void MmxZeroPlayerTick(uint8_t ram[0x20000]);
 void MmxZeroPlayerEnd(uint8_t ram[0x20000]);
 unsigned MmxZeroChargeTier(const MmxZeroState *snapshot);

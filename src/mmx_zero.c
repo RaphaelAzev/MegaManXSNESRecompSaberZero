@@ -470,6 +470,11 @@ unsigned MmxZeroUpgradeBits(unsigned pc, unsigned original) {
     default: return original;
   }
 }
+unsigned MmxZeroWeaponCost(unsigned weapon_id, unsigned cost, bool charged) {
+  if (!MmxZeroActive() || !extension || !extension->weapon_cost)
+    return cost;
+  return extension->weapon_cost(weapon_id, cost, charged);
+}
 
 static bool own_projectile(const uint8_t *r, unsigned d) {
   return d >= 0x1228 && d < 0x1428 && (d & 63) == 0x28 &&

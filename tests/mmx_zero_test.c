@@ -22,6 +22,39 @@ static unsigned charge_rate_hook_value;
 static unsigned charge_cap_hook_value;
 static unsigned charge_rate_hook(void) { return charge_rate_hook_value; }
 static unsigned charge_cap_hook(void) { return charge_cap_hook_value; }
+static unsigned weapon_cost_hook_value;
+static unsigned weapon_cost_hook_calls;
+static unsigned weapon_cost_hook(unsigned weapon_id, unsigned cost, bool charged) {
+  (void)weapon_id;
+  (void)cost;
+  (void)charged;
+  ++weapon_cost_hook_calls;
+  return weapon_cost_hook_value;
+}
+static void weapon_cost_checks(void) {
+  static const MmxZeroExtension extension = {.weapon_cost = weapon_cost_hook};
+  MmxZeroState saved;
+
+  MmxZeroSetExtension(NULL);
+  assert(MmxZeroWeaponCost(2, 0x0100, false) == 0x0100);
+
+  weapon_cost_hook_value = 0x0055;
+  weapon_cost_hook_calls = 0;
+  MmxZeroSetExtension(&extension);
+  assert(MmxZeroWeaponCost(2, 0x0100, true) == 0x0055 &&
+         weapon_cost_hook_calls == 1);
+
+  saved = MmxZeroGetState();
+  saved.active_x = 1;
+  MmxZeroSetState(saved);
+  weapon_cost_hook_calls = 0;
+  assert(MmxZeroWeaponCost(2, 0x0100, false) == 0x0100 &&
+         weapon_cost_hook_calls == 0);
+
+  saved.active_x = 0;
+  MmxZeroSetState(saved);
+  MmxZeroSetExtension(NULL);
+}
 static void asset(const char *path, bool modern) {
   FILE *f = fopen(path, "wb"); assert(f);
   const uint8_t header[] = {'M','M','X','Z','E','R','O',modern ? '7' : '6',128,0,128,0,64,0,64,0,117,0,35,0};
@@ -300,6 +333,7 @@ int main(void) {
   tick(0,0); assert(!memcmp(before, ram, sizeof(ram)));
   assert(MmxZeroUpgradeBits(0x81971c, 0) == 0);
   asset("zero-test.bin", false); assert(MmxZeroLoad("zero-test.bin"));
+  weapon_cost_checks();
   color_checks();
   death_orb_color_checks();
   assert(MmxZeroUpgradeBits(0x81971c, 2) == 10);

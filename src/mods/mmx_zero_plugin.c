@@ -57,6 +57,43 @@ static void weapon_menu_hook(CpuState *cpu, uint32_t pc) {
   cpu->_flag_Z = value == 0; cpu->_flag_N = (value & 128) != 0;
   cpu->P = (cpu->P & ~0x82) | (cpu->_flag_Z ? 2 : 0) | (cpu->_flag_N ? 128 : 0);
 }
+static void weapon_cost_post_sbc(CpuState *cpu, unsigned pc) {
+  bool charged = (pc & 0xffff) == 0x9511;
+  unsigned table = charged ? 0xbaa4 : 0xba92;
+  unsigned original = cpu_read16(cpu, cpu->DB,
+      (uint16_t)(table + cpu->X));
+  unsigned cost = MmxZeroWeaponCost(cpu->X, original, charged) & 0xffff;
+  unsigned available, result;
+  if (cost == original) return;
+  available = cpu_read16(cpu, cpu->DB,
+      (uint16_t)(0x1f85 + cpu->X)) & 0x3fff;
+  if (cpu->_flag_D) {
+    unsigned complement = cost ^ 0xffff;
+    int bcd = (available & 15) + (complement & 15) + 1;
+    if (bcd < 16) bcd = (bcd - 6) & (bcd < 6 ? 15 : 31);
+    bcd += (available & 240) + (complement & 240);
+    if (bcd < 256) bcd = (bcd - 96) & (bcd < 96 ? 255 : 511);
+    bcd += (available & 3840) + (complement & 3840);
+    if (bcd < 4096) bcd = (bcd - 1536) & (bcd < 1536 ? 4095 : 8191);
+    bcd += (available & 61440) + (complement & 61440);
+    cpu->_flag_V = ((available & 32768) == (complement & 32768)) &&
+        ((complement & 32768) != (bcd & 32768));
+    if (bcd < 65536) bcd -= 24576;
+    cpu->_flag_C = bcd > 65535;
+    result = (unsigned)bcd & 0xffff;
+  } else {
+    uint32_t value = (uint32_t)available - (uint32_t)cost;
+    result = (unsigned)value & 0xffff;
+    cpu->_flag_C = available >= cost;
+    cpu->_flag_V = (((available ^ cost) & (available ^ result) & 0x8000) != 0);
+  }
+  cpu->A = (uint16_t)result;
+  cpu->_flag_Z = result == 0;
+  cpu->_flag_N = (result & 0x8000) != 0;
+  cpu->P = (cpu->P & ~0xc3) | cpu->_flag_C |
+      (cpu->_flag_Z ? 2 : 0) | (cpu->_flag_V ? 64 : 0) |
+      (cpu->_flag_N ? 128 : 0);
+}
 static void hook(CpuState *cpu, uint32_t pc) {
   if (!MmxZeroEnabled() && !MmxWeaponsEnabled()) return;
   switch (pc & 0x7fffff) {
@@ -146,6 +183,9 @@ static void hook(CpuState *cpu, uint32_t pc) {
           (cpu->_flag_N ? 128 : 0);
       break;
     }
+    case 0x0194ef: case 0x019511:
+      weapon_cost_post_sbc(cpu, pc);
+      break;
     case 0x049e76: {
       unsigned original = cpu_read8(cpu, cpu->DB, (uint16_t)(0xef37 + cpu->Y));
       unsigned damage = MmxWeaponsDamage(g_ram, cpu->D, cpu->X,
@@ -188,7 +228,7 @@ static bool zero_terrain_solid(const uint8_t *r, int x, int y) {
 void MmxZeroRegisterHooks(void) {
   MmxZeroSetTerrainQuery(zero_terrain_solid);
   const unsigned pcs[] = {0x009dca, 0x00d6a7, 0x00d76a, 0x01971f, 0x019796, 0x0198ff,
-                          0x01815c, 0x018165, 0x019d47, 0x0194af, 0x00d3e7, 0x00d4f4, 0x00d511, 0x049e1d, 0x049e3a, 0x049e45, 0x049e76, 0x049c19, 0x048f07, 0x048eea, 0x018b04, 0x0491dc, 0x02823e,
+                          0x01815c, 0x018165, 0x019d47, 0x0194af, 0x00d3e7, 0x00d4f4, 0x00d511, 0x049e1d, 0x049e3a, 0x049e45, 0x0194ef, 0x019511, 0x049e76, 0x049c19, 0x048f07, 0x048eea, 0x018b04, 0x0491dc, 0x02823e,
                           0x01898e, 0x018999, 0x018965,
                           0x028403,0x03958f,0x039dcf,
                           0x01a57d,0x038b6f,0x038d87,0x038ed7,0x03951d,0x039841,0x039993,0x03a3cd,

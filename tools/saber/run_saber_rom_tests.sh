@@ -55,6 +55,7 @@ named_groups=(saber-assets saber-input saber-ground-1 saber-ground-combo saber-a
   saber-ground-lifecycle saber-lifecycle-load saber-contexts saber-buster-rules saber-burst-height saber-finisher saber-priority-classify saber-priority saber-armadillo saber-tuning saber-hitbox-debug saber-damage saber-wave-travel saber-wave-damage saber-wave-lifecycle saber-ride-pilot saber-boss-death zero-extension zero-hook-parity zero-response-seam saber-package x3-zero-specials fixtures)
 named_groups+=(saber-armor)
 named_groups+=(saber-arms-charge)
+named_groups+=(saber-head-ammo)
 if [[ -z "${MMX_SABER_TEST_ONLY:-}" && -z "${MMX_SABER_RUNNER_PASS:-}" ]]; then
   failed=()
   MMX_SABER_RUNNER_PASS=1 bash "${BASH_SOURCE[0]}" "$@" || failed+=(default)

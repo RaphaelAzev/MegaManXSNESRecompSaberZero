@@ -4919,6 +4919,123 @@ static void saber_arms_charge_checks(const char *fixture) {
 }
 
 
+static unsigned saber_weapon_ammo_word(unsigned weapon) {
+  return read_ram_word(g_ram, 0x1f85 + weapon * 2) & 0x3fff;
+}
+
+static unsigned saber_normal_ammo_spend(const char *fixture, unsigned weapon,
+                                        uint8_t armor, unsigned shots,
+                                        unsigned *before, unsigned *after) {
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  select_native_weapon(weapon);
+  g_ram[0x1f99] = (g_ram[0x1f99] & 0xf0) | armor;
+  *before = saber_weapon_ammo_word(weapon);
+  for (unsigned shot = 0; shot < shots; ++shot) {
+    frame(SNES_PAD_X);
+    if (shot + 1 < shots) {
+      /* X1 allows one Storm Tornado on screen; let it leave first. */
+      for (unsigned i = 1; i < SABER_ONE_SHOT_FRAMES; ++i) frame(0);
+      for (unsigned i = 0; i < 240 && all_projectiles(); ++i) frame(0);
+    }
+  }
+  *after = saber_weapon_ammo_word(weapon);
+  return *before - *after;
+}
+
+static unsigned saber_charged_ammo_spend(const char *fixture, bool head,
+                                         unsigned *before, unsigned *after) {
+  bool fired = false;
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  select_native_weapon(5); /* Storm Tornado. */
+  g_ram[0x1f99] = (g_ram[0x1f99] & 0xf0) | 0x02 | (head ? 0x01 : 0);
+  *before = saber_weapon_ammo_word(5);
+  hold_charge_button(SABER_ARMS_CHARGE_HOLD_FRAMES, SNES_PAD_X);
+  {
+    /* Charged Storm Tornado is not projectile class 2; prove the release by
+     * the weapon objects it spawns (see saber-arms-charge). */
+    const unsigned held_objects = all_projectiles();
+    frame(0);
+    fired = all_projectiles() > held_objects;
+    for (unsigned i = 0; i < 30; ++i) frame(0);
+  }
+  *after = saber_weapon_ammo_word(5);
+  check(fired, head ?
+      "helmet charged Storm Tornado release emits a charged projectile" :
+      "no-helmet charged Storm Tornado release emits a charged projectile");
+  return *before - *after;
+}
+
+static void saber_head_ammo_checks(const char *fixture) {
+  unsigned storm_no_head_before, storm_no_head_after;
+  unsigned storm_head_before, storm_head_after;
+  unsigned storm_two_before, storm_two_after;
+  unsigned fire_head_before, fire_head_after;
+  unsigned charged_no_head_before, charged_no_head_after;
+  unsigned charged_head_before, charged_head_after;
+  unsigned x_before, x_after;
+  unsigned storm_no_head = saber_normal_ammo_spend(
+      fixture, 5, 0x00, 1, &storm_no_head_before, &storm_no_head_after);
+  unsigned storm_head = saber_normal_ammo_spend(
+      fixture, 5, 0x01, 1, &storm_head_before, &storm_head_after);
+  unsigned storm_two = saber_normal_ammo_spend(
+      fixture, 5, 0x01, 2, &storm_two_before, &storm_two_after);
+  unsigned fire_head = saber_normal_ammo_spend(
+      fixture, 2, 0x01, 1, &fire_head_before, &fire_head_after);
+  unsigned fire_no_head_before, fire_no_head_after;
+  unsigned fire_no_head = saber_normal_ammo_spend(
+      fixture, 2, 0x00, 1, &fire_no_head_before, &fire_no_head_after);
+  unsigned charged_no_head = saber_charged_ammo_spend(
+      fixture, false, &charged_no_head_before, &charged_no_head_after);
+  unsigned charged_head = saber_charged_ammo_spend(
+      fixture, true, &charged_head_before, &charged_head_after);
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  select_native_weapon(5); /* Storm Tornado. */
+  g_ram[0x1f99] |= 0x01;
+  switch_to_x();
+  x_before = saber_weapon_ammo_word(5);
+  frame(SNES_PAD_Y);
+  x_after = saber_weapon_ammo_word(5);
+
+  printf("reference: saber-head-ammo Storm normal no-head word=0x%04X->0x%04X spend=0x%04X\n",
+         storm_no_head_before, storm_no_head_after, storm_no_head);
+  printf("reference: saber-head-ammo Storm normal head word=0x%04X->0x%04X spend=0x%04X\n",
+         storm_head_before, storm_head_after, storm_head);
+  printf("reference: saber-head-ammo Storm normal head two-shots word=0x%04X->0x%04X spend=0x%04X\n",
+         storm_two_before, storm_two_after, storm_two);
+  printf("reference: saber-head-ammo Fire Wave normal head word=0x%04X->0x%04X spend=0x%04X\n",
+         fire_head_before, fire_head_after, fire_head);
+  printf("reference: saber-head-ammo Storm charged no-head word=0x%04X->0x%04X spend=0x%04X\n",
+         charged_no_head_before, charged_no_head_after, charged_no_head);
+  printf("reference: saber-head-ammo Storm charged head word=0x%04X->0x%04X spend=0x%04X\n",
+         charged_head_before, charged_head_after, charged_head);
+  printf("reference: saber-head-ammo X with head Storm normal word=0x%04X->0x%04X spend=0x%04X\n",
+         x_before, x_after, x_before - x_after);
+
+  check(storm_no_head == 0x0100 &&
+            storm_no_head_after == storm_no_head_before - 0x0100,
+        "Zero without helmet spends the full normal Storm Tornado cost");
+  check(storm_head == 0x0080 &&
+            storm_head_after == storm_head_before - 0x0080 &&
+            storm_two == 0x0100 &&
+            storm_two_after == storm_two_before - 0x0100,
+        "Zero helmet halves normal Storm Tornado cost and preserves fractions");
+  /* One press runs several $0010 Fire Wave spends; each becomes $0008. */
+  printf("reference: saber-head-ammo Fire Wave normal no-head spend=0x%04X\n",
+         fire_no_head);
+  check(fire_head != 0 && fire_no_head != 0 && fire_head * 2 == fire_no_head &&
+            fire_head % 0x0008 == 0,
+        "Zero helmet halves Fire Wave to a nonzero fixed-point cost");
+  check(charged_no_head != 0 && charged_head * 2 == charged_no_head &&
+            charged_head_after == charged_head_before - charged_head,
+        "Zero helmet halves the charged Storm Tornado cost");
+  check(x_after == x_before - 0x0100,
+        "X keeps the full Storm Tornado cost with the helmet flag set");
+  puts("ok: saber-head-ammo");
+}
 static void saber_tuning_checks(void) {
   check(g_mod_provider->feature_set_option(
             g_mod_provider->ctx, "megaman-x.character.saber-zero",
@@ -8786,6 +8903,7 @@ int main(int argc, char **argv) {
   const bool saber_tuning = only && !strcmp(only, "saber-tuning");
   const bool saber_armor = only && !strcmp(only, "saber-armor");
   const bool saber_arms_charge = only && !strcmp(only, "saber-arms-charge");
+  const bool saber_head_ammo = only && !strcmp(only, "saber-head-ammo");
   const bool saber_hitbox_debug = only && !strcmp(only, "saber-hitbox-debug");
   const bool saber_damage = only && !strcmp(only, "saber-damage");
   const bool zero_extension = only && !strcmp(only, "zero-extension");
@@ -8828,6 +8946,7 @@ int main(int argc, char **argv) {
       saber_finisher || saber_priority_classify ||
       saber_priority || saber_armadillo ||
       saber_tuning || saber_hitbox_debug || saber_damage ||
+      saber_head_ammo ||
       saber_armor || saber_arms_charge ||
       saber_wave_travel || saber_wave_damage || saber_wave_lifecycle ||
       saber_wave_render || saber_ride_pilot || saber_boss_death;
@@ -8924,6 +9043,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-arms-charge runs with the Saber package enabled");
     saber_arms_charge_checks(fixture);
+  } else if (saber_head_ammo) {
+    check(MmxSaberEnabled(),
+          "saber-head-ammo runs with the Saber package enabled");
+    saber_head_ammo_checks(fixture);
   } else if (saber_tuning) {
     check(MmxSaberEnabled(),
           "saber-tuning runs with the Saber package enabled");
@@ -9015,6 +9138,7 @@ int main(int argc, char **argv) {
     if (only && !strcmp(only, "saber-assets")) {
       saber_assets_checks(argv[1], x3_rom, fixture, assets);
     } else if (only && strcmp(only, "x3-plain") && strcmp(only, "x3-charge") &&
+      strcmp(only, "saber-head-ammo") &&
         strcmp(only, "x3-hurt") && strcmp(only, "x3-jump") &&
         strcmp(only, "x3-post-charge") && strcmp(only, "x1-native") &&
         strcmp(only, "x3-zero-specials") &&

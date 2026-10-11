@@ -27,6 +27,14 @@ static unsigned charge_rate(void) {
   return MmxSaberArmorCurrent().head ? 0x180 : 0x100;
 }
 
+static unsigned weapon_cost(unsigned weapon_id, unsigned cost, bool charged) {
+  unsigned half;
+  (void)charged;
+  if (weapon_id == 0 || !cost || !MmxSaberArmorCurrent().head) return cost;
+  half = cost >> 1;
+  return half ? half : 1;
+}
+
 static bool modern_movement(void) {
   return MmxSaberArmorCurrent().legs;
 }
@@ -283,6 +291,7 @@ static const MmxZeroExtension extension = {
     .collision_rom = MmxSaberAttackCollisionRom,
     .state_reset = state_reset,
     .charge_rate = charge_rate,
+    .weapon_cost = weapon_cost,
 };
 
 const MmxZeroExtension *MmxSaberFrameExtension(void) {
