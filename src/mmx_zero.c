@@ -33,6 +33,11 @@ static bool start_x;
 static bool modern_behavior;
 void MmxZeroSetModern(bool enabled) { modern_behavior = enabled; }
 bool MmxZeroModern(void) { return MmxZeroActive() && modern_behavior; }
+static bool modern_movement(void) {
+  return MmxZeroModern() ||
+      (MmxZeroActive() && extension && extension->modern_movement &&
+       extension->modern_movement());
+}
 void MmxZeroSetStartCharacter(bool x) { start_x = x; }
 void MmxZeroSetExtension(const MmxZeroExtension *ext) { extension = ext; }
 void MmxZeroExtPrePlayer(uint8_t *ram) {
@@ -640,7 +645,7 @@ static void end_air_dash(uint8_t *r) {
   if (r[0xbaa] == 0x14) { r[0xbaa] = 8; r[0xbab] = 0; }
 }
 void MmxZeroMovementTick(uint8_t r[0x20000]) {
-  if (!MmxZeroModern() || !r) return;
+  if (!modern_movement() || !r) return;
   if (!movement_playable(r)) { end_air_dash(r); return; }
   bool grounded = (r[0xbd3] & 4) != 0;
   unsigned action = r[0xbaa];
@@ -684,7 +689,7 @@ void MmxZeroMovementTick(uint8_t r[0x20000]) {
   }
 }
 void MmxZeroPlayerMotion(uint8_t r[0x20000], unsigned object) {
-  if (!MmxZeroModern() || !r || object != 0xba8 || !state.modern.dash_ticks) return;
+  if (!modern_movement() || !r || object != 0xba8 || !state.modern.dash_ticks) return;
   putword(r + 0xc04, 0x0375);
   putword(r + 0xbc2, state.modern.dash_facing ? 0x0375 : -0x0375);
   r[0xbfa] = 0x20;
@@ -893,7 +898,7 @@ void MmxZeroPlayerEnd(uint8_t r[0x20000]) {
     unsigned phase = age < 12 ? age / 3 : 4;
     putword(r + d + 0x20, age < 19 ? 0xffb0 + (state.air ? 20 : 0) + phase * 4 : 0);
   }
-  if (MmxZeroModern() && r && state.modern.dash_ticks) {
+  if (modern_movement() && r && state.modern.dash_ticks) {
     r[0xc06] &= (uint8_t)~4;
     if (r[0xbaa] != 0x14 || (r[0xbd3] & 4) || state.modern.dash_ticks == 1)
       end_air_dash(r);

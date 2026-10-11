@@ -2904,6 +2904,73 @@ static unsigned record_jump_arc(const char *fixture, bool slash,
   return 0;
 }
 
+static void saber_legs_jump_case(const char *fixture, bool legs) {
+  unsigned before_y, after_y, before_vy, after_vy;
+  MmxZeroState state;
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  g_ram[0x1f99] = legs ? MMX_SABER_ARMOR_LEGS_BIT : 0;
+  for (unsigned i = 0; i < 5; ++i) frame(SNES_PAD_B);
+  for (unsigned i = 0; i < 4; ++i) frame(0);
+  check(!saber_test_grounded(), legs ?
+        "Saber legs double-jump case reaches the air" :
+        "Saber no-legs double-jump case reaches the air");
+  before_y = read_ram_word(g_ram, 0x0bb0);
+  before_vy = read_ram_word(g_ram, 0x0bc4);
+  frame(SNES_PAD_B);
+  after_y = read_ram_word(g_ram, 0x0bb0);
+  after_vy = read_ram_word(g_ram, 0x0bc4);
+  state = MmxZeroGetState();
+  printf("reference: saber-legs double-jump legs=%s $1F99=0x%02X "
+         "y=%u->%u vy=0x%04X->0x%04X action=0x%02X jump_used=%u\n",
+         legs ? "yes" : "no", g_ram[0x1f99], before_y, after_y,
+         before_vy, after_vy, g_ram[0x0baa], state.modern.jump_used);
+  check(legs ? state.modern.jump_used && g_ram[0x0baa] == 6 &&
+                  before_y != after_y && before_vy != after_vy :
+              !state.modern.jump_used,
+        legs ? "Saber legs starts a second jump with changed vertical motion" :
+               "Saber without legs does not start a second jump");
+}
+
+static void saber_legs_dash_case(const char *fixture, bool legs) {
+  MmxZeroState state;
+  unsigned y_before, y_after;
+  int vx;
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  g_ram[0x1f99] = legs ? MMX_SABER_ARMOR_LEGS_BIT : 0;
+  for (unsigned i = 0; i < 5; ++i) frame(SNES_PAD_B);
+  for (unsigned i = 0; i < 4; ++i) frame(0);
+  check(!saber_test_grounded(), legs ?
+        "Saber legs air-dash case reaches the air" :
+        "Saber no-legs air-dash case reaches the air");
+  y_before = read_ram_word(g_ram, 0x0bb0);
+  frame(SNES_PAD_A | SNES_PAD_RIGHT);
+  y_after = read_ram_word(g_ram, 0x0bb0);
+  state = MmxZeroGetState();
+  vx = (int)(int16_t)read_ram_word(g_ram, 0x0bc2);
+  printf("reference: saber-legs air-dash legs=%s $1F99=0x%02X "
+         "y=%u->%u vx=%d action=0x%02X dash_ticks=%u c06=0x%02X\n",
+         legs ? "yes" : "no", g_ram[0x1f99], y_before, y_after, vx,
+         g_ram[0x0baa], state.modern.dash_ticks, g_ram[0x0c06]);
+  check(legs ? state.modern.dash_ticks && abs(vx) == 0x0375 :
+              !state.modern.dash_ticks,
+        legs ? "Saber legs starts an air dash at 0x0375" :
+               "Saber without legs does not start an air dash");
+}
+
+static void saber_legs_checks(const char *fixture) {
+  check(MmxSaberEnabled() && !MmxZeroModern(),
+        "saber-legs runs with legacy Zero behavior and Saber enabled");
+  saber_legs_jump_case(fixture, false);
+  saber_legs_jump_case(fixture, true);
+  saber_legs_dash_case(fixture, false);
+  saber_legs_dash_case(fixture, true);
+  puts("ok: saber-legs");
+}
+
 static unsigned empty_enemy_slot(void) {
   for (unsigned d = 0xe68; d < 0x1228; d += 64)
     if (!g_ram[d]) return d;
@@ -8687,6 +8754,7 @@ int main(int argc, char **argv) {
   const bool saber_input = only && !strcmp(only, "saber-input");
   const bool saber_ground_1 = only && !strcmp(only, "saber-ground-1");
   const bool saber_ground_combo = only && !strcmp(only, "saber-ground-combo");
+  const bool saber_legs = only && !strcmp(only, "saber-legs");
   const bool saber_air = only && !strcmp(only, "saber-air");
   const bool saber_wall = only && !strcmp(only, "saber-wall");
   const bool saber_dash = only && !strcmp(only, "saber-dash");
@@ -8715,7 +8783,7 @@ int main(int argc, char **argv) {
   const bool fixtures = only && !strcmp(only, "fixtures");
   const bool saber_enabled_group = saber_package || zero_extension ||
       saber_input || saber_ground_1 || saber_ground_combo ||
-      saber_air || saber_wall || saber_dash || saber_land || saber_ground_lifecycle ||
+      saber_air || saber_legs || saber_wall || saber_dash || saber_land || saber_ground_lifecycle ||
       saber_ground_hit || saber_cancel || saber_lifecycle_load ||
       saber_contexts ||
       saber_render_snapshot || saber_buster_rules || saber_burst_height ||
@@ -8759,6 +8827,9 @@ int main(int argc, char **argv) {
   } else if (saber_air) {
     check(MmxSaberEnabled(), "saber-air runs with the Saber package enabled");
     saber_air_checks(fixture);
+  } else if (saber_legs) {
+    check(MmxSaberEnabled(), "saber-legs runs with the Saber package enabled");
+    saber_legs_checks(fixture);
   } else if (saber_wall) {
     check(MmxSaberEnabled(), "saber-wall runs with the Saber package enabled");
     saber_wall_checks(fixture_dir);
@@ -8921,6 +8992,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-damage") &&
       strcmp(only, "saber-ground-1") &&
       strcmp(only, "saber-ground-combo") &&
+      strcmp(only, "saber-legs") &&
       strcmp(only, "saber-air") &&
       strcmp(only, "saber-wall") &&
       strcmp(only, "saber-dash") &&

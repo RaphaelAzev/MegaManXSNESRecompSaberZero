@@ -10,6 +10,10 @@ static const uint16_t *color_hook(const uint16_t *native) {
   (void)native;
   return color_hook_table;
 }
+static bool modern_movement_hook_value;
+static bool modern_movement_hook(void) {
+  return modern_movement_hook_value;
+}
 static void asset(const char *path, bool modern) {
   FILE *f = fopen(path, "wb"); assert(f);
   const uint8_t header[] = {'M','M','X','Z','E','R','O',modern ? '7' : '6',128,0,128,0,64,0,64,0,117,0,35,0};
@@ -101,7 +105,10 @@ static void color_checks(void) {
   assert(MmxZeroLoad("zero-test.bin"));
 }
 static void modern_checks(void) {
+  static const MmxZeroExtension movement_extension = {
+      .modern_movement = modern_movement_hook};
   MmxZeroSetTerrainQuery(NULL);
+  MmxZeroSetExtension(NULL);
   MmxZeroSetModern(true); MmxZeroResetState(); player();
   tick(64,64);
   MmxZeroState s = MmxZeroGetState();
@@ -140,6 +147,45 @@ static void modern_checks(void) {
   s=MmxZeroGetState(); s.active_x=1; MmxZeroSetState(s);
   memcpy(before,ram,sizeof(ram)); MmxZeroMovementTick(ram); tick(ram[0xbdf],ram[0xbe3]);
   assert(!memcmp(before,ram,sizeof(ram))); /* X remains native. */
+
+  /* A non-modern controller stays legacy without an extension or with a
+   * movement hook that declines the capability. */
+  MmxZeroSetModern(false); MmxZeroSetExtension(NULL); MmxZeroResetState(); player();
+  ram[0xbd3]=0; ram[0xbaa]=8; ram[0xbab]=2; ram[0xbe3]=128;
+  MmxZeroMovementTick(ram);
+  assert(!MmxZeroGetState().modern.jump_used && ram[0xbaa]==8);
+  ram[0xbe3]=0; ram[0xbe2]=ram[0xbde]=128; MmxZeroMovementTick(ram);
+  assert(!MmxZeroGetState().modern.dash_ticks);
+
+  modern_movement_hook_value = false;
+  MmxZeroSetExtension(&movement_extension); MmxZeroResetState(); player();
+  ram[0xbd3]=0; ram[0xbaa]=8; ram[0xbab]=2; ram[0xbe3]=128;
+  MmxZeroMovementTick(ram);
+  assert(!MmxZeroGetState().modern.jump_used && ram[0xbaa]==8);
+  ram[0xbe3]=0; ram[0xbe2]=ram[0xbde]=128; MmxZeroMovementTick(ram);
+  assert(!MmxZeroGetState().modern.dash_ticks);
+
+  modern_movement_hook_value = true;
+  MmxZeroSetExtension(&movement_extension); MmxZeroResetState(); player();
+  ram[0xbd3]=0; ram[0xbaa]=8; ram[0xbab]=2; ram[0xbe3]=128;
+  MmxZeroMovementTick(ram);
+  assert(!MmxZeroModern() && MmxZeroGetState().modern.jump_used && ram[0xbaa]==6);
+  ram[0xbe3]=0; ram[0xbe2]=ram[0xbde]=128; MmxZeroMovementTick(ram);
+  assert(MmxZeroGetState().modern.dash_used &&
+         MmxZeroGetState().modern.dash_ticks==18);
+  MmxZeroPlayerMotion(ram,0xba8);
+  assert(ram[0xbc2]==0x75 && ram[0xbc3]==3);
+  MmxZeroPlayerEnd(ram);
+  assert(MmxZeroGetState().modern.dash_ticks==17);
+
+  /* Movement capability must not turn on modern slash/buster behavior. */
+  MmxZeroSetExtension(&movement_extension); MmxZeroResetState(); player();
+  tick(64,64);
+  assert(!MmxZeroModern() && !MmxZeroGetState().slash &&
+         MmxZeroGetState().charge==1);
+
+  modern_movement_hook_value = false;
+  MmxZeroSetExtension(NULL);
   MmxZeroSetModern(false); MmxZeroResetState(); player();
 }
 int main(void) {

@@ -23,6 +23,10 @@ static unsigned charge_cap(void) {
   return 200;
 }
 
+static bool modern_movement(void) {
+  return MmxSaberArmorCurrent().legs;
+}
+
 static void state_reset(uint8_t *ram) {
   if (ram) frame_ram = ram;
   MmxSaberArmorApplyStageStart(ram);
@@ -263,6 +267,7 @@ static int burst_origin_y(const uint8_t *ram, unsigned shot_index,
 static const MmxZeroExtension extension = {
     .pre_player = pre_player,
     .player_end = player_end,
+    .modern_movement = modern_movement,
     .colors = MmxSaberBlackZeroNativeColorsHook,
     .legacy_intent = legacy_intent,
     .legacy_slash_request = MmxSaberComboLegacySlashRequest,
