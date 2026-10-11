@@ -5092,9 +5092,315 @@ static void saber_arms_charge_case(const char *fixture, bool arms) {
   }
 }
 
+static void saber_arms_slash_keeps_charge_case(const char *fixture) {
+  unsigned charge_frame = 0;
+  unsigned slash_frames = 0;
+  unsigned full_after_slash = 0;
+  unsigned charge_at_slash;
+  unsigned charge_min;
+  unsigned charge_after_slash;
+  unsigned energy_before_slash;
+  unsigned energy_after_slash;
+  unsigned energy_before_release;
+  unsigned energy_after_release;
+  unsigned objects_before_slash;
+  unsigned objects_after_slash;
+  unsigned objects_before_release;
+  unsigned objects_after_release;
+  bool release_spawned = false;
+  bool slash_started = false;
+  bool slash_ended = false;
+  bool slash_objects_ok = true;
+  bool slash_energy_ok = true;
+  bool slash_charge_ok = true;
+  MmxSaberAttackSnapshot snapshot;
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  select_native_weapon(5); /* Storm Tornado. */
+  g_ram[0x1f99] |= 0x02; /* Arms. */
+  for (unsigned frame_number = 1;
+       frame_number <= SABER_ARMS_CHARGE_HOLD_FRAMES; ++frame_number) {
+    frame(SNES_PAD_X);
+    /* The X press fires an ordinary tornado first; slash once it is gone.
+     * Saber-tagged objects (the arms saber wave) are not weapon shots. */
+    if (g_ram[0x0c00] >= 2 && native_projectiles() == 0) {
+      charge_frame = frame_number;
+      break;
+    }
+  }
+  check(charge_frame != 0,
+        "Storm Tornado reaches special charge-in-progress before slash probe");
+  if (!charge_frame) return;
+
+  charge_at_slash = g_ram[0x0c00];
+  charge_min = charge_at_slash;
+  objects_before_slash = native_projectiles();
+  energy_before_slash = g_ram[0x1f90] & 0x3f;
+
+  frame(SNES_PAD_X | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  if (snapshot.phase != SABER_PHASE_IDLE) {
+    slash_started = true;
+    slash_frames = 1;
+    if (native_projectiles() > objects_before_slash)
+      slash_objects_ok = false;
+    if ((g_ram[0x1f90] & 0x3f) != energy_before_slash)
+      slash_energy_ok = false;
+    if (g_ram[0x0c00] < 2)
+      slash_charge_ok = false;
+    if (g_ram[0x0c00] < charge_min)
+      charge_min = g_ram[0x0c00];
+  }
+
+  while (snapshot.phase != SABER_PHASE_IDLE &&
+         slash_frames < SABER_ARMS_CHARGE_HOLD_FRAMES) {
+    frame(SNES_PAD_X);
+    ++slash_frames;
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (snapshot.phase != SABER_PHASE_IDLE) {
+      if (native_projectiles() > objects_before_slash)
+        slash_objects_ok = false;
+      if ((g_ram[0x1f90] & 0x3f) != energy_before_slash)
+        slash_energy_ok = false;
+      if (g_ram[0x0c00] < 2)
+        slash_charge_ok = false;
+      if (g_ram[0x0c00] < charge_min)
+        charge_min = g_ram[0x0c00];
+    }
+  }
+
+  slash_ended = slash_started && snapshot.phase == SABER_PHASE_IDLE;
+  charge_after_slash = g_ram[0x0c00];
+  energy_after_slash = g_ram[0x1f90] & 0x3f;
+  objects_after_slash = native_projectiles();
+  printf("reference: saber-arms-slash-charge hold_frame=%u slash_frames=%u "
+         "$0C00=%02X->%02X min=%02X "
+         "energy=%u->%u projectiles=%u->%u\n",
+         charge_frame, slash_frames, charge_at_slash, charge_after_slash,
+         charge_min, energy_before_slash, energy_after_slash,
+         objects_before_slash, objects_after_slash);
+
+  check(slash_started,
+        "holding X and pressing Y starts a Saber slash during Storm Tornado charge");
+  check(slash_ended,
+        "charge-preserving Storm Tornado slash ends within the bounded window");
+  check(slash_objects_ok && objects_after_slash == objects_before_slash,
+        "Storm Tornado slash creates no weapon objects");
+  check(slash_energy_ok && energy_after_slash == energy_before_slash,
+        "Storm Tornado slash spends no energy");
+  check(slash_charge_ok && charge_after_slash >= 2,
+        "Storm Tornado special charge remains active through the slash");
+
+  for (unsigned i = 1;
+       i <= SABER_ARMS_CHARGE_HOLD_FRAMES && g_ram[0x0c03] != 1; ++i) {
+    frame(SNES_PAD_X);
+    if (g_ram[0x0c03] == 1) full_after_slash = i;
+  }
+  check(g_ram[0x0c03] == 1,
+        "Storm Tornado reaches full charge after the slash while X stays held");
+
+  energy_before_release = g_ram[0x1f90] & 0x3f;
+  objects_before_release = native_projectiles();
+  frame(0);
+  objects_after_release = native_projectiles();
+  if (objects_after_release > objects_before_release)
+    release_spawned = true;
+  for (unsigned i = 0; i < 30 && !release_spawned; ++i) {
+    frame(0);
+    objects_after_release = native_projectiles();
+    if (objects_after_release > objects_before_release)
+      release_spawned = true;
+  }
+  energy_after_release = g_ram[0x1f90] & 0x3f;
+  printf("reference: saber-arms-slash-charge charged-release "
+         "full_after_slash=%u energy=%u->%u->%u "
+         "projectiles=%u->%u->%u\n",
+         full_after_slash, energy_before_slash, energy_after_slash,
+         energy_after_release, objects_before_slash, objects_after_slash,
+         objects_after_release);
+  check(release_spawned &&
+            objects_before_release == objects_before_slash &&
+            energy_before_release == energy_before_slash &&
+            energy_before_release >= energy_after_release + 2,
+        "releasing X after the charge-preserving slash fires charged Storm Tornado");
+
+  unsigned release_charge_frame = 0;
+  unsigned release_slash_frames = 0;
+  unsigned release_input_frame = 0;
+  unsigned release_charge_at_slash;
+  unsigned release_charge_min;
+  unsigned release_charge_after_slash;
+  unsigned release_energy_before_slash;
+  unsigned release_energy_after_slash;
+  unsigned release_energy_after;
+  unsigned release_objects_before_slash;
+  unsigned release_objects_at_slash_end;
+  unsigned release_objects_after;
+  unsigned release_previous_objects;
+  unsigned release_previous_energy;
+  bool release_slash_started = false;
+  bool release_slash_ended = false;
+  bool release_slash_objects_ok = true;
+  bool release_slash_energy_ok = true;
+  bool release_slash_charge_ok = true;
+  bool release_spawned_after_slash = false;
+  bool release_spent_after_slash = false;
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  select_native_weapon(5); /* Storm Tornado. */
+  g_ram[0x1f99] |= 0x02; /* Arms. */
+  for (unsigned frame_number = 1;
+       frame_number <= SABER_ARMS_CHARGE_HOLD_FRAMES; ++frame_number) {
+    frame(SNES_PAD_X);
+    /* The X press fires an ordinary tornado first; slash once it is gone.
+     * Saber-tagged objects (the arms saber wave) are not weapon shots. */
+    if (g_ram[0x0c00] >= 2 && native_projectiles() == 0) {
+      release_charge_frame = frame_number;
+      break;
+    }
+  }
+  check(release_charge_frame != 0,
+        "Storm Tornado reaches charge-in-progress before release-during-slash probe");
+  if (!release_charge_frame) return;
+
+  release_charge_at_slash = g_ram[0x0c00];
+  release_charge_min = release_charge_at_slash;
+  release_objects_before_slash = native_projectiles();
+  release_energy_before_slash = g_ram[0x1f90] & 0x3f;
+  release_previous_objects = release_objects_before_slash;
+  release_previous_energy = release_energy_before_slash;
+
+  frame(SNES_PAD_X | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  if (snapshot.phase != SABER_PHASE_IDLE) {
+    release_slash_started = true;
+    release_slash_frames = 1;
+    if (native_projectiles() > release_objects_before_slash)
+      release_slash_objects_ok = false;
+    if ((g_ram[0x1f90] & 0x3f) != release_energy_before_slash)
+      release_slash_energy_ok = false;
+    if (g_ram[0x0c00] < 2)
+      release_slash_charge_ok = false;
+    if (g_ram[0x0c00] < release_charge_min)
+      release_charge_min = g_ram[0x0c00];
+  }
+  release_previous_objects = native_projectiles();
+  release_previous_energy = g_ram[0x1f90] & 0x3f;
+
+  if (snapshot.phase != SABER_PHASE_IDLE) {
+    release_input_frame = release_slash_frames + 1;
+    frame(SNES_PAD_Y); /* Release X while the slash still owns the action. */
+    ++release_slash_frames;
+    snapshot = MmxSaberAttackSnapshotGet();
+    {
+      const unsigned objects_now = native_projectiles();
+      const unsigned energy_now = g_ram[0x1f90] & 0x3f;
+      if (snapshot.phase != SABER_PHASE_IDLE) {
+        if (objects_now > release_objects_before_slash)
+          release_slash_objects_ok = false;
+        if (energy_now != release_energy_before_slash)
+          release_slash_energy_ok = false;
+        if (g_ram[0x0c00] < 2)
+          release_slash_charge_ok = false;
+        if (g_ram[0x0c00] < release_charge_min)
+          release_charge_min = g_ram[0x0c00];
+      } else {
+        if (objects_now > release_previous_objects)
+          release_spawned_after_slash = true;
+        if (energy_now < release_previous_energy)
+          release_spent_after_slash = true;
+      }
+      release_previous_objects = objects_now;
+      release_previous_energy = energy_now;
+    }
+  }
+
+  while (snapshot.phase != SABER_PHASE_IDLE &&
+         release_slash_frames < SABER_ARMS_CHARGE_HOLD_FRAMES) {
+    frame(0);
+    ++release_slash_frames;
+    snapshot = MmxSaberAttackSnapshotGet();
+    {
+      const unsigned objects_now = native_projectiles();
+      const unsigned energy_now = g_ram[0x1f90] & 0x3f;
+      if (snapshot.phase != SABER_PHASE_IDLE) {
+        if (objects_now > release_objects_before_slash)
+          release_slash_objects_ok = false;
+        if (energy_now != release_energy_before_slash)
+          release_slash_energy_ok = false;
+        if (g_ram[0x0c00] < 2)
+          release_slash_charge_ok = false;
+        if (g_ram[0x0c00] < release_charge_min)
+          release_charge_min = g_ram[0x0c00];
+      } else {
+        if (objects_now > release_previous_objects)
+          release_spawned_after_slash = true;
+        if (energy_now < release_previous_energy)
+          release_spent_after_slash = true;
+      }
+      release_previous_objects = objects_now;
+      release_previous_energy = energy_now;
+    }
+  }
+
+  release_slash_ended =
+      release_slash_started && snapshot.phase == SABER_PHASE_IDLE;
+  release_charge_after_slash = g_ram[0x0c00];
+  release_energy_after_slash = g_ram[0x1f90] & 0x3f;
+  release_objects_at_slash_end = native_projectiles();
+
+  for (unsigned i = 0;
+       i < 30 && (!release_spawned_after_slash ||
+                  !release_spent_after_slash); ++i) {
+    frame(0);
+    snapshot = MmxSaberAttackSnapshotGet();
+    {
+      const unsigned objects_now = native_projectiles();
+      const unsigned energy_now = g_ram[0x1f90] & 0x3f;
+      if (snapshot.phase == SABER_PHASE_IDLE) {
+        if (objects_now > release_previous_objects)
+          release_spawned_after_slash = true;
+        if (energy_now < release_previous_energy)
+          release_spent_after_slash = true;
+      }
+      release_previous_objects = objects_now;
+      release_previous_energy = energy_now;
+    }
+  }
+  release_energy_after = g_ram[0x1f90] & 0x3f;
+  release_objects_after = native_projectiles();
+  printf("reference: saber-arms-slash-charge release-during-slash "
+         "hold_frame=%u release_frame=%u slash_frames=%u "
+         "$0C00=%02X->%02X min=%02X "
+         "energy=%u->%u->%u projectiles=%u->%u->%u\n",
+         release_charge_frame, release_input_frame, release_slash_frames,
+         release_charge_at_slash, release_charge_after_slash,
+         release_charge_min, release_energy_before_slash,
+         release_energy_after_slash, release_energy_after,
+         release_objects_before_slash, release_objects_at_slash_end,
+         release_objects_after);
+
+  check(release_slash_started,
+        "holding X and pressing Y starts the release-during-slash probe");
+  check(release_slash_ended,
+        "release-during-slash probe reaches idle within the bounded window");
+  check(release_slash_objects_ok,
+        "releasing X during the slash creates no weapon object during the slash");
+  check(release_slash_energy_ok,
+        "releasing X during the slash spends no energy during the slash");
+  check(release_slash_charge_ok,
+        "releasing X during the slash keeps Storm Tornado charging through the slash");
+  check(release_spawned_after_slash && release_spent_after_slash &&
+            release_energy_before_slash > release_energy_after,
+        "releasing X during the slash fires Storm Tornado only after the slash");
+}
+
 static void saber_arms_charge_checks(const char *fixture) {
   saber_arms_charge_case(fixture, true);
   saber_arms_charge_case(fixture, false);
+  saber_arms_slash_keeps_charge_case(fixture);
   puts("ok: saber-arms-charge");
 }
 
