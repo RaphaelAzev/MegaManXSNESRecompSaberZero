@@ -1703,6 +1703,79 @@ static void native_x1_checks(const char *fixture) {
   puts("ok: x1-native-weapons");
 }
 
+/* Issue #2: with the arms part, X1 turns a held special into a charge
+ * ($81:97DA tests $1F99 & $02), so held Fire Wave does not stream for X
+ * either. Saber Zero must follow X's rule for every armor state. */
+static FireWaveCounts measure_fire_wave_armor(const char *fixture,
+                                               bool use_x,
+                                               uint8_t armor,
+                                               unsigned *charge_max) {
+  FireWaveCounts counts = {0};
+  unsigned char previous[8] = {0};
+  const unsigned button = use_x ? SNES_PAD_Y : SNES_PAD_X;
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  if (use_x) switch_to_x();
+
+  select_native_weapon(2); /* Fire Wave. */
+  g_ram[0x1f99] = armor;
+  *charge_max = 0;
+
+  for (unsigned i = 0; i < 90; ++i) {
+    frame(button);
+    const unsigned live = projectiles(8);
+
+    counts.births += new_projectiles(8, previous);
+    counts.live_frames += live != 0;
+    counts.live_samples += live;
+    if (live > counts.peak) counts.peak = live;
+    if (g_ram[0x0c00] > *charge_max) *charge_max = g_ram[0x0c00];
+  }
+
+  return counts;
+}
+
+static void saber_fire_wave_armor_checks(const char *fixture) {
+  static const uint8_t armor[] = {0x00, 0x02, 0x0f};
+
+  for (unsigned i = 0; i < sizeof(armor) / sizeof(armor[0]); ++i) {
+    unsigned x_charge = 0;
+    unsigned zero_charge = 0;
+    const FireWaveCounts x =
+        measure_fire_wave_armor(fixture, true, armor[i], &x_charge);
+    const FireWaveCounts zero =
+        measure_fire_wave_armor(fixture, false, armor[i], &zero_charge);
+    const bool arms = (armor[i] & 0x02) != 0;
+    char what[128];
+
+    printf("reference: Fire Wave armor=0x%02X "
+           "X births=%u live_frames=%u live_samples=%u peak=%u charge=%u "
+           "Saber births=%u live_frames=%u live_samples=%u peak=%u charge=%u\n",
+           armor[i],
+           x.births, x.live_frames, x.live_samples, x.peak, x_charge,
+           zero.births, zero.live_frames, zero.live_samples, zero.peak,
+           zero_charge);
+
+    snprintf(what, sizeof(what),
+             "held Fire Wave charges for X only with arms (armor 0x%02X)",
+             armor[i]);
+    check(arms ? x_charge >= 2 : x_charge == 0, what);
+
+    snprintf(what, sizeof(what),
+             "held Saber Fire Wave charges exactly like X (armor 0x%02X)",
+             armor[i]);
+    check(zero_charge == x_charge, what);
+
+    snprintf(what, sizeof(what),
+             "Saber Fire Wave births match X with armor 0x%02X",
+             armor[i]);
+    check(zero.births == x.births, what);
+  }
+
+  puts("ok: saber-fire-wave-armor");
+}
+
 static FireWaveCounts measure_fire_wave(const char *fixture, unsigned button) {
   FireWaveCounts counts = {0};
   unsigned char previous[8] = {0};
@@ -9684,6 +9757,8 @@ int main(int argc, char **argv) {
   const bool saber_damage = only && !strcmp(only, "saber-damage");
   const bool zero_extension = only && !strcmp(only, "zero-extension");
   const bool saber_input = only && !strcmp(only, "saber-input");
+  const bool saber_fire_wave_armor =
+      only && !strcmp(only, "saber-fire-wave-armor");
   const bool saber_ground_1 = only && !strcmp(only, "saber-ground-1");
   const bool saber_ground_combo = only && !strcmp(only, "saber-ground-combo");
   const bool saber_legs = only && !strcmp(only, "saber-legs");
@@ -9715,7 +9790,7 @@ int main(int argc, char **argv) {
   const bool zero_response_seam = only && !strcmp(only, "zero-response-seam");
   const bool fixtures = only && !strcmp(only, "fixtures");
   const bool saber_enabled_group = saber_package || zero_extension ||
-      saber_input || saber_ground_1 || saber_ground_combo ||
+      saber_input || saber_fire_wave_armor || saber_ground_1 || saber_ground_combo ||
       saber_air || saber_legs || saber_frozen || saber_wall || saber_dash || saber_land || saber_ground_lifecycle ||
       saber_ground_hit || saber_cancel || saber_lifecycle_load ||
       saber_contexts ||
@@ -9748,7 +9823,11 @@ int main(int argc, char **argv) {
     activate_zero(argv[1], x3_rom, assets, saber_enabled_group,
                   saber_enabled_group);
   }
-  if (saber_input) {
+  if (saber_fire_wave_armor) {
+    check(MmxSaberEnabled(),
+          "saber-fire-wave-armor runs with the Saber package enabled");
+    saber_fire_wave_armor_checks(fixture);
+  } else if (saber_input) {
     check(MmxSaberEnabled(), "saber-input runs with the Saber package enabled");
     saber_input_checks(fixture, &upstream_specials);
   } else if (saber_ground_1) {
@@ -9928,6 +10007,7 @@ int main(int argc, char **argv) {
         strcmp(only, "x3-post-charge") && strcmp(only, "x1-native") &&
         strcmp(only, "x3-zero-specials") &&
       strcmp(only, "saber-package") && strcmp(only, "saber-input") &&
+      strcmp(only, "saber-fire-wave-armor") &&
       strcmp(only, "saber-armor") &&
       strcmp(only, "saber-body-damage") &&
       strcmp(only, "saber-arms-charge") &&
