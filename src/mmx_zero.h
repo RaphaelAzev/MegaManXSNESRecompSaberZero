@@ -10,7 +10,9 @@ enum { MMX_ZERO_WIDTH = 128, MMX_ZERO_HEIGHT = 128, MMX_ZERO_POSES = 152, MMX_ZE
        MMX_ZERO_HEALTH_STATE_SIZE = 40 };
 typedef struct MmxZeroModernState {
   uint8_t enabled, jump_used, dash_used, dash_ticks;
-  uint8_t dash_facing, slash_buffer, hit_phase, reserved;
+  uint8_t dash_facing, slash_buffer, hit_phase;
+  /* Reuses the former reserved byte without changing save/snapshot layout. */
+  uint8_t charge_fraction;
 } MmxZeroModernState;
 typedef struct MmxZeroLegacyIntent {
   bool held, pressed, released;
@@ -32,6 +34,7 @@ typedef struct MmxZeroExtension {
                        unsigned value);
   int (*burst_origin_y)(const uint8_t *ram, unsigned shot_index,
                         int native_y, int paired_y);
+  unsigned (*charge_rate)(void);                    /* Q8.8 per frame; 0 = default 0x100 */
 } MmxZeroExtension;
 typedef struct MmxZeroState {
   uint16_t charge, slash, projectile;

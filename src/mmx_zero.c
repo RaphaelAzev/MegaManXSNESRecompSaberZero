@@ -14,6 +14,10 @@ static uint8_t animation[MMX_ZERO_ANIMATION_BYTES];
 static uint8_t muzzle[MMX_ZERO_MUZZLE_BYTES];
 static MmxZeroState state;
 static const MmxZeroExtension *extension;
+static void reset_charge_progress(void) {
+  state.charge = 0;
+  state.modern.charge_fraction = 0;
+}
 _Static_assert(offsetof(MmxZeroState, anim_offset) == MMX_ZERO_LEGACY_STATE_SIZE,
                "Keep the v4 combat-state prefix readable");
 _Static_assert(offsetof(MmxZeroState, burst_offset) == MMX_ZERO_ANIMATION_STATE_SIZE,
@@ -24,6 +28,9 @@ _Static_assert(offsetof(MmxZeroState, hp) == MMX_ZERO_SWAP_STATE_SIZE,
                "Keep the v7 character/swap-state prefix readable");
 _Static_assert(offsetof(MmxZeroState, modern) == MMX_ZERO_HEALTH_STATE_SIZE,
                "Keep the v8-v14 Zero state prefix readable");
+_Static_assert(sizeof(MmxZeroState) ==
+                   MMX_ZERO_HEALTH_STATE_SIZE + sizeof(MmxZeroModernState),
+               "Keep the v15 Zero snapshot size stable");
 static unsigned word(const uint8_t *p) { return p[0] | p[1] << 8; }
 static void putword(uint8_t *p, unsigned v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
 MmxZeroState MmxZeroGetState(void) { return state; }
@@ -47,7 +54,7 @@ void MmxZeroExtPlayerEnd(uint8_t *ram) {
   if (extension && extension->player_end) extension->player_end(ram);
 }
 void MmxZeroResetState(void) {
-  memset(&state, 0, sizeof(state)); state.active_x = start_x;
+  memset(&state, 0, sizeof(state)); reset_charge_progress(); state.active_x = start_x;
   state.modern.enabled = modern_behavior;
   if (extension && extension->state_reset) extension->state_reset(NULL);
 }
@@ -57,7 +64,7 @@ bool MmxZeroValidState(const MmxZeroState *value) {
   return s.combo <= 2 && s.slash <= 44 && s.charge <= 201 &&
       s.modern.enabled <= 1 && s.modern.jump_used <= 1 && s.modern.dash_used <= 1 &&
       s.modern.dash_ticks <= 18 && (s.modern.dash_facing == 0 || s.modern.dash_facing == 64) &&
-      s.modern.slash_buffer <= 6 && s.modern.hit_phase <= 1 && !s.modern.reserved &&
+      s.modern.slash_buffer <= 6 && s.modern.hit_phase <= 1 &&
       s.active_x <= 1 && s.swap_phase <= 6 && s.swap_tick <= 30 && s.swap_y <= 0 && s.swap_y >= -320 &&
       s.hp_valid <= 1 && s.hp_max <= 32 && s.hp[0] <= 32 && s.hp[1] <= 32 &&
       (!s.hp_valid || (s.hp_max >= 16 && s.hp[0] <= s.hp_max && s.hp[1] <= s.hp_max)) &&
@@ -92,6 +99,13 @@ static unsigned legacy_charge_cap(void) {
     if (cap) return cap;
   }
   return 201;
+}
+static unsigned legacy_charge_rate(void) {
+  if (extension && extension->charge_rate) {
+    unsigned rate = extension->charge_rate();
+    if (rate) return rate;
+  }
+  return 0x100;
 }
 
 bool MmxZeroEnabled(void) { return poses != NULL; }
@@ -474,6 +488,7 @@ void MmxZeroCancel(uint8_t ram[0x20000]) {
   memset(&state, 0, MMX_ZERO_LEGACY_STATE_SIZE);
   memset((uint8_t *)&state + MMX_ZERO_ANIMATION_STATE_SIZE, 0,
          MMX_ZERO_COMBAT_STATE_SIZE - MMX_ZERO_ANIMATION_STATE_SIZE);
+  reset_charge_progress();
   state.modern.slash_buffer = state.modern.hit_phase = 0;
 }
 static unsigned free_projectile(const uint8_t *r) {
@@ -747,7 +762,8 @@ void MmxZeroPlayerTick(uint8_t r[0x20000]) {
     }
     /* Direct saber uses the same ground/air art and collision arc. Retain
      * every pose, shortening only the long follow-through hold. */
-    state.charge = state.charge_phase = state.combo = state.saber_ready = 0;
+    reset_charge_progress();
+    state.charge_phase = state.combo = state.saber_ready = 0;
     state.burst = state.burst_end = 0;
     if (state.slash && pressed && state.slash >= 32) state.modern.slash_buffer = 6;
     if (state.slash) {
@@ -797,13 +813,29 @@ void MmxZeroPlayerTick(uint8_t r[0x20000]) {
     }
   } else if (!state.burst && !state.combo) {
     if (intent.held) {
-      if (state.charge < legacy_charge_cap()) ++state.charge;
+      const unsigned previous_charge = state.charge;
+      const unsigned cap = legacy_charge_cap();
+      if (state.charge < cap) {
+        const uint64_t total = (uint64_t)state.modern.charge_fraction +
+            legacy_charge_rate();
+        const uint64_t advance = total >> 8;
+        const uint64_t next = (uint64_t)state.charge + advance;
+        state.modern.charge_fraction = (uint8_t)(total & 0xff);
+        if (next >= cap) {
+          state.charge = (uint16_t)cap;
+          state.modern.charge_fraction = 0;
+        } else {
+          state.charge = (uint16_t)next;
+        }
+      } else {
+        state.modern.charge_fraction = 0;
+      }
       /* Feed X1's ordinary charging visuals at Zero's measured thresholds.
        * Its release command is selected explicitly below; X1 special weapons
        * never enter this path and retain their own charge/upgrade rules. */
-      if (state.charge == 21) r[0xbff] = 0x97;
+      if (state.charge >= 21 && previous_charge < 21) r[0xbff] = 0x97;
       else if (state.charge > 21 && state.charge < 81) r[0xbff] = 0x90;
-      else if (state.charge == 81) r[0xbff] = 0x51;
+      else if (state.charge >= 81 && previous_charge < 81) r[0xbff] = 0x51;
       else if (state.charge > 81) r[0xbff] = 0x40;
       if (state.charge >= 141) { r[0xc03] = 1; r[0xc2a] = 4; }
     } else if (intent.released) {
@@ -816,7 +848,7 @@ void MmxZeroPlayerTick(uint8_t r[0x20000]) {
          * is class 1 (green half-shot); command 6 is class 2. */
         clear_charge(r); r[0xc01] = tier >= 6 ? 8 : 2;
       }
-      state.charge = 0;
+      reset_charge_progress();
     }
   }
   if (state.burst) {

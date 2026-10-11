@@ -14,6 +14,10 @@ static bool modern_movement_hook_value;
 static bool modern_movement_hook(void) {
   return modern_movement_hook_value;
 }
+static unsigned charge_rate_hook_value;
+static unsigned charge_cap_hook_value;
+static unsigned charge_rate_hook(void) { return charge_rate_hook_value; }
+static unsigned charge_cap_hook(void) { return charge_cap_hook_value; }
 static void asset(const char *path, bool modern) {
   FILE *f = fopen(path, "wb"); assert(f);
   const uint8_t header[] = {'M','M','X','Z','E','R','O',modern ? '7' : '6',128,0,128,0,64,0,64,0,117,0,35,0};
@@ -103,6 +107,83 @@ static void color_checks(void) {
   assert(MmxZeroColors() == native && MmxZeroBodyColors(&normal) == native + 16);
 
   assert(MmxZeroLoad("zero-test.bin"));
+}
+static void charge_rate_checks(void) {
+  static const MmxZeroExtension charge_extension = {
+      .charge_cap = charge_cap_hook,
+      .charge_rate = charge_rate_hook};
+  MmxZeroSetModern(false);
+  MmxZeroSetExtension(NULL);
+  player();
+  for (unsigned i = 0; i < 201; ++i) tick(64, i == 0 ? 64 : 0);
+  assert(MmxZeroGetState().charge == 201);
+  player();
+  MmxZeroSetState((MmxZeroState){.charge = 21});
+  tick(64, 0);
+  MmxZeroState s = MmxZeroGetState();
+  assert(s.charge == 22 && !s.modern.charge_fraction && s.charge_phase == 1);
+  tick(64, 0);
+  s = MmxZeroGetState();
+  assert(s.charge == 23 && !s.modern.charge_fraction && s.charge_phase == 2);
+
+  charge_cap_hook_value = 200;
+  charge_rate_hook_value = 0x180;
+  MmxZeroSetExtension(&charge_extension);
+  player();
+  unsigned cue_21 = 0, cue_81 = 0;
+  for (unsigned frame = 1; frame <= 134; ++frame) {
+    tick(64, frame == 1 ? 64 : 0);
+    if (ram[0xbff] == 0x97) ++cue_21;
+    if (ram[0xbff] == 0x51) ++cue_81;
+    MmxZeroState s = MmxZeroGetState();
+    if (frame == 14)
+      assert(s.charge == 21 && MmxZeroChargeTier(&s) == 4);
+    if (frame == 54)
+      assert(s.charge == 81 && MmxZeroChargeTier(&s) == 6);
+    if (frame == 94)
+      assert(s.charge == 141 && MmxZeroChargeTier(&s) == 8);
+    if (frame == 134)
+      assert(s.charge == 200 && s.modern.charge_fraction == 0);
+  }
+  assert(cue_21 == 1 && cue_81 == 1);
+
+  player();
+  MmxZeroSetState((MmxZeroState){.charge = 21});
+  tick(64, 0);
+  s = MmxZeroGetState();
+  assert(s.charge == 22 && s.modern.charge_fraction == 128 && s.charge_phase == 1);
+  tick(64, 0);
+  s = MmxZeroGetState();
+  assert(s.charge == 24 && s.modern.charge_fraction == 0 && s.charge_phase == 2);
+
+  charge_rate_hook_value = 0x200;
+  player();
+  cue_21 = cue_81 = 0;
+  for (unsigned frame = 1; frame <= 41; ++frame) {
+    tick(64, frame == 1 ? 64 : 0);
+    if (ram[0xbff] == 0x97) ++cue_21;
+    if (ram[0xbff] == 0x51) ++cue_81;
+    if (frame == 11) assert(ram[0xbff] == 0x97);
+    if (frame == 41) assert(ram[0xbff] == 0x51);
+  }
+  assert(cue_21 == 1 && cue_81 == 1);
+
+  charge_rate_hook_value = 0x180;
+  player();
+  tick(64, 64);
+  assert(MmxZeroGetState().modern.charge_fraction == 128);
+  tick(0, 0);
+  s = MmxZeroGetState();
+  assert(!s.charge && !s.modern.charge_fraction);
+  player();
+  tick(64, 64);
+  MmxZeroCancel(ram);
+  assert(!MmxZeroGetState().charge && !MmxZeroGetState().modern.charge_fraction);
+  player();
+  tick(64, 64);
+  MmxZeroResetState();
+  assert(!MmxZeroGetState().charge && !MmxZeroGetState().modern.charge_fraction);
+  MmxZeroSetExtension(NULL);
 }
 static void modern_checks(void) {
   static const MmxZeroExtension movement_extension = {
@@ -266,12 +347,13 @@ int main(void) {
   for(unsigned c=0;c<8;++c) {
     player();
     for(unsigned i=0;i<charges[c];++i) tick(64,i==0?64:0);
-    MmxZeroState z=MmxZeroGetState(); assert(MmxZeroChargeTier(&z)==tiers[c]);
+    MmxZeroState z=MmxZeroGetState(); assert(z.charge==charges[c] && MmxZeroChargeTier(&z)==tiers[c]);
     tick(0,0); z=MmxZeroGetState();
     assert(z.combo==(tiers[c]>=8) && z.saber_ready==(tiers[c]==10));
     if(tiers[c] && tiers[c]<8) assert(ram[0xc01]==(tiers[c]==4?2:8));
   }
   assert(MmxZeroGetState().burst == 1 && !ram[0x1228]);
+  charge_rate_checks();
   /* Highway restraint is native action $32 with sequence $49. It must
    * override a mirrored attack pose without changing rescue group $66. */
   player(); ram[0xbaa]=0x32; ram[0xbab]=2;

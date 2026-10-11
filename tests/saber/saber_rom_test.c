@@ -4038,7 +4038,27 @@ static void saber_plain_after_probe(const char *label) {
   check(births == 1 && projectiles(0) == 1 && native_x1_charged == 0, label);
 }
 
+static void saber_charge_rate_checks(const char *fixture) {
+  char label[96];
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  frame(0);
+  const MmxZeroExtension *extension = MmxSaberFrameExtension();
+  check(extension->charge_rate != NULL,
+        "Saber extension exposes the generic charge-rate hook");
+  if (!extension->charge_rate) return;
+  for (unsigned upgrades = 0; upgrades <= MMX_SABER_ARMOR_MASK; ++upgrades) {
+    g_ram[MMX_SABER_ARMOR_RAM_OFFSET] = (uint8_t)upgrades;
+    snprintf(label, sizeof(label), "Saber charge rate armor 0x%02X is %s",
+             upgrades, upgrades & MMX_SABER_ARMOR_HEAD_BIT ? "0x180" : "0x100");
+    check(extension->charge_rate() ==
+              (upgrades & MMX_SABER_ARMOR_HEAD_BIT ? 0x180 : 0x100),
+          label);
+  }
+}
+
 static void saber_charge_cap_checks(const char *fixture) {
+  saber_charge_rate_checks(fixture);
   unsigned max_charge = 0;
   bool tier_exceeded = false;
   bool third_route = false;

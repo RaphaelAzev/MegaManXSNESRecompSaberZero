@@ -23,6 +23,10 @@ static unsigned charge_cap(void) {
   return 200;
 }
 
+static unsigned charge_rate(void) {
+  return MmxSaberArmorCurrent().head ? 0x180 : 0x100;
+}
+
 static bool modern_movement(void) {
   return MmxSaberArmorCurrent().legs;
 }
@@ -277,6 +281,7 @@ static const MmxZeroExtension extension = {
     .hitbox = MmxSaberAttackHitbox,
     .collision_rom = MmxSaberAttackCollisionRom,
     .state_reset = state_reset,
+    .charge_rate = charge_rate,
 };
 
 const MmxZeroExtension *MmxSaberFrameExtension(void) {
