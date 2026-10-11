@@ -56,6 +56,7 @@ enum {
   X3_ZERO_STORM_TORNADO_PROJECTILES = 1,
   /* X1's native command-6 charged buster path publishes class 2. */
   SABER_X1_CHARGED_RELEASE_CLASS = 2,
+  SABER_ARMS_CHARGE_HOLD_FRAMES = 205,
   /* Independent oracle copied from oldsaber/saber-zero-variant:
    * src/mmx_saber.c:266-273. Keep these literals separate from the new table
    * so a timing-table mutation cannot make the test pass. */
@@ -4713,6 +4714,105 @@ static void saber_armor_checks(const char *fixture) {
   puts("ok: saber-armor");
 }
 
+static void saber_arms_charge_case(const char *fixture, bool arms) {
+  unsigned charge_timer_first = 0;
+  unsigned charge_timer_min = 0;
+  unsigned charge_state_initial;
+  unsigned charge_state_max;
+  unsigned full_frame = 0;
+  unsigned dispatch_frame = 0;
+  unsigned release_dispatch;
+  unsigned charged_projectiles;
+  bool charge_started = false;
+  bool charge_timer_decreased = false;
+  unsigned energy_held, energy_after;
+  unsigned spawned = 0;
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  select_native_weapon(5); /* Storm Tornado. */
+  if (arms)
+    g_ram[0x1f99] |= 0x02;
+  else
+    g_ram[0x1f99] &= (uint8_t)~0x02;
+  charge_state_initial = g_ram[0x0c00];
+  charge_state_max = charge_state_initial;
+
+  for (unsigned frame_number = 1;
+       frame_number <= SABER_ARMS_CHARGE_HOLD_FRAMES; ++frame_number) {
+    frame(SNES_PAD_X);
+    if (g_ram[0x0bff]) {
+      if (!charge_started) {
+        charge_started = true;
+        charge_timer_first = g_ram[0x0bff];
+        charge_timer_min = charge_timer_first;
+      } else if (g_ram[0x0bff] < charge_timer_min) {
+        charge_timer_min = g_ram[0x0bff];
+      }
+      if (g_ram[0x0bff] < charge_timer_first)
+        charge_timer_decreased = true;
+    }
+    if (g_ram[0x0c00] > charge_state_max)
+      charge_state_max = g_ram[0x0c00];
+    if (!full_frame && g_ram[0x0c03] == 1)
+      full_frame = frame_number;
+    if (!dispatch_frame && g_ram[0x0c01] == 4)
+      dispatch_frame = frame_number;
+  }
+
+  energy_held = g_ram[0x1f90] & 0x3f;
+  {
+    const unsigned before = all_projectiles();
+    frame(0);
+    release_dispatch = g_ram[0x0c01];
+    if (all_projectiles() > before) spawned = all_projectiles() - before;
+  }
+  if (!dispatch_frame && release_dispatch == 4)
+    dispatch_frame = SABER_ARMS_CHARGE_HOLD_FRAMES + 1;
+  charged_projectiles = projectiles(SABER_X1_CHARGED_RELEASE_CLASS);
+  for (unsigned i = 0; i < 30 && !dispatch_frame && !charged_projectiles; ++i) {
+    frame(0);
+    if (g_ram[0x0c01] == 4)
+      dispatch_frame = SABER_ARMS_CHARGE_HOLD_FRAMES + 2 + i;
+    charged_projectiles = projectiles(SABER_X1_CHARGED_RELEASE_CLASS);
+  }
+  energy_after = g_ram[0x1f90] & 0x3f;
+  printf("reference: saber-arms-charge release energy %u->%u spawned=%u\n",
+         energy_held, energy_after, spawned);
+
+  printf("reference: saber-arms-charge arms=%s $1F99=0x%02X hold=%u "
+         "$0BFF=%02X->%02X decreased=%d $0C00=%02X->%02X "
+         "$0C03_full_frame=%u $0C01_release=%02X dispatch_frame=%u "
+         "charged_projectiles=%u\n",
+         arms ? "set" : "clear", g_ram[0x1f99],
+         SABER_ARMS_CHARGE_HOLD_FRAMES, charge_timer_first, charge_timer_min,
+         charge_timer_decreased, charge_state_initial, charge_state_max,
+         full_frame, release_dispatch, dispatch_frame, charged_projectiles);
+
+  if (arms) {
+    check(charge_started &&
+              (charge_timer_decreased || charge_state_max > charge_state_initial),
+          "Saber Storm Tornado native charge progresses with arms");
+    check(full_frame != 0,
+          "Saber Storm Tornado reaches full native charge with arms");
+    /* $0C01 == 4 is set and consumed inside one native frame, so prove the
+     * charged release by its effect: new weapon objects and extra energy. */
+    check(spawned != 0 && energy_held >= energy_after + 2,
+          "Saber Storm Tornado release fires its charged attack with arms");
+  } else {
+    check(full_frame == 0,
+          "Saber Storm Tornado never reaches full native charge without arms");
+    check(spawned == 0 && energy_after == energy_held,
+          "Saber Storm Tornado release fires nothing without arms");
+  }
+}
+
+static void saber_arms_charge_checks(const char *fixture) {
+  saber_arms_charge_case(fixture, true);
+  saber_arms_charge_case(fixture, false);
+  puts("ok: saber-arms-charge");
+}
+
 
 static void saber_tuning_checks(void) {
   check(g_mod_provider->feature_set_option(
@@ -8580,6 +8680,7 @@ int main(int argc, char **argv) {
   const bool saber_finisher = only && !strcmp(only, "saber-finisher");
   const bool saber_tuning = only && !strcmp(only, "saber-tuning");
   const bool saber_armor = only && !strcmp(only, "saber-armor");
+  const bool saber_arms_charge = only && !strcmp(only, "saber-arms-charge");
   const bool saber_hitbox_debug = only && !strcmp(only, "saber-hitbox-debug");
   const bool saber_damage = only && !strcmp(only, "saber-damage");
   const bool zero_extension = only && !strcmp(only, "zero-extension");
@@ -8621,7 +8722,7 @@ int main(int argc, char **argv) {
       saber_finisher || saber_priority_classify ||
       saber_priority || saber_armadillo ||
       saber_tuning || saber_hitbox_debug || saber_damage ||
-      saber_armor ||
+      saber_armor || saber_arms_charge ||
       saber_wave_travel || saber_wave_damage || saber_wave_lifecycle ||
       saber_wave_render || saber_ride_pilot || saber_boss_death;
   SpecialCounts upstream_specials = {0};
@@ -8710,6 +8811,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-armor runs with the Saber package enabled");
     saber_armor_checks(fixture);
+  } else if (saber_arms_charge) {
+    check(MmxSaberEnabled(),
+          "saber-arms-charge runs with the Saber package enabled");
+    saber_arms_charge_checks(fixture);
   } else if (saber_tuning) {
     check(MmxSaberEnabled(),
           "saber-tuning runs with the Saber package enabled");
@@ -8806,6 +8911,7 @@ int main(int argc, char **argv) {
         strcmp(only, "x3-zero-specials") &&
       strcmp(only, "saber-package") && strcmp(only, "saber-input") &&
       strcmp(only, "saber-armor") &&
+      strcmp(only, "saber-arms-charge") &&
       strcmp(only, "saber-finisher") &&
       strcmp(only, "saber-priority-classify") &&
       strcmp(only, "saber-priority") &&
