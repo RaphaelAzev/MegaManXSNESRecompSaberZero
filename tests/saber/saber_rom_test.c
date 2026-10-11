@@ -6511,6 +6511,14 @@ static unsigned apply_test_damage(unsigned enemy, unsigned damage) {
   return drop;
 }
 
+static void saber_damage_set_arms(bool arms) {
+  if (arms)
+    g_ram[MMX_SABER_ARMOR_RAM_OFFSET] |= MMX_SABER_ARMOR_ARMS_BIT;
+  else
+    g_ram[MMX_SABER_ARMOR_RAM_OFFSET] &=
+        (uint8_t)~MMX_SABER_ARMOR_ARMS_BIT;
+}
+
 static void saber_wave_damage_checks(const char *fixture) {
   unsigned target, walk_frames = 0;
   unsigned slot, pulse_count = 0, retire_frame = 0;
@@ -6563,6 +6571,7 @@ static void saber_wave_damage_checks(const char *fixture) {
   MmxZeroCancel(g_ram);
   retire_non_wave_projectiles(slot);
   g_ram[target + 0x27] = 64;
+  saber_damage_set_arms(false);
   hp_before_wave = g_ram[target + 0x27] & 127;
   for (unsigned frame_number = 1; frame_number <= 48 && g_ram[slot];
        ++frame_number) {
@@ -6588,6 +6597,7 @@ static void saber_wave_damage_checks(const char *fixture) {
       }
     }
     if (!g_ram[slot]) retire_frame = frame_number;
+    if (pulse_count >= 1) saber_damage_set_arms(true);
   }
   printf("reference: wave HP before=%u drops=%u,%u,%u frames=%u,%u,%u retire_frame=%u final_hp=%u\n",
          hp_before_wave, pulse_drops[0], pulse_drops[1], pulse_drops[2],
@@ -6599,10 +6609,10 @@ static void saber_wave_damage_checks(const char *fixture) {
                     MMX_SABER_TUNING_DAMAGE_WAVE) &&
             pulse_drops[1] ==
                 (unsigned)MmxSaberTuningNormalDamage(
-                    MMX_SABER_TUNING_DAMAGE_WAVE) &&
+                    MMX_SABER_TUNING_DAMAGE_WAVE) + 2 &&
             pulse_drops[2] ==
                 (unsigned)MmxSaberTuningNormalDamage(
-                    MMX_SABER_TUNING_DAMAGE_WAVE) &&
+                    MMX_SABER_TUNING_DAMAGE_WAVE) + 2 &&
             pulse_frames[1] - pulse_frames[0] == MMX_SABER_WAVE_PULSE_FRAMES + 1 &&
             pulse_frames[2] - pulse_frames[1] == MMX_SABER_WAVE_PULSE_FRAMES &&
             retire_frame == pulse_frames[2] && !g_ram[slot],
@@ -6611,6 +6621,7 @@ static void saber_wave_damage_checks(const char *fixture) {
   /* The direct callback check is the stable proof for the blade even when
    * this fixture's moving enemy geometry does not overlap $5A53. */
   saber_finisher_window_setup(fixture);
+  saber_damage_set_arms(true);
   frame(SNES_PAD_Y);
   unsigned slash_slot = saber_finisher_slot_with_tag(0x5a53);
   unsigned empty = empty_enemy_slot();
@@ -6620,7 +6631,7 @@ static void saber_wave_damage_checks(const char *fixture) {
          finisher_first, finisher_second);
   check(slash_slot && finisher_first ==
             (unsigned)MmxSaberTuningNormalDamage(
-                MMX_SABER_TUNING_DAMAGE_X3_FINISHER) &&
+                MMX_SABER_TUNING_DAMAGE_X3_FINISHER) + 2 &&
             finisher_second == 0,
         "the Saber $5A53 finisher blade deals its tuned damage exactly once per enemy");
 
@@ -6811,11 +6822,12 @@ static unsigned saber_damage_callback_probe(const char *label,
 static unsigned saber_damage_ground1_drop(const char *fixture,
                                           unsigned expected,
                                           unsigned *initial_hp,
-                                          unsigned *final_hp) {
+                                          unsigned *final_hp, bool arms) {
   unsigned target, walk_frames = 0, slot;
   target = walk_to_ground_enemy(fixture, &walk_frames);
   check(target == 0xea8,
         "saber-damage slash 1 reaches Highway enemy slot 0xEA8");
+  saber_damage_set_arms(arms);
   slot = saber_damage_start_ground1();
   check(slot != 0, "saber-damage slash 1 publishes a tagged slot");
   *initial_hp = g_ram[target + 0x27] & 127;
@@ -6829,11 +6841,12 @@ static unsigned saber_damage_ground1_drop(const char *fixture,
 static unsigned saber_damage_ground3_drop(const char *fixture,
                                           unsigned expected,
                                           unsigned *initial_hp,
-                                          unsigned *final_hp) {
+                                          unsigned *final_hp, bool arms) {
   unsigned target, walk_frames = 0, slot;
   target = walk_to_ground_enemy(fixture, &walk_frames);
   check(target == 0xea8,
         "saber-damage slash 3 reaches Highway enemy slot 0xEA8");
+  saber_damage_set_arms(arms);
   slot = saber_damage_start_ground3();
   check(slot != 0, "saber-damage slash 3 publishes a tagged slot");
   *initial_hp = g_ram[target + 0x27] & 127;
@@ -6851,10 +6864,11 @@ static unsigned saber_damage_boss_slot(void) {
 }
 
 static void saber_damage_boss_probe(const char *fixture, unsigned expected_boss,
-                                    unsigned expected_normal) {
+                                    unsigned expected_normal, bool arms) {
   unsigned boss, normal, slot;
   unsigned boss_first, boss_second, normal_first, normal_second;
   load_response_fixture(fixture);
+  saber_damage_set_arms(arms);
   boss = saber_damage_boss_slot();
   normal = empty_enemy_slot();
   check(boss != 0 && MmxWidePolicy_IsBossEncounter(g_ram[boss + 0x0a]),
@@ -6926,27 +6940,33 @@ static void saber_damage_checks(const char *x1_rom, const char *x3_rom,
   saber_damage_reactivate();
   drop = saber_damage_ground1_drop(
       fixture, MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_SLASH1),
-      &initial_hp, &final_hp);
+      &initial_hp, &final_hp, false);
   check(drop == 3 && final_hp == initial_hp - 3,
         "default ground slash 1 drops Highway HP by 3");
 
   saber_damage_set_option("slash1_damage", "5");
   saber_damage_reactivate();
-  drop = saber_damage_ground1_drop(fixture, 5, &initial_hp, &final_hp);
+  drop = saber_damage_ground1_drop(fixture, 5, &initial_hp, &final_hp, false);
   check(drop == 5 && final_hp == initial_hp - 5,
         "slash1_damage=5 drops Highway HP by 5");
+  drop = saber_damage_ground1_drop(fixture, 7, &initial_hp, &final_hp, true);
+  check(drop == 7 && final_hp == initial_hp - 7,
+        "arms make slash1 damage 5 drop Highway HP by 7");
 
   saber_damage_set_option("slash3_damage", "8");
   saber_damage_reactivate();
-  drop = saber_damage_ground3_drop(fixture, 8, &initial_hp, &final_hp);
+  drop = saber_damage_ground3_drop(fixture, 8, &initial_hp, &final_hp, false);
   check(drop == 8 && final_hp == initial_hp - 8,
         "default ground slash 3 drops Highway HP by 8");
 
   saber_damage_set_option("slash3_damage", "32");
   saber_damage_reactivate();
-  drop = saber_damage_ground3_drop(fixture, 32, &initial_hp, &final_hp);
+  drop = saber_damage_ground3_drop(fixture, 32, &initial_hp, &final_hp, false);
   check(drop == initial_hp && final_hp == 0,
         "slash3_damage=32 clamps to the native HP subtraction and kills Highway");
+  drop = saber_damage_ground3_drop(fixture, 32, &initial_hp, &final_hp, true);
+  check(drop == initial_hp && final_hp == 0,
+        "arms keep slash3 damage capped at 32 and kill Highway");
 
   saber_damage_set_option("air_damage", "11");
   saber_damage_set_option("wall_damage", "13");
@@ -6960,7 +6980,8 @@ static void saber_damage_checks(const char *x1_rom, const char *x3_rom,
   check(slot != 0 && enemy != 0,
         "saber-damage air setup publishes a live active slot");
   g_ram[enemy + 0x27] = 32;
-  saber_damage_callback_probe("air slash", enemy, slot, 11);
+  saber_damage_set_arms(true);
+  saber_damage_callback_probe("air slash with arms", enemy, slot, 13);
 
   check(saber_wall_setup(wall_path, &wall_route, false) ==
             wall_route.expected_wall_frame,
@@ -6971,7 +6992,8 @@ static void saber_damage_checks(const char *x1_rom, const char *x3_rom,
   check(slot != 0 && enemy != 0,
         "saber-damage wall setup publishes a live active slot");
   g_ram[enemy + 0x27] = 32;
-  saber_damage_callback_probe("wall slash", enemy, slot, 13);
+  saber_damage_set_arms(true);
+  saber_damage_callback_probe("wall slash with arms", enemy, slot, 15);
 
   load_fixture(fixture);
   MmxSaberFrameReset();
@@ -6990,7 +7012,8 @@ static void saber_damage_checks(const char *x1_rom, const char *x3_rom,
             dash_snapshot.phase == SABER_PHASE_ACTIVE,
         "saber-damage dash setup publishes a live active slot");
   g_ram[enemy + 0x27] = 32;
-  saber_damage_callback_probe("dash slash", enemy, slot, 17);
+  saber_damage_set_arms(true);
+  saber_damage_callback_probe("dash slash with arms", enemy, slot, 19);
 
   saber_damage_set_option("x3_finisher_damage", "20");
   saber_damage_set_option("wave_damage", "4");
@@ -7005,10 +7028,12 @@ static void saber_damage_checks(const char *x1_rom, const char *x3_rom,
   saber_damage_set_option("slash1_damage", "3");
   saber_damage_set_option("boss_slash1_damage", "0");
   saber_damage_reactivate();
-  saber_damage_boss_probe(penguin_path, 3, 3);
+  saber_damage_boss_probe(penguin_path, 3, 3, false);
+  saber_damage_boss_probe(penguin_path, 4, 5, true);
   saber_damage_set_option("boss_slash1_damage", "7");
   saber_damage_reactivate();
-  saber_damage_boss_probe(penguin_path, 7, 3);
+  saber_damage_boss_probe(penguin_path, 7, 3, false);
+  saber_damage_boss_probe(penguin_path, 8, 5, true);
 
   activate_zero(x1_rom, x3_rom, assets, false, false);
   check(!MmxSaberEnabled(), "saber-damage disables Saber for the upstream check");

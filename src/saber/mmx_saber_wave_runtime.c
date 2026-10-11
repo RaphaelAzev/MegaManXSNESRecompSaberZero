@@ -4,6 +4,7 @@
 
 #include "../mmx_wide_policy.h"
 #include "../mmx_zero.h"
+#include "mmx_saber_armor.h"
 #include "mmx_saber_tuning.h"
 
 enum {
@@ -83,7 +84,9 @@ static unsigned wave_tuned_damage(const uint8_t *ram, unsigned enemy) {
   const int damage = boss ?
       MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_WAVE) :
       MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_WAVE);
-  return clamp_tuned_damage(damage);
+  const MmxSaberArmorFlags armor = MmxSaberArmorCurrent();
+  return clamp_tuned_damage(damage +
+      (int)MmxSaberArmorDamageBonus(armor.arms, boss));
 }
 
 static bool identity_recorded(const uint8_t *ram, unsigned slot) {

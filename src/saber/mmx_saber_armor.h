@@ -26,6 +26,12 @@ typedef struct MmxSaberArmorFlags {
 
 MmxSaberArmorFlags MmxSaberArmorDecode(uint8_t upgrades);
 MmxSaberArmorFlags MmxSaberArmorCurrent(void);
+/* Arms add +2 Saber damage, or +1 against bosses (header-only so every
+ * damage site links without the live armor accessor). */
+static inline unsigned MmxSaberArmorDamageBonus(bool arms, bool boss) {
+  if (!arms) return 0;
+  return boss ? 1 : 2;
+}
 void MmxSaberArmorApplyStageStart(uint8_t *ram);
 
 #ifdef __cplusplus

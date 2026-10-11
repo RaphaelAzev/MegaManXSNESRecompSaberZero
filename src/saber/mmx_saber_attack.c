@@ -6,6 +6,7 @@
 #include "../mmx_wide_policy.h"
 #include "../mmx_zero.h"
 #include "mmx_saber_sfx.h"
+#include "mmx_saber_armor.h"
 #include "mmx_saber_hitbox_debug.h"
 #include "mmx_saber_priority.h"
 #include "mmx_saber_tuning.h"
@@ -302,7 +303,10 @@ static unsigned attack_tuned_damage(const uint8_t *ram, unsigned enemy,
       MmxWidePolicy_IsBossEncounter(ram[enemy + 0x0a]);
   const int damage = boss ? MmxSaberTuningBossDamage(kind) :
       MmxSaberTuningNormalDamage(kind);
-  return clamp_tuned_damage(damage);
+  const MmxSaberArmorFlags armor = MmxSaberArmorCurrent();
+  const unsigned bonus = kind < MMX_SABER_TUNING_DAMAGE_COUNT ?
+      MmxSaberArmorDamageBonus(armor.arms, boss) : 0;
+  return clamp_tuned_damage(damage + (int)bonus);
 }
 
 static bool priority_buster_class(MmxSaberPriorityClass priority_class) {

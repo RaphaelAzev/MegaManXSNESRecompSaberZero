@@ -81,6 +81,17 @@ static void check_live_accessor(void) {
         "live armor accessor decodes active Saber Zero RAM");
 }
 
+static void check_damage_bonus(void) {
+  check(MmxSaberArmorDamageBonus(false, false) == 0,
+        "damage bonus is zero without arms against normal enemies");
+  check(MmxSaberArmorDamageBonus(false, true) == 0,
+        "damage bonus is zero without arms against bosses");
+  check(MmxSaberArmorDamageBonus(true, false) == 2,
+        "damage bonus is two with arms against normal enemies");
+  check(MmxSaberArmorDamageBonus(true, true) == 1,
+        "damage bonus is one with arms against bosses");
+}
+
 static void check_stage_write(void) {
   uint8_t ram[0x20000] = {0};
 
@@ -111,6 +122,7 @@ static void check_stage_write(void) {
 int main(void) {
   check_low_nibble();
   check_live_accessor();
+  check_damage_bonus();
   check_stage_write();
   if (failures != 0) return 1;
   puts("PASS: Saber armor decoder");
