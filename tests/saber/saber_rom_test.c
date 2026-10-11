@@ -3041,7 +3041,101 @@ static void saber_legs_charge_case(const char *fixture) {
         "Saber legs release emits a new charged buster shot");
 }
 
-static void saber_legs_checks(const char *fixture) {
+static void saber_legs_platform_case(const char *fixture) {
+  MmxZeroState state;
+  unsigned platform = 0;
+  unsigned observed_frame = 0;
+  unsigned observed_bd3 = 0;
+  unsigned observed_bd4 = 0;
+  unsigned observed_action = 0;
+  unsigned observed_x = 0;
+  unsigned observed_y = 0;
+  unsigned observed_platform_x = 0;
+  unsigned observed_platform_y = 0;
+  bool riding = false;
+
+  check(RtlLoadSnapshot(fixture), "log-platform.sav loads for Saber legs platform");
+  check(MmxZeroActive() && !MmxZeroModern(),
+        "log-platform.sav uses legacy Zero for Saber legs platform");
+  MmxZeroCancel(g_ram);
+  MmxSaberFrameReset();
+  g_ram[0x1f99] = MMX_SABER_ARMOR_LEGS_BIT;
+  state = MmxZeroGetState();
+  state.modern.jump_used = 0;
+  state.modern.dash_used = 0;
+  state.modern.dash_ticks = 0;
+  MmxZeroSetState(state);
+
+  for (unsigned frame_number = 0; frame_number <= 120; ++frame_number) {
+    platform = 0;
+    for (unsigned d = 0x0e68; d < 0x1228; d += 64) {
+      if (g_ram[d] && g_ram[d + 10] == 0x0b) {
+        platform = d;
+        break;
+      }
+    }
+    if ((g_ram[0xbd4] & 4) && !(g_ram[0xbd3] & 4)) {
+      riding = true;
+      observed_frame = frame_number;
+      observed_bd3 = g_ram[0xbd3];
+      observed_bd4 = g_ram[0xbd4];
+      observed_action = g_ram[0x0baa];
+      observed_x = read_ram_word(g_ram, 0x0bad);
+      observed_y = read_ram_word(g_ram, 0x0bb0);
+      if (platform) {
+        observed_platform_x = read_ram_word(g_ram, platform + 5);
+        observed_platform_y = read_ram_word(g_ram, platform + 8);
+      }
+      break;
+    }
+    if (frame_number != 120) frame(0);
+  }
+
+  if (!riding) {
+    unsigned object_id = platform ? g_ram[platform + 10] : 0;
+    printf("reference: saber-legs-platform not-riding object=0x%04X id=0x%02X "
+           "$0BD3=0x%02X $0BD4=0x%02X action=0x%02X "
+           "player=(%u,%u) platform=(%u,%u)\n",
+           platform, object_id, g_ram[0xbd3], g_ram[0xbd4], g_ram[0x0baa],
+           read_ram_word(g_ram, 0x0bad), read_ram_word(g_ram, 0x0bb0),
+           platform ? read_ram_word(g_ram, platform + 5) : 0,
+           platform ? read_ram_word(g_ram, platform + 8) : 0);
+    return;
+  }
+
+  printf("reference: saber-legs-platform riding object=0x%04X id=0x%02X "
+         "frame=%u $0BD3=0x%02X $0BD4=0x%02X action=0x%02X "
+         "player=(%u,%u) platform=(%u,%u)\n",
+         platform, platform ? g_ram[platform + 10] : 0, observed_frame,
+         observed_bd3, observed_bd4, observed_action, observed_x, observed_y,
+         observed_platform_x, observed_platform_y);
+
+  state = MmxZeroGetState();
+  state.modern.jump_used = 1;
+  state.modern.dash_used = 1;
+  MmxZeroSetState(state);
+  frame(0);
+  state = MmxZeroGetState();
+  check(!state.modern.jump_used && !state.modern.dash_used,
+        "Saber legs refreshes aerial moves on a moving platform");
+
+  for (unsigned i = 0; i < 5; ++i) frame(SNES_PAD_B);
+  for (unsigned i = 0; i < 4; ++i) frame(0);
+  check(!saber_test_grounded(),
+        "Saber legs jump leaves the moving platform before the second press");
+  frame(SNES_PAD_B);
+  state = MmxZeroGetState();
+  printf("reference: saber-legs-platform after-jump object=0x%04X id=0x%02X "
+         "$0BD3=0x%02X $0BD4=0x%02X action=0x%02X jump_used=%u "
+         "player=(%u,%u)\n",
+         platform, platform ? g_ram[platform + 10] : 0, g_ram[0xbd3],
+         g_ram[0xbd4], g_ram[0x0baa], state.modern.jump_used,
+         read_ram_word(g_ram, 0x0bad), read_ram_word(g_ram, 0x0bb0));
+  check(state.modern.jump_used == 1 && g_ram[0x0baa] == 6,
+        "Saber legs double jumps after leaving a moving platform");
+}
+
+static void saber_legs_checks(const char *fixture, const char *fixture_dir) {
   check(MmxSaberEnabled() && !MmxZeroModern(),
         "saber-legs runs with legacy Zero behavior and Saber enabled");
   saber_legs_jump_case(fixture, false);
@@ -3049,6 +3143,12 @@ static void saber_legs_checks(const char *fixture) {
   saber_legs_dash_case(fixture, false);
   saber_legs_dash_case(fixture, true);
   saber_legs_charge_case(fixture);
+  char platform_fixture[4096];
+  int written = snprintf(platform_fixture, sizeof(platform_fixture), "%s/%s",
+                         fixture_dir, kReferenceLogPlatform.name);
+  check(written >= 0 && written < (int)sizeof(platform_fixture),
+        "saber-legs platform fixture path fits");
+  saber_legs_platform_case(platform_fixture);
   puts("ok: saber-legs");
 }
 
@@ -8958,7 +9058,8 @@ int main(int argc, char **argv) {
   check(fixture && fixture[0], "MMX_ZERO_TEST_FIXTURE supplied");
   check(x3_rom && x3_rom[0], "MMX_COOP_X3_ROM supplied");
   check(assets && assets[0], "MMX_ZERO_TEST_ASSETS supplied");
-  if (only && (!strcmp(only, "fixtures") || !strcmp(only, "saber-wall") ||
+  if (only && (!strcmp(only, "fixtures") || !strcmp(only, "saber-legs") ||
+      !strcmp(only, "saber-wall") ||
       !strcmp(only, "saber-cancel") || !strcmp(only, "saber-buster-rules") ||
       !strcmp(only, "saber-damage") || !strcmp(only, "saber-priority") ||
       !strcmp(only, "saber-armadillo") ||
@@ -9122,7 +9223,7 @@ int main(int argc, char **argv) {
     saber_air_checks(fixture);
   } else if (saber_legs) {
     check(MmxSaberEnabled(), "saber-legs runs with the Saber package enabled");
-    saber_legs_checks(fixture);
+    saber_legs_checks(fixture, fixture_dir);
   } else if (saber_wall) {
     check(MmxSaberEnabled(), "saber-wall runs with the Saber package enabled");
     saber_wall_checks(fixture_dir);
