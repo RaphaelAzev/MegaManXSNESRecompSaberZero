@@ -80,6 +80,8 @@ MmxSaberPadPhase MmxSaberAttackPhaseForTick(const MmxSaberAttack *attack,
                                             uint8_t tick);
 
 void MmxSaberAttackReset(void);
+/* Reset host attack state without retiring Saber-owned guest slots. */
+void MmxSaberAttackResetHostState(void);
 void MmxSaberAttackResetRam(uint8_t *ram);
 void MmxSaberAttackResetCueCount(void);
 void MmxSaberAttackExit(uint8_t *ram, MmxSaberAttackExitReason reason);

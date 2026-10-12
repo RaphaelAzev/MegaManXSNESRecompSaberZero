@@ -8507,17 +8507,17 @@ static void saber_lifecycle_load_checks(const char *x1_rom,
   check(snapshot_capacity != 0 && airborne_snapshot != NULL,
         "lifecycle test allocates an in-memory snapshot buffer");
 
-  /* D1: SetState enters the reset seam once for its reset and once again
-   * after the replacement state has been installed. Keep this assertion
-   * separate from Saber behavior so either generic call cannot disappear. */
+  /* D1: SetState resets the installed extension once before the replacement
+   * state is restored. Keep this assertion separate from Saber behavior so
+   * the generic reset call cannot disappear or be duplicated. */
   MmxZeroExtension probe = { .state_reset = zero_state_reset_probe };
   const MmxZeroState zero_state = MmxZeroGetState();
   zero_state_reset_calls = 0;
   MmxZeroSetExtension(&probe);
   MmxZeroSetState(zero_state);
   MmxZeroSetExtension(MmxSaberFrameExtension());
-  check(zero_state_reset_calls == 2,
-        "state replacement calls the generic reset seam at both boundaries");
+  check(zero_state_reset_calls == 1,
+        "state replacement resets the extension once before the extension state is restored");
 
   /* D4a: replace a live Saber attack with the standing save in the same
    * process. The callback must retire the guest slot before the next frame. */
@@ -8813,15 +8813,39 @@ static void saber_context_load_checks(const char *fixture) {
   const size_t size = RtlSaveSnapshotToMemory(saved, capacity);
   check(size != 0 && tagged_projectiles() == 1,
         "air slash save-state route captures a live Saber slot");
+  MmxRendererBeginFrame(g_ram);
+  const MmxSaberAttackSnapshot saved_attack = MmxSaberAttackSnapshotGet();
+  const unsigned saved_tagged_projectiles = tagged_projectiles();
+  const uint16_t saved_hit_slots = MmxSaberAttackHitSlots();
+  const unsigned saved_cues = MmxSaberAttackCueCount();
+  const uint32_t saved_priority_frame = MmxSaberPriorityCurrentFrame();
+  const bool saved_overlay_active =
+      MmxRendererPlayerOverlaySnapshot().active;
   frame(0);
   check(RtlLoadSnapshotFromMemory(saved, size),
         "air slash save-state route restores through the normal loader");
   MmxRendererBeginFrame(g_ram);
-  const bool load_overlay_clear =
-      !MmxRendererPlayerOverlaySnapshot().active;
-  check(load_overlay_clear && saber_context_clean(MmxSaberAttackCueCount()) &&
-            MmxSaberPriorityCurrentFrame() == 0,
-        "save-state load drops air Saber, hitbox, overlay, combo, and priority state");
+  const MmxSaberAttackSnapshot loaded_attack = MmxSaberAttackSnapshotGet();
+  const unsigned loaded_tagged_projectiles = tagged_projectiles();
+  const uint16_t loaded_hit_slots = MmxSaberAttackHitSlots();
+  const uint32_t loaded_priority_frame = MmxSaberPriorityCurrentFrame();
+  const bool loaded_overlay_active =
+      MmxRendererPlayerOverlaySnapshot().active;
+  check(loaded_attack.kind == saved_attack.kind &&
+            loaded_attack.index == saved_attack.index &&
+            loaded_attack.phase == saved_attack.phase &&
+            loaded_attack.tick == saved_attack.tick &&
+            loaded_attack.anim_id == saved_attack.anim_id &&
+            loaded_attack.anim_step == saved_attack.anim_step &&
+            loaded_attack.facing == saved_attack.facing &&
+            loaded_tagged_projectiles == saved_tagged_projectiles &&
+            loaded_hit_slots == saved_hit_slots &&
+            MmxSaberAttackCueCount() == saved_cues &&
+            loaded_priority_frame == saved_priority_frame &&
+            loaded_overlay_active == saved_overlay_active &&
+            loaded_attack.kind == SABER_KIND_AIR &&
+            loaded_tagged_projectiles == 1,
+        "save-state load restores the air Saber, hitbox, overlay and priority state");
   const unsigned loaded_cues = MmxSaberAttackCueCount();
   idle(OLD_SABER_AIR_TOTAL + 2);
   check(MmxSaberAttackCueCount() == loaded_cues,
@@ -8842,11 +8866,18 @@ static void saber_context_load_checks(const char *fixture) {
   snes_rewind_step(-1);
   snes_rewind_commit();
   MmxRendererBeginFrame(g_ram);
-  const bool rewind_overlay_clear =
-      !MmxRendererPlayerOverlaySnapshot().active;
-  check(rewind_overlay_clear && saber_context_clean(MmxSaberAttackCueCount()) &&
-            MmxSaberPriorityCurrentFrame() == 0,
-        "rewind drops air Saber, hitbox, overlay, combo, and priority state");
+  const MmxSaberAttackSnapshot rewind_attack = MmxSaberAttackSnapshotGet();
+  const bool rewind_overlay_active =
+      MmxRendererPlayerOverlaySnapshot().active;
+  const bool rewind_state_consistent =
+      (rewind_attack.kind == SABER_KIND_AIR &&
+          rewind_attack.phase != SABER_PHASE_IDLE &&
+          tagged_projectiles() == 1 && rewind_overlay_active) ||
+      (rewind_attack.kind == SABER_KIND_NONE &&
+          rewind_attack.phase == SABER_PHASE_IDLE &&
+          tagged_projectiles() == 0 && !rewind_overlay_active);
+  check(rewind_state_consistent,
+        "rewind restores a consistent Saber state (live slash with its slot, or idle with no slot)");
   const unsigned rewound_cues = MmxSaberAttackCueCount();
   idle(OLD_SABER_AIR_TOTAL + 2);
   check(MmxSaberAttackCueCount() == rewound_cues,

@@ -239,6 +239,7 @@ static size_t native_collision_rom_size;
 
 static bool player_grounded(const uint8_t *ram);
 static void collision_windows_reset(void);
+static void reset_attack_state(uint8_t *target);
 
 static void clear_native_observation(void) {
   native_observation_valid = false;
@@ -769,6 +770,15 @@ MmxSaberPadPhase MmxSaberAttackPhaseForTick(const MmxSaberAttack *attack,
 void MmxSaberAttackReset(void) {
   uint8_t *target = runtime_ram;
   MmxSaberAttackExit(target, MMX_SABER_ATTACK_EXIT_CONTEXT);
+  reset_attack_state(target);
+}
+
+void MmxSaberAttackResetHostState(void) {
+  clear_native_observation();
+  reset_attack_state(runtime_ram);
+}
+
+static void reset_attack_state(uint8_t *target) {
   memset(&state, 0, sizeof(state));
   state.phase = SABER_PHASE_IDLE;
   state.cue = MMX_SABER_SFX_ATTACK_COUNT;

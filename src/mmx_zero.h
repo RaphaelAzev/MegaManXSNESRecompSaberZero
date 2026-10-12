@@ -38,7 +38,7 @@ typedef struct MmxZeroExtension {
   /* Savestate and rollback: the owner's host-side state as a fixed blob.
    * Load must ignore a blob it did not write (e.g. all zeros). */
   void (*state_save)(uint8_t out[]);
-  void (*state_load)(const uint8_t in[]);
+  bool (*state_load)(const uint8_t in[]); /* true = blob accepted */
   unsigned (*charge_rate)(void);                    /* Q8.8 per frame; 0 = default 0x100 */
   uint16_t (*death_orb_color)(uint16_t native);     /* Zero-owned death-orb pixel */
   unsigned (*weapon_cost)(unsigned weapon_id, unsigned cost, bool charged);
@@ -71,9 +71,9 @@ void MmxZeroSetExtension(const MmxZeroExtension *ext);
  * state untouched for its own seat. */
 void MmxZeroSetExtensionGate(bool (*gate)(void));
 void MmxZeroExtPrePlayer(uint8_t *ram);
-/* Zero-filled when no extension is set. Load runs after MmxZeroSetState. */
+/* Zero-filled when no extension is set. */
 void MmxZeroExtSaveState(uint8_t out[MMX_ZERO_EXTENSION_STATE_BYTES]);
-void MmxZeroExtLoadState(const uint8_t in[MMX_ZERO_EXTENSION_STATE_BYTES]);
+bool MmxZeroExtLoadState(const uint8_t in[MMX_ZERO_EXTENSION_STATE_BYTES]);
 void MmxZeroExtPlayerEnd(uint8_t *ram);
 bool MmxZeroLoad(const char *path);
 void MmxZeroDisable(void);

@@ -66,8 +66,9 @@ void MmxZeroExtSaveState(uint8_t out[MMX_ZERO_EXTENSION_STATE_BYTES]) {
   memset(out, 0, MMX_ZERO_EXTENSION_STATE_BYTES);
   if (extension && extension->state_save) extension->state_save(out);
 }
-void MmxZeroExtLoadState(const uint8_t in[MMX_ZERO_EXTENSION_STATE_BYTES]) {
-  if (extension && extension->state_load) extension->state_load(in);
+bool MmxZeroExtLoadState(const uint8_t in[MMX_ZERO_EXTENSION_STATE_BYTES]) {
+  if (extension && extension->state_load) return extension->state_load(in);
+  return false;
 }
 static void clear_state(void) {
   memset(&state, 0, sizeof(state)); state.active_x = start_x;

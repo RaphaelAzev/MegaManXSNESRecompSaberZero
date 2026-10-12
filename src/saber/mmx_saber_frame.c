@@ -45,14 +45,16 @@ static bool modern_movement(void) {
   return MmxSaberArmorCurrent().legs;
 }
 
-static void state_reset(uint8_t *ram) {
+static void reset_frame_state(uint8_t *ram, bool retire_attack_ram) {
   if (ram) frame_ram = ram;
   MmxSaberArmorApplyStageStart(ram);
   MmxSaberHitboxDebugSetRam(ram);
   if (ram)
     MmxSaberAttackResetRam(ram);
-  else
+  else if (retire_attack_ram)
     MmxSaberAttackReset();
+  else
+    MmxSaberAttackResetHostState();
   MmxSaberWaveRuntimeReset(ram);
   MmxSaberPriorityReset();
   MmxSaberComboReset(ram);
@@ -63,6 +65,10 @@ static void state_reset(uint8_t *ram) {
   previous_y = false;
   previous_x = false;
   clear_frame_state();
+}
+
+static void state_reset(uint8_t *ram) {
+  reset_frame_state(ram, true);
 }
 
 static void clear_frame_state(void) {
@@ -398,14 +404,15 @@ static void state_save(uint8_t out[]) {
   MmxSaberWaveRuntimeStateSave(cursor);
 }
 
-static void state_load(const uint8_t in[]) {
+static bool state_load(const uint8_t in[]) {
   SaberFrameSavedState frame;
   const uint8_t *cursor = in;
   memcpy(&frame, cursor, sizeof(frame));
   if (frame.magic != SABER_STATE_MAGIC ||
       frame.version != SABER_STATE_VERSION ||
       saved_state_size() > MMX_ZERO_EXTENSION_STATE_BYTES)
-    return;
+    return false;
+  reset_frame_state(NULL, false);
   cursor += sizeof(frame);
   release_pending = frame.release_pending;
   previous_y = frame.previous_y;
@@ -418,6 +425,7 @@ static void state_load(const uint8_t in[]) {
   MmxSaberPriorityStateLoad(cursor);
   cursor += MmxSaberPriorityStateSize();
   MmxSaberWaveRuntimeStateLoad(cursor);
+  return true;
 }
 
 static const MmxZeroExtension extension = {

@@ -569,8 +569,13 @@ void MmxOnStateLoaded(uint32_t version) {
   g_did_reset = complete ? g_load_frame_flags[0] != 0 : true;
   g_first_frame_done = complete ? g_load_frame_flags[1] != 0 : true;
   MmxWideStateApply(complete);
-  MmxZeroSetState(g_load_zero);
-  if (complete) MmxZeroExtLoadState(g_load_zero_extension);
+  if (complete) {
+    MmxZeroSelectState(g_load_zero);
+    if (!MmxZeroExtLoadState(g_load_zero_extension))
+      MmxZeroSetState(g_load_zero);
+  } else {
+    MmxZeroSetState(g_load_zero);
+  }
   MmxWeaponsSetState(g_load_weapons);
   MmxWeaponsSetCombatState(g_load_weapon_combat);
   if (complete && g_load_chunk.version >= 14) MmxCoopSetState(&g_load_coop);

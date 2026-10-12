@@ -435,7 +435,11 @@ static unsigned ext_damage_hook(uint8_t *r, unsigned e, unsigned p, unsigned v) 
   (void)r; (void)e; (void)p; ++ext_damage; return v + 1;
 }
 static void ext_save(uint8_t out[]) { out[0] = 'T'; out[1] = ext_saved; }
-static void ext_load(const uint8_t in[]) { if (in[0] == 'T') ext_saved = in[1]; }
+static bool ext_load(const uint8_t in[]) {
+  if (in[0] != 'T') return false;
+  ext_saved = in[1];
+  return true;
+}
 static bool ext_gate(void) { return ext_gate_open; }
 /* Co-op runs the player routine per seat; the extension follows Zero's seat. */
 static void extension_checks(void) {
@@ -454,8 +458,8 @@ static void extension_checks(void) {
   MmxZeroSelectState(z); assert(ext_resets == resets && ext_saved == 7);
   MmxZeroExtSaveState(blob); assert(blob[0] == 'T' && blob[1] == 7 && !blob[2]);
   MmxZeroSetState(z); assert(ext_resets > resets && !ext_saved);
-  MmxZeroExtLoadState(blob); assert(ext_saved == 7);
-  memset(blob, 0, sizeof(blob)); MmxZeroExtLoadState(blob); assert(ext_saved == 7);
+  assert(MmxZeroExtLoadState(blob) && ext_saved == 7);
+  memset(blob, 0, sizeof(blob)); assert(!MmxZeroExtLoadState(blob) && ext_saved == 7);
   MmxZeroSetExtensionGate(NULL); MmxZeroSetExtension(NULL);
   MmxZeroExtSaveState(blob); assert(!blob[0] && !blob[1]);
 }
