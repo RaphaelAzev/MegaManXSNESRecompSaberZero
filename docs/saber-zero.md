@@ -32,9 +32,12 @@ buster/special translation owns X. The other native controls remain available.
 | Select | Native X/Zero exchange in the normal standing exchange context. |
 
 Hurt, death, reset, menus, and an exchange to X cancel the Saber owner for that
-frame. A charge held before a slash can continue through the slash; a release
-is latched and fires on the first eligible frame after the slash. A hurt frame
-does not invent a buster press or throw away an existing release latch.
+frame. A buster or selected special-weapon charge held before a slash can
+continue through the slash; a release is latched and fires on the first
+eligible frame after the slash. A hurt frame does not invent a buster press or
+throw away an existing release latch. While frozen by Chill Penguin, Saber
+Zero cannot slash or fire; mashing breaks the ice as it does for X, and attacks
+resume after he is free.
 
 ## Saber attacks
 
@@ -76,6 +79,13 @@ Release of the capped charge starts the two-shot class-3 sequence. Press X
 again for the second burst after the native first-burst delay. Saber Zero
 changes the two emission origins so the two max shots share one vertical height,
 both on the ground and in the supported airborne route.
+
+A held buster charge survives a double jump or air dash and can be released
+after the aerial move to fire the charged shot.
+
+With Fire Wave selected, holding the buster button streams flames continuously
+as it does for X, with or without the Arms part, including while a charge
+builds.
 
 After the second burst becomes newly live, the finisher window opens at the
 post-player update. It is 27 frames by default and can be tuned from 12 to 60.
@@ -132,11 +142,14 @@ the password like collected parts.
 
 | Part | Effect |
 |------|--------|
-| Legs (`$08`) | Double jump and air dash. Zero's ground dash remains innate. |
+| Legs (`$08`) | Double jump and air dash. Standing on a moving platform refreshes both aerial moves because platform contact counts as ground. Zero's ground dash remains innate. |
 | Arms (`$02`) | Purple saber blade and Saber wave. Adds 2 damage to every Saber attack, or 1 against bosses, after tuned damage and before the 32-point cap. A full buster charge fires charged X1 special weapons. |
 | Body (`$04`) | X1's native damage halving. Odd damage rounds up. |
 | Head (`$01`) | Buster charges at 1.5 times the normal rate. X1 special weapons cost half energy using fixed-point accounting, so whole-unit costs alternate. Breaks the helmet blocks X breaks in Flame Mammoth. |
 | All four parts | Black Zero: black and grey armor with pale hair. The appearance also applies on death and boss defeat. Death orbs use grey. |
+
+During the armor-capsule celebration, Zero remains visible in the raised-arm
+pose instead of vanishing.
 
 The Black Zero palette follows the MMX3 Zero Project romhack. This repository
 contains colour constants only; it does not distribute ROM data. See the
@@ -208,6 +221,9 @@ The Saber runner's no-argument form runs its default pass and every named group
 in isolated test runs, and returns zero only when all of them pass. It includes
 the input, attack lifecycle, buster, finisher, priority, damage, renderer,
 Ride Armor, package, upstream Zero parity, response-seam, and fixture checks.
+The named groups include `saber-frozen`, `saber-fire-wave-armor` (the real Fire
+Wave route), and `saber-capsule`; `saber-capsule` uses the operator fixture
+`capsule.sav` from the fixture directory.
 To run one named group, for example:
 
 ```bash

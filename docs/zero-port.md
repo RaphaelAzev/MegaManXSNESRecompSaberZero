@@ -113,8 +113,10 @@ source ROM files are never written.
 The animation adapter maps all 81 X1 sequence entries to X3 group `$4A`
 records, preserving interior sequence aliases. It mirrors body presentation
 without replacing X1's gameplay animation/event fields. X1's Hadouken entries
-use adapted Zero forward-firing/recovery poses. Complete mapping is not proof
-that every capsule, ride-armor, death or scripted state has been playtested.
+use adapted Zero forward-firing/recovery poses. The armor-capsule celebration
+uses Zero's raised-arm pose, so he remains visible while the capsule grants the
+part. Complete mapping is not proof that every ride-armor, death or scripted
+state has been playtested.
 
 ### Charge and saber sequence
 
@@ -129,6 +131,8 @@ The original grounded first shot emits on frame 8 and reaches idle on 18;
 the second emits on 10 and reaches idle on 29. Original body records drive
 emission, facing lock, ground/air phase changes and the small airborne motion
 holds. Native jump/gravity/terrain logic continues during airborne actions.
+Standing on a moving platform counts as ground for refreshing the double jump
+and air dash; a genuinely airborne frame does not refresh them.
 Saber recovery returns on frame 44, with idle visible on 45. The blade is
 visible during slash ages 7-31; the damaging arc has five shorter phases and
 ends before the visible recovery finishes.
@@ -331,7 +335,7 @@ documentation audit does not pretend to be a new gameplay test run.
 Open Zero acceptance work after the weapon priority:
 
 1. Broader animation/state validation: wall slide/jump, ladders, hurt/death,
-   capsules, ride armor, stage teleports and scripted player poses. Do not
+   other capsules, ride armor, stage teleports and scripted player poses. Do not
    claim all states validated just because every sequence is mapped.
 2. Remaining presentation fidelity: X3 buster projectile/effect differences,
    saber/source audio, hit palettes and X1 special effects during
