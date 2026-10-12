@@ -5571,10 +5571,138 @@ static void saber_arms_slash_keeps_charge_case(const char *fixture) {
         "releasing X during the slash fires Storm Tornado only after the slash");
 }
 
+static void saber_special_release_save_state_case(const char *fixture) {
+  unsigned charge_frame = 0;
+  unsigned continuation_frames = 0;
+  unsigned uninterrupted_projectiles;
+  unsigned uninterrupted_special_charge;
+  unsigned uninterrupted_zero_charge;
+  unsigned uninterrupted_energy;
+  unsigned loaded_projectiles;
+  unsigned loaded_special_charge;
+  unsigned loaded_zero_charge;
+  unsigned loaded_energy;
+  unsigned char uninterrupted_kinds[8] = {0};
+  unsigned char loaded_kinds[8] = {0};
+  uint8_t extension_state[MMX_ZERO_EXTENSION_STATE_BYTES];
+  MmxSaberAttackSnapshot snapshot;
+  size_t capacity;
+  size_t size;
+  uint8_t *saved;
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  select_native_weapon(5); /* Storm Tornado. */
+  g_ram[0x1f99] |= 0x02; /* Arms. */
+  for (unsigned frame_number = 1;
+       frame_number <= SABER_ARMS_CHARGE_HOLD_FRAMES; ++frame_number) {
+    frame(SNES_PAD_X);
+    if (g_ram[0x0c00] >= 2 && native_projectiles() == 0) {
+      charge_frame = frame_number;
+      break;
+    }
+  }
+  check(charge_frame != 0,
+        "save-state probe reaches Storm Tornado charge before slash");
+  if (!charge_frame) return;
+
+  frame(SNES_PAD_X | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.phase != SABER_PHASE_IDLE,
+        "save-state probe starts a live Saber slash during special charge");
+  if (snapshot.phase == SABER_PHASE_IDLE) return;
+  frame(SNES_PAD_Y); /* Release X while the slash still owns the action. */
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.phase != SABER_PHASE_IDLE && g_ram[0x0c00] >= 2,
+        "save-state probe reaches special-owned release latch during slash");
+  if (snapshot.phase == SABER_PHASE_IDLE) return;
+
+  MmxZeroExtSaveState(extension_state);
+  check(extension_state[4] == 2 && extension_state[5] == 0 &&
+            extension_state[6] == 0 && extension_state[7] == 0 &&
+            extension_state[8] && extension_state[9],
+        "save-state probe captures release_pending_from_special before snapshot");
+
+  capacity = RtlSaveSnapshotToMemory(NULL, 0);
+  saved = malloc(capacity);
+  check(capacity != 0 && saved != NULL,
+        "save-state probe allocates an in-memory snapshot buffer");
+  size = RtlSaveSnapshotToMemory(saved, capacity);
+  check(size != 0 && size <= capacity,
+        "save-state probe saves after special-charge release during slash");
+
+  g_ram[0x0bdb] = 0; /* Switch to the buster before the slash completes. */
+  while (MmxSaberAttackSnapshotGet().phase != SABER_PHASE_IDLE &&
+         continuation_frames < SABER_ARMS_CHARGE_HOLD_FRAMES) {
+    frame(0);
+    ++continuation_frames;
+  }
+  for (unsigned i = 0; i < 4; ++i) frame(0);
+  check(MmxSaberAttackSnapshotGet().phase == SABER_PHASE_IDLE,
+        "uninterrupted save-state branch reaches slash end plus four frames");
+  uninterrupted_projectiles = native_projectiles();
+  uninterrupted_special_charge = g_ram[0x0c00];
+  uninterrupted_zero_charge = MmxZeroGetState().charge;
+  uninterrupted_energy = g_ram[0x1f90] & 0x3f;
+  for (unsigned i = 0; i < 8; ++i) {
+    const unsigned d = 0x1228 + i * 64;
+    if (g_ram[d] && !saber_tagged_projectile(d))
+      uninterrupted_kinds[i] = g_ram[d + 10];
+  }
+
+  check(RtlLoadSnapshotFromMemory(saved, size),
+        "loaded save-state branch accepts the v2 special-release snapshot");
+  memset(extension_state, 0, sizeof(extension_state));
+  MmxZeroExtSaveState(extension_state);
+  check(extension_state[4] == 2 && extension_state[8] && extension_state[9],
+        "v2 save-state load restores the special-owned release latch");
+  MmxRendererBeginFrame(g_ram);
+  g_ram[0x0bdb] = 0; /* Same buster switch as uninterrupted branch. */
+  for (unsigned i = 0; i < continuation_frames; ++i) frame(0);
+  for (unsigned i = 0; i < 4; ++i) frame(0);
+  check(MmxSaberAttackSnapshotGet().phase == SABER_PHASE_IDLE,
+        "loaded save-state branch reaches slash end plus four frames");
+  loaded_projectiles = native_projectiles();
+  loaded_special_charge = g_ram[0x0c00];
+  loaded_zero_charge = MmxZeroGetState().charge;
+  loaded_energy = g_ram[0x1f90] & 0x3f;
+  for (unsigned i = 0; i < 8; ++i) {
+    const unsigned d = 0x1228 + i * 64;
+    if (g_ram[d] && !saber_tagged_projectile(d))
+      loaded_kinds[i] = g_ram[d + 10];
+  }
+  check(uninterrupted_projectiles == loaded_projectiles &&
+            !memcmp(uninterrupted_kinds, loaded_kinds, sizeof(uninterrupted_kinds)) &&
+            uninterrupted_special_charge == loaded_special_charge &&
+            uninterrupted_zero_charge == loaded_zero_charge &&
+            uninterrupted_energy == loaded_energy,
+        "v2 save-state load matches uninterrupted special-release behavior");
+  free(saved);
+}
+
+static void saber_version_one_rejection_case(const char *fixture) {
+  uint8_t state[MMX_ZERO_EXTENSION_STATE_BYTES];
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  MmxZeroExtSaveState(state);
+  state[4] = 1;
+  state[5] = 0;
+  state[6] = 0;
+  state[7] = 0;
+  check(!MmxZeroExtLoadState(state),
+        "version-1 Saber extension state is rejected");
+  frame(0);
+  check(MmxSaberAttackSnapshotGet().phase == SABER_PHASE_IDLE,
+        "version-1 rejection leaves the following frame runnable");
+}
+
 static void saber_arms_charge_checks(const char *fixture) {
   saber_arms_charge_case(fixture, true);
   saber_arms_charge_case(fixture, false);
   saber_arms_slash_keeps_charge_case(fixture);
+  saber_special_release_save_state_case(fixture);
+  saber_version_one_rejection_case(fixture);
   puts("ok: saber-arms-charge");
 }
 

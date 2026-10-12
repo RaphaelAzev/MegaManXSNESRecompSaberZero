@@ -371,10 +371,10 @@ static unsigned player_damage(const uint8_t *ram, unsigned incoming,
 /* "SABR" + layout version, then the frame's own fields and each module's
  * snapshot in a fixed order. A blob without this header leaves the reset
  * state that MmxZeroSetState already established. */
-enum { SABER_STATE_MAGIC = 0x52424153u, SABER_STATE_VERSION = 1u };
+enum { SABER_STATE_MAGIC = 0x52424153u, SABER_STATE_VERSION = 2u };
 typedef struct SaberFrameSavedState {
   uint32_t magic, version;
-  bool release_pending, previous_y, previous_x;
+  bool release_pending, release_pending_from_special, previous_y, previous_x;
 } SaberFrameSavedState;
 
 static size_t saved_state_size(void) {
@@ -391,6 +391,7 @@ static void state_save(uint8_t out[]) {
   frame.magic = SABER_STATE_MAGIC;
   frame.version = SABER_STATE_VERSION;
   frame.release_pending = release_pending;
+  frame.release_pending_from_special = release_pending_from_special;
   frame.previous_y = previous_y;
   frame.previous_x = previous_x;
   memcpy(cursor, &frame, sizeof(frame));
@@ -415,6 +416,7 @@ static bool state_load(const uint8_t in[]) {
   reset_frame_state(NULL, false);
   cursor += sizeof(frame);
   release_pending = frame.release_pending;
+  release_pending_from_special = frame.release_pending_from_special;
   previous_y = frame.previous_y;
   previous_x = frame.previous_x;
   clear_frame_state();
