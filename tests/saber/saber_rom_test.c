@@ -5896,6 +5896,8 @@ static void saber_capsule_checks(const char *fixture_dir) {
         "saber-capsule reaches at least 30 celebration frames");
   check(min_pixels >= 300,
         "saber-capsule Zero pose has at least 300 opaque pixels");
+  check(celebration_pose == 0x00,
+        "saber-capsule celebration uses Zero's idle stance");
   check(grant_frame && part0 != g_ram[0x1f99] &&
             (g_ram[0x1f99] & ~part0) != 0,
         "saber-capsule grants a new armor-part bit");

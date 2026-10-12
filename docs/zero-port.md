@@ -114,7 +114,7 @@ The animation adapter maps all 81 X1 sequence entries to X3 group `$4A`
 records, preserving interior sequence aliases. It mirrors body presentation
 without replacing X1's gameplay animation/event fields. X1's Hadouken entries
 use adapted Zero forward-firing/recovery poses. The armor-capsule celebration
-uses Zero's raised-arm pose, so he remains visible while the capsule grants the
+uses Zero's idle stance, so he remains visible while the capsule grants the
 part. Complete mapping is not proof that every ride-armor, death or scripted
 state has been playtested.
 

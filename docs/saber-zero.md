@@ -148,8 +148,8 @@ the password like collected parts.
 | Head (`$01`) | Buster charges at 1.5 times the normal rate. X1 special weapons cost half energy using fixed-point accounting, so whole-unit costs alternate. Breaks the helmet blocks X breaks in Flame Mammoth. |
 | All four parts | Black Zero: black and grey armor with pale hair. The appearance also applies on death and boss defeat. Death orbs use grey. |
 
-During the armor-capsule celebration, Zero remains visible in the raised-arm
-pose instead of vanishing.
+During the armor-capsule celebration, Zero remains visible in his idle
+stance instead of vanishing.
 
 The Black Zero palette follows the MMX3 Zero Project romhack. This repository
 contains colour constants only; it does not distribute ROM data. See the

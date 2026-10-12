@@ -376,8 +376,8 @@ const uint8_t *MmxZeroPose(const uint8_t ram[0x20000], const MmxZeroState *s) {
    * until the next native animation start. New saves retain the exact phase. */
   unsigned pose = s && s->anim_valid ? s->anim_pose : ram[0xbbf] & 127;
   if (s && s->burst && s->burst_offset + 3 <= sizeof(animation)) pose = animation[s->burst_offset + 2];
-  /* X1 capsule celebration pose $50 has no usable X3 Zero art; raised-arm pose matches X's arms-up celebration. */
-  if (pose == 0x50) pose = 0x47;
+  /* X1 capsule celebration pose $50 has no usable X3 Zero art; Zero holds his idle stance there. */
+  if (pose == 0x50) pose = 0;
   if (pose >= 117) pose = 0;
   if (s && s->slash) pose = 117 + slash_pose(s);
   return poses + (size_t)pose * MMX_ZERO_WIDTH * MMX_ZERO_HEIGHT;

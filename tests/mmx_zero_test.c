@@ -503,7 +503,7 @@ int main(void) {
   player();
   MmxZeroState celebration = {.anim_valid = 1, .anim_pose = 0x50};
   MmxZeroState raised = celebration;
-  raised.anim_pose = 0x47;
+  raised.anim_pose = 0;
   assert(MmxZeroPose(ram, &celebration) == MmxZeroPose(ram, &raised));
   const unsigned charges[]={20,21,80,81,140,141,200,201};
   const unsigned tiers[]={0,4,4,6,6,8,8,10};
