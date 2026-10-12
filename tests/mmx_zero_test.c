@@ -501,6 +501,10 @@ int main(void) {
   FILE *f = fopen("zero-test-bad.bin","wb"); assert(f); fputs("MMXZERO3",f); fclose(f);
   assert(!MmxZeroLoad("zero-test-bad.bin") && MmxZeroEnabled());
   player();
+  MmxZeroState celebration = {.anim_valid = 1, .anim_pose = 0x50};
+  MmxZeroState raised = celebration;
+  raised.anim_pose = 0x47;
+  assert(MmxZeroPose(ram, &celebration) == MmxZeroPose(ram, &raised));
   const unsigned charges[]={20,21,80,81,140,141,200,201};
   const unsigned tiers[]={0,4,4,6,6,8,8,10};
   for(unsigned c=0;c<8;++c) {

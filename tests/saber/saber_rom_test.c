@@ -5813,6 +5813,96 @@ static void saber_frozen_checks(const char *fixture_dir) {
   free(snapshot);
   puts("ok: saber-frozen");
 }
+
+static void saber_capsule_checks(const char *fixture_dir) {
+  char path[4096];
+  int written;
+  unsigned capsule_x = 0;
+  unsigned last_px = 0;
+  unsigned stuck = 0;
+  unsigned celebration_frames = 0;
+  unsigned min_pixels = 0xffff;
+  unsigned celebration_pose = 0xffff;
+  unsigned grant_frame = 0;
+  unsigned return_frame = 0;
+
+  check(fixture_dir && fixture_dir[0],
+        "saber-capsule receives a fixture directory");
+  written = snprintf(path, sizeof(path), "%s/%s", fixture_dir,
+                     "capsule.sav");
+  check(written >= 0 && written < (int)sizeof(path),
+        "saber-capsule fixture path fits");
+  check(readable_file(path), "capsule.sav exists for saber-capsule");
+  check(RtlLoadSnapshot(path), "capsule.sav loads for saber-capsule");
+  check(MmxZeroActive() && MmxSaberEnabled() && g_ram[0x1f7a] == 0x02,
+        "saber-capsule fixture is the active Saber Zero capsule stage");
+
+  const unsigned part0 = g_ram[0x1f99];
+  printf("reference: saber-capsule fixture stage=$%02X zero=%u saber=%u "
+         "$0BAA=$%02X $1F99=$%02X\n",
+         g_ram[0x1f7a], MmxZeroActive(), MmxSaberEnabled(), g_ram[0x0baa],
+         part0);
+
+  for (unsigned d = 0x0e68; d < 0x1228; d += 0x40)
+    if (g_ram[d] && g_ram[d + 0x0a] == 0x4d)
+      capsule_x = read_ram_word(g_ram, d + 0x05);
+  check(capsule_x != 0, "saber-capsule fixture has a capsule actor");
+  MmxZeroCancel(g_ram);
+  MmxSaberFrameReset();
+
+  for (unsigned n = 0; n < 4000 && !return_frame; ++n) {
+    const unsigned px = read_ram_word(g_ram, 0x0bad);
+    for (unsigned d = 0x0e68; d < 0x1228; d += 0x40)
+      if (g_ram[d] && g_ram[d + 0x0a] == 0x4d)
+        capsule_x = read_ram_word(g_ram, d + 0x05);
+
+    unsigned input;
+    if (g_ram[0x0baa] == 0x1e)
+      input = (n % 16 == 0) ? SNES_PAD_START :
+          (n % 16 == 8) ? SNES_PAD_B : 0;
+    else
+      input = (capsule_x && px > capsule_x + 2) ? SNES_PAD_LEFT :
+          (capsule_x && px + 2 < capsule_x) ? SNES_PAD_RIGHT : 0;
+    if (input == SNES_PAD_RIGHT || input == SNES_PAD_LEFT) {
+      stuck = (px == last_px) ? stuck + 1 : 0;
+      if (stuck > 8 && (n % 40) < 20) input |= SNES_PAD_B;
+    }
+    last_px = px;
+    frame(input);
+
+    if (g_ram[0x0baa] == 0x38) {
+      MmxZeroState state = MmxZeroGetState();
+      const uint8_t *base = MmxZeroMenuPose();
+      const uint8_t *pose = MmxZeroPose(g_ram, &state);
+      unsigned pixels = 0;
+      if (pose)
+        for (unsigned i = 0; i < 128 * 128; ++i)
+          if (pose[i]) ++pixels;
+      ++celebration_frames;
+      if (pixels < min_pixels) min_pixels = pixels;
+      if (pose && base)
+        celebration_pose =
+            (unsigned)((pose - base) / (128 * 128));
+    }
+    if (!grant_frame && g_ram[0x1f99] != part0) grant_frame = n + 1;
+    if (grant_frame && g_ram[0x0baa] == 0x00) return_frame = n + 1;
+  }
+
+  printf("reference: saber-capsule celebration_frames=%u min_pixels=%u "
+         "pose=0x%02X part=$%02X->$%02X\n",
+         celebration_frames, min_pixels, celebration_pose, part0,
+         g_ram[0x1f99]);
+  check(celebration_frames >= 30,
+        "saber-capsule reaches at least 30 celebration frames");
+  check(min_pixels >= 300,
+        "saber-capsule Zero pose has at least 300 opaque pixels");
+  check(grant_frame && part0 != g_ram[0x1f99] &&
+            (g_ram[0x1f99] & ~part0) != 0,
+        "saber-capsule grants a new armor-part bit");
+  check(return_frame && g_ram[0x0baa] == 0x00 && return_frame <= 4000,
+        "saber-capsule returns to native action $00 after the grant");
+  puts("ok: saber-capsule");
+}
 static unsigned saber_normal_ammo_spend(const char *fixture, unsigned weapon,
                                         uint8_t armor, unsigned shots,
                                         unsigned *before, unsigned *after) {
@@ -9770,6 +9860,7 @@ int main(int argc, char **argv) {
   check(assets && assets[0], "MMX_ZERO_TEST_ASSETS supplied");
   if (only && (!strcmp(only, "fixtures") || !strcmp(only, "saber-legs") ||
       !strcmp(only, "saber-frozen") ||
+      !strcmp(only, "saber-capsule") ||
       !strcmp(only, "saber-wall") ||
       !strcmp(only, "saber-cancel") || !strcmp(only, "saber-buster-rules") ||
       !strcmp(only, "saber-damage") || !strcmp(only, "saber-priority") ||
@@ -9862,6 +9953,7 @@ int main(int argc, char **argv) {
   const bool saber_ground_combo = only && !strcmp(only, "saber-ground-combo");
   const bool saber_legs = only && !strcmp(only, "saber-legs");
   const bool saber_frozen = only && !strcmp(only, "saber-frozen");
+  const bool saber_capsule = only && !strcmp(only, "saber-capsule");
   const bool saber_air = only && !strcmp(only, "saber-air");
   const bool saber_wall = only && !strcmp(only, "saber-wall");
   const bool saber_dash = only && !strcmp(only, "saber-dash");
@@ -9890,7 +9982,7 @@ int main(int argc, char **argv) {
   const bool fixtures = only && !strcmp(only, "fixtures");
   const bool saber_enabled_group = saber_package || zero_extension ||
       saber_input || saber_fire_wave_armor || saber_ground_1 || saber_ground_combo ||
-      saber_air || saber_legs || saber_frozen || saber_wall || saber_dash || saber_land || saber_ground_lifecycle ||
+      saber_air || saber_legs || saber_frozen || saber_capsule || saber_wall || saber_dash || saber_land || saber_ground_lifecycle ||
       saber_ground_hit || saber_cancel || saber_lifecycle_load ||
       saber_contexts ||
       saber_render_snapshot || saber_buster_rules || saber_burst_height ||
@@ -9946,6 +10038,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-frozen runs with the Saber package enabled");
     saber_frozen_checks(fixture_dir);
+  } else if (saber_capsule) {
+    check(MmxSaberEnabled(),
+          "saber-capsule runs with the Saber package enabled");
+    saber_capsule_checks(fixture_dir);
   } else if (saber_wall) {
     check(MmxSaberEnabled(), "saber-wall runs with the Saber package enabled");
     saber_wall_checks(fixture_dir);
