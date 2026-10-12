@@ -219,6 +219,10 @@ static void hook(CpuState *cpu, uint32_t pc) {
       g_ram[0x0000] = (uint8_t)MmxZeroPlayerDamage(
           g_ram, g_ram[0x0bce], g_ram[0x0000]);
       break;
+    case 0x049d50:
+      g_ram[0x0000] = (uint8_t)MmxZeroPlayerDamage(
+          g_ram, g_ram[(uint16_t)(cpu->D + 0x0026)], g_ram[0x0000]);
+      break;
     case 0x049c19:
       cpu->Y = (uint16_t)MmxWeaponsHitbox(g_ram, cpu->D, cpu->X,
           MmxZeroHitbox(g_ram, cpu->D, cpu->X, cpu->Y));
@@ -234,7 +238,7 @@ void MmxZeroRegisterHooks(void) {
   MmxZeroSetTerrainQuery(zero_terrain_solid);
   const unsigned pcs[] = {0x009dca, 0x00d6a7, 0x00d76a, 0x01971f, 0x019796, 0x0198ff,
                           0x01815c, 0x018165, 0x019d47, 0x0194af, 0x00d3e7, 0x00d4f4, 0x00d511, 0x049e1d, 0x049e3a, 0x049e45, 0x0194ef, 0x019511, 0x049e76, 0x049c19, 0x048f07, 0x048eea, 0x018b04, 0x0491dc, 0x02823e,
-                          0x01898e, 0x018999, 0x018965, 0x049f59,
+                          0x01898e, 0x018999, 0x018965, 0x049f59, 0x049d50,
                           0x028403,0x03958f,0x039dcf,
                           0x01a57d,0x038b6f,0x038d87,0x038ed7,0x03951d,0x039841,0x039993,0x03a3cd,
                           0x01a589,0x038b7b,0x038d93,0x038ee3,0x039529,0x03984d,0x03999f,0x03a3d9};

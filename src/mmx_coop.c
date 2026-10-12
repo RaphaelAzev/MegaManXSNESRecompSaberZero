@@ -1731,6 +1731,7 @@ static void shot_ghost_begin(CpuState *cpu,unsigned kind,uint32_t resume) {
   memcpy(shot_ghost_lift,&lift,sizeof(lift));memcpy(shot_ghost_cart,&cart,sizeof(cart));
   memcpy(shot_ghost.body,state.players[state.current^1].body,sizeof(shot_ghost.body));
   memcpy(g_ram+0xba8,shot_ghost.body,sizeof(shot_ghost.body));
+  MmxZeroSelectState(state.players[state.current^1].zero);
   shot_ghost.pass=1;
 }
 /* $7EFFFC..FFFF mirror the sound CPU: the driver's ready flag, current track

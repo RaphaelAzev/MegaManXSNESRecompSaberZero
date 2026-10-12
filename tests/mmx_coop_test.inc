@@ -154,6 +154,64 @@ static void coop_contact_checks(uint8_t *start,size_t cap) {
   fprintf(stderr,"P2 buster enemy HP=%u contact=%u\n",g_ram[enemy+0x27]&127,MmxCoopGetState().contact_pass);
   check((g_ram[enemy+0x27]&127)==31,"P2 native buster deals one X1 buster hit");
 }
+static void coop_ghost_damage_checks(const char *fixture,unsigned p1_character) {
+  const bool p1_saber=p1_character==MMX_COOP_ZERO;
+  const char *label=p1_saber ? "P1 Saber/P2 X" : "P1 X/P2 Saber";
+  unsigned enemy=0;
+  check(MmxSaberEnabled(),"ghost damage runs with Saber co-op active");
+  MmxCoopDisable();
+  check(fixture && RtlLoadSnapshot(fixture),"ghost damage fixture loads");
+  check(MmxCoopEnable(p1_character),"ghost damage enables requested Saber roster");
+  coop_frames(8,0,0);
+  MmxCoopState s=MmxCoopGetState();
+  check(coop_place_fixture_partner(coop_x(&s.players[0])+32,coop_y(&s.players[0])),
+      "ghost damage places the partner");
+  coop_frames(35,0,0);
+  for(unsigned i=0;i<400 && !enemy;++i) {
+    coop_frames(1,SNES_PAD_RIGHT,SNES_PAD_RIGHT);
+    for(unsigned d=0xe68;d<0x1228;d+=64)
+      if(g_ram[d] && g_ram[d+14] && (g_ram[d+0x27]&127) &&
+          (g_ram[d+0x20]|g_ram[d+0x21])) {enemy=d;break;}
+  }
+  check(enemy!=0,"ghost damage finds the native Highway enemy");
+  s=MmxCoopGetState();
+  check(s.anchor==0 && s.current==0 && s.players[1].status==MMX_COOP_ALIVE &&
+      g_ram[0xd3]==4,"ghost damage starts with P1 as the couch world anchor");
+  unsigned ex=g_ram[enemy+5]|g_ram[enemy+6]<<8,ey=g_ram[enemy+8]|g_ram[enemy+9]<<8;
+  unsigned incoming=g_ram[enemy+0x26];
+  check(incoming!=0,"ghost damage enemy has contact damage");
+  check(incoming>1,"ghost damage oracle distinguishes X and Saber armor");
+  uint8_t saved_armor=g_ram[0x1f99];
+  for(unsigned seat=0;seat<2;++seat) {
+    MmxCoopSelect(g_ram,seat);
+    unsigned x=ex-(!seat ? 80 : 0);
+    g_ram[0xbad]=(uint8_t)x;g_ram[0xbae]=(uint8_t)(x>>8);
+    g_ram[0xbb0]=(uint8_t)ey;g_ram[0xbb1]=(uint8_t)(ey>>8);
+    g_ram[0xc30]=g_ram[0xc32]=0;
+    g_ram[0xbcf]=g_ram[0x1f9a]|128;
+  }
+  MmxCoopSelect(g_ram,0);
+  g_ram[0x1f99]=saved_armor|4;
+  s=MmxCoopGetState();
+  check(s.players[0].zero.active_x == !p1_saber &&
+      s.players[1].zero.active_x == p1_saber,
+      "ghost damage uses the roster's Zero context for both seats");
+  check(!s.object_pass && !s.contact_pass,
+      "ghost damage starts with no object/contact replay in progress");
+  unsigned before[2]={s.players[0].body[0x27]&127,s.players[1].body[0x27]&127};
+  unsigned expected=p1_saber ? incoming-incoming/2 : incoming-incoming/4;
+  coop_frames(3,0,0);
+  s=MmxCoopGetState();
+  unsigned after[2]={s.players[0].body[0x27]&127,s.players[1].body[0x27]&127};
+  unsigned loss=before[1]-after[1];
+  fprintf(stderr,"ghost damage %s enemy=%04x incoming=%u expected=%u loss=%u hp=%u/%u -> %u/%u\n",
+      label,enemy,incoming,expected,loss,before[0],before[1],after[0],after[1]);
+  check(loss==expected,"ghost replay applies the projected seat's body-armor rule");
+  check(after[0]==before[0],"ghost replay damages only the projected P2 body");
+  check(s.current==0 && !s.contact_pass,"ghost damage restores the anchor context");
+  g_ram[0x1f99]=saved_armor;
+  MmxCoopSelect(g_ram,0);
+}
 static void coop_weapon_select(unsigned seat,unsigned page,unsigned weapon) {
   MmxCoopSelect(g_ram,seat);
   MmxWeaponsCancelShots(g_ram);MmxZeroCancel(g_ram);
@@ -1003,6 +1061,7 @@ static void coop_launcher_checks(const char *root,const char *rom,const char *x3
     snes_mod_runtime_activate_plugins_c();
     check(MmxCoopEnabled() && MmxSaberEnabled() && MmxSaberAssetsLoaded() &&
         MmxSaberWaveLoaded(),"co-op activates Saber for Zero's seat");
+    coop_ghost_damage_checks(getenv("MMX_ZERO_TEST_FIXTURE"),character);
     uint8_t blob[MMX_ZERO_EXTENSION_STATE_BYTES];
     MmxZeroExtSaveState(blob);
     check(!memcmp(blob,"SABR",4),"co-op savestates carry Saber state");

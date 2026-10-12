@@ -6752,6 +6752,72 @@ static void saber_body_damage_case(const char *who, unsigned damage,
         "body armor damage matches the active character rule");
 }
 
+static unsigned saber_body_contact_enemy(const char *fixture, bool use_x,
+                                         unsigned *walk_frames) {
+  unsigned target = 0;
+
+  if (!use_x) return walk_to_ground_enemy(fixture, walk_frames);
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  switch_to_x();
+  for (unsigned i = 0; i < 300 && !target; ++i) {
+    frame(i < 180 ? SNES_PAD_RIGHT : SNES_PAD_RIGHT | SNES_PAD_R);
+    target = reachable_ground_enemy();
+    if (target && walk_frames) *walk_frames = i + 1;
+  }
+  return target;
+}
+
+static unsigned saber_body_contact_case(const char *fixture, const char *who,
+                                        bool use_x, bool body) {
+  unsigned walk_frames = 0;
+  unsigned enemy = saber_body_contact_enemy(fixture, use_x, &walk_frames);
+  unsigned incoming;
+  unsigned before;
+  unsigned after;
+  unsigned hit_frame;
+  unsigned max;
+  unsigned lost;
+  unsigned expected;
+
+  check(enemy >= 0x0e68 && enemy < 0x1228 && g_ram[enemy] &&
+            g_ram[enemy + 0x0e] && (g_ram[enemy + 0x27] & 127),
+        "Highway body-contact target is a live enemy in $0E68..$1227");
+  incoming = g_ram[enemy + 0x26];
+  check(incoming >= 2, "Highway body-contact target has contact damage >= 2");
+
+  g_ram[0x1f99] = body ? (uint8_t)(g_ram[0x1f99] | 0x04u) :
+      (uint8_t)(g_ram[0x1f99] & (uint8_t)~0x04u);
+  max = g_ram[0x1f9a] & 0x7f;
+  check(max > incoming, "body-contact start HP exceeds the contact damage");
+  g_ram[0x0bcf] = (uint8_t)((g_ram[0x0bcf] & 0x80) | max);
+  before = max;
+  write_ram_word(g_ram, 0x0bad, read_ram_word(g_ram, enemy + 5));
+  write_ram_word(g_ram, 0x0bb0, read_ram_word(g_ram, enemy + 8));
+  for (hit_frame = 1; hit_frame <= 120 &&
+       (g_ram[0x0bcf] & 0x7f) == before; ++hit_frame) {
+    write_ram_word(g_ram, enemy + 5, read_ram_word(g_ram, 0x0bad));
+    write_ram_word(g_ram, enemy + 8, read_ram_word(g_ram, 0x0bb0));
+    g_ram[0x0c30] = 0;
+    g_ram[0x0c32] = 0;
+    frame(0);
+  }
+  after = g_ram[0x0bcf] & 0x7f;
+  check(after < before, "live body contact lands within 120 frames");
+  lost = before - after;
+  expected = !body ? incoming :
+      (use_x ? (incoming + 1) / 2 : incoming - incoming / 4);
+  check(incoming - incoming / 4 != (incoming + 1) / 2,
+        "Saber+body and X+body expectations differ");
+  printf("body contact %s enemy=%04x incoming=%u before=%u after=%u lost=%u "
+         "expected=%u\n",
+         who, enemy, incoming, before, after, lost, expected);
+  check(lost == expected,
+        "live body contact HP loss matches the active character rule");
+  return lost;
+}
+
 static void saber_body_damage_checks(const char *fixture) {
   static const unsigned damage[] = {1, 3, 4, 10, 11};
   static const unsigned zero_body[] = {1, 3, 3, 8, 9};
@@ -6771,6 +6837,10 @@ static void saber_body_damage_checks(const char *fixture) {
   for (i = 0; i < sizeof(damage) / sizeof(damage[0]); ++i)
     saber_body_damage_case("x", damage[i], g_ram[0x1f99],
                            x_body[i]);
+
+  saber_body_contact_case(fixture, "zero-no-body", false, false);
+  saber_body_contact_case(fixture, "zero-body", false, true);
+  saber_body_contact_case(fixture, "x-body", true, true);
 
   puts("ok: saber-body-damage");
 }
