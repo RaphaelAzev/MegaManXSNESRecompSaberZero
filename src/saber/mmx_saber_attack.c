@@ -1,4 +1,5 @@
 #include "mmx_saber_attack.h"
+#include "mmx_saber_state.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -1287,4 +1288,49 @@ unsigned MmxSaberAttackCollisionWarningCount(void) {
 
 unsigned MmxSaberAttackCueCount(void) {
   return cue_count;
+}
+
+typedef struct MmxSaberAttackSavedState {
+  MmxSaberAttackState state;
+  uint8_t projectile_generation;
+  bool ram_reset_pending;
+  unsigned cue_count;
+  bool native_observation_valid;
+  MmxSaberPadKind native_attack_kind;
+  MmxSaberPadPhase native_attack_phase;
+  uint8_t native_action;
+  bool native_grounded;
+} MmxSaberAttackSavedState;
+
+size_t MmxSaberAttackStateSize(void) {
+  return sizeof(MmxSaberAttackSavedState);
+}
+
+void MmxSaberAttackStateSave(uint8_t *out) {
+  MmxSaberAttackSavedState saved;
+  memset(&saved, 0, sizeof(saved));
+  saved.state = state;
+  saved.projectile_generation = projectile_generation;
+  saved.ram_reset_pending = ram_reset_pending;
+  saved.cue_count = cue_count;
+  saved.native_observation_valid = native_observation_valid;
+  saved.native_attack_kind = native_attack_kind;
+  saved.native_attack_phase = native_attack_phase;
+  saved.native_action = native_action;
+  saved.native_grounded = native_grounded;
+  memcpy(out, &saved, sizeof(saved));
+}
+
+void MmxSaberAttackStateLoad(const uint8_t *in) {
+  MmxSaberAttackSavedState saved;
+  memcpy(&saved, in, sizeof(saved));
+  state = saved.state;
+  projectile_generation = saved.projectile_generation;
+  ram_reset_pending = saved.ram_reset_pending;
+  cue_count = saved.cue_count;
+  native_observation_valid = saved.native_observation_valid;
+  native_attack_kind = saved.native_attack_kind;
+  native_attack_phase = saved.native_attack_phase;
+  native_action = saved.native_action;
+  native_grounded = saved.native_grounded;
 }

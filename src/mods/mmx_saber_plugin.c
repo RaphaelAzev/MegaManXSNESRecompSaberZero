@@ -14,6 +14,7 @@
 #include "saber/mmx_saber_render.h"
 #include "saber/mmx_saber_tuning.h"
 #include "saber/mmx_saber_wave_runtime.h"
+#include "mmx_coop.h"
 #include "mmx_renderer.h"
 #include "mmx_zero.h"
 #include "saber/mmx_saber_plugin.h"
@@ -29,17 +30,27 @@ static MmxSaberAssets *g_ride_assets;
 static MmxSaberWave *g_saber_wave;
 static bool g_saber_sfx_warning;
 
-static bool saber_overlay_provider(MmxRenderPlayerOverlay *out) {
-  if (!g_mmx_saber_enabled || !g_saber_assets) {
+/* Saber owns Zero's body, whichever seat the renderer is drawing. An X body
+ * (single-player exchange, or X's co-op seat) is never given the overlay. */
+static bool saber_overlay_provider(const uint8_t *ram, const MmxZeroState *zero,
+                                   MmxRenderPlayerOverlay *out) {
+  if (!g_mmx_saber_enabled || !g_saber_assets || !ram || !zero ||
+      zero->active_x) {
     if (out) memset(out, 0, sizeof(*out));
     return false;
   }
-  if (MmxSaberRenderResolveRide(g_ride_assets, MmxSaberFrameRam(), out))
+  if (MmxSaberRenderResolveRide(g_ride_assets, ram, out))
     return true;
-  return MmxSaberRenderResolve(g_saber_assets, out);
+  return MmxSaberRenderResolve(g_saber_assets, zero, out);
+}
+
+static void coop_seat_pad(const uint8_t *ram, MmxSaberFramePad *pad) {
+  (void)ram;
+  MmxCoopSeatButtons(&pad->x_held, &pad->y_pressed);
 }
 
 static void saber_activation_failed(void) {
+  MmxSaberFrameSetPadSource(NULL);
   MmxRendererSetPlayerOverlayProvider(NULL);
   MmxRendererSetWorldSpriteProvider(NULL);
   MmxRendererSetDebugRectProvider(NULL);
@@ -87,11 +98,16 @@ static const MmxSaberSfxHost kSaberSfxHost = {
   NULL
 };
 
+/* Tuning comes from the optional "Saber Zero settings" feature. A disabled
+ * feature is left out of the netplay mod hash, so its stored values must not
+ * reach the simulation either: without it, every option keeps its default. */
 static bool saber_tuning_option_reader(const char *option_id, char *value,
                                        size_t value_size, void *context) {
   (void)context;
-  return snes_mod_runtime_feature_option_value_c(
-             "megaman-x.character.saber-zero", "saber-zero", option_id,
+  return snes_mod_runtime_feature_enabled_c(MMX_SABER_SETTINGS_PACKAGE,
+                                            MMX_SABER_SETTINGS_FEATURE) &&
+      snes_mod_runtime_feature_option_value_c(
+             MMX_SABER_SETTINGS_PACKAGE, MMX_SABER_SETTINGS_FEATURE, option_id,
              value, (uint32_t)value_size) != 0;
 }
 
@@ -139,32 +155,20 @@ static int cache_path(const char *name, char path[4096]) {
       snesrecomp_exe_dir_path(leaf, path, 4096);
 }
 
-static int resolve_saber_rom(char path[4096]) {
+/* The X3 ROM is the character feature's own resource (Add Zero or Co-op). */
+static int resolve_saber_rom(const char *package, const char *feature,
+                             char path[4096]) {
   const RecompLauncherCModProvider *provider =
       snes_mod_runtime_launcher_provider_c();
   RecompLauncherCModResource resource = {0};
   int written;
   if (!provider || !provider->feature_resource_get ||
-      !provider->feature_resource_get(provider->ctx,
-          "megaman-x.character.saber-zero", "saber-zero", 0, &resource) ||
+      !provider->feature_resource_get(provider->ctx, package, feature, 0,
+                                      &resource) ||
       !resource.path[0])
     return 0;
   written = snprintf(path, 4096, "%s", resource.path);
   return written >= 0 && written < 4096;
-}
-
-static int prepare_zero(char path[4096], const char rom[4096]) {
-  char error[512];
-  if (!path || !rom || !rom[0]) return 0;
-  if (!snesrecomp_exe_dir_path("cache/mmx-source/x3-zero-v7.bin",
-                              path, 4096))
-    return 0;
-  if (MmxSourceAssetsBuild(rom, 3, 1, path, error, sizeof(error)))
-    return 1;
-  fprintf(stderr, "[mmx-source] %s\n", error);
-  SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,
-                           "Cannot prepare Mega Man mod", error, NULL);
-  return 0;
 }
 
 static void report_wave_prepare_failure(const char *wave_path,
@@ -289,12 +293,11 @@ static int load_saber_wave(const char *wave_path, char reason[256]) {
   return 1;
 }
 
-static void activate(void) {
-  char path[4096] = {0}, rom[4096] = {0}, wave_path[4096] = {0};
+bool MmxSaberActivate(const char *package, const char *feature, bool coop) {
+  char rom[4096] = {0}, wave_path[4096] = {0};
   char saber_path[4096] = {0}, ride_path[4096] = {0};
   char sfx_path[4096] = {0};
   char reason[256] = {0};
-  char start[16] = {0};
   saber_activation_failed();
   g_mmx_saber_enabled = false;
   g_saber_sfx_warning = false;
@@ -305,39 +308,28 @@ static void activate(void) {
   MmxSaberSfxSetVolume(MmxSaberTuningSaberSwingVolume());
   MmxSaberComboSetWindowFrames((unsigned)MmxSaberTuningFinisherWindowFrames());
   release_saber_assets();
-  if (!resolve_saber_rom(rom) || !prepare_zero(path, rom)) {
+  /* The character feature has already prepared and loaded X3 Zero and
+   * registered its hooks; without Saber it remains ordinary X3 Zero. */
+  if (!MmxZeroEnabled() || !resolve_saber_rom(package, feature, rom)) {
     saber_activation_failed();
-    return;
+    return false;
   }
-  snes_mod_runtime_feature_option_value_c(
-      "megaman-x.character.saber-zero", "saber-zero", "start",
-      start, sizeof(start));
-  MmxZeroSetStartCharacter(strcmp(start, "zero") != 0);
-  MmxZeroSetModern(false);
-  MmxZeroResetState();
-  if (!MmxZeroLoad(path)) {
-    fprintf(stderr, "[mmx-saber-zero] Cannot load extracted Zero assets: %s\n",
-            path);
-    saber_activation_failed();
-    return;
-  }
-  MmxZeroRegisterHooks();
   if (!prepare_wave(rom, wave_path)) {
     saber_activation_failed();
-    return;
+    return false;
   }
   if (!cache_path("saber-v1.bin", saber_path) ||
       !cache_path("ride-zero-v1.bin", ride_path) ||
       !load_saber_assets(saber_path, ride_path, reason)) {
     report_saber_asset_failure(saber_path, ride_path, wave_path, reason);
     saber_activation_failed();
-    return;
+    return false;
   }
   if (!load_saber_wave(wave_path, reason)) {
     release_saber_assets();
     report_wave_prepare_failure(wave_path, reason);
     saber_activation_failed();
-    return;
+    return false;
   }
   /* Activation runs before the desktop host creates its audio mutex.  Parse
    * the validated sidecar now; MmxSaberSfxPlay registers the copied PCM only
@@ -349,6 +341,7 @@ static void activate(void) {
     /* The loader's warning callback already emits one concise diagnostic. */
   }
   MmxSaberFrameReset();
+  MmxSaberFrameSetPadSource(coop ? coop_seat_pad : NULL);
   MmxZeroSetExtension(MmxSaberFrameExtension());
   g_mmx_saber_enabled = true;
   MmxRendererSetPlayerOverlayProvider(saber_overlay_provider);
@@ -358,12 +351,14 @@ static void activate(void) {
     MmxRendererSetDebugRectProvider(MmxSaberHitboxDebugProvide);
   fprintf(stderr, "[mmx-saber-zero] saber-v1.bin, ride-zero-v1.bin, and "
                   "x3-saber-wave-v1.bin loaded\n");
-  fprintf(stderr, "[mmx-saber-zero] Saber Zero 0.0.1 enabled; starting as %s\n",
-          strcmp(start, "zero") ? "X" : "Zero");
+  fprintf(stderr, "[mmx-saber-zero] Saber Zero enabled for %s\n",
+          coop ? "co-op" : "Add Zero");
+  return true;
 }
 
 static void reset(void) {
   g_mmx_saber_enabled = false;
+  MmxSaberFrameSetPadSource(NULL);
   MmxRendererSetPlayerOverlayProvider(NULL);
   MmxRendererSetWorldSpriteProvider(NULL);
   MmxRendererSetDebugRectProvider(NULL);
@@ -377,5 +372,4 @@ static void reset(void) {
 
 SNES_MOD_CONSTRUCTOR(mmx_register_saber_zero_plugin) {
   (void)snes_mod_register_reset_callback(reset);
-  (void)snes_mod_register_activation_plugin("megaman-x.saber-zero", activate);
 }

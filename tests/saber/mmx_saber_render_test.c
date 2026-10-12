@@ -759,13 +759,13 @@ int main(void) {
   MmxSaberAttackReset();
   MmxSaberAttackStep(true, true, true, 0, 0);
   MmxRenderPlayerOverlay live;
-  check(MmxSaberRenderResolve(assets, &live) && live.active &&
+  check(MmxSaberRenderResolve(assets, NULL, &live) && live.active &&
             live.body.origin_x == 46 && live.body.origin_y == 44,
         "live attack state resolves ground animation 1");
   MmxSaberAttackReset();
-  check(!MmxSaberRenderResolve(assets, &live) && !live.active,
+  check(!MmxSaberRenderResolve(assets, NULL, &live) && !live.active,
         "idle attack state resolves inactive");
-  check(!MmxSaberRenderResolve(NULL, &live) && !live.active,
+  check(!MmxSaberRenderResolve(NULL, NULL, &live) && !live.active,
         "missing sidecar resolves inactive");
   wave_sequence_checks(wave);
 

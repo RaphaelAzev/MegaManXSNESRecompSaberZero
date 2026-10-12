@@ -3,6 +3,7 @@
 #include "mmx_wide_policy.h"
 #include "mmx_render_assets.h"
 #include "mmx_zero.h"
+#include "mmx_knc_bugfix.h"
 #include "mmx_weapons.h"
 #include "mmx_weapon_combat.h"
 #include "mmx_coop_view.h"
@@ -77,12 +78,15 @@ static size_t rom_size;
 static MmxRenderStats stats;
 static MmxRendererPlayerOverlayProvider player_overlay_provider;
 static MmxRenderPlayerOverlay frame_player_overlay;
+/* The co-op partner seat's Zero, drawn from partner_ram rather than OAM. */
+static MmxRenderPlayerOverlay frame_partner_overlay;
 enum { MAX_WORLD_SPRITES = 8 };
 static MmxRendererWorldSpriteProvider world_sprite_provider;
 static MmxRenderWorldSprite frame_world_sprites[MAX_WORLD_SPRITES];
 static unsigned frame_world_sprite_count;
 enum { MAX_DEBUG_RECTS = 64 };
 static MmxRendererDebugRectProvider debug_rect_provider;
+static MmxRendererDebugRectProvider hitbox_overlay_provider;
 static MmxRenderDebugRect frame_debug_rects[MAX_DEBUG_RECTS];
 static unsigned frame_debug_rect_count;
 static uint8_t door_cache[512 * 512];
@@ -96,6 +100,8 @@ static SubmarineBody submarine_bodies[16];
 static unsigned submarine_count;
 bool g_mmx_custom_renderer;
 bool g_mmx_custom_hud = true;
+static bool coop_hud_compact = true;
+void MmxRendererSetCompactCoopHud(bool compact) { coop_hud_compact=compact; }
 bool g_mmx_expanded_sprites;
 bool g_mmx_render_asset_repairs = true;
 MmxRenderAspect g_mmx_custom_aspect = MMX_ASPECT_ADAPTIVE;
@@ -153,7 +159,10 @@ void MmxRendererSetRom(const uint8_t *bytes, size_t length) {
 void MmxRendererSetPlayerOverlayProvider(
     MmxRendererPlayerOverlayProvider provider) {
   player_overlay_provider = provider;
-  if (!provider) memset(&frame_player_overlay, 0, sizeof(frame_player_overlay));
+  if (!provider) {
+    memset(&frame_player_overlay, 0, sizeof(frame_player_overlay));
+    memset(&frame_partner_overlay, 0, sizeof(frame_partner_overlay));
+  }
 }
 MmxRenderPlayerOverlay MmxRendererPlayerOverlaySnapshot(void) {
   return frame_player_overlay;
@@ -169,6 +178,10 @@ unsigned MmxRendererWorldSpriteSnapshot(MmxRenderWorldSprite *out,
     memcpy(out, frame_world_sprites, count * sizeof(*out));
   return count;
 }
+void MmxRendererSetHitboxOverlayProvider(MmxRendererDebugRectProvider provider) {
+  hitbox_overlay_provider = provider;
+  if (!provider && !debug_rect_provider) frame_debug_rect_count = 0;
+}
 void MmxRendererSetDebugRectProvider(MmxRendererDebugRectProvider provider) {
   debug_rect_provider = provider;
   if (!provider) frame_debug_rect_count = 0;
@@ -183,6 +196,7 @@ unsigned MmxRendererDebugRectSnapshot(MmxRenderDebugRect *out,
 void MmxRendererReset(void) {
   memset(&frame_zero, 0, sizeof(frame_zero));
   memset(&frame_player_overlay, 0, sizeof(frame_player_overlay));
+  memset(&frame_partner_overlay, 0, sizeof(frame_partner_overlay));
   reset_pilot_overlay_alignment();
   frame_world_sprite_count = 0;
   frame_debug_rect_count = 0;
@@ -212,6 +226,18 @@ static const uint8_t *sprite_arrangement(unsigned animation, unsigned f) {
   address = word(pointer, 0) | (pointer[2] << 16);
   const uint8_t *arrangement = rom_at(address, 1);
   return arrangement && rom_at(address, 1 + arrangement[0] * 4) ? arrangement : NULL;
+}
+/* X1's Ride Armor pilot frames (groups $6A/$6B) hold one 16x16 piece: the
+ * pilot's head. The other pieces are arms and shoulders, and which one comes
+ * first varies (punch frames list an arm first), so anchoring Zero's helmet to
+ * the first piece sank or shifted it for those frames. Offsets of the head
+ * piece from the body origin; the first piece if a frame has none. */
+static void pilot_head_offset(const uint8_t *layout, int *dx, int *dy) {
+  unsigned head = 0;
+  for (unsigned i = 0; i < layout[0]; ++i)
+    if (layout[i * 4 + 4] & 0x20) { head = i; break; }
+  *dx = (int8_t)layout[head * 4 + 1];
+  *dy = (int8_t)layout[head * 4 + 2];
 }
 static void expand_object(const uint8_t *ram, unsigned object) {
   if (object < 0x20 || object > 0x1fe0) return;
@@ -382,8 +408,10 @@ void MmxRendererBeginFrame(const uint8_t ram[0x20000]) {
   unsigned debug_rect_count = 0;
   reset_pilot_overlay_alignment();
   memset(&frame_coop,0,sizeof(frame_coop));
+  memset(&frame_partner_overlay, 0, sizeof(frame_partner_overlay));
   memset(&overlay, 0, sizeof(overlay));
-  if (player_overlay_provider && player_overlay_provider(&overlay))
+  MmxZeroState live_zero = MmxZeroGetState();
+  if (player_overlay_provider && player_overlay_provider(ram, &live_zero, &overlay))
     frame_player_overlay = overlay;
   else
     memset(&frame_player_overlay, 0, sizeof(frame_player_overlay));
@@ -398,8 +426,12 @@ void MmxRendererBeginFrame(const uint8_t ram[0x20000]) {
     memcpy(frame_world_sprites, world_sprites,
            world_sprite_count * sizeof(*frame_world_sprites));
   memset(debug_rects, 0, sizeof(debug_rects));
-  if (debug_rect_provider)
-    debug_rect_count = debug_rect_provider(debug_rects, MAX_DEBUG_RECTS);
+  /* The developer overlay outlines every object, a superset of any
+   * mod's own debug boxes, so it takes the frame when both are on. */
+  MmxRendererDebugRectProvider rects =
+      hitbox_overlay_provider ? hitbox_overlay_provider : debug_rect_provider;
+  if (rects)
+    debug_rect_count = rects(debug_rects, MAX_DEBUG_RECTS);
   if (debug_rect_count > MAX_DEBUG_RECTS)
     debug_rect_count = MAX_DEBUG_RECTS;
   frame_debug_rect_count = debug_rect_count;
@@ -640,11 +672,25 @@ void MmxRendererCoopFrame(const MmxCoopState *s) {
     const MmxCoopPlayer *owner=&s->players[s->menu_last];
     frame_zero=owner->zero;frame_weapons=owner->weapons;frame_weapon_combat=owner->combat;
     memcpy(frame.ram+0xba8,owner->body,sizeof(owner->body));
+    /* The menu shows its owner's body, which need not be the live seat's. */
+    MmxRenderPlayerOverlay overlay;
+    memset(&overlay,0,sizeof(overlay));
+    if (player_overlay_provider && player_overlay_provider(frame.ram,&frame_zero,&overlay))
+      frame_player_overlay=overlay;
+    else memset(&frame_player_overlay,0,sizeof(frame_player_overlay));
   }
   memcpy(partner_ram,frame.ram,sizeof(partner_ram));
   memcpy(partner_ram+0xba8,s->players[s->current^1].body,sizeof(s->players[s->current^1].body));
   memcpy(partner_ram+0xc38,s->players[s->current^1].auxiliaries,sizeof(s->players[s->current^1].auxiliaries));
   memcpy(partner_ram+0x1228,s->players[s->current^1].shots,sizeof(s->players[s->current^1].shots));
+  const MmxCoopPlayer *partner=&s->players[s->current^1];
+  memset(&frame_partner_overlay,0,sizeof(frame_partner_overlay));
+  if (!menu && partner->character==MMX_COOP_ZERO && player_overlay_provider) {
+    MmxRenderPlayerOverlay overlay;
+    memset(&overlay,0,sizeof(overlay));
+    if (player_overlay_provider(partner_ram,&partner->zero,&overlay))
+      frame_partner_overlay=overlay;
+  }
 }
 bool MmxRendererSaveCapture(const char *path) {
   if (!frame.valid || !path) return false;
@@ -1327,6 +1373,22 @@ static void prepare_partner_graphics(void) {
     for(unsigned i=0;i<size;i+=2) partner_raster.vram[dest+i/2]=(uint16_t)word(bytes,i);
   }
 }
+static void player_overlay_plane_row(
+    const MmxRenderPlayerOverlayPlane *plane, const uint16_t *palette,
+    unsigned palette_count, int y, int zx, int zy, bool mirror, unsigned z,
+    MmxRenderView view, uint16_t *objects, int *object_colors);
+static void player_overlay_row(const MmxRenderPlayerOverlay *overlay, int y,
+                               int zx, int zy, unsigned z, MmxRenderView view,
+                               uint16_t *objects, int *object_colors) {
+  if (overlay->blade_layer == 1)
+    player_overlay_plane_row(&overlay->blade, overlay->palette, overlay->palette_count,
+        y, zx, zy, overlay->facing_left, z, view, objects, object_colors);
+  player_overlay_plane_row(&overlay->body, overlay->palette, overlay->palette_count,
+      y, zx, zy, overlay->facing_left, z, view, objects, object_colors);
+  if (overlay->blade_layer == 2)
+    player_overlay_plane_row(&overlay->blade, overlay->palette, overlay->palette_count,
+        y, zx, zy, overlay->facing_left, z, view, objects, object_colors);
+}
 static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView view,
                              uint16_t *objects,int *colors) {
   const MmxCoopPlayer *partner = &frame_coop.players[frame_coop.current^1];
@@ -1350,6 +1412,8 @@ static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView 
   }
   x1_weapon_palette(&weapon_palette,weapon_colors,partner->weapons.page);
   coop_sting_palette(ram,&weapon_palette);
+  if(!zero && MmxKncBugfixActive(frame_coop.current^1))
+    MmxRenderAssetsStingPalette(MmxKncBugfixPhase(),weapon_palette.colors);
   if (zero && ram[0xbb6]) {
     const uint8_t *body = MmxZeroPose(ram,&partner->zero);
     const uint8_t *blade = MmxZeroBlade(&partner->zero);
@@ -1371,12 +1435,19 @@ static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView 
     bool pilot=ram[0xbbe]==0x6a || ram[0xbbe]==0x6b;
     if (pilot) {
       const uint8_t *a=sprite_arrangement(ram[0xbbe],ram[0xbbf]&127);
-      if (a && a[0]) {int dx=(int8_t)a[1]+5;x+=(ram[0xbb9]&64)?-dx:dx;sy+=8+(int8_t)a[2]+20;}
+      if (a && a[0]) {
+        int hx,hy;pilot_head_offset(a,&hx,&hy);
+        int dx=hx+5;x+=(ram[0xbb9]&64)?-dx:dx;sy+=8+hy+20;
+      }
       body=MmxZeroMenuPose();blade=charge=NULL;
     }
     int row = y-sy+64;
     unsigned priority = ((ram[0xbb9]>>4 & 3)*4+2)<<12;
-    if (body && row>=0 && row<128 && (!pilot || (row>=44 && row<64))) for (int col=0;col<128;++col) {
+    /* A Saber attack replaces the body; the partner's Ride Armor pilot keeps
+     * the native cockpit art, which has no OAM here to align the sheet to. */
+    bool overlay = frame_partner_overlay.active && !pilot && !cast;
+    if (overlay) player_overlay_row(&frame_partner_overlay,y,x,sy,priority|0x680,view,objects,colors);
+    if (!overlay && body && row>=0 && row<128 && (!pilot || (row>=44 && row<64))) for (int col=0;col<128;++col) {
       unsigned pixel = body[row*128+col];
       if (blade && blade[row*128+col]) pixel = blade[row*128+col];
       int dest = x + ((ram[0xbb9]&64) ? 63-col : col-64) + view.extra;
@@ -1430,13 +1501,15 @@ static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView 
 }
 static void coop_meter_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView view,
                            uint16_t *objects,int *colors,int x,unsigned value,unsigned maximum,
-                           unsigned palette,const MmxSpriteAsset *art) {
+                           unsigned palette,const MmxSpriteAsset *art,int icon_y,bool inverted) {
   /* The native $D82C/$D94A meter uses overlapping 16px strips. Retain its
    * partial-strip placement and OAM order, including the cap above max HP. */
   typedef struct {int y;unsigned tile;} Strip;
   Strip strips[8];unsigned count=0;
   if(maximum>32) maximum=32;
   if(value>maximum) value=maximum;
+  /* Mirror Zero's frame, but keep remaining energy at the bottom. */
+  if(inverted) value=maximum-value;
   int top=64,remaining=(int)value;
   while(remaining>0) {
     remaining-=8;int sy=top-(remaining<0?remaining*2:0);
@@ -1448,19 +1521,65 @@ static void coop_meter_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView vi
     strips[count++]=(Strip){sy,0x82};top=sy-16;
   } while(remaining>=0);
   strips[count++]=(Strip){top,0x84};
-  for(int i=(int)count-1;i>=0;--i)
-    sprite(ppu,r,x,strips[i].y,0x3000|(palette<<9)|strips[i].tile,16,y,view,
-        objects,false,art,strips[i].tile,colors,true,false,false);
+  for(int i=(int)count-1;i>=0;--i) {
+    unsigned tile=strips[i].tile;
+    int sy=strips[i].y+icon_y-80;
+    unsigned attr=0x3000|(palette<<9);
+    if(inverted) {
+      sy=icon_y+80-strips[i].y;
+      if(tile==0x80) tile=0x82;
+      else if(tile==0x82) tile=0x80;
+      attr|=0x8000;
+    }
+    sprite(ppu,r,x,sy,attr|tile,16,y,view,
+        objects,false,art,tile,colors,true,false,false);
+  }
+}
+static void coop_inverted_badge_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView view,
+                                    uint16_t *objects,int *colors,int x,int icon_y,unsigned palette,
+                                    const MmxSpriteAsset *frame_art,const MmxSpriteAsset *icon_art,
+                                    const MmxWeaponPose *icon,bool zero) {
+  /* Use the meter's own frame/palette for the top cap. Replace only the
+   * upright symbol panel, leaving its sides continuous with the meter. */
+  sprite(ppu,r,x,icon_y,0xb086|(palette<<9),16,y,view,objects,false,
+      frame_art,0x86,colors,true,false,false);
+  int row=y-icon_y;
+  int panel_bottom=palette==3?14:13;
+  if(row<3 || row>panel_bottom) return;
+  /* Leave the cap's white highlight intact above the dark weapon panel. */
+  int source_row=row-(palette==3);
+  for(unsigned col=2;col<14;++col) {
+    if(row==panel_bottom && (col==2 || col==13)) continue;
+    int dx=x+(int)col+view.extra;
+    if(dx<0 || dx>=view.width) continue;
+    int color=zero?MmxZeroHudColor(col,(unsigned)source_row):-1;
+    if(color<0) {
+      unsigned tile=palette==2?0x86:0x20;
+      unsigned number=(((tile>>4)+(unsigned)source_row/8)<<4)|((tile&15)+col/8);
+      unsigned pixel;
+      if(icon) pixel=icon->pixels[source_row*16+col];
+      else if(icon_art && !icon_art->live_tiles) {
+        const uint8_t *bits=icon_art->tiles+number*32+(source_row&7)*2;
+        unsigned shift=7-(col&7);
+        pixel=((bits[0]>>shift)&1)|(((bits[1]>>shift)&1)<<1)|
+            (((bits[16]>>shift)&1)<<2)|(((bits[17]>>shift)&1)<<3);
+      } else pixel=tile_pixel(r->vram,(ppu->obsel&7)*8192+number*16,col&7,source_row&7,4);
+      color=frame_art?frame_art->colors[pixel]:r->palette[128+palette*16+pixel];
+    }
+    objects[dx]=0xe6a1;colors[dx]=color;
+  }
 }
 static void coop_hud_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView view,bool anchored,
                          uint16_t *objects,int *colors) {
   for(unsigned seat=0;seat<2;++seat) {
     const MmxCoopPlayer *player=&frame_coop.players[seat];
     if(seat && player->status==MMX_COOP_ABSENT) continue;
-    int x=8+(int)seat*32-(anchored?view.extra:0);
+    bool inverted=coop_hud_compact && player->character==MMX_COOP_ZERO;
+    int x=8+(coop_hud_compact?0:(int)seat*32)-(anchored?view.extra:0),icon_y=inverted?100:80;
     unsigned hp=player->status==MMX_COOP_FALLEN?0:player->body[0x27]&127;
-    coop_meter_row(ppu,r,y,view,objects,colors,x,hp,frame.ram[0x1f9a],2,NULL);
-    sprite(ppu,r,x,80,0x3486,16,y,view,objects,false,NULL,0,colors,true,
+    coop_meter_row(ppu,r,y,view,objects,colors,x,hp,frame.ram[0x1f9a],2,NULL,icon_y,inverted);
+    if(inverted) coop_inverted_badge_row(ppu,r,y,view,objects,colors,x,icon_y,2,NULL,NULL,NULL,true);
+    else sprite(ppu,r,x,icon_y,0x3486,16,y,view,objects,false,NULL,0,colors,true,
         player->character==MMX_COOP_ZERO,false);
     unsigned page=player->weapons.page;
     unsigned weapon=page?player->weapons.weapon:player->body[0x33]/2;
@@ -1470,11 +1589,14 @@ static void coop_hud_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView view
     const uint16_t *palette=page?MmxWeaponsPalette(page,weapon,false):native?native->colors:NULL;
     MmxSpriteAsset bar={0};bar.live_tiles=true;
     if(palette) memcpy(bar.colors,palette,sizeof(bar.colors));
-    coop_meter_row(ppu,r,y,view,objects,colors,x+16,energy,28,3,palette?&bar:NULL);
-    if(!page) {
-      sprite(ppu,r,x+16,80,0x3620,16,y,view,objects,false,native,0x20,colors,true,false,false);
+    coop_meter_row(ppu,r,y,view,objects,colors,x+16,energy,28,3,palette?&bar:NULL,icon_y,inverted);
+    if(inverted) {
+      coop_inverted_badge_row(ppu,r,y,view,objects,colors,x+16,icon_y,3,palette?&bar:NULL,
+          native,page?MmxWeaponsHudIcon(page,weapon):NULL,false);
+    } else if(!page) {
+      sprite(ppu,r,x+16,icon_y,0x3620,16,y,view,objects,false,native,0x20,colors,true,false,false);
     } else {
-      const MmxWeaponPose *icon=MmxWeaponsHudIcon(page,weapon);int row=y-80;
+      const MmxWeaponPose *icon=MmxWeaponsHudIcon(page,weapon);int row=y-icon_y;
       if(icon && palette && row>=0 && row<16) for(int col=0;col<16;++col) {
         unsigned pixel=icon->pixels[row*16+col];int dx=x+16+col+view.extra;
         if(pixel && dx>=0 && dx<view.width) {objects[dx]=(uint16_t)(0xe6b0|pixel);colors[dx]=palette[pixel];}
@@ -1594,6 +1716,17 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
   MmxSpriteAsset x_weapon_palette = {0};
   x1_weapon_palette(&x_weapon_palette,weapon_colors,weapon_page);
   if(stage && frame_coop.initialized) coop_sting_palette(frame.ram,&x_weapon_palette);
+  unsigned knc_bugfix_seat=frame_coop.initialized?frame_coop.current:0;
+  bool knc_bugfix=stage && (!MmxZeroEnabled() || frame_zero.active_x) &&
+      MmxKncBugfixActive(knc_bugfix_seat);
+  if(knc_bugfix) {
+    if(!weapon_colors) {
+      const MmxSpriteAsset *native=MmxRenderAssetsWeaponX(frame.ram[0xbdb]/2,true);
+      if(native) x1_weapon_palette(&x_weapon_palette,native->colors,0);
+    }
+    MmxRenderAssetsStingPalette(MmxKncBugfixPhase(),x_weapon_palette.colors);
+    weapon_colors=x_weapon_palette.colors;
+  }
   prepare_stage_planes();
   LightBeam beams[2];
   unsigned beam_count = stage ? spark_lights(beams, view.extra) : 0;
@@ -1759,11 +1892,26 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
              * numbers are not movement poses. Keep its authored entry/walk/
              * punch offsets and expose Zero's original helmet/shoulders over
              * the cockpit. Vanilla X3 Zero has no Ride Armor pilot artwork. */
-            const uint8_t *layout=sprite_arrangement(s.animation,frame.ram[0xbbf]&127);
-            if(layout && layout[0]) {
-              int dx=(int8_t)layout[1]+5;
-              zx+=(frame.ram[0xbb9]&64)?-dx:dx;
-              zy+=8+(int8_t)layout[2]+20;
+            /* Anchor on the native head piece this frame actually submitted.
+             * The armor's sprites are built before it moves, so placing the
+             * helmet from the pilot's RAM position led a jumping or lunging
+             * armor by one frame of motion and the head floated above it. */
+            const Piece *head=NULL;
+            for(unsigned k=0;k<frame.piece_count && !head;++k) {
+              const Piece *q=&frame.pieces[k];
+              if(q->object==0xba8 && q->animation==s.animation && q->size==16) head=q;
+            }
+            if(head) {
+              zx=head->x-view_dx+((head->attr&0x4000)?11:5);
+              zy=head->y-view_dy+20;
+            } else {
+              const uint8_t *layout=sprite_arrangement(s.animation,frame.ram[0xbbf]&127);
+              if(layout && layout[0]) {
+                int hx,hy;pilot_head_offset(layout,&hx,&hy);
+                int dx=hx+5;
+                zx+=(frame.ram[0xbb9]&64)?-dx:dx;
+                zy+=8+hy+20;
+              }
             }
             body=MmxZeroMenuPose();
           }
@@ -1772,20 +1920,8 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
               align_wide_pilot_overlay(&frame_player_overlay, s.animation,
                                        &zx, &zy);
             unsigned z = ((((s.attr >> 12) & 3) * 4 + 2) << 12) | 0x680;
-            if (frame_player_overlay.blade_layer == 1)
-              player_overlay_plane_row(&frame_player_overlay.blade,
-                  frame_player_overlay.palette, frame_player_overlay.palette_count,
-                  y, zx, zy, frame_player_overlay.facing_left, z, view,
-                  objects, object_colors);
-            player_overlay_plane_row(&frame_player_overlay.body,
-                frame_player_overlay.palette, frame_player_overlay.palette_count,
-                y, zx, zy, frame_player_overlay.facing_left, z, view,
-                objects, object_colors);
-            if (frame_player_overlay.blade_layer == 2)
-              player_overlay_plane_row(&frame_player_overlay.blade,
-                  frame_player_overlay.palette, frame_player_overlay.palette_count,
-                  y, zx, zy, frame_player_overlay.facing_left, z, view,
-                  objects, object_colors);
+            player_overlay_row(&frame_player_overlay, y, zx, zy, z, view,
+                               objects, object_colors);
           }
           int row = y - zy + 64;
           if (!player_overlay && row >= 0 && row < MMX_ZERO_HEIGHT && (!pilot || (row>=44 && row<64))) {
@@ -1828,8 +1964,8 @@ bool MmxRendererDraw(uint32_t *out, MmxRenderView view, bool hud) {
        * Pieces drawn with another palette (the charge glow, armor parts)
        * keep live CGRAM: substituting them lost the glow and flattened
        * the boots. */
-      if (frame_zero.active_x && weapon_colors && zero_actor(s.object, s.animation) &&
-          (menu || ((attr & 0x0e00) == 0x0200 && !x_charging(frame.ram)))) asset = &x_weapon_palette;
+      if ((frame_zero.active_x || knc_bugfix) && weapon_colors && zero_actor(s.object, s.animation) &&
+          (menu || ((attr & 0x0e00) == 0x0200 && (!x_charging(frame.ram) || knc_bugfix)))) asset = &x_weapon_palette;
       if(stage && frame_coop.initialized && s.object>=0x1228 && s.object<0x1428 &&
           frame.ram[s.object+10]==0x0c && s.animation==0x47 && (s.attr&0x0e00)==0x0600)
         asset=MmxRenderAssetsWeaponX(6,false);

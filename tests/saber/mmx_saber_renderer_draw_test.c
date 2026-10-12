@@ -10,6 +10,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+bool MmxKncBugfixActive(unsigned seat) { (void)seat;return false; }
+unsigned MmxKncBugfixPhase(void) { return 0; }
+
 #ifndef MMX_SABER_RENDER_CACHE_DIR
 #define MMX_SABER_RENDER_CACHE_DIR ""
 #endif
@@ -80,7 +83,10 @@ static uint32_t checksum_region(const uint32_t *pixels) {
   return checksum;
 }
 
-static bool provide_overlay(MmxRenderPlayerOverlay *out) {
+static bool provide_overlay(const uint8_t *ram, const MmxZeroState *zero,
+                            MmxRenderPlayerOverlay *out) {
+  (void)ram;
+  (void)zero;
   *out = provider_overlay;
   return true;
 }

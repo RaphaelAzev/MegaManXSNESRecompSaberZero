@@ -21,7 +21,7 @@ OPTIONAL = {0x00d4f2, 0x00d50f}  # Current enemy loops run through the interpret
 REQUIRED |= {0x049e15, 0x049e3a}  # Compiled low-bank mirror of native contact.
 # Dash exits that would stand Zero up, and the dash blocks that continue it.
 SLIDE_PCS = {0x81898e: '8991', 0x818999: '899C', 0x818965: '8971'}
-REQUIRED |= SLIDE_PCS.keys()
+REQUIRED |= SLIDE_PCS.keys() | {0x81a062}
 
 
 def apply(text):
@@ -102,6 +102,9 @@ def apply(text):
             if load:
                 output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern unsigned MmxZeroHitbox(const uint8_t *, unsigned, unsigned, unsigned); extern unsigned MmxWeaponsHitbox(const uint8_t *, unsigned, unsigned, unsigned); {load[1]} = (uint16)MmxWeaponsHitbox(g_ram, cpu->D, cpu->X, MmxZeroHitbox(g_ram, cpu->D, cpu->X, {load[1]})); }}\n')
                 found.add(pc)
+        if pc == 0x81a062 and 'cpu->coprocessor_master_cycles = cpu->master_cycles;' in line:
+            output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern void MmxHadoukenInput(uint8_t *); MmxHadoukenInput(g_ram); }}\n')
+            found.add(pc)
         if pc == 0x81815c and 'cpu->coprocessor_master_cycles = cpu->master_cycles;' in line:
             output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern void MmxZeroExtPrePlayer(uint8_t *); extern void MmxZeroSlideTick(uint8_t *); extern void MmxZeroMovementTick(uint8_t *); extern void MmxZeroPlayerTick(uint8_t *); extern void MmxWeaponsPlayerTick(uint8_t *); extern bool MmxWeaponsCombatActive(void); MmxZeroExtPrePlayer(g_ram); MmxZeroSlideTick(g_ram); MmxZeroMovementTick(g_ram); MmxWeaponsPlayerTick(g_ram); if (!MmxWeaponsCombatActive()) MmxZeroPlayerTick(g_ram); }}\n')
             found.add(pc)

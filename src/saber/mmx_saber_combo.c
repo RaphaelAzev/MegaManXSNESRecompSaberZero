@@ -1,5 +1,8 @@
 #include "mmx_saber_combo.h"
 
+#include <string.h>
+#include "mmx_saber_state.h"
+
 #include "../mmx_zero.h"
 #include "mmx_saber_sfx.h"
 
@@ -148,4 +151,19 @@ unsigned MmxSaberComboReservedSlot(void) {
 
 unsigned MmxSaberComboFinisherCueCount(void) {
   return state.finisher_cue_count;
+}
+
+size_t MmxSaberComboStateSize(void) {
+  return sizeof(state);
+}
+
+void MmxSaberComboStateSave(uint8_t *out) {
+  memcpy(out, &state, sizeof(state));
+}
+
+void MmxSaberComboStateLoad(const uint8_t *in) {
+  /* The finisher window length is tuning, not state. */
+  const uint8_t window_frames = state.window_frames;
+  memcpy(&state, in, sizeof(state));
+  state.window_frames = window_frames;
 }

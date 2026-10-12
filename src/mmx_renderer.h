@@ -37,7 +37,13 @@ typedef struct MmxRenderPlayerOverlay {
   bool facing_left;
 } MmxRenderPlayerOverlay;
 
-typedef bool (*MmxRendererPlayerOverlayProvider)(MmxRenderPlayerOverlay *out);
+/* Called for each Zero body the renderer draws: the live seat at BeginFrame,
+ * and in co-op the partner seat at CoopFrame. `ram` holds that body at
+ * $0BA8 and `zero` is its seat's Zero state. */
+struct MmxZeroState;
+typedef bool (*MmxRendererPlayerOverlayProvider)(
+    const uint8_t *ram, const struct MmxZeroState *zero,
+    MmxRenderPlayerOverlay *out);
 
 void MmxRendererSetPlayerOverlayProvider(
     MmxRendererPlayerOverlayProvider provider);
@@ -77,6 +83,8 @@ typedef unsigned (*MmxRendererDebugRectProvider)(MmxRenderDebugRect *out,
                                                  unsigned max);
 
 void MmxRendererSetDebugRectProvider(MmxRendererDebugRectProvider provider);
+/* The developer hitbox overlay; when set it replaces the provider above. */
+void MmxRendererSetHitboxOverlayProvider(MmxRendererDebugRectProvider provider);
 /* Copy the immutable snapshot captured by BeginFrame. */
 unsigned MmxRendererDebugRectSnapshot(MmxRenderDebugRect *out,
                                       unsigned max);
@@ -88,6 +96,7 @@ extern bool g_mmx_expanded_sprites;
 extern bool g_mmx_render_asset_repairs;
 extern MmxRenderAspect g_mmx_custom_aspect;
 extern MmxRenderView g_mmx_custom_view;
+void MmxRendererSetCompactCoopHud(bool compact);
 /* The mod selects the output aspect; Display Aspect selects pixel proportions.
  * Clamp the view extent at those proportions before rounding to an even width. */
 MmxRenderView MmxRendererViewport(MmxRenderAspect aspect, int width, int height,

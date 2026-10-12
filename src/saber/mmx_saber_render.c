@@ -191,9 +191,10 @@ static void map_flash_palette(uint16_t *mapped, const uint16_t *palette,
   }
 }
 
-bool MmxSaberRenderResolveSnapshot(const MmxSaberAssets *assets,
-                                   MmxSaberAttackSnapshot snapshot,
-                                   MmxRenderPlayerOverlay *out) {
+static bool resolve_snapshot(const MmxSaberAssets *assets,
+                             MmxSaberAttackSnapshot snapshot,
+                             const MmxZeroState *zero,
+                             MmxRenderPlayerOverlay *out) {
   const MmxSaberAttack *attack;
   const MmxSaberAnimation *animation;
   const MmxSaberFrame *frame = NULL;
@@ -247,10 +248,9 @@ bool MmxSaberRenderResolveSnapshot(const MmxSaberAssets *assets,
       assets, MmxSaberAssetsPalette(assets), MmxSaberAssetsPaletteCount(assets),
       armor.black, armor.arms);
   out->palette_count = MmxSaberAssetsPaletteCount(assets);
-  MmxZeroState zero = MmxZeroGetState();
-  if (MmxZeroChargeFlashPaletteIndex(&zero) >= 0) {
+  if (MmxZeroChargeFlashPaletteIndex(zero) >= 0) {
     map_flash_palette(flash_palette, out->palette, out->palette_count,
-                      MmxZeroBodyColors(&zero));
+                      MmxZeroBodyColors(zero));
     out->palette = flash_palette;
   }
   /* The old compositor's mirror expression is the final left-facing bit:
@@ -260,6 +260,13 @@ bool MmxSaberRenderResolveSnapshot(const MmxSaberAssets *assets,
   out->active = out->palette && out->palette_count;
   if (!out->active) clear_overlay(out);
   return out->active;
+}
+
+bool MmxSaberRenderResolveSnapshot(const MmxSaberAssets *assets,
+                                   MmxSaberAttackSnapshot snapshot,
+                                   MmxRenderPlayerOverlay *out) {
+  MmxZeroState zero = MmxZeroGetState();
+  return resolve_snapshot(assets, snapshot, &zero, out);
 }
 
 bool MmxSaberRenderResolveRide(const MmxSaberAssets *assets,
@@ -306,9 +313,14 @@ bool MmxSaberRenderResolveRide(const MmxSaberAssets *assets,
 }
 
 bool MmxSaberRenderResolve(const MmxSaberAssets *assets,
+                           const MmxZeroState *zero,
                            MmxRenderPlayerOverlay *out) {
-  return MmxSaberRenderResolveSnapshot(assets, MmxSaberAttackGetSnapshot(),
-                                        out);
+  MmxZeroState live;
+  if (!zero) {
+    live = MmxZeroGetState();
+    zero = &live;
+  }
+  return resolve_snapshot(assets, MmxSaberAttackGetSnapshot(), zero, out);
 }
 
 bool MmxSaberRenderResolveWaveSnapshot(const MmxSaberWave *wave,

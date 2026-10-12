@@ -4796,13 +4796,14 @@ static int set_test_env(const char *name, const char *value) {
 #endif
 }
 
+/* Saber is the "saber" Zero behavior of Add Zero; its tuning lives in the
+ * separate Saber Zero settings feature, which saber runs enable. */
 static void activate_zero(const char *x1_rom, const char *x3_rom,
                           const char *assets, bool saber_package,
                           bool expect_saber_assets) {
   const char *root = getenv("MMX_COOP_LAUNCHER_ROOT");
-  const char *package = saber_package ? "megaman-x.character.saber-zero"
-                                      : "megaman-x.character.zero";
-  const char *feature = saber_package ? "saber-zero" : "zero";
+  const char *package = "megaman-x.character.zero";
+  const char *feature = "zero";
   if (!g_mod_provider) {
     check(root && root[0], "Saber runner supplies an isolated mod catalog");
     check(readable_file(x1_rom), "X1 ROM exists");
@@ -4820,30 +4821,31 @@ static void activate_zero(const char *x1_rom, const char *x3_rom,
           "Saber catalog exposes the feature/resource provider");
   }
   check(g_mod_provider->feature_enable(g_mod_provider->ctx, package, feature, 1),
-        saber_package ? "Saber package enables" : "upstream Zero package enables");
+        "Add Zero enables");
   check(g_mod_provider->feature_set_option(g_mod_provider->ctx, package, feature,
                                            "start", "zero"),
-        saber_package ? "Saber package starts as Zero" :
-                        "upstream Zero package starts as Zero");
-  if (!saber_package) {
-    check(g_mod_provider->feature_set_option(g_mod_provider->ctx,
-                                             "megaman-x.character.zero", "zero",
-                                             "behavior", "x3"),
-          "upstream Zero package selects behavior=x3");
-  }
+        "Add Zero starts as Zero");
+  check(g_mod_provider->feature_set_option(g_mod_provider->ctx, package, feature,
+                                           "behavior",
+                                           saber_package ? "saber" : "x3"),
+        saber_package ? "Add Zero selects behavior=saber" :
+                        "Add Zero selects behavior=x3");
+  check(g_mod_provider->feature_enable(g_mod_provider->ctx,
+                                       MMX_SABER_SETTINGS_PACKAGE,
+                                       MMX_SABER_SETTINGS_FEATURE,
+                                       saber_package ? 1 : 0),
+        saber_package ? "Saber Zero settings enable" :
+                        "Saber Zero settings disable");
   check(g_mod_provider->feature_resource_set_path(g_mod_provider->ctx, package, feature,
                                                   "x3-rom", x3_rom),
-        saber_package ? "Saber package selects the X3 ROM" :
-                        "upstream Zero package selects the X3 ROM");
+        "Add Zero selects the X3 ROM");
   check(g_mod_provider->commit(g_mod_provider->ctx, x1_rom),
-        saber_package ? "Saber package commits for the X1 ROM" :
-                        "upstream Zero package commits for the X1 ROM");
+        "Add Zero commits for the X1 ROM");
   snes_mod_runtime_activate_plugins_c();
   check(MmxZeroEnabled() && MmxZeroActive() && !MmxZeroModern(),
-        saber_package ? "Saber package activates the legacy X3 controller" :
-                        "upstream Zero package activates the legacy X3 controller");
+        "Add Zero activates the legacy X3 controller");
   check(expect_saber_assets ? MmxSaberEnabled() : !MmxSaberEnabled(),
-        expect_saber_assets ? "Saber package enables the Saber plugin" :
+        expect_saber_assets ? "behavior=saber enables the Saber plugin" :
                               "missing Saber assets leave the Saber plugin disabled");
   if (saber_package && expect_saber_assets)
     check(MmxSaberAssetsLoaded() && MmxSaberRideAssetsLoaded() &&

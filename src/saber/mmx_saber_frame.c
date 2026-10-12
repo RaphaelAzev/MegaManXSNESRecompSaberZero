@@ -8,10 +8,15 @@
 #include "mmx_saber_input.h"
 #include "mmx_saber_priority.h"
 #include "mmx_saber_wave_runtime.h"
+#include "mmx_saber_state.h"
+
+#include <string.h>
 
 static bool release_pending;
 static bool release_pending_from_special;
 static bool previous_y;
+static bool previous_x;
+static MmxSaberFramePadSource pad_source;
 static MmxZeroLegacyIntent frame_intent;
 static bool frame_computed;
 static bool frame_override;
@@ -56,6 +61,7 @@ static void state_reset(uint8_t *ram) {
   release_pending = false;
   release_pending_from_special = false;
   previous_y = false;
+  previous_x = false;
   clear_frame_state();
 }
 
@@ -77,10 +83,45 @@ static bool zero_frame_context(const uint8_t *ram) {
       ram[0xbaa] != 0x1e;
 }
 
-static MmxSaberPhysicalPad read_physical_pad(const uint8_t *ram) {
-  const bool x_held = (ram[0x00a7] & 0x40) != 0;
-  const bool x_previous = (ram[0x00a9] & 0x40) != 0;
-  const bool y_held = (ram[0x00ac] & 0x40) != 0;
+void MmxSaberFrameSetPadSource(MmxSaberFramePadSource source) {
+  pad_source = source;
+}
+
+static MmxSaberFramePad sample_pad(const uint8_t *ram) {
+  MmxSaberFramePad pad = {false, false};
+  if (!ram) return pad;
+  if (pad_source) {
+    pad_source(ram, &pad);
+    return pad;
+  }
+  pad.x_held = (ram[0x00a7] & 0x40) != 0;
+  pad.y_pressed = (ram[0x00ac] & 0x40) != 0;
+  return pad;
+}
+
+/* X1 fires only from the player actions whose handler in the $81:82A6 table
+ * (indexed by $0BAA / 2) reaches the buster code at $81:94AF / $81:9D47:
+ * stand/walk/jump/fall/land $00-$0A, $10, wall $12, dash $14, $20, $28, $2A
+ * and $40. Everywhere else - Vile's electric restraint $32, Flame Mammoth's
+ * ground shock $36, item refills, scripted poses - X cannot shoot, so the
+ * Saber cannot swing. Hurt $0E keeps its own handling below. */
+bool MmxSaberFrameNativeFireAction(uint8_t action) {
+  return action <= 0x0a || action == 0x10 || action == 0x12 ||
+      action == 0x14 || action == 0x20 || action == 0x28 || action == 0x2a ||
+      action == 0x40;
+}
+
+static bool native_fire_locked(const uint8_t *ram) {
+  return ram && ram[0x0baa] != 0x0e && ram[0x0baa] != 0x0c &&
+      !MmxSaberFrameNativeFireAction(ram[0x0baa]);
+}
+
+static MmxSaberPhysicalPad read_physical_pad(const uint8_t *ram,
+                                             MmxSaberFramePad pad) {
+  const bool x_held = pad.x_held;
+  const bool x_previous = pad_source ? previous_x :
+      (ram[0x00a9] & 0x40) != 0;
+  const bool y_held = pad.y_pressed;
   uint16_t buttons = 0;
   uint16_t previous = 0;
   if (x_held) buttons |= MMX_SABER_PAD_X;
@@ -174,7 +215,7 @@ static void player_end(uint8_t *ram) {
     MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_DEATH);
     return;
   }
-  if (ram[0xbaa] == 0x0e) {
+  if (ram[0xbaa] == 0x0e || native_fire_locked(ram)) {
     MmxSaberComboCancel(ram);
     MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_HURT);
     return;
@@ -197,6 +238,7 @@ static void pre_player(uint8_t *ram) {
   MmxSaberPadZero zero;
   MmxSaberPhysicalPad physical;
   MmxSaberArmorFlags armor;
+  MmxSaberFramePad pad;
 
   MmxSaberHitboxDebugSetRam(ram);
   frame_ram = ram;
@@ -215,7 +257,9 @@ static void pre_player(uint8_t *ram) {
     MmxSaberComboCancel(ram);
     MmxSaberAttackResetRam(ram);
     release_pending = false;
-    previous_y = ram && (ram[0x00ac] & 0x40) != 0;
+    pad = sample_pad(ram);
+    previous_y = pad.y_pressed;
+    previous_x = pad.x_held;
     return;
   }
 
@@ -226,13 +270,17 @@ static void pre_player(uint8_t *ram) {
     release_pending_from_special = false;
   }
 
-  physical = read_physical_pad(ram);
+  pad = sample_pad(ram);
+  physical = read_physical_pad(ram, pad);
   const bool release_pending_before = release_pending;
   saber = MmxSaberAttackPadState(release_pending);
   pre_native_saber = saber;
   MmxSaberAttackObservePreNative(ram);
+  /* A stun locks the Saber like a hit: no swing, no finisher, and the
+   * held buster charge is kept for the native state to resolve. */
+  const bool locked = native_fire_locked(ram);
   const bool finisher_claimed = MmxSaberComboPrePlayer(
-      ram, (physical.buttons & MMX_SABER_PAD_Y) != 0 &&
+      ram, !locked && (physical.buttons & MMX_SABER_PAD_Y) != 0 &&
           !(physical.prev_buttons & MMX_SABER_PAD_Y));
   /* A Saber-only frame must not create a buster charge. Once X is held, its
    * release edge, or an existing latch, the buster path remains available so
@@ -242,7 +290,7 @@ static void pre_player(uint8_t *ram) {
       (physical.prev_buttons & MMX_SABER_PAD_X) != 0 || release_pending;
   zero = (MmxSaberPadZero){
       (ram[0x0bdb] == 0) && x_charge_owned,
-      ram[0x0baa] == 0x0e,
+      ram[0x0baa] == 0x0e || locked,
       zero_dead_or_reset(ram),
       (ram[0x0bd3] & 4) || (ram[0x0bd4] & 4),
       ram[0x0bdb] != 0 && ram[0x0c00] >= 2};
@@ -288,6 +336,7 @@ static void pre_player(uint8_t *ram) {
     release_pending_from_special = true;
   release_pending = out.release_pending;
   previous_y = (physical.buttons & MMX_SABER_PAD_Y) != 0;
+  previous_x = pad.x_held;
   last_wrote_input = true;
 }
 
@@ -313,6 +362,64 @@ static unsigned player_damage(const uint8_t *ram, unsigned incoming,
   return incoming - incoming / 4;
 }
 
+/* "SABR" + layout version, then the frame's own fields and each module's
+ * snapshot in a fixed order. A blob without this header leaves the reset
+ * state that MmxZeroSetState already established. */
+enum { SABER_STATE_MAGIC = 0x52424153u, SABER_STATE_VERSION = 1u };
+typedef struct SaberFrameSavedState {
+  uint32_t magic, version;
+  bool release_pending, previous_y, previous_x;
+} SaberFrameSavedState;
+
+static size_t saved_state_size(void) {
+  return sizeof(SaberFrameSavedState) + MmxSaberAttackStateSize() +
+      MmxSaberComboStateSize() + MmxSaberPriorityStateSize() +
+      MmxSaberWaveRuntimeStateSize();
+}
+
+static void state_save(uint8_t out[]) {
+  SaberFrameSavedState frame;
+  uint8_t *cursor = out;
+  if (saved_state_size() > MMX_ZERO_EXTENSION_STATE_BYTES) return;
+  memset(&frame, 0, sizeof(frame));
+  frame.magic = SABER_STATE_MAGIC;
+  frame.version = SABER_STATE_VERSION;
+  frame.release_pending = release_pending;
+  frame.previous_y = previous_y;
+  frame.previous_x = previous_x;
+  memcpy(cursor, &frame, sizeof(frame));
+  cursor += sizeof(frame);
+  MmxSaberAttackStateSave(cursor);
+  cursor += MmxSaberAttackStateSize();
+  MmxSaberComboStateSave(cursor);
+  cursor += MmxSaberComboStateSize();
+  MmxSaberPriorityStateSave(cursor);
+  cursor += MmxSaberPriorityStateSize();
+  MmxSaberWaveRuntimeStateSave(cursor);
+}
+
+static void state_load(const uint8_t in[]) {
+  SaberFrameSavedState frame;
+  const uint8_t *cursor = in;
+  memcpy(&frame, cursor, sizeof(frame));
+  if (frame.magic != SABER_STATE_MAGIC ||
+      frame.version != SABER_STATE_VERSION ||
+      saved_state_size() > MMX_ZERO_EXTENSION_STATE_BYTES)
+    return;
+  cursor += sizeof(frame);
+  release_pending = frame.release_pending;
+  previous_y = frame.previous_y;
+  previous_x = frame.previous_x;
+  clear_frame_state();
+  MmxSaberAttackStateLoad(cursor);
+  cursor += MmxSaberAttackStateSize();
+  MmxSaberComboStateLoad(cursor);
+  cursor += MmxSaberComboStateSize();
+  MmxSaberPriorityStateLoad(cursor);
+  cursor += MmxSaberPriorityStateSize();
+  MmxSaberWaveRuntimeStateLoad(cursor);
+}
+
 static const MmxZeroExtension extension = {
     .pre_player = pre_player,
     .player_end = player_end,
@@ -330,6 +437,8 @@ static const MmxZeroExtension extension = {
     .hitbox = MmxSaberAttackHitbox,
     .collision_rom = MmxSaberAttackCollisionRom,
     .state_reset = state_reset,
+    .state_save = state_save,
+    .state_load = state_load,
     .charge_rate = charge_rate,
     .weapon_cost = weapon_cost,
 };

@@ -1,34 +1,65 @@
 # Mega Man X Recompiled
 
+## Windows frame composition
+
+The pinned shared framework uses cached HLE frame composition by default on
+Windows x64. Guest CPU, mapper, audio and status behavior keep their existing
+interfaces; this is a host presentation optimization. For the maintained
+correctness-reference compositor, configure a separate Release build with
+`cmake -S . -B build-frame-lle -DCMAKE_BUILD_TYPE=Release -DSNESRECOMP_FRAME_IMPL=LLE`,
+then `cmake --build build-frame-lle`. Selection is fixed at build time.
+LLE can reduce performance; it remains available for correctness checks. Other
+platforms keep LLE defaults, and existing CMake cache selections are preserved.
+See [HLE defaults and opt-out](snesrecomp/docs/HLE_DEFAULTS.md).
+
+The reviewed native-view, uncapped Windows route measured 340.936 to 889.911 FPS
+(+161.02%, process CPU -67.17%); it includes boot/menu work and active gameplay.
+The owner accepted the normal-paced adaptive HLE build. These figures describe
+that measured build/route, not a new measurement of subsequent upstream title
+changes or other platforms. Foreign compiler activity limits precision.
+Normal play retains normal pacing/audio. See the shared framework's
+[frame model](snesrecomp/docs/FRAME_MODEL_HOSTS.md) for the host/guest boundary.
+
 Play *Mega Man X* on PC with playable Zero, couch co-op and online netplay,
 all sixteen X2/X3 boss weapons, and adaptive widescreen. Choose Zero's original
-X3 combat or the optional Modern style with direct saber attacks, a second
-jump, and an air dash.
+X3 combat, the optional Modern style with direct saber attacks, a second
+jump, and an air dash, or [Saber Zero](#saber-zero) by RaphaelAzev.
 
 [Download](https://github.com/mstan/MegaManXSNESRecomp/releases/latest) |
 [Getting started](#quick-start-pre-built-release) | [Netplay setup](docs/netplay.md)
 
-## Saber Zero fork
+## Saber Zero
 
-This repository is a fork of [Mega Man X Recompiled](https://github.com/mstan/MegaManXSNESRecomp).
-The fork is maintained at
-[RaphaelAzev/MegaManXSNESRecompSaberZero](https://github.com/RaphaelAzev/MegaManXSNESRecompSaberZero).
-It keeps the upstream game, launcher, weapons, widescreen, and optional character
-packages, and adds the optional **Saber Zero** package described below.
+**Saber Zero** is contributed by [RaphaelAzev](https://github.com/RaphaelAzev),
+from the [MegaManXSNESRecompSaberZero](https://github.com/RaphaelAzev/MegaManXSNESRecompSaberZero)
+fork. It gives Zero a Y-button Z-Saber: a 3-hit ground combo, air, wall and dash
+slashes, the X3 finisher with its Saber wave, hit-priority follow-ups, and Ride
+Armor pilot art. The X button keeps Zero's buster and special weapons.
 
-Saber Zero is a single-player character package. It is disabled by default. In
-the launcher, provide your own **Mega Man X USA** ROM for the game and your own
-**Mega Man X3 USA** ROM in the package's resource selection, then enable
-**Characters → Saber Zero**. The package's **Starting character** option defaults
-to Zero; **Select** still performs the normal X/Zero exchange while playing.
-ROMs are never included in this repository or its releases.
+Choose **Zero behavior → Saber Zero** in **Characters → Add Zero** (single
+player; **Starting character** and native **Select** exchange are unchanged) or
+in **Characters → Co-op** (Saber belongs to whichever seat is Zero). Both use
+your own **Mega Man X3 USA** ROM selection. The optional **Characters → Saber
+Zero settings** feature tunes damage, hit priorities, finisher window, swing
+volume, and hitboxes; without it, Saber Zero uses its defaults. ROMs are never
+included in this repository or its releases.
 
 The Saber Zero sprites and sound effects come from the [Zashiko Mod](assets/saber-zero/CREDITS.md).
 They are included for non-commercial use. This project is not monetized, and
 the donor assets must not be used commercially.
 
-Saber Zero can collect X1's armor upgrades as Zero, including double jump, air
-dash, charged special weapons, and Black Zero's black-and-grey appearance.
+Saber Zero can collect X1's armor upgrades as Zero. The Head part charges the
+buster 1.5 times faster, halves X1 special-weapon energy cost, and breaks helmet
+blocks. The Body part reduces damage taken by 25%. The Arms part enables charged
+X1 special weapons and Saber charge behavior. The Legs part grants double jump
+and air dash, keeps charge through those moves, and refreshes both moves on a
+moving platform. All four parts enable Black Zero's black-and-grey appearance,
+pale hair, and grey death orbs. `start_all_upgrades` grants all four parts for
+testing.
+
+Saber Zero cannot attack while frozen by Chill Penguin. Held Fire Wave streams
+like X. A Saber slash preserves a held special-weapon charge. Zero stays visible
+in his idle stance during the armor capsule celebration.
 
 ### Saber Zero controls and attacks
 
@@ -144,20 +175,18 @@ uses colour values from the MMX3 Zero Project romhack; no ROM data is included.
 Additional Zero saber techniques and Zero-related dialogue and other cutscene
 entries remain planned.
 
-### Conflicts and unsupported modes
+### Conflicts and supported modes
 
-Saber Zero is single-player. It does not support netplay yet, and it does not
-support the upstream X / Zero co-op mode. Do not enable it with the original
-**Add Zero** package or **X / Zero Co-op** package: they are mutually exclusive.
-The manifests make Saber Zero claim the existing `megaman-x.zero` plugin key;
-the Zero plugin also guards both the co-op feature and the Saber Zero feature.
+Saber Zero is a Zero behavior for **Add Zero** and **Co-op**. It does not support
+netplay yet. Select it in the relevant feature's **Zero behavior** field; the
+Saber settings feature supplies its package options. The Zero plugin guards the
+co-op and Saber Zero paths so the same Zero seat cannot activate incompatible
+behaviors.
 
 The other preloaded manifests checked for this fork use separate plugin keys:
 X2/X3 weapons, widescreen, password saves, MSU-1, and the diagnostics packages
 do not claim `megaman-x.zero`. That is a plugin-level compatibility check, not a
-promise that every combination has been playtested. The upstream co-op and
-netplay sections later in this README describe the upstream packages, not Saber
-Zero support.
+promise that every combination has been playtested.
 
 ### Building this fork with MSYS2/MinGW
 
@@ -183,7 +212,10 @@ the build command:
 cmake -S . -B build-mingw -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DMMX_STATE_TESTS=ON
 ```
-
+The Saber sprites and sound effects come from the
+[Zashiko Mod](assets/saber-zero/CREDITS.md). They are included with permission
+for non-commercial use only. Controls, timings, the priority ladder and every
+option are in the [Saber Zero reference](docs/saber-zero.md).
 
 <a href="https://www.youtube.com/watch?v=TDysNWWJ25g">
   <img src="https://i.ytimg.com/vi/TDysNWWJ25g/maxresdefault.jpg" width="880" alt="Watch the Mega Man X Recompiled gameplay showcase on YouTube">
@@ -269,8 +301,10 @@ For couch co-op, assign a controller or keyboard to each player. For netplay,
 configure your local **Player 1** controls; the lobby assigns your game seat.
 
 P2 joins automatically at a safe stage entrance in co-op. Hold P2 **Select**
-for 1.5 seconds to withdraw, and tap it to rejoin. A player who dies remains out
-until the next stage or a team restart.
+for 1.5 seconds to withdraw, and tap it to rejoin. A player who dies can tap
+**Select** to respawn beside the partner for one of the team's lives. Respawns
+are not available during boss or miniboss fights; the request waits until the
+fight is over, or until a 1-up is collected if no lives are left.
 
 Reopen the launcher during play with **Ctrl+L** or controller **Select+L3**.
 Configure system shortcuts in **Hotkeys**. **F7** opens the save-state browser
@@ -295,10 +329,17 @@ through STUN or through TURN, and any stalls); attach it with the log. The
 file is replaced by the next match.
 
 For intermittent co-op collision problems, tick **Co-op physics diagnostics**
-under **Mods > Developer**, then play normally. Attach `logs/coop-physics-*.csv`
-and its `.previous.csv` companion if present. During netplay the same mod also
-writes `logs/coop-netplay-*.csv` with the same name stem; attach that too, from
-both players if possible. This extra tracing is off by default.
+under **Mods > Developer**, then play normally. The trace is written in 32 MiB
+numbered segments (`logs/coop-physics-<start time>-<pid>-<n>-001.csv`, `-002.csv`,
+...); the newest 32 are kept. Attach every segment of the session. During netplay
+the same mod also writes `logs/coop-netplay-*` segments with the same name stem;
+attach those too, from both players if possible. This extra tracing is off by default.
+
+To see collision boxes, tick **Hitbox overlay** under **Mods > Developer**. It
+outlines each object's native hitbox: enemies red, players green (both players in
+co-op), player shots yellow, Zero and Saber attacks cyan, enemy projectiles
+magenta. It only draws, works with or without widescreen, and does not change the
+game. Items and pickups are not outlined.
 
 <details>
 <summary>Building from source and technical details</summary>
@@ -510,6 +551,15 @@ copy.
 | `config.ini` | The config. Generated next to the exe on first run if missing. |
 
 </details>
+
+## Disassembly annotations
+
+[bogaa/dizProjects](https://github.com/bogaa/dizProjects) is pinned at
+`third_party/dizProjects`. Its X1 project supplies named gameplay routines,
+sprite/data tables and player RAM fields. The tracked [symbol metadata](symbols/README.md)
+names discovered code and adds searchable annotations during regeneration.
+Reviewed project names keep precedence. Search with
+`python tools/diz_annotations.py --query charge`.
 
 ## License
 

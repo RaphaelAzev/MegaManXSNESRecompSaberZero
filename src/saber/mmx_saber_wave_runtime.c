@@ -1,4 +1,5 @@
 #include "mmx_saber_wave_runtime.h"
+#include "mmx_saber_state.h"
 
 #include <string.h>
 
@@ -535,4 +536,31 @@ void MmxSaberWaveRuntimeCollisionRom(uint8_t *rom, size_t size) {
   collision.rom = rom;
   collision.installed = true;
   collision.ready = true;
+}
+
+typedef struct MmxSaberWaveRuntimeSavedState {
+  uint8_t next_generation;
+  uint8_t observed_stage;
+  bool observed_stage_valid;
+} MmxSaberWaveRuntimeSavedState;
+
+size_t MmxSaberWaveRuntimeStateSize(void) {
+  return sizeof(MmxSaberWaveRuntimeSavedState);
+}
+
+void MmxSaberWaveRuntimeStateSave(uint8_t *out) {
+  MmxSaberWaveRuntimeSavedState saved;
+  memset(&saved, 0, sizeof(saved));
+  saved.next_generation = next_generation;
+  saved.observed_stage = observed_stage;
+  saved.observed_stage_valid = observed_stage_valid;
+  memcpy(out, &saved, sizeof(saved));
+}
+
+void MmxSaberWaveRuntimeStateLoad(const uint8_t *in) {
+  MmxSaberWaveRuntimeSavedState saved;
+  memcpy(&saved, in, sizeof(saved));
+  next_generation = saved.next_generation;
+  observed_stage = saved.observed_stage;
+  observed_stage_valid = saved.observed_stage_valid;
 }

@@ -12,6 +12,8 @@
 #include "mmx_display.h"
 #include "mmx_renderer.h"
 #include "mmx_zero.h"
+#include "mmx_knc_bugfix.h"
+#include "mmx_hitbox_overlay.h"
 #include "mmx_weapon_combat.h"
 #include "mmx_weapons.h"
 #include "snes/cart.h"
@@ -47,7 +49,7 @@ static void MmxPrepareFrame(int dw, int dh, int *w, int *h) {
   /* A room has one logical field. Window size and each peer's offline pixel
    * preference cannot widen it. The offline setting is never overwritten. */
   SnesDisplayAspect aspect = SnesDisplayAspect_Clamp(MmxNetplayActive() ? 0 : g_config.display_aspect);
-  g_mmx_custom_renderer = !MMX_VARIANT_JP && (g_config.widescreen || MmxZeroEnabled() || MmxWeaponsEnabled());
+  g_mmx_custom_renderer = !MMX_VARIANT_JP && (g_config.widescreen || MmxZeroEnabled() || MmxWeaponsEnabled() || MmxKncBugfixActive(0) || MmxKncBugfixActive(1));
   g_mmx_custom_view = MmxRendererViewport(g_mmx_custom_aspect, dw, dh,
       aspect);
   if (!g_config.widescreen) {
@@ -86,12 +88,13 @@ static void MmxBeforeFrame(void) {
   if (g_mmx_custom_renderer) MmxRendererLatchSprites();
 }
 static void MmxResetRenderer(void) {
+  MmxKncBugfixReset();
   MmxRendererReset();
   s_render_valid = false;
 }
 static void MmxBeginFrame(unsigned number) {
   (void)number;
-  if (!g_mmx_custom_renderer) return;
+  if (!g_mmx_custom_renderer) { MmxHitboxOverlayBeginStockFrame(); return; }
   uint32_t flags = g_config.new_renderer ? kPpuRenderFlags_NewRenderer : 0;
   if (g_config.no_sprite_limits) flags |= kPpuRenderFlags_NoSpriteLimits;
   PpuBeginDrawing(g_ppu, g_ppu->renderBuffer, 256 * 4, flags);
@@ -118,8 +121,14 @@ static void MmxEndFrame(const uint8_t *field, unsigned number) {
 static int MmxDrawFrame(uint8_t *dst, size_t pitch, const uint8_t *field,
                         int w, int h, double alpha) {
   (void)alpha;
-  if (!g_mmx_custom_renderer) return 0;
   static uint32_t output[MMX_RENDER_MAX_WIDTH * 224];
+  if (!g_mmx_custom_renderer) {
+    /* The overlay never enables the compositor: that also widens culling
+     * and spawn policy, which would make a drawing aid change the game. */
+    if (w != 256 || h != 224 || !MmxHitboxOverlayDrawStock(output, field)) return 0;
+    RtlWidescreenPresent(dst, pitch, (const uint8_t *)output, w, h);
+    return 1;
+  }
   if (!s_render_valid || !MmxRendererDraw(output, g_mmx_custom_view, g_mmx_custom_hud)) {
     memset(output, 0, (size_t)w * h * sizeof(*output));
     for (int y = 0; y < h; ++y)

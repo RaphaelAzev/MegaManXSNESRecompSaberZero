@@ -35,10 +35,15 @@ typedef struct MmxZeroExtension {
                        unsigned value);
   int (*burst_origin_y)(const uint8_t *ram, unsigned shot_index,
                         int native_y, int paired_y);
+  /* Savestate and rollback: the owner's host-side state as a fixed blob.
+   * Load must ignore a blob it did not write (e.g. all zeros). */
+  void (*state_save)(uint8_t out[]);
+  void (*state_load)(const uint8_t in[]);
   unsigned (*charge_rate)(void);                    /* Q8.8 per frame; 0 = default 0x100 */
   uint16_t (*death_orb_color)(uint16_t native);     /* Zero-owned death-orb pixel */
   unsigned (*weapon_cost)(unsigned weapon_id, unsigned cost, bool charged);
 } MmxZeroExtension;
+enum { MMX_ZERO_EXTENSION_STATE_BYTES = 2048 };
 typedef struct MmxZeroState {
   uint16_t charge, slash, projectile;
   /* Reuses the formerly unused cooldown byte without changing save layout. */
@@ -60,7 +65,15 @@ typedef struct MmxZeroState {
  * MmxZeroResetState(); the owner must clear it with MmxZeroSetExtension(NULL)
  * during its own reset. */
 void MmxZeroSetExtension(const MmxZeroExtension *ext);
+/* Co-op runs the player routine once per seat. The gate says whether the
+ * current seat owns the extension; NULL means it always does. Per-frame and
+ * per-hit callbacks are skipped while the gate is false, leaving the owner's
+ * state untouched for its own seat. */
+void MmxZeroSetExtensionGate(bool (*gate)(void));
 void MmxZeroExtPrePlayer(uint8_t *ram);
+/* Zero-filled when no extension is set. Load runs after MmxZeroSetState. */
+void MmxZeroExtSaveState(uint8_t out[MMX_ZERO_EXTENSION_STATE_BYTES]);
+void MmxZeroExtLoadState(const uint8_t in[MMX_ZERO_EXTENSION_STATE_BYTES]);
 void MmxZeroExtPlayerEnd(uint8_t *ram);
 bool MmxZeroLoad(const char *path);
 void MmxZeroDisable(void);
@@ -116,6 +129,9 @@ unsigned MmxZeroHitbox(const uint8_t ram[0x20000], unsigned enemy, unsigned proj
 MmxZeroState MmxZeroGetState(void);
 bool MmxZeroValidState(const MmxZeroState *state);
 void MmxZeroSetState(MmxZeroState state);
+/* A co-op seat exchange: as MmxZeroSetState, but the extension keeps its
+ * state, which follows the seat it belongs to rather than the live seat. */
+void MmxZeroSelectState(MmxZeroState state);
 void MmxZeroResetState(void);
 /* Start new sessions as X instead of Zero; both remain exchangeable. */
 void MmxZeroSetStartCharacter(bool x);

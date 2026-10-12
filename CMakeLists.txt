@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(MegaManXSNESRecomp VERSION 2.1.4 LANGUAGES C CXX)
+project(MegaManXSNESRecomp VERSION 2.1.8 LANGUAGES C CXX)
 set(CMAKE_C_STANDARD 11)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/mmx_weapon_sources.h"
@@ -43,9 +43,9 @@ function(add_mmx_variant TARGET GEN_DIR CFG_DIR)
         src/mmx_00.c src/gen_stubs.c src/mmx_cpu_infra.c src/mmx_rtl.c
         src/mmx_spc_player.c src/mods/mmx_diagnostics_plugin.c
         src/mods/mmx_widescreen_plugin.c src/mods/mmx_msu1_plugin.c
-        src/mods/mmx_password_plugin.c src/mmx_password_save.cpp
-        src/mods/mmx_zero_plugin.c src/mmx_zero.c src/mmx_weapons.c src/mmx_weapon_combat.c src/mmx_coop.c src/mmx_coop_trace.c src/mmx_coop_view.c
-        src/mmx_source_assets.cpp "${CMAKE_CURRENT_BINARY_DIR}/mmx_weapon_sources.h")
+        src/mods/mmx_hadouken_plugin.c src/mods/mmx_password_plugin.c src/mmx_password_save.cpp
+        src/mods/mmx_zero_plugin.c src/mmx_zero.c src/mmx_weapons.c src/mmx_weapon_combat.c src/mmx_knc_bugfix.c src/mmx_coop.c src/mmx_coop_trace.c src/mmx_coop_view.c
+        src/mmx_hitbox_overlay.c src/mmx_source_assets.cpp "${CMAKE_CURRENT_BINARY_DIR}/mmx_weapon_sources.h")
     target_compile_features(${TARGET} PRIVATE cxx_std_17)
     target_include_directories(${TARGET} PRIVATE
         ${CFG_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src

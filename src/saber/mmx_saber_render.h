@@ -3,6 +3,7 @@
 #include <stdbool.h>
 
 #include "mmx_renderer.h"
+#include "../mmx_zero.h"
 #include "mmx_saber_assets.h"
 #include "mmx_saber_attack.h"
 #include "mmx_saber_wave.h"
@@ -22,8 +23,11 @@ bool MmxSaberRenderResolveRide(const MmxSaberAssets *assets,
                                const uint8_t *ram,
                                MmxRenderPlayerOverlay *out);
 
-/* Resolve the current live Saber attack state against the loaded sidecar. */
+/* Resolve the current live Saber attack state against the loaded sidecar.
+ * The charge flash follows `zero`, the state of the seat whose body is being
+ * drawn; NULL uses the live Zero state. */
 bool MmxSaberRenderResolve(const MmxSaberAssets *assets,
+                           const MmxZeroState *zero,
                            MmxRenderPlayerOverlay *out);
 
 /* Resolve one live X3 wave against its validated sidecar. */

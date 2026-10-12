@@ -1,16 +1,18 @@
 # Saber Zero reference
 
-Saber Zero is an optional, single-player character package in this fork of
-[Mega Man X Recompiled](https://github.com/mstan/MegaManXSNESRecomp). It uses
-the X3 Zero character shell and adds a Saber attack owner, X3 finisher/wave
-sequence, priority-aware follow-ups, donor sprites and sound effects, Ride
-Armor pilot art, X1 armor upgrades, Black Zero, and an optional hitbox overlay.
+Saber Zero was written by [RaphaelAzev](https://github.com/RaphaelAzev) in the
+[MegaManXSNESRecompSaberZero](https://github.com/RaphaelAzev/MegaManXSNESRecompSaberZero)
+fork and merged here. It is a **Zero behavior**, alongside X3 and Modern: it
+keeps the X3 Zero character and adds a Saber attack owner, the X3
+finisher/wave sequence, priority-aware follow-ups, donor sprites and sound
+effects, Ride Armor pilot art, X1 armor upgrades, Black Zero, and an optional
+hitbox overlay.
 
-The package is disabled by default. Enable **Characters → Saber Zero** in the
-launcher, choose the player's **Mega Man X USA** ROM for the game, and provide a
-**Mega Man X3 USA** ROM when the package asks for its resource. ROMs are never
-included. The **Starting character** option defaults to Zero, and Select still
-uses the native X/Zero exchange when the game is in a valid exchange state.
+Choose **Zero behavior → Saber Zero** in **Characters → Add Zero** (single
+player; **Starting character** and the native Select exchange are unchanged) or
+in **Characters → Co-op** (Saber belongs to whichever seat is Zero). Both
+features already ask for the player's **Mega Man X3 USA** ROM; Saber Zero uses
+that same selection. ROMs are never included.
 
 The package's sprite and sound-effect donors are credited in
 [assets/saber-zero/CREDITS.md](../assets/saber-zero/CREDITS.md). They are by
@@ -168,11 +170,17 @@ absent hook preserves the original behavior:
 | `weapon_cost` | Adjust a weapon's energy cost. |
 | `death_orb_color` | Supply a Zero-owned death-orb pixel color. |
 
-## Package options and defaults
+## Saber Zero settings
 
-The manifest exposes `start`, `start_all_upgrades`, 31 numeric tuning options, and
-`show_hitboxes`. Normal damage values accept 1–32; boss damage accepts 0–32,
+Tuning lives in the separate **Characters → Saber Zero settings** feature
+(`megaman-x.character.saber-zero`), which claims no plugin and does nothing
+unless a Zero behavior is Saber Zero. While it is disabled every option keeps
+the default below, even if a different value was stored earlier: a disabled
+feature is left out of the netplay mod comparison, so its values must not reach
+the game either. It exposes 31 numeric tuning options and `show_hitboxes`. Normal damage values accept 1–32; boss damage accepts 0–32,
 where 0 means “use the matching normal value”; priority values accept 1–9.
+The manifest also exposes `start` and `start_all_upgrades`; the table includes
+their defaults.
 The window ranges are 30–120 frames for priority and 12–60 frames for the
 finisher. Swing volume ranges from 0–200 in steps of 10.
 
@@ -184,16 +192,28 @@ finisher. Swing volume ranges from 0–200 in steps of 10.
 | Priority | `slash1_priority=2`, `slash2_priority=3`, `slash3_priority=4`, `air_priority=1`, `wall_priority=1`, `dash_priority=5`, `charge_small_priority=1`, `charge_full_priority=1`, `max_shot1_priority=2`, `max_shot2_priority=3`, `x3_finisher_priority=4`, `wave_priority=5` |
 | Windows/audio | `priority_window_frames=70`, `finisher_window_frames=27`, `saber_swing_volume=50` |
 
-## Conflicts and known limitations
+## Co-op, savestates and netplay
 
-Saber Zero is not a co-op character implementation. Netplay and the upstream
-X / Zero Co-op mode are unsupported for this package. The original **Add Zero**
-package and **X / Zero Co-op** are mutually exclusive with Saber Zero: Saber
-Zero and Add Zero both claim the `megaman-x.zero` plugin key, while co-op claims
-both its own key and that same character key. The Zero plugin contains explicit
-guards for co-op and Saber Zero. Other preloaded packages checked for this fork
-use different plugin keys; that check does not replace testing a particular mod
-combination.
+Co-op runs the player routine once per seat. Saber's per-frame and per-hit
+callbacks run only on Zero's seat; X's pass and co-op "ghost" replays leave
+Saber state untouched, and a co-op seat exchange keeps it (it uses
+`MmxZeroSelectState`, which does not reset the Zero extension). In co-op the
+Saber pad is the seat's own X and Y, not port 1. A partner-seat Zero is drawn
+with the Saber overlay as well; the Ride Armor pilot sheet is applied only to
+the live seat, so a partner Zero piloting a Ride Armor keeps the native cockpit
+art.
+
+Saber's host-side state (attack, combo, hit priority, wave bookkeeping and the
+pad edges) is part of the savestate as a fixed Zero-extension blob (chunk v18),
+so rewind, save states and netplay rollback restore a swing in progress instead
+of cancelling it. Older saves load with Saber reset.
+
+## Known limitations
+
+With **Show hitboxes** in co-op, the Zero box follows the live seat, which may
+be X. The **Developer → Hitbox overlay** mod outlines both seats and takes over
+from this option when both are on. Saber Zero, Add Zero and Co-op remain the only features that use the
+`megaman-x.zero` plugin key; Saber Zero settings uses none.
 
 The fuzz test has not been run. The only boss-death issue found in the current
 survey was Chill Penguin's native post-hit protection, and it is fixed. Other
@@ -206,8 +226,9 @@ entries remain planned.
 
 ## Running the tests
 
-Run the fork's prepared MinGW build from Git Bash. The commands below do not
-reconfigure CMake:
+These are RaphaelAzev's MinGW commands from the fork. The ROM-backed runner
+also needs private save fixtures under `_private/saves`. The commands below do
+not reconfigure CMake:
 
 ```bash
 export PATH="/c/msys64/mingw64/bin:$PATH"

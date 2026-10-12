@@ -1,4 +1,5 @@
 #include "mmx_saber_priority.h"
+#include "mmx_saber_state.h"
 
 #include <string.h>
 
@@ -562,4 +563,16 @@ uint8_t MmxSaberPriorityEnemyGeneration(const uint8_t *ram,
   if (!ram || index >= MMX_SABER_PRIORITY_ENEMY_SLOT_COUNT) return 0;
   sync_enemies(ram);
   return state.enemy_generation[index];
+}
+
+size_t MmxSaberPriorityStateSize(void) {
+  return sizeof(state);
+}
+
+void MmxSaberPriorityStateSave(uint8_t *out) {
+  memcpy(out, &state, sizeof(state));
+}
+
+void MmxSaberPriorityStateLoad(const uint8_t *in) {
+  memcpy(&state, in, sizeof(state));
 }
