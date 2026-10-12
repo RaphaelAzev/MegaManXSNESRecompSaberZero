@@ -6608,31 +6608,40 @@ static unsigned native_player_damage(unsigned damage) {
 }
 
 static void saber_body_damage_case(const char *who, unsigned damage,
-                                   unsigned upgrades) {
+                                   unsigned upgrades,
+                                   unsigned expected_body) {
   unsigned lost_plain, lost_body;
-  const unsigned halved = (damage >> 1) + (damage & 1);
   g_ram[0x1f99] = (uint8_t)(upgrades & ~0x04u);
   lost_plain = native_player_damage(damage);
   g_ram[0x1f99] = (uint8_t)(upgrades | 0x04u);
   lost_body = native_player_damage(damage);
   printf("reference: saber-body-damage %s dmg=%u no-body=%u body=%u\n",
          who, damage, lost_plain, lost_body);
-  check(lost_plain == damage, "native damage without body armor is full");
-  check(lost_body == halved,
-        "native damage with body armor is halved, rounding odd values up");
+  check(lost_plain == damage, "damage without body armor is full");
+  check(lost_body == expected_body,
+        "body armor damage matches the active character rule");
 }
 
 static void saber_body_damage_checks(const char *fixture) {
+  static const unsigned damage[] = {1, 3, 4, 10, 11};
+  static const unsigned zero_body[] = {1, 3, 3, 8, 9};
+  static const unsigned x_body[] = {1, 2, 2, 5, 6};
+  unsigned i;
+
   load_fixture(fixture);
   MmxSaberFrameReset();
   check(MmxZeroActive(), "saber-body-damage starts as Saber Zero");
-  saber_body_damage_case("zero", 10, g_ram[0x1f99]);
-  saber_body_damage_case("zero", 11, g_ram[0x1f99]);
+  for (i = 0; i < sizeof(damage) / sizeof(damage[0]); ++i)
+    saber_body_damage_case("zero", damage[i], g_ram[0x1f99],
+                           zero_body[i]);
+
   load_fixture(fixture);
   MmxSaberFrameReset();
   switch_to_x();
-  saber_body_damage_case("x", 10, g_ram[0x1f99]);
-  saber_body_damage_case("x", 11, g_ram[0x1f99]);
+  for (i = 0; i < sizeof(damage) / sizeof(damage[0]); ++i)
+    saber_body_damage_case("x", damage[i], g_ram[0x1f99],
+                           x_body[i]);
+
   puts("ok: saber-body-damage");
 }
 

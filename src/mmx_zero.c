@@ -477,6 +477,12 @@ unsigned MmxZeroWeaponCost(unsigned weapon_id, unsigned cost, bool charged) {
     return cost;
   return extension->weapon_cost(weapon_id, cost, charged);
 }
+unsigned MmxZeroPlayerDamage(const uint8_t ram[0x20000], unsigned incoming,
+                             unsigned native) {
+  if (!MmxZeroActive() || !extension || !extension->player_damage)
+    return native;
+  return extension->player_damage(ram, incoming, native);
+}
 
 static bool own_projectile(const uint8_t *r, unsigned d) {
   return d >= 0x1228 && d < 0x1428 && (d & 63) == 0x28 &&

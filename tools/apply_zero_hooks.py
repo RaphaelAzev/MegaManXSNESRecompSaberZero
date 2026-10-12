@@ -15,7 +15,7 @@ WEAPON_COST_SITES = {
 }
 RESPONSE_BLOCKS = {0x849e15, 0x049e15}
 RESPONSE_PCS = {0x849e45, 0x049e45}
-REQUIRED = PCS | MUZZLE_PCS | ORIGIN_PCS.keys() | RESPONSE_PCS | {0x009da6, 0x81815c, 0x818165, 0x00d3e5, 0x849e15, 0x849e3a, 0x849e73, 0x849c16, 0x848f07, 0x848eea, 0x8491db, 0x82823e, 0x8194af, 0x818ae8}
+REQUIRED = PCS | MUZZLE_PCS | ORIGIN_PCS.keys() | RESPONSE_PCS | {0x009da6, 0x81815c, 0x818165, 0x00d3e5, 0x849e15, 0x849e3a, 0x849e73, 0x849c16, 0x848f07, 0x848eea, 0x8491db, 0x82823e, 0x8194af, 0x818ae8, 0x849f59}
 REQUIRED |= {site[0] for site in WEAPON_COST_SITES.values()}
 OPTIONAL = {0x00d4f2, 0x00d50f}  # Current enemy loops run through the interpreter.
 REQUIRED |= {0x049e15, 0x049e3a}  # Compiled low-bank mirror of native contact.
@@ -45,6 +45,9 @@ def apply(text):
             if store and int(store[1] == '8') == axis:
                 output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern unsigned MmxZeroWeaponOrigin(const uint8_t *, unsigned, unsigned, unsigned); {store[2]} = (uint16)MmxZeroWeaponOrigin(g_ram, cpu->D, {axis}, {store[2]}); cpu_write_a_m(cpu, {store[2]}); }}\n')
                 found.add(pc)
+        if pc == 0x849f59 and 'uint8 ' in line and 'cpu_read8' in line and '0x0bcf' in line:
+            output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern unsigned MmxZeroPlayerDamage(const uint8_t *, unsigned, unsigned); g_ram[0x0000] = (uint8)MmxZeroPlayerDamage(g_ram, g_ram[0x0bce], g_ram[0x0000]); }}\n')
+            found.add(pc)
         output.append(line)
         if (pc & 0x7fffff) == 0x049e15:
             load = re.search(r'uint16 (_v\d+) = cpu_read16\(cpu,', line) if '0x000a' in line and 'cpu->X' in line else None

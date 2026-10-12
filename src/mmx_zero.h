@@ -24,6 +24,7 @@ typedef struct MmxZeroExtension {
   const uint16_t *(*colors)(const uint16_t *native); /* 128-entry replacement or NULL */
   unsigned (*weapon_tick)(uint8_t *ram, unsigned d, unsigned value);
   unsigned (*damage)(uint8_t *ram, unsigned d, unsigned x, unsigned value);
+  unsigned (*player_damage)(const uint8_t *ram, unsigned incoming, unsigned native);
   unsigned (*hitbox)(const uint8_t *ram, unsigned d, unsigned x, unsigned value);
   bool (*legacy_intent)(const uint8_t *ram, MmxZeroLegacyIntent *intent); /* true = override */
   unsigned (*charge_cap)(void);                       /* 0 = no cap */
@@ -96,6 +97,8 @@ bool MmxZeroSlideHold(uint8_t ram[0x20000], unsigned pc);
 void MmxZeroSlideTick(uint8_t ram[0x20000]);
 unsigned MmxZeroUpgradeBits(unsigned pc, unsigned original);
 unsigned MmxZeroWeaponCost(unsigned weapon_id, unsigned cost, bool charged);
+unsigned MmxZeroPlayerDamage(const uint8_t ram[0x20000], unsigned incoming,
+                             unsigned native);
 void MmxZeroPlayerTick(uint8_t ram[0x20000]);
 void MmxZeroPlayerEnd(uint8_t ram[0x20000]);
 unsigned MmxZeroChargeTier(const MmxZeroState *snapshot);

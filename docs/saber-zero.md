@@ -144,7 +144,7 @@ the password like collected parts.
 |------|--------|
 | Legs (`$08`) | Double jump and air dash. Standing on a moving platform refreshes both aerial moves because platform contact counts as ground. Zero's ground dash remains innate. |
 | Arms (`$02`) | Purple saber blade and Saber wave. Adds 2 damage to every Saber attack, or 1 against bosses, after tuned damage and before the 32-point cap. A full buster charge fires charged X1 special weapons. |
-| Body (`$04`) | X1's native damage halving. Odd damage rounds up. |
+| Body (`$04`) | Reduces damage Saber Zero takes by 25% (damage minus a quarter, rounded down). X keeps X1's halving. |
 | Head (`$01`) | Buster charges at 1.5 times the normal rate. X1 special weapons cost half energy using fixed-point accounting, so whole-unit costs alternate. Breaks the helmet blocks X breaks in Flame Mammoth. |
 | All four parts | Black Zero: black and grey armor with pale hair. The appearance also applies on death and boss defeat. Death orbs use grey. |
 

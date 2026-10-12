@@ -304,6 +304,15 @@ static int burst_origin_y(const uint8_t *ram, unsigned shot_index,
   return shot_index == 0 ? paired_y : native_y;
 }
 
+static unsigned player_damage(const uint8_t *ram, unsigned incoming,
+                              unsigned native) {
+  /* Body armor reduces Saber Zero's damage by 25%. */
+  if (!ram || !MmxSaberEnabled() ||
+      !MmxSaberArmorDecode(ram[MMX_SABER_ARMOR_RAM_OFFSET]).body)
+    return native;
+  return incoming - incoming / 4;
+}
+
 static const MmxZeroExtension extension = {
     .pre_player = pre_player,
     .player_end = player_end,
@@ -317,6 +326,7 @@ static const MmxZeroExtension extension = {
     .response = MmxSaberPriorityResponse,
     .weapon_tick = MmxSaberAttackWeaponTick,
     .damage = MmxSaberAttackDamage,
+    .player_damage = player_damage,
     .hitbox = MmxSaberAttackHitbox,
     .collision_rom = MmxSaberAttackCollisionRom,
     .state_reset = state_reset,
