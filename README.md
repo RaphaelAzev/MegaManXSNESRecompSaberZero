@@ -50,7 +50,8 @@ the donor assets must not be used commercially.
 
 Saber Zero can collect X1's armor upgrades as Zero. The Head part charges the
 buster 1.5 times faster, halves X1 special-weapon energy cost, and breaks helmet
-blocks. The Body part reduces damage taken by 25%. The Arms part enables charged
+blocks. The Body part reduces all enemy damage taken by 25% for Saber Zero,
+including contact and hits; X keeps native halving. The Arms part enables charged
 X1 special weapons and Saber charge behavior. The Legs part grants double jump
 and air dash, keeps charge through those moves, and refreshes both moves on a
 moving platform. All four parts enable Black Zero's black-and-grey appearance,

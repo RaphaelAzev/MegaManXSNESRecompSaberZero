@@ -146,7 +146,7 @@ the password like collected parts.
 |------|--------|
 | Legs (`$08`) | Double jump and air dash. Standing on a moving platform refreshes both aerial moves because platform contact counts as ground. Zero's ground dash remains innate. |
 | Arms (`$02`) | Purple saber blade and Saber wave. Adds 2 damage to every Saber attack, or 1 against bosses, after tuned damage and before the 32-point cap. A full buster charge fires charged X1 special weapons. |
-| Body (`$04`) | Reduces damage Saber Zero takes by 25% (damage minus a quarter, rounded down). X keeps X1's halving. |
+| Body (`$04`) | Reduces all enemy damage Saber Zero takes by 25%, including contact and hits (damage minus a quarter, rounded down). X keeps X1's native halving. |
 | Head (`$01`) | Buster charges at 1.5 times the normal rate. X1 special weapons cost half energy using fixed-point accounting, so whole-unit costs alternate. Breaks the helmet blocks X breaks in Flame Mammoth. |
 | All four parts | Black Zero: black and grey armor with pale hair. The appearance also applies on death and boss defeat. Death orbs use grey. |
 
@@ -168,6 +168,7 @@ absent hook preserves the original behavior:
 | `modern_movement` | Enable aerial modern movement actions. |
 | `charge_rate` | Supply the charge increment in Q8.8 fixed-point units per frame. |
 | `weapon_cost` | Adjust a weapon's energy cost. |
+| `player_damage` | Adjust incoming enemy damage, including contact and hits. |
 | `death_orb_color` | Supply a Zero-owned death-orb pixel color. |
 
 ## Saber Zero settings
@@ -194,19 +195,23 @@ finisher. Swing volume ranges from 0–200 in steps of 10.
 
 ## Co-op, savestates and netplay
 
-Co-op runs the player routine once per seat. Saber's per-frame and per-hit
-callbacks run only on Zero's seat; X's pass and co-op "ghost" replays leave
-Saber state untouched, and a co-op seat exchange keeps it (it uses
-`MmxZeroSelectState`, which does not reset the Zero extension). In co-op the
-Saber pad is the seat's own X and Y, not port 1. A partner-seat Zero is drawn
-with the Saber overlay as well; the Ride Armor pilot sheet is applied only to
-the live seat, so a partner Zero piloting a Ride Armor keeps the native cockpit
-art.
+Co-op runs the player routine once per seat. Every Saber rule follows the seat
+that is Saber Zero, whether P1 or P2, including body armor: that seat takes 25%
+less enemy damage from contact and hits; an X seat keeps native halving. Saber's
+per-frame and per-hit callbacks run only on Zero's seat; X's pass and co-op
+"ghost" replays leave Saber state untouched, and a co-op seat exchange keeps it
+(it uses `MmxZeroSelectState`, which does not reset the Zero extension). In
+co-op the Saber pad is the seat's own X and Y, not port 1. A partner-seat Zero
+is drawn with the Saber overlay as well; the Ride Armor pilot sheet is applied
+only to the live seat, so a partner Zero piloting a Ride Armor keeps the native
+cockpit art.
 
-Saber's host-side state (attack, combo, hit priority, wave bookkeeping and the
-pad edges) is part of the savestate as a fixed Zero-extension blob (chunk v18),
-so rewind, save states and netplay rollback restore a swing in progress instead
-of cancelling it. Older saves load with Saber reset.
+Saber's host-side state (attack, combo, hit priority, wave bookkeeping, pad
+edges, and special-charge release ownership) is part of the savestate as a
+fixed Zero-extension blob, version 2. A save state taken mid-slash resumes the
+slash with its hitbox. Rewind and netplay rollback restore the same consistent
+Saber state. The special-charge release latch survives save/load. Older Saber
+data loads with the in-progress Saber state fully reset.
 
 ## Known limitations
 
