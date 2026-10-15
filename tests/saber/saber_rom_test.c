@@ -10268,6 +10268,48 @@ static MmxSaberAttackSnapshot saber_specials_unlock_dash(
   return MmxSaberAttackSnapshotGet();
 }
 
+static MmxSaberAttackSnapshot saber_specials_ground_up_y(
+    const char *path, unsigned expected_defeated, unsigned target_index) {
+  saber_specials_unlock_load(path, expected_defeated);
+  if (target_index == 2) {
+    /* Leave a NATURAL reason behind, so GROUND3 must use the central exit. */
+    frame(SNES_PAD_Y);
+    for (unsigned tick = 1; tick < OLD_SABER_GROUND1_TOTAL; ++tick)
+      frame(0);
+    frame(0);
+  }
+  frame(SNES_PAD_Y);
+  if (target_index >= 1) {
+    for (unsigned tick = 1; tick < OLD_SABER_GROUND1_CHAIN_OPEN; ++tick)
+      frame(0);
+    frame(SNES_PAD_Y);
+  }
+  if (target_index >= 2) {
+    for (unsigned tick = 1; tick < OLD_SABER_GROUND2_CHAIN_OPEN; ++tick)
+      frame(0);
+    frame(SNES_PAD_Y);
+  }
+  frame(0);
+  if (target_index == 0) {
+    for (unsigned tick = 1; tick <= OLD_SABER_GROUND1_STARTUP; ++tick)
+      frame(0);
+  }
+  frame(SNES_PAD_UP | SNES_PAD_Y);
+  return MmxSaberAttackSnapshotGet();
+}
+
+static MmxSaberAttackSnapshot saber_specials_dash_up_y(
+    const char *path, unsigned expected_defeated) {
+  saber_specials_unlock_load(path, expected_defeated);
+  check(start_saber_dash_right(0) != 0,
+        "saber-specials-unlock cancel route reaches native action $14");
+  frame(SNES_PAD_A | SNES_PAD_RIGHT | SNES_PAD_Y);
+  frame(SNES_PAD_A | SNES_PAD_RIGHT);
+  frame(SNES_PAD_A | SNES_PAD_RIGHT);
+  frame(SNES_PAD_A | SNES_PAD_RIGHT | SNES_PAD_UP | SNES_PAD_Y);
+  return MmxSaberAttackSnapshotGet();
+}
+
 static void saber_specials_unlock_checks(const char *x1_rom,
                                          const char *x3_rom,
                                          const char *fixture,
@@ -10371,6 +10413,37 @@ static void saber_specials_unlock_checks(const char *x1_rom,
   check(snapshot.kind == SABER_KIND_WALL &&
             snapshot.phase != SABER_PHASE_IDLE,
         "armadillo-fight wall Up+Y keeps wall slash priority");
+
+  /* Mutation red: broaden the cancel predicate to GROUND1/GROUND2. */
+  snapshot = saber_specials_ground_up_y(capsule, 2, 0);
+  check(snapshot.kind == SABER_KIND_GROUND1 &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "capsule (2 defeated) Up+Y during GROUND1 keeps GROUND1");
+  snapshot = saber_specials_ground_up_y(capsule, 2, 1);
+  check(snapshot.kind == SABER_KIND_GROUND2 &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "capsule (2 defeated) Up+Y during GROUND2 keeps GROUND2");
+
+  /* Mutation red: remove GROUND3 from the live cancel branch, or skip the
+   * central CONTEXT exit before starting the uppercut. */
+  snapshot = saber_specials_ground_up_y(capsule, 2, 2);
+  check(snapshot.kind == SABER_KIND_UPPERCUT &&
+            snapshot.phase != SABER_PHASE_IDLE &&
+            MmxSaberAttackLastExitReason() == MMX_SABER_ATTACK_EXIT_CONTEXT,
+        "capsule (2 defeated) Up+Y during GROUND3 starts uppercut via CONTEXT");
+
+  /* Mutation red: remove DASH from the same cancel branch. */
+  snapshot = saber_specials_dash_up_y(capsule, 2);
+  check(snapshot.kind == SABER_KIND_UPPERCUT &&
+            snapshot.phase != SABER_PHASE_IDLE &&
+            MmxSaberAttackLastExitReason() == MMX_SABER_ATTACK_EXIT_CONTEXT,
+        "capsule (2 defeated) dash Up+Y starts uppercut via CONTEXT");
+
+  /* Mutation red: ignore the unlock threshold for live cancellation. */
+  snapshot = saber_specials_dash_up_y(fixture, 0);
+  check(snapshot.kind == SABER_KIND_DASH &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "save0 (0 defeated) dash Up+Y does not cancel while locked");
 
   /* SYNTHETIC: no real fixture with 3 clears exists yet. Add one measured
    * Launch Octopus clear bit to the real two-clear capsule RAM only. */
@@ -10627,6 +10700,16 @@ static unsigned saber_uppercut_standing_trace(
   return all_airborne ? SABER_UPPERCUT_DASH_FRAMES : 0;
 }
 
+static void saber_uppercut_set_height(const char *value, int expected) {
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, "megaman-x.character.saber-zero",
+            "saber-zero", "uppercut_height", value),
+        "saber-uppercut sets the uppercut_height option");
+  snes_mod_runtime_activate_plugins_c();
+  check(MmxSaberEnabled() && MmxSaberTuningUppercutHeight() == expected,
+        "saber-uppercut reactivation applies uppercut_height");
+}
+
 static void saber_uppercut_checks(const char *fixture_dir) {
   char capsule[4096];
   int written;
@@ -10634,6 +10717,8 @@ static void saber_uppercut_checks(const char *fixture_dir) {
   unsigned native_short[SABER_UPPERCUT_ARC_CAPACITY];
   SaberUppercutArc held;
   SaberUppercutArc short_hop;
+  SaberUppercutArc height_100_held;
+  SaberUppercutArc height_100_short;
   SaberDashSample native_dash[SABER_UPPERCUT_DASH_FRAMES];
   SaberDashSample uppercut_dash[SABER_UPPERCUT_DASH_FRAMES];
   SaberDashSample standing[SABER_UPPERCUT_DASH_FRAMES];
@@ -10652,7 +10737,7 @@ static void saber_uppercut_checks(const char *fixture_dir) {
         "saber-uppercut capsule fixture path fits");
   check(readable_file(capsule), "saber-uppercut capsule fixture exists");
 
-  /* Mutation red: stop injecting the native jump while Y is held. */
+  /* Mutation red: ignore uppercut_height or scale VY after native gravity. */
   saber_specials_unlock_load(capsule, 2);
   check(saber_test_grounded(),
         "saber-uppercut held comparison starts on capsule standing ground");
@@ -10663,40 +10748,69 @@ static void saber_uppercut_checks(const char *fixture_dir) {
       saber_uppercut_min_y_frame(native_held, native_held_count);
   const unsigned held_apex =
       saber_uppercut_min_y_frame(held.y, held.count);
+  const unsigned native_height =
+      native_held[0] - native_held[native_held_apex];
+  const unsigned held_height = held.y[0] - held.y[held_apex];
   saber_uppercut_print_y("native-held", native_held, native_held_count);
   saber_uppercut_print_y("uppercut-held", held.y, held.count);
-  check(native_held_count != 0 && held.count == native_held_count &&
-            native_held[0] == held.y[0] &&
-            saber_uppercut_y_match(native_held, held.y, native_held_apex) &&
-            native_held[native_held_apex] == held.y[held_apex],
-        "held uppercut Y arc matches native B-held jump through its apex");
+  check(MmxSaberTuningUppercutHeight() == 130 &&
+            native_held_count != 0 && held.count != 0 &&
+            native_held[0] == held.y[0] && held_height >= 62 &&
+            held_height <= 76 && held_height > native_height,
+        "default 130 percent uppercut rises 62..76 pixels above native start");
+
+  saber_uppercut_set_height("100", 100);
+  height_100_held = saber_uppercut_arc(capsule, 0);
+  const unsigned height_100_apex =
+      saber_uppercut_min_y_frame(height_100_held.y, height_100_held.count);
+  saber_uppercut_print_y("uppercut-100-held", height_100_held.y,
+                         height_100_held.count);
+  check(native_held_count != 0 && height_100_held.count == native_held_count &&
+            native_held[0] == height_100_held.y[0] &&
+            saber_uppercut_y_match(native_held, height_100_held.y,
+                                   native_held_apex) &&
+            native_held[native_held_apex] ==
+                height_100_held.y[height_100_apex],
+        "uppercut_height=100 keeps the native B-held arc byte-identical");
 
   /* Mutation red: ignore uppercut Y release and keep the full jump hold. */
   const unsigned native_short_count =
       saber_uppercut_record_jump_arc(capsule, true, native_short);
-  short_hop = saber_uppercut_arc(capsule, 6);
+  height_100_short = saber_uppercut_arc(capsule, 6);
   const unsigned native_short_apex =
       saber_uppercut_min_y_frame(native_short, native_short_count);
-  const unsigned short_apex =
-      saber_uppercut_min_y_frame(short_hop.y, short_hop.count);
+  const unsigned height_100_short_apex =
+      saber_uppercut_min_y_frame(height_100_short.y, height_100_short.count);
   saber_uppercut_print_y("native-short", native_short, native_short_count);
-  saber_uppercut_print_y("uppercut-short", short_hop.y, short_hop.count);
-  const unsigned held_height = native_held[0] - native_held[native_held_apex];
+  saber_uppercut_print_y("uppercut-100-short", height_100_short.y,
+                         height_100_short.count);
   const unsigned short_height =
       native_short[0] - native_short[native_short_apex];
-  check(native_short_count != 0 && short_hop.count == native_short_count &&
-            native_short[0] == short_hop.y[0] &&
-            saber_uppercut_y_match(native_short, short_hop.y,
+  check(native_short_count != 0 &&
+            height_100_short.count == native_short_count &&
+            native_short[0] == height_100_short.y[0] &&
+            saber_uppercut_y_match(native_short, height_100_short.y,
                                    native_short_apex),
-        "uppercut Y release at frame 6 matches the native short-hop arc");
-  check(short_height < held_height &&
-            short_hop.y[short_apex] == native_short[native_short_apex],
-        "uppercut release reaches a shorter native short-hop height");
+        "uppercut_height=100 release at frame 6 matches native short-hop arc");
+  check(short_height < native_height &&
+            height_100_short.y[height_100_short_apex] ==
+                native_short[native_short_apex],
+        "uppercut_height=100 release reaches shorter native short-hop height");
+
+  saber_uppercut_set_height("130", 130);
+  short_hop = saber_uppercut_arc(capsule, 6);
+  const unsigned short_apex =
+      saber_uppercut_min_y_frame(short_hop.y, short_hop.count);
+  const unsigned default_short_height =
+      short_hop.y[0] - short_hop.y[short_apex];
+  saber_uppercut_print_y("uppercut-130-short", short_hop.y, short_hop.count);
+  check(short_hop.count != 0 && default_short_height < held_height,
+        "default 130 percent early release remains shorter than full arc");
   check(short_hop.release_seen &&
             short_hop.release_snapshot.phase == SABER_PHASE_IDLE &&
             short_hop.release_snapshot.kind == SABER_KIND_NONE &&
             short_hop.release_exit == MMX_SABER_ATTACK_EXIT_RELEASE,
-        "uppercut exits with EXIT_RELEASE on the Y release frame");
+        "default uppercut exits with EXIT_RELEASE on the Y release frame");
 
   /* Mutation red: clear $0BC2/$0BC3 at uppercut start and lose dash momentum. */
   const unsigned native_dash_count = saber_uppercut_dash_trace(

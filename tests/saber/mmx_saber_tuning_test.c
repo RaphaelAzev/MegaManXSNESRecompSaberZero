@@ -153,6 +153,7 @@ static void check_manifest_defaults(const char *program_path) {
     {"rolling_slash_priority", tuning->priority[MMX_SABER_TUNING_PRIORITY_ROLLING], false},
     {"priority_window_frames", tuning->priority_window_frames, false},
     {"finisher_window_frames", tuning->finisher_window_frames, false},
+    {"uppercut_height", tuning->uppercut_height, false},
     {"saber_swing_volume", tuning->saber_swing_volume, false},
     {"show_hitboxes", tuning->show_hitboxes ? 1 : 0, false},
     {"start_all_upgrades", tuning->start_all_upgrades ? 1 : 0, false},
@@ -260,6 +261,9 @@ static void check_defaults(void) {
             MmxSaberTuningFinisherWindowFrames() == 27 &&
             MmxSaberTuningSaberSwingVolume() == 50,
         "window and volume defaults match the manifest");
+  check(tuning->uppercut_height == 130 &&
+            MmxSaberTuningUppercutHeight() == 130,
+        "uppercut height defaults to 130 percent");
   check(!tuning->show_hitboxes && !MmxSaberTuningShowHitboxes(),
         "show_hitboxes defaults off");
   check(!tuning->start_all_upgrades && !MmxSaberTuningStartAllUpgrades(),
@@ -293,6 +297,7 @@ static void check_each_id_maps_to_field(void) {
     {"x3_finisher_priority", "2"}, {"wave_priority", "3"},
     {"uppercut_priority", "4"}, {"rolling_slash_priority", "5"},
     {"priority_window_frames", "71"}, {"finisher_window_frames", "60"},
+    {"uppercut_height", "155"},
     {"saber_swing_volume", "90"},
     {"show_hitboxes", "true"},
     {"start_all_upgrades", "true"},
@@ -321,6 +326,8 @@ static void check_each_id_maps_to_field(void) {
         "priority window option id maps to its field");
   check(MmxSaberTuningFinisherWindowFrames() == 60,
         "finisher window option id maps to its field");
+  check(MmxSaberTuningUppercutHeight() == 155,
+        "uppercut height option id maps to its field");
   check(MmxSaberTuningSaberSwingVolume() == 90,
         "swing volume option id maps to its field");
   check(MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_UPPERCUT) == 19,
@@ -359,6 +366,7 @@ static void check_clamping_and_invalid_fallback(void) {
     {"boss_rolling_slash_damage", "99"},
     {"priority_window_frames", "29"},
     {"finisher_window_frames", "61"},
+    {"uppercut_height", "99"},
     {"saber_swing_volume", "-10"},
     {"wave_priority", "10"},
     {"uppercut_priority", "0"},
@@ -382,6 +390,8 @@ static void check_clamping_and_invalid_fallback(void) {
         "priority window clamps to its manifest minimum");
   check(MmxSaberTuningFinisherWindowFrames() == 60,
         "finisher window clamps to its manifest maximum");
+  check(MmxSaberTuningUppercutHeight() == 100,
+        "uppercut height clamps to its manifest minimum");
   check(MmxSaberTuningSaberSwingVolume() == 0,
         "swing volume clamps to its manifest minimum");
   check(MmxSaberTuningPriority(MMX_SABER_TUNING_PRIORITY_WAVE) == 9,
@@ -408,6 +418,15 @@ static void check_clamping_and_invalid_fallback(void) {
         "invalid boolean falls back to unlock_special_moves off");
   check(MmxSaberTuningCrescentEffect(),
         "invalid boolean falls back to crescent_effect on");
+
+  static const FakeOption high_options[] = {
+    {"uppercut_height", "201"},
+  };
+  FakeOptions high_source = {
+    high_options, sizeof(high_options) / sizeof(high_options[0])};
+  MmxSaberTuningLoad(fake_reader, &high_source);
+  check(MmxSaberTuningUppercutHeight() == 200,
+        "uppercut height clamps to its manifest maximum");
 }
 
 static void check_boss_semantics(void) {

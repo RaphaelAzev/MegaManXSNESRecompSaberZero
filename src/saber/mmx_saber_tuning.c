@@ -21,6 +21,7 @@ static MmxSaberTuning g_tuning = {
   70,
   27,
   50,
+  130,
   false,
   false,
   false,
@@ -103,6 +104,7 @@ static MmxSaberTuningOption k_options[] = {
    &g_tuning.priority_window_frames},
   {"finisher_window_frames", 27, 12, 60,
    &g_tuning.finisher_window_frames},
+  {"uppercut_height", 130, 100, 200, &g_tuning.uppercut_height},
   {"saber_swing_volume", 50, 0, 200, &g_tuning.saber_swing_volume},
   {"show_hitboxes", 0, 0, 1, &g_tuning.show_hitboxes, true},
   {"start_all_upgrades", 0, 0, 1, &g_tuning.start_all_upgrades, true},
@@ -195,6 +197,10 @@ int MmxSaberTuningFinisherWindowFrames(void) {
 
 int MmxSaberTuningSaberSwingVolume(void) {
   return g_tuning.saber_swing_volume;
+}
+
+int MmxSaberTuningUppercutHeight(void) {
+  return g_tuning.uppercut_height;
 }
 
 bool MmxSaberTuningShowHitboxes(void) {

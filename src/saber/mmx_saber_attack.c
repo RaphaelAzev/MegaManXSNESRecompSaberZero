@@ -327,6 +327,34 @@ static void putword(uint8_t *p, unsigned value) {
   p[1] = (uint8_t)(value >> 8);
 }
 
+static uint16_t uppercut_jump_velocity(void) {
+  const uint64_t native_velocity = 0x0553;
+  const uint64_t target = native_velocity * native_velocity *
+      (uint64_t)MmxSaberTuningUppercutHeight();
+  uint32_t root = 0;
+
+  /* Find floor(sqrt(target)) without floating point.  Dividing that root by
+   * ten gives floor(sqrt(target / 100)); the comparison below rounds it. */
+  for (uint32_t bit = 1u << 15; bit; bit >>= 1) {
+    const uint32_t candidate = root | bit;
+    if ((uint64_t)candidate * candidate <= target) root = candidate;
+  }
+  uint32_t velocity = root / 10;
+  if ((uint64_t)(velocity * 2 + 1) * (velocity * 2 + 1) * 100 <=
+      target * 4)
+    ++velocity;
+  return (uint16_t)velocity;
+}
+
+static void scale_uppercut_jump(uint8_t *ram) {
+  if (!ram || state.kind != SABER_KIND_UPPERCUT || state.tick != 0 ||
+      ram[0x0baa] != 0x06 || word(ram + 0x0bc4) != 0x0553)
+    return;
+  /* Native jump initialization has completed.  This write persists in RAM
+   * through the next frame's native gravity update; tick makes it save-safe. */
+  putword(ram + 0x0bc4, uppercut_jump_velocity());
+}
+
 static bool projectile_slot_valid(unsigned d) {
   return d >= 0x1228 && d < 0x1428 && (d & 63) == 0x28;
 }
@@ -936,6 +964,11 @@ static void start_attack(const MmxSaberAttack *attack, uint8_t facing) {
   update_animation();
 }
 
+static unsigned special_unlock_count(const uint8_t *ram) {
+  return MmxSaberTuningUnlockSpecialMoves() ? 8 :
+      MmxSaberDefeatedMavericks(ram);
+}
+
 void MmxSaberAttackStep(bool saber_pressed, bool grounded, bool playable,
                         uint8_t native_facing,
                         uint8_t horizontal_direction) {
@@ -975,8 +1008,7 @@ void MmxSaberAttackStepWithWallAndDash(bool saber_pressed, bool grounded,
 
   if (state.phase == SABER_PHASE_IDLE) {
     if (saber_pressed) {
-      const unsigned defeated = MmxSaberTuningUnlockSpecialMoves() ? 8 :
-          MmxSaberDefeatedMavericks(ram);
+      const unsigned defeated = special_unlock_count(ram);
       const MmxSaberPadKind kind = wall_clinging ? SABER_KIND_WALL :
           (!grounded && up_held && defeated >= 3 ? SABER_KIND_ROLLING :
            (!grounded ? SABER_KIND_AIR :
@@ -1011,6 +1043,18 @@ void MmxSaberAttackStepWithWallAndDash(bool saber_pressed, bool grounded,
       MmxSaberAttackExit(runtime_ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
       return;
     }
+  }
+
+  /* A new Up+Y edge cancels only an established finisher or dash slash.  The
+   * central exit retires its slot and hit mask before the uppercut starts. */
+  if ((attack->kind == SABER_KIND_GROUND3 ||
+       attack->kind == SABER_KIND_DASH) &&
+      state.phase != SABER_PHASE_STARTUP && saber_pressed && up_held &&
+      special_unlock_count(ram) >= 2) {
+    const uint8_t facing = state.facing;
+    MmxSaberAttackExit(runtime_ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
+    start_attack(MmxSaberAttackRecord(SABER_KIND_UPPERCUT, 0), facing);
+    return;
   }
   (void)jump_pressed;
 
@@ -1253,6 +1297,8 @@ void MmxSaberAttackPlayerEnd(uint8_t *ram) {
 
   if (ram) runtime_ram = ram;
   if (!ram) return;
+
+  scale_uppercut_jump(ram);
 
   movement_accepted = native_movement_accepted(ram);
   uppercut_jump_refused = native_observation_valid &&

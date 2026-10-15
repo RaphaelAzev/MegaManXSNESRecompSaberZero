@@ -457,3 +457,13 @@ default = 50
 min = 0
 max = 200
 step = 10
+[[option]]
+feature = "saber-zero"
+id = "uppercut_height"
+label = "Uppercut height"
+description = "Rise height of the uppercut as a percentage of a normal jump."
+type = "integer"
+default = 130
+min = 100
+max = 200
+step = 5

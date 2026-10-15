@@ -46,6 +46,7 @@ typedef struct MmxSaberTuning {
   int priority_window_frames;
   int finisher_window_frames;
   int saber_swing_volume;
+  int uppercut_height;
   bool show_hitboxes;
   bool start_all_upgrades;
   bool unlock_special_moves;
@@ -68,6 +69,7 @@ int MmxSaberTuningPriority(MmxSaberTuningPriorityKind kind);
 int MmxSaberTuningPriorityWindowFrames(void);
 int MmxSaberTuningFinisherWindowFrames(void);
 int MmxSaberTuningSaberSwingVolume(void);
+int MmxSaberTuningUppercutHeight(void);
 bool MmxSaberTuningShowHitboxes(void);
 bool MmxSaberTuningStartAllUpgrades(void);
 bool MmxSaberTuningUnlockSpecialMoves(void);
