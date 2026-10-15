@@ -6,6 +6,8 @@
 
 #include <string.h>
 
+enum { MMX_SABER_LEGACY_ANIMATION_LAST = 7 };
+
 static uint16_t flash_palette[256];
 static uint16_t overlay_palette[256];
 static const uint16_t *overlay_source;
@@ -15,8 +17,11 @@ static bool overlay_arms;
 static bool overlay_palette_cached;
 static uint8_t overlay_body_indices[256];
 static uint8_t overlay_blade_indices[256];
+static uint8_t special_frame_bits[UINT16_MAX / 8 + 1];
+static uint8_t special_only_palette_indices[256];
 static const uint16_t *index_source;
 static uint16_t index_source_count;
+static const MmxSaberAssets *index_assets;
 static bool palette_indices_cached;
 static unsigned shared_blade_palette_count;
 static uint16_t purple_wave_palette[MMX_SABER_WAVE_PALETTE_COUNT];
@@ -40,14 +45,40 @@ static void mark_palette_indices(const MmxSaberPlane *plane,
 static void cache_palette_indices(const MmxSaberAssets *assets,
                                   const uint16_t *palette,
                                   uint16_t palette_count) {
+  uint8_t other_palette_indices[256];
+  const uint16_t frame_count = MmxSaberAssetsFrameCount(assets);
+
   memset(overlay_body_indices, 0, sizeof(overlay_body_indices));
   memset(overlay_blade_indices, 0, sizeof(overlay_blade_indices));
-  for (uint16_t i = 0; i < MmxSaberAssetsFrameCount(assets); ++i) {
+  memset(special_frame_bits, 0, sizeof(special_frame_bits));
+  for (unsigned animation_id = MMX_SABER_LEGACY_ANIMATION_LAST + 1;
+       animation_id <= UINT16_MAX; ++animation_id) {
+    const MmxSaberAnimation *animation = MmxSaberAssetsAnimationById(
+        assets, (uint16_t)animation_id);
+    if (!animation || !animation->steps) continue;
+    for (uint16_t step = 0; step < animation->step_count; ++step) {
+      uint16_t frame_index = animation->steps[step].frame_index;
+      if (frame_index >= frame_count) continue;
+      special_frame_bits[frame_index >> 3] |=
+          (uint8_t)(1u << (frame_index & 7));
+    }
+  }
+  memset(special_only_palette_indices, 0,
+         sizeof(special_only_palette_indices));
+  memset(other_palette_indices, 0, sizeof(other_palette_indices));
+  for (uint16_t i = 0; i < frame_count; ++i) {
     const MmxSaberFrame *frame = MmxSaberAssetsFrameAt(assets, i);
+    uint8_t *palette_indices =
+        (special_frame_bits[i >> 3] & (uint8_t)(1u << (i & 7))) ?
+        special_only_palette_indices : other_palette_indices;
     if (!frame) continue;
     mark_palette_indices(&frame->body, palette_count, overlay_body_indices);
     mark_palette_indices(&frame->blade, palette_count, overlay_blade_indices);
+    mark_palette_indices(&frame->body, palette_count, palette_indices);
+    mark_palette_indices(&frame->blade, palette_count, palette_indices);
   }
+  for (unsigned i = 1; i < palette_count; ++i)
+    if (other_palette_indices[i]) special_only_palette_indices[i] = 0;
   {
     bool any_blade = false;
     for (unsigned i = 1; i < palette_count; ++i)
@@ -73,6 +104,7 @@ static void cache_palette_indices(const MmxSaberAssets *assets,
       ++shared_blade_palette_count;
   index_source = palette;
   index_source_count = palette_count;
+  index_assets = assets;
   palette_indices_cached = true;
 }
 
@@ -84,13 +116,15 @@ static const uint16_t *select_overlay_palette(const MmxSaberAssets *assets,
                                               bool arms) {
   if (!palette || !palette_count) return palette;
   if (!palette_indices_cached || index_source != palette ||
-      index_source_count != palette_count) {
+      index_source_count != palette_count || index_assets != assets) {
     palette_indices_cached = false;
     shared_blade_palette_count = 0;
   }
-  if (!black_zero && !arms) return palette;
-  if (arms && !palette_indices_cached)
+  if (!palette_indices_cached) {
     cache_palette_indices(assets, palette, palette_count);
+    if (!arms) shared_blade_palette_count = 0;
+  }
+  if (!black_zero && !arms) return palette;
   if (!overlay_palette_cached || overlay_source != palette ||
       overlay_source_count != palette_count || overlay_black != black_zero ||
       overlay_arms != arms) {
@@ -144,11 +178,21 @@ static unsigned color_luminance(uint16_t color) {
 static void map_flash_palette(uint16_t *mapped, const uint16_t *palette,
                               uint16_t palette_count, const uint16_t *flash) {
   uint16_t donor_order[256], flash_order[16];
+  unsigned group_luminance[256], group_flash_rank[256];
   unsigned donor_count = 0, groups = 0;
+  bool has_special_only = false;
+  bool has_ranked_indices = false;
   if (!mapped || !palette || !palette_count || !flash) return;
   memcpy(mapped, palette, (size_t)palette_count * sizeof(*mapped));
   mapped[0] = 0;
+  for (unsigned i = 1; i < palette_count; ++i)
+    if (special_only_palette_indices[i])
+      has_special_only = true;
+    else
+      has_ranked_indices = true;
+  if (!has_ranked_indices) has_special_only = false;
   for (unsigned i = 1; i < palette_count; ++i) {
+    if (has_special_only && special_only_palette_indices[i]) continue;
     unsigned j = donor_count;
     while (j && (color_luminance(palette[donor_order[j - 1]]) >
                      color_luminance(palette[i]) ||
@@ -185,9 +229,33 @@ static void map_flash_palette(uint16_t *mapped, const uint16_t *palette,
     while (end < donor_count &&
            color_luminance(palette[donor_order[end]]) == luminance) ++end;
     unsigned flash_rank = groups > 1 ? group * 15 / (groups - 1) : 0;
+    group_luminance[group] = luminance;
+    group_flash_rank[group] = flash_rank;
     for (unsigned i = rank; i < end; ++i)
       mapped[donor_order[i]] = flash[flash_order[flash_rank]];
     rank = end;
+  }
+  if (has_special_only) {
+    for (unsigned i = 1; i < palette_count; ++i) {
+      unsigned luminance, closest, distance;
+      if (!special_only_palette_indices[i]) continue;
+      luminance = color_luminance(palette[i]);
+      closest = 0;
+      distance = luminance > group_luminance[0] ?
+          luminance - group_luminance[0] : group_luminance[0] - luminance;
+      for (unsigned group = 1; group < groups; ++group) {
+        unsigned candidate_distance = luminance > group_luminance[group] ?
+            luminance - group_luminance[group] :
+            group_luminance[group] - luminance;
+        if (candidate_distance < distance ||
+            (candidate_distance == distance &&
+             group_luminance[group] < group_luminance[closest])) {
+          closest = group;
+          distance = candidate_distance;
+        }
+      }
+      mapped[i] = flash[flash_order[group_flash_rank[closest]]];
+    }
   }
 }
 

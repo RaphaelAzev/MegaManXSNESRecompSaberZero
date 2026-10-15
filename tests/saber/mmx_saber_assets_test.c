@@ -14,10 +14,10 @@
 #endif
 
 static const uint8_t kSaberManifestSha[32] = {
-  0x4e, 0x29, 0x1e, 0x5f, 0x03, 0x57, 0xaf, 0xa0,
-  0x35, 0x76, 0x14, 0xe0, 0xc4, 0x97, 0xf9, 0xb3,
-  0x65, 0xee, 0x99, 0xe3, 0x70, 0x64, 0x5d, 0x84,
-  0x99, 0xb2, 0xe4, 0xfd, 0x07, 0xf8, 0x0f, 0xd0,
+  0xd5, 0x11, 0xc3, 0x46, 0x8b, 0x52, 0x4f, 0xd6,
+  0xf7, 0xc8, 0x2f, 0x7e, 0x8f, 0xf3, 0x2b, 0xa8,
+  0x2f, 0x9c, 0x1a, 0xe4, 0x5f, 0xcd, 0x6c, 0xfc,
+  0x11, 0xe1, 0x4a, 0x0e, 0xef, 0xd0, 0xe9, 0x03,
 };
 
 static const uint8_t kRideManifestSha[32] = {
@@ -91,14 +91,44 @@ static int check_frame(const MmxSaberAssets *assets, uint16_t animation_id,
   return 1;
 }
 
+static int check_empty_blade_frames(const MmxSaberAssets *assets,
+                                    const uint16_t *animation_ids,
+                                    size_t animation_count) {
+  size_t animation_index;
+  for (animation_index = 0; animation_index < animation_count;
+       ++animation_index) {
+    const MmxSaberAnimation *animation = MmxSaberAssetsAnimationById(
+        assets, animation_ids[animation_index]);
+    uint16_t step_index;
+    if (!animation) {
+      fail("Saber special animation is missing");
+      return 0;
+    }
+    for (step_index = 0; step_index < animation->step_count; ++step_index) {
+      const MmxSaberFrame *frame = MmxSaberAssetsFrameForStep(
+          assets, animation->id, step_index);
+      if (!frame || frame->blade.width != 0 || frame->blade.height != 0) {
+        fail("Saber special frame has a blade plane");
+        return 0;
+      }
+    }
+  }
+  return 1;
+}
+
 static int check_saber_assets(const MmxSaberAssets *assets) {
-  static const uint16_t ids[] = {1, 2, 3, 4, 5, 6, 7};
-  static const uint16_t step_counts[] = {15, 15, 18, 9, 10, 15, 9};
-  static const uint16_t total_ticks[] = {30, 30, 39, 18, 20, 30, 18};
+  static const uint16_t ids[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
+  static const uint16_t step_counts[] = {
+    15, 15, 18, 9, 10, 15, 9, 7, 7, 9, 8, 10
+  };
+  static const uint16_t total_ticks[] = {
+    30, 30, 39, 18, 20, 30, 18, 14, 14, 18, 16, 20
+  };
+  static const uint16_t special_ids[] = {8, 9, 10, 11, 12};
   size_t i;
 
-  if (MmxSaberAssetsPaletteCount(assets) != 29)
-    return fail("Saber palette count is not 29");
+  if (MmxSaberAssetsPaletteCount(assets) != 40)
+    return fail("Saber palette count is not 40");
   if (!MmxSaberAssetsPalette(assets) || MmxSaberAssetsPalette(assets)[0] != 0)
     return fail("Saber palette does not reserve index zero");
   if (memcmp(MmxSaberAssetsManifestSha256(assets), kSaberManifestSha,
@@ -125,6 +155,9 @@ static int check_saber_assets(const MmxSaberAssets *assets) {
                    "wall slash hitbox anchor changed") ||
       !check_frame(assets, 6, 0, 46, 55, 51, 35,
                    "dash slash anchor changed"))
+    return 1;
+  if (!check_empty_blade_frames(assets, special_ids,
+                                sizeof(special_ids) / sizeof(special_ids[0])))
     return 1;
 
   return 0;

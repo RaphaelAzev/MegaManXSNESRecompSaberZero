@@ -315,6 +315,69 @@ class SaberConverterTests(unittest.TestCase):
         source_dir = ROOT / "assets" / "saber-zero" / "sprites"
         self.assertTrue(source_dir.is_dir(), source_dir)
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        sources_by_id = {source["id"]: source for source in manifest["sources"]}
+        expected_special_sources = {
+            8: "Special_Uppercut.png",
+            9: "Special_Uppercut_FX.png",
+            10: "Special_RollingSlash.png",
+            11: "Special_RollingSlash_FX.png",
+            12: "Special_Crescent_FX.png",
+        }
+        for source_id, expected_file in expected_special_sources.items():
+            with self.subTest(source=source_id):
+                self.assertEqual(
+                    sources_by_id.get(source_id, {}).get("file"), expected_file
+                )
+
+        frames_by_id = {frame["id"]: frame for frame in manifest["frames"]}
+        expected_special_animations = {
+            8: (8, list(range(1092, 1099))),
+            9: (9, list(range(1099, 1106))),
+            10: (10, list(range(1106, 1115))),
+            11: (11, list(range(1115, 1123))),
+            12: (12, list(range(1123, 1133))),
+        }
+        animations_by_id = {
+            animation["id"]: animation for animation in manifest["animations"]
+        }
+        for animation_id, (source_id, expected_frame_ids) in (
+            expected_special_animations.items()
+        ):
+            with self.subTest(animation=animation_id):
+                animation = animations_by_id.get(animation_id)
+                self.assertIsNotNone(animation)
+                if animation is None:
+                    continue
+                self.assertEqual(
+                    [step["frame"] for step in animation["steps"]],
+                    expected_frame_ids,
+                )
+                self.assertEqual(
+                    [step["ticks"] for step in animation["steps"]],
+                    [2] * len(expected_frame_ids),
+                )
+                for source_frame, frame_id in enumerate(expected_frame_ids):
+                    frame = frames_by_id.get(frame_id)
+                    self.assertIsNotNone(frame)
+                    if frame is None:
+                        continue
+                    self.assertEqual(frame["source"], source_id)
+                    self.assertEqual(frame["source_frame"], source_frame)
+                    self.assertNotIn("blade", frame)
+                    x, y, width, height = frame["body"]["rect"]
+                    cell_x = 128 * source_frame
+                    self.assertGreaterEqual(x, cell_x)
+                    self.assertGreaterEqual(y, 0)
+                    self.assertLessEqual(x + width, cell_x + 128)
+                    self.assertLessEqual(y + height, 128)
+                    self.assertEqual(
+                        frame["body"]["origin"], [x - cell_x + 1, y + 3]
+                    )
+
+        self.assertEqual(
+            sorted(frame_id for frame_id in frames_by_id if 1092 <= frame_id <= 1132),
+            list(range(1092, 1133)),
+        )
         saber2_origins = [
             (frame["source_frame"], tuple(frame["body"]["origin"]))
             for frame in manifest["frames"]
@@ -496,6 +559,11 @@ class SaberConverterTests(unittest.TestCase):
         source_count, palette_count, animation_count, step_count, frame_count = (
             struct.unpack_from("<5H", data, 20)
         )
+        self.assertEqual(source_count, len(manifest["sources"]))
+        self.assertEqual(palette_count, 40)
+        self.assertEqual(animation_count, 12)
+        self.assertEqual(step_count, 132)
+        self.assertEqual(frame_count, 132)
         section = 112 + source_count * 36
         section += palette_count * 2
         section = (section + 3) & ~3

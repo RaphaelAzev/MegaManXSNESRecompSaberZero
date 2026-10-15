@@ -42,10 +42,10 @@ const uint16_t *MmxZeroBodyColors(const MmxZeroState *s) {
 }
 
 static const uint8_t kSaberManifestSha[32] = {
-  0x4e, 0x29, 0x1e, 0x5f, 0x03, 0x57, 0xaf, 0xa0,
-  0x35, 0x76, 0x14, 0xe0, 0xc4, 0x97, 0xf9, 0xb3,
-  0x65, 0xee, 0x99, 0xe3, 0x70, 0x64, 0x5d, 0x84,
-  0x99, 0xb2, 0xe4, 0xfd, 0x07, 0xf8, 0x0f, 0xd0,
+  0xd5, 0x11, 0xc3, 0x46, 0x8b, 0x52, 0x4f, 0xd6,
+  0xf7, 0xc8, 0x2f, 0x7e, 0x8f, 0xf3, 0x2b, 0xa8,
+  0x2f, 0x9c, 0x1a, 0xe4, 0x5f, 0xcd, 0x6c, 0xfc,
+  0x11, 0xe1, 0x4a, 0x0e, 0xef, 0xd0, 0xe9, 0x03,
 };
 
 static const uint8_t kRideManifestSha[32] = {
@@ -152,54 +152,109 @@ static void put_u32(uint8_t *bytes, unsigned offset, unsigned value) {
   put_u16(bytes, offset + 2, value >> 16);
 }
 
-static MmxSaberAssets *make_flash_assets(void) {
-  enum { SIZE = 226, FRAME_OFFSET = 180, PIXEL_OFFSET = 220 };
-  uint8_t data[SIZE] = {0};
+static MmxSaberAssets *make_flash_assets(bool include_new) {
+  enum {
+    CAPACITY = 320,
+    SOURCE_OFFSET = 112,
+    PALETTE_OFFSET = 148,
+    ANIMATION_SIZE = 16,
+    STEP_SIZE = 8,
+    FRAME_SIZE = 40,
+  };
+  const unsigned palette_count = include_new ? 7 : 4;
+  const unsigned animation_count = include_new ? 2 : 1;
+  const unsigned step_count = animation_count;
+  const unsigned frame_count = animation_count;
+  /* The parser pads the palette section to a 4-byte boundary. */
+  const unsigned animation_offset = PALETTE_OFFSET + ((palette_count * 2 + 3u) & ~3u);
+  const unsigned step_offset = animation_offset +
+      animation_count * ANIMATION_SIZE;
+  const unsigned frame_offset = step_offset + step_count * STEP_SIZE;
+  const unsigned pixel_offset = frame_offset + frame_count * FRAME_SIZE;
+  const unsigned pixel_size = include_new ? 10 : 6;
+  const unsigned size = pixel_offset + pixel_size;
+  uint8_t data[CAPACITY] = {0};
   uint8_t digest[32];
   char reason[128] = {0};
 
   memcpy(data, "MMXSABR\0", 8);
   put_u16(data, 8, 1);
   put_u16(data, 10, 112);
-  put_u32(data, 12, SIZE);
+  put_u32(data, 12, size);
   put_u16(data, 20, 1); /* source count */
-  put_u16(data, 22, 4); /* palette count */
-  put_u16(data, 24, 1); /* animation count */
-  put_u16(data, 26, 1); /* step count */
-  put_u16(data, 28, 1); /* frame count */
-  put_u32(data, 32, 6); /* body 4 bytes + blade 2 bytes */
-  put_u16(data, 112, 1); /* source id */
-  put_u16(data, 148, 0);
-  put_u16(data, 150, 0x009c);
-  put_u16(data, 152, 0x0094);
-  put_u16(data, 154, 0x2388);
-  put_u16(data, 156, 1); /* animation id */
-  put_u16(data, 158, 0); /* first step */
-  put_u16(data, 160, 1); /* step count */
-  put_u16(data, 162, 1); /* total ticks */
-  put_u16(data, 172, 0); /* frame index */
-  put_u16(data, 174, 1); /* duration */
-  put_u32(data, FRAME_OFFSET, 0); /* body offset */
-  put_u32(data, FRAME_OFFSET + 4, 4); /* body length */
-  put_u16(data, FRAME_OFFSET + 8, 2);
-  put_u16(data, FRAME_OFFSET + 10, 2);
-  put_u32(data, FRAME_OFFSET + 16, 4); /* blade offset */
-  put_u32(data, FRAME_OFFSET + 20, 2); /* blade length */
-  put_u16(data, FRAME_OFFSET + 24, 2);
-  put_u16(data, FRAME_OFFSET + 26, 1);
-  put_u16(data, FRAME_OFFSET + 32, 1); /* source id */
-  put_u16(data, FRAME_OFFSET + 34, 0); /* source frame */
-  data[FRAME_OFFSET + 36] = 1; /* blade behind body */
-  data[PIXEL_OFFSET + 0] = 1;
-  data[PIXEL_OFFSET + 1] = 2;
-  data[PIXEL_OFFSET + 2] = 0;
-  data[PIXEL_OFFSET + 3] = 1;
-  data[PIXEL_OFFSET + 4] = 2;
-  data[PIXEL_OFFSET + 5] = 3;
+  put_u16(data, 22, palette_count); /* palette count */
+  put_u16(data, 24, animation_count); /* animation count */
+  put_u16(data, 26, step_count); /* step count */
+  put_u16(data, 28, frame_count); /* frame count */
+  put_u32(data, 32, pixel_size); /* frame pixel data size */
+  put_u16(data, SOURCE_OFFSET, 1); /* source id */
+  put_u16(data, PALETTE_OFFSET + 0, 0);
+  if (include_new) {
+    put_u16(data, PALETTE_OFFSET + 2, 0x0001); /* legacy: luminance 299 */
+    put_u16(data, PALETTE_OFFSET + 4, 0x0009); /* legacy: luminance 2691 */
+    put_u16(data, PALETTE_OFFSET + 6, 0x0010); /* legacy: luminance 4784 */
+    put_u16(data, PALETTE_OFFSET + 8, 0x0003); /* shared: luminance 897 */
+    put_u16(data, PALETTE_OFFSET + 10, 0x0005); /* new: luminance 1495 */
+    put_u16(data, PALETTE_OFFSET + 12, 0x0006); /* new: luminance 1794 */
+  } else {
+    put_u16(data, PALETTE_OFFSET + 2, 0x009c);
+    put_u16(data, PALETTE_OFFSET + 4, 0x0094);
+    put_u16(data, PALETTE_OFFSET + 6, 0x2388);
+  }
+  put_u16(data, animation_offset + 0, 1); /* legacy animation id */
+  put_u16(data, animation_offset + 2, 0); /* first step */
+  put_u16(data, animation_offset + 4, 1); /* step count */
+  put_u16(data, animation_offset + 6, 1); /* total ticks */
+  if (include_new) {
+    put_u16(data, animation_offset + ANIMATION_SIZE + 0, 8);
+    put_u16(data, animation_offset + ANIMATION_SIZE + 2, 1);
+    put_u16(data, animation_offset + ANIMATION_SIZE + 4, 1);
+    put_u16(data, animation_offset + ANIMATION_SIZE + 6, 1);
+  }
+  put_u16(data, step_offset + 0, 0); /* legacy frame index */
+  put_u16(data, step_offset + 2, 1); /* duration */
+  if (include_new) {
+    put_u16(data, step_offset + STEP_SIZE + 0, 1); /* new frame index */
+    put_u16(data, step_offset + STEP_SIZE + 2, 1); /* duration */
+  }
+  put_u32(data, frame_offset, 0); /* body offset */
+  put_u32(data, frame_offset + 4, 4); /* body length */
+  put_u16(data, frame_offset + 8, 2);
+  put_u16(data, frame_offset + 10, 2);
+  put_u32(data, frame_offset + 16, 4); /* blade offset */
+  put_u32(data, frame_offset + 20, 2); /* blade length */
+  put_u16(data, frame_offset + 24, 2);
+  put_u16(data, frame_offset + 26, 1);
+  put_u16(data, frame_offset + 32, 1); /* source id */
+  put_u16(data, frame_offset + 34, 0); /* source frame */
+  data[frame_offset + 36] = 1; /* blade behind body */
+  if (include_new) {
+    const unsigned new_frame = frame_offset + FRAME_SIZE;
+    put_u32(data, new_frame, 6); /* body offset */
+    put_u32(data, new_frame + 4, 4); /* body length */
+    put_u16(data, new_frame + 8, 4);
+    put_u16(data, new_frame + 10, 1);
+    put_u32(data, new_frame + 16, 0); /* empty blade offset */
+    put_u32(data, new_frame + 20, 0); /* blade length */
+    put_u16(data, new_frame + 32, 1); /* source id */
+    put_u16(data, new_frame + 34, 1); /* source frame */
+  }
+  data[pixel_offset + 0] = 1;
+  data[pixel_offset + 1] = 2;
+  data[pixel_offset + 2] = include_new ? 3 : 0;
+  data[pixel_offset + 3] = include_new ? 4 : 1;
+  data[pixel_offset + 4] = 2;
+  data[pixel_offset + 5] = 3;
+  if (include_new) {
+    data[pixel_offset + 6] = 4;
+    data[pixel_offset + 7] = 5;
+    data[pixel_offset + 8] = 6;
+    data[pixel_offset + 9] = 5;
+  }
   memset(data + 68, 0, sizeof(digest));
-  sha256_compute(data, SIZE, digest);
+  sha256_compute(data, size, digest);
   memcpy(data + 68, digest, sizeof(digest));
-  return MmxSaberAssetsParse(data, SIZE, NULL, reason, sizeof(reason));
+  return MmxSaberAssetsParse(data, size, NULL, reason, sizeof(reason));
 }
 
 static int check_plane(const MmxRenderPlayerOverlayPlane *actual,
@@ -215,16 +270,110 @@ static unsigned color_luminance(uint16_t color) {
   return red * 299 + green * 587 + blue * 114;
 }
 
+static void mark_expected_palette_indices(const MmxSaberPlane *plane,
+                                          uint16_t palette_count,
+                                          uint8_t *indices) {
+  size_t pixel_count;
+  if (!plane || !plane->pixels || !indices) return;
+  pixel_count = (size_t)plane->width * plane->height;
+  for (size_t i = 0; i < pixel_count; ++i) {
+    uint8_t index = plane->pixels[i];
+    if (index && index < palette_count) indices[index] = 1;
+  }
+}
+
+/* Public-accessor-only oracle for entries used only by animations after 7. */
+static void expected_special_only_palette_indices(const MmxSaberAssets *assets,
+                                                  uint16_t palette_count,
+                                                  uint8_t *special_only) {
+  uint8_t special_frame_bits[UINT16_MAX / 8 + 1] = {0};
+  uint8_t other_palette_indices[256] = {0};
+  uint16_t frame_count;
+
+  if (!assets || !special_only) return;
+  memset(special_only, 0, 256 * sizeof(*special_only));
+  frame_count = MmxSaberAssetsFrameCount(assets);
+  for (unsigned animation_id = 8; animation_id <= UINT16_MAX;
+       ++animation_id) {
+    const MmxSaberAnimation *animation = MmxSaberAssetsAnimationById(
+        assets, (uint16_t)animation_id);
+    if (!animation) continue;
+    for (uint16_t step = 0; step < animation->step_count; ++step) {
+      const MmxSaberFrame *special_frame = MmxSaberAssetsFrameForStep(
+          assets, (uint16_t)animation_id, step);
+      if (!special_frame) continue;
+      for (uint16_t frame_index = 0; frame_index < frame_count;
+           ++frame_index) {
+        if (MmxSaberAssetsFrameAt(assets, frame_index) == special_frame)
+          special_frame_bits[frame_index >> 3] |=
+              (uint8_t)(1u << (frame_index & 7));
+      }
+    }
+  }
+  for (uint16_t frame_index = 0; frame_index < frame_count; ++frame_index) {
+    const MmxSaberFrame *frame = MmxSaberAssetsFrameAt(assets, frame_index);
+    uint8_t *indices =
+        (special_frame_bits[frame_index >> 3] &
+         (uint8_t)(1u << (frame_index & 7))) ?
+        special_only : other_palette_indices;
+    if (!frame) continue;
+    mark_expected_palette_indices(&frame->body, palette_count, indices);
+    mark_expected_palette_indices(&frame->blade, palette_count, indices);
+  }
+  for (unsigned i = 1; i < palette_count; ++i)
+    if (other_palette_indices[i]) special_only[i] = 0;
+}
+
+/* Independent nearest-group oracle for entries added after legacy animations. */
+static uint16_t expected_nearest_legacy_flash(const uint16_t *palette,
+                                              const uint16_t *legacy_mapped,
+                                              uint16_t legacy_palette_count,
+                                              uint16_t color) {
+  unsigned color_value = color_luminance(color);
+  unsigned best_index = 1;
+  unsigned best_luminance = color_luminance(palette[best_index]);
+  unsigned best_distance = color_value > best_luminance ?
+      color_value - best_luminance : best_luminance - color_value;
+  for (unsigned i = 2; i < legacy_palette_count; ++i) {
+    unsigned luminance = color_luminance(palette[i]);
+    unsigned distance = color_value > luminance ?
+        color_value - luminance : luminance - color_value;
+    if (distance < best_distance ||
+        (distance == best_distance && luminance < best_luminance)) {
+      best_index = i;
+      best_luminance = luminance;
+      best_distance = distance;
+    }
+  }
+  return legacy_mapped[best_index];
+}
+
 /* Independent oracle for the old donor-palette mapping at
- * oldsaber/saber-zero-variant:src/mmx_renderer.c:1138-1191. */
-static void expected_flash_palette(uint16_t *mapped, const uint16_t *palette,
-                                   uint16_t palette_count,
-                                   const uint16_t *flash) {
+ * oldsaber/saber-zero-variant:src/mmx_renderer.c:1138-1191, with special-only
+ * entries excluded from ranking. */
+static void expected_guarded_flash_palette(uint16_t *mapped,
+                                           const uint16_t *palette,
+                                           uint16_t palette_count,
+                                           const uint16_t *flash,
+                                           const uint8_t *special_only) {
   uint16_t donor_order[256], flash_order[16];
+  uint16_t ranked_palette[256] = {0};
+  uint16_t ranked_mapped[256] = {0};
   unsigned donor_count = 0, groups = 0;
+  bool has_special_only = false;
+  bool has_ranked_indices = false;
+
   memcpy(mapped, palette, (size_t)palette_count * sizeof(*mapped));
   mapped[0] = 0;
   for (unsigned i = 1; i < palette_count; ++i) {
+    if (special_only && special_only[i])
+      has_special_only = true;
+    else
+      has_ranked_indices = true;
+  }
+  if (!has_ranked_indices) has_special_only = false;
+  for (unsigned i = 1; i < palette_count; ++i) {
+    if (has_special_only && special_only[i]) continue;
     unsigned j = donor_count;
     while (j && (color_luminance(palette[donor_order[j - 1]]) >
                      color_luminance(palette[i]) ||
@@ -265,6 +414,26 @@ static void expected_flash_palette(uint16_t *mapped, const uint16_t *palette,
       mapped[donor_order[i]] = flash[flash_order[flash_rank]];
     rank = end;
   }
+  if (has_special_only) {
+    unsigned ranked_count = 1;
+    for (unsigned i = 0; i < donor_count; ++i) {
+      unsigned index = donor_order[i];
+      ranked_palette[ranked_count] = palette[index];
+      ranked_mapped[ranked_count] = mapped[index];
+      ++ranked_count;
+    }
+    for (unsigned i = 1; i < palette_count; ++i)
+      if (special_only[i])
+        mapped[i] = expected_nearest_legacy_flash(
+            ranked_palette, ranked_mapped, (uint16_t)ranked_count,
+            palette[i]);
+  }
+}
+
+static void expected_flash_palette(uint16_t *mapped, const uint16_t *palette,
+                                   uint16_t palette_count,
+                                   const uint16_t *flash) {
+  expected_guarded_flash_palette(mapped, palette, palette_count, flash, NULL);
 }
 
 static bool find_blade_snapshot(const MmxSaberAssets *assets,
@@ -339,6 +508,8 @@ static void black_zero_render_checks(const MmxSaberAssets *assets,
   uint16_t expected_black[256] = {0};
   uint16_t expected_flash[256] = {0};
   uint16_t normal_flash[256] = {0};
+  uint8_t special_only[256] = {0};
+  bool legacy_unchanged;
   MmxSaberAttackSnapshot snapshot;
   const MmxSaberFrame *expected;
   MmxRenderPlayerOverlay actual;
@@ -373,16 +544,25 @@ static void black_zero_render_checks(const MmxSaberAssets *assets,
 
   test_zero_state.charge = 30;
   test_zero_state.charge_phase = 0;
-  expected_flash_palette(expected_flash, expected_black, base_count,
-                         MmxZeroBodyColors(&test_zero_state));
-  expected_flash_palette(normal_flash, base, base_count,
-                         MmxZeroBodyColors(&test_zero_state));
+  expected_special_only_palette_indices(assets, base_count, special_only);
+  expected_guarded_flash_palette(expected_flash, expected_black, base_count,
+                                 MmxZeroBodyColors(&test_zero_state),
+                                 special_only);
+  expected_guarded_flash_palette(normal_flash, base, base_count,
+                                 MmxZeroBodyColors(&test_zero_state),
+                                 special_only);
   check(memcmp(expected_flash, normal_flash,
                (size_t)base_count * sizeof(*base)) != 0 &&
             MmxSaberRenderResolveSnapshot(assets, snapshot, &actual) &&
             !memcmp(actual.palette, expected_flash,
                     (size_t)base_count * sizeof(*base)),
         "charge flash ranks against the Black Zero palette");
+  legacy_unchanged = MmxSaberRenderResolveSnapshot(assets, snapshot, &actual);
+  for (unsigned i = 0; legacy_unchanged && i < base_count; ++i)
+    legacy_unchanged = special_only[i] ||
+        actual.palette[i] == expected_flash[i];
+  check(legacy_unchanged,
+        "legacy charged colours unchanged by special-move art");
 
   ram[0x0baa] = 0x2c;
   MmxSaberBlackZeroPalette(ride_base, ride_count, expected_black);
@@ -530,6 +710,70 @@ static void charge_flash_checks(const MmxSaberAssets *assets) {
     no_charge_flash |= actual.palette != base;
   }
   check(!no_charge_flash, "no charge never flashes the donor palette");
+  test_zero_state = (MmxZeroState){0};
+}
+
+static void legacy_flash_palette_checks(void) {
+  MmxSaberAssets *extended = make_flash_assets(true);
+  MmxSaberAssets *legacy = make_flash_assets(false);
+  const uint16_t *extended_palette;
+  const uint16_t *legacy_palette;
+  MmxSaberAttackSnapshot extended_snapshot;
+  MmxSaberAttackSnapshot legacy_snapshot;
+  const MmxSaberFrame *expected;
+  MmxRenderPlayerOverlay actual;
+  uint16_t expected_legacy[256] = {0};
+  uint16_t expected_all[256] = {0};
+  uint16_t legacy_count;
+
+  check(extended != NULL && legacy != NULL,
+        "flash regression sidecars parse");
+  check(MmxSaberAssetsAnimationById(extended, 1) != NULL &&
+            MmxSaberAssetsAnimationById(extended, 8) != NULL &&
+            MmxSaberAssetsFrameForStep(extended, 8, 0) != NULL,
+        "flash regression sidecar has legacy and new animation frames");
+  extended_palette = MmxSaberAssetsPalette(extended);
+  legacy_palette = MmxSaberAssetsPalette(legacy);
+  legacy_count = MmxSaberAssetsPaletteCount(legacy);
+  check(find_blade_snapshot(extended, &extended_snapshot, &expected),
+        "flash regression finds legacy donor frame");
+  check(find_blade_snapshot(legacy, &legacy_snapshot, &expected),
+        "legacy-only flash regression finds donor frame");
+
+  /* Red-channel values 1, 9, 16 and shared 3 are ranked groups. New-only 5
+   * and 6 sit between the first two; 6 is exactly tied and chooses darker 3. */
+  for (unsigned i = 0; i < 16; ++i) test_charge_colors[0][i] = (uint16_t)i;
+  test_zero_state = (MmxZeroState){0};
+  test_zero_state.charge = 30;
+  test_zero_state.charge_phase = 0;
+  test_arms = false;
+  test_black_zero = false;
+  expected_flash_palette(expected_legacy, extended_palette, 5,
+                         MmxZeroBodyColors(&test_zero_state));
+  check(MmxSaberRenderResolveSnapshot(extended, extended_snapshot, &actual) &&
+            actual.palette_count == 7,
+        "extended flash palette resolves through public snapshot path");
+  check(actual.palette[1] == expected_legacy[1] &&
+            actual.palette[2] == expected_legacy[2] &&
+            actual.palette[3] == expected_legacy[3],
+        "legacy indices keep old flash colours after new entries are added");
+  check(actual.palette[4] == expected_legacy[4],
+        "index shared by animation 1 and animation 8 stays ranked");
+  check(actual.palette[5] == expected_nearest_legacy_flash(
+                extended_palette, expected_legacy, 5, extended_palette[5]) &&
+            actual.palette[6] == expected_nearest_legacy_flash(
+                extended_palette, expected_legacy, 5, extended_palette[6]),
+        "new indices use closest legacy flash group with darker tie-break");
+
+  expected_flash_palette(expected_all, legacy_palette, legacy_count,
+                         MmxZeroBodyColors(&test_zero_state));
+  check(MmxSaberRenderResolveSnapshot(legacy, legacy_snapshot, &actual) &&
+            !memcmp(actual.palette, expected_all,
+                    (size_t)legacy_count * sizeof(*legacy_palette)),
+        "legacy-only animations keep full old flash mapping");
+
+  MmxSaberAssetsFree(legacy);
+  MmxSaberAssetsFree(extended);
   test_zero_state = (MmxZeroState){0};
 }
 
@@ -769,9 +1013,10 @@ int main(void) {
         "missing sidecar resolves inactive");
   wave_sequence_checks(wave);
 
-  MmxSaberAssets *flash_assets = make_flash_assets();
+  MmxSaberAssets *flash_assets = make_flash_assets(false);
   check(flash_assets != NULL, "in-memory body-and-blade flash sidecar parses");
   charge_flash_checks(flash_assets);
+  legacy_flash_palette_checks();
   black_zero_render_checks(assets, ride);
   shipped_purple_blade_checks(assets);
   purple_blade_render_checks(flash_assets);
