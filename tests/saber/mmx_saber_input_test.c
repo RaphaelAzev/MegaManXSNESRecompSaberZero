@@ -1,6 +1,9 @@
 #include <stdio.h>
+#include <string.h>
 
+#include "mmx_saber_frame_pad.h"
 #include "mmx_saber_input.h"
+#include "mmx_saber_unlock.h"
 
 typedef struct PadCase {
   const char *name;
@@ -12,6 +15,93 @@ typedef struct PadCase {
 } PadCase;
 
 static int failures;
+
+static void check_frame_pad(void) {
+  uint8_t ram[0x20000] = {0};
+  MmxSaberFramePad pad;
+
+  pad = MmxSaberFrameSampleNativePad(ram);
+  if (pad.x_held || pad.y_pressed || pad.up_held || pad.y_held) {
+    printf("FAIL: native pad starts clear\n");
+    ++failures;
+  }
+
+  ram[0x00a6] = 0x08;
+  pad = MmxSaberFrameSampleNativePad(ram);
+  if (!pad.up_held || pad.x_held || pad.y_pressed || pad.y_held) {
+    printf("FAIL: Up held maps only Up\n");
+    ++failures;
+  }
+
+  memset(ram, 0, sizeof(ram));
+  ram[0x00a6] = 0x40;
+  pad = MmxSaberFrameSampleNativePad(ram);
+  if (!pad.y_held || pad.x_held || pad.y_pressed || pad.up_held) {
+    printf("FAIL: Y held maps only Y held\n");
+    ++failures;
+  }
+
+  memset(ram, 0, sizeof(ram));
+  ram[0x00a7] = 0x40;
+  pad = MmxSaberFrameSampleNativePad(ram);
+  if (!pad.x_held || pad.y_pressed || pad.up_held || pad.y_held) {
+    printf("FAIL: existing X held mapping changed\n");
+    ++failures;
+  }
+
+  memset(ram, 0, sizeof(ram));
+  ram[0x00ac] = 0x40;
+  pad = MmxSaberFrameSampleNativePad(ram);
+  if (pad.x_held || !pad.y_pressed || pad.up_held || pad.y_held) {
+    printf("FAIL: existing Y pressed mapping changed\n");
+    ++failures;
+  }
+}
+
+static void check_defeated_mavericks(void) {
+  uint8_t ram[0x20000] = {0};
+
+  if (MmxSaberDefeatedMavericks(NULL) != 0) {
+    printf("FAIL: NULL defeated-Maverick RAM is zero\n");
+    ++failures;
+  }
+  if (MmxSaberDefeatedMavericks(ram) != 0) {
+    printf("FAIL: zero RAM has no defeated Mavericks\n");
+    ++failures;
+  }
+
+  memset(ram + 0x1f88, 0x9c, 16);
+  if (MmxSaberDefeatedMavericks(ram) != 0) {
+    printf("FAIL: $9C energy bytes do not count as defeated Mavericks\n");
+    ++failures;
+  }
+
+  memset(ram, 0, sizeof(ram));
+  ram[0x1f88] = 0xdc;
+  if (MmxSaberDefeatedMavericks(ram) != 1) {
+    printf("FAIL: $DC boss byte counts as one defeated Maverick\n");
+    ++failures;
+  }
+
+  for (unsigned count = 0; count <= 8; ++count) {
+    memset(ram, 0, sizeof(ram));
+    for (unsigned i = 0; i < count; ++i)
+      ram[0x1f88 + 2 * i] = 0xdc;
+    if (MmxSaberDefeatedMavericks(ram) != count) {
+      printf("FAIL: exactly %u defeated Mavericks count\n", count);
+      ++failures;
+    }
+  }
+
+  memset(ram, 0, sizeof(ram));
+  ram[0x1f87] = 0xdc;
+  ram[0x1f89] = 0xdc;
+  ram[0x1f98] = 0xdc;
+  if (MmxSaberDefeatedMavericks(ram) != 0) {
+    printf("FAIL: outside boss-clear bytes do not count\n");
+    ++failures;
+  }
+}
 
 static MmxSaberNativePad mapped_pad(void) {
   return (MmxSaberNativePad){0xd5, 0xc7, 0x44, 0x95, 0xc7};
@@ -416,6 +506,8 @@ static void check_startup_edges(void) {
 }
 
 int main(void) {
+  check_frame_pad();
+  check_defeated_mavericks();
   check_table();
   check_special_charge_sequence();
   check_exhaustive_properties();

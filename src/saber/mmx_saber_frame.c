@@ -4,6 +4,7 @@
 #include "mmx_saber_armor.h"
 #include "mmx_saber_black_zero.h"
 #include "mmx_saber_combo.h"
+#include "mmx_saber_frame_pad.h"
 #include "mmx_saber_hitbox_debug.h"
 #include "mmx_saber_input.h"
 #include "mmx_saber_priority.h"
@@ -94,15 +95,13 @@ void MmxSaberFrameSetPadSource(MmxSaberFramePadSource source) {
 }
 
 static MmxSaberFramePad sample_pad(const uint8_t *ram) {
-  MmxSaberFramePad pad = {false, false};
+  MmxSaberFramePad pad = {false, false, false, false};
   if (!ram) return pad;
   if (pad_source) {
     pad_source(ram, &pad);
     return pad;
   }
-  pad.x_held = (ram[0x00a7] & 0x40) != 0;
-  pad.y_pressed = (ram[0x00ac] & 0x40) != 0;
-  return pad;
+  return MmxSaberFrameSampleNativePad(ram);
 }
 
 /* X1 fires only from the player actions whose handler in the $81:82A6 table

@@ -17,6 +17,7 @@ bool MmxSaberFrameNativeFireAction(uint8_t action);
  * supplies each seat's own pad, and Saber then tracks X's previous state. */
 typedef struct MmxSaberFramePad {
   bool x_held, y_pressed;
+  bool up_held, y_held;
 } MmxSaberFramePad;
 typedef void (*MmxSaberFramePadSource)(const uint8_t *ram, MmxSaberFramePad *pad);
 void MmxSaberFrameSetPadSource(MmxSaberFramePadSource source);

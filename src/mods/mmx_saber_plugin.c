@@ -46,8 +46,12 @@ static bool saber_overlay_provider(const uint8_t *ram, const MmxZeroState *zero,
 }
 
 static void coop_seat_pad(const uint8_t *ram, MmxSaberFramePad *pad) {
+  const MmxCoopState state = MmxCoopGetState();
+  const bool live = MmxCoopEnabled() && state.initialized;
   (void)ram;
   MmxCoopSeatButtons(&pad->x_held, &pad->y_pressed);
+  pad->up_held = live && (state.players[state.current].input & (1u << 4)) != 0;
+  pad->y_held = live && (state.players[state.current].input & (1u << 1)) != 0;
 }
 
 static void saber_activation_failed(void) {
