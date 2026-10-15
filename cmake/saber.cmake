@@ -30,7 +30,8 @@ set(_ride_cache "${_saber_cache_dir}/ride-zero-v1.bin")
 set(_saber_sfx_cache "${_saber_cache_dir}/saber-sfx-v2.bin")
 set(_saber_wave_test_cache_dir "${_saber_cache_dir}")
 file(GLOB _saber_sfx_inputs CONFIGURE_DEPENDS
-    "${_saber_sfx_source_dir}/*.ogg")
+    "${_saber_sfx_source_dir}/*.ogg"
+    "${_saber_sfx_source_dir}/*.wav")
 
 add_executable(mmx_saber_sfx_convert
     "${_saber_sfx_converter_source}" "${_saber_sfx_codec_source}"
@@ -48,6 +49,9 @@ endif()
 if(NOT (EXISTS "${_saber_sfx_source_dir}/saber_1.ogg" AND
         EXISTS "${_saber_sfx_source_dir}/saber_2.ogg" AND
         EXISTS "${_saber_sfx_source_dir}/saber_3.ogg" AND _saber_sfx_inputs))
+    message(FATAL_ERROR "Saber Zero sound sources missing from ${_saber_sfx_source_dir}")
+endif()
+if(NOT EXISTS "${_saber_sfx_source_dir}/crescent_slash.wav")
     message(FATAL_ERROR "Saber Zero sound sources missing from ${_saber_sfx_source_dir}")
 endif()
 add_custom_command(

@@ -1,4 +1,4 @@
-"""Exercise the converter with a project-authored synthetic Vorbis stream."""
+"""Exercise the converter with synthetic OGG and PCM WAV streams."""
 
 from __future__ import annotations
 
@@ -129,6 +129,17 @@ def _synthetic_ogg() -> bytes:
     return b"".join(pages)
 
 
+def _synthetic_wav() -> bytes:
+    samples = (0, 1200, -1200, 2400, -2400, 600, -600, 0) * 8
+    payload = struct.pack("<{}h".format(len(samples)), *samples)
+    junk = b"JUNK" + struct.pack("<I", 3) + b"abc\0"
+    fmt = struct.pack("<4sIHHIIHH", b"fmt ", 16, 1, 1, 16000,
+                      16000 * 2, 2, 16)
+    data = b"data" + struct.pack("<I", len(payload)) + payload
+    body = b"WAVE" + junk + fmt + data
+    return b"RIFF" + struct.pack("<I", len(body)) + body
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--converter", required=True, type=Path)
@@ -140,34 +151,84 @@ def main() -> int:
         fixture = _synthetic_ogg()
         for index in range(1, 4):
             (source / f"saber_{index}.ogg").write_bytes(fixture)
+        (source / "crescent_slash.wav").write_bytes(_synthetic_wav())
         output_a = root / "a.bin"
         output_b = root / "b.bin"
+        preview = root / "preview"
+        preview.mkdir()
         command = [str(args.converter), "--source-dir", str(source), "--out"]
-        first = subprocess.run(command + [str(output_a)], cwd=root)
+        first = subprocess.run(
+            command + [str(output_a), "--preview-dir", str(preview)], cwd=root
+        )
         assert first.returncode == 0 and output_a.is_file()
         second = subprocess.run(command + [str(output_b)], cwd=root)
         assert second.returncode == 0 and output_b.read_bytes() == output_a.read_bytes()
         sidecar = output_a.read_bytes()
         assert sidecar[:8] == b"MMXSFX2\0"
         assert struct.unpack_from("<H", sidecar, 8)[0] == 2
-        assert struct.unpack_from("<H", sidecar, 12)[0] == 3
-        for index in range(3):
+        # Mutation red: remove two entries from kClipSpecs or restore count 3.
+        assert struct.unpack_from("<H", sidecar, 12)[0] == 5
+        frames = []
+        payloads = []
+        cursor = 24 + 5 * 20
+        for index in range(5):
             record = 24 + index * 20
             assert struct.unpack_from("<I", sidecar, record)[0] == 1
             assert struct.unpack_from("<I", sidecar, record + 4)[0] == 32000
-            assert struct.unpack_from("<I", sidecar, record + 8)[0] == 598
-            assert struct.unpack_from("<I", sidecar, record + 12)[0] == 598 * 2
+            frame_count = struct.unpack_from("<I", sidecar, record + 8)[0]
+            byte_length = struct.unpack_from("<I", sidecar, record + 12)[0]
+            assert frame_count > 0 and byte_length == frame_count * 2
+            frames.append(frame_count)
+            payloads.append(sidecar[cursor : cursor + byte_length])
+            cursor += byte_length
+        # Mutation red: route OGG clips through WAV or alter the old OGG path.
+        assert frames[:3] == [598, 598, 598]
+        assert frames[3] > 0
+        # Mutation red: remove UPPERCUT_PITCH from effective_sample_rate().
+        assert frames[4] < frames[0]
+        assert abs(frames[4] - round(frames[0] * 100 / 126)) <= 1
+        preview_names = (
+            "clip0_saber_1.wav",
+            "clip1_saber_2.wav",
+            "clip2_saber_3.wav",
+            "clip3_crescent_slash.wav",
+            "clip4_saber_1.wav",
+        )
+        # Mutation red: remove write_previews() or change its PCM source.
+        for name, payload in zip(preview_names, payloads):
+            preview_bytes = (preview / name).read_bytes()
+            assert preview_bytes[:4] == b"RIFF"
+            assert preview_bytes[8:12] == b"WAVE"
+            assert struct.unpack_from("<H", preview_bytes, 20)[0] == 1
+            assert struct.unpack_from("<H", preview_bytes, 22)[0] == 1
+            assert struct.unpack_from("<I", preview_bytes, 24)[0] == 32000
+            assert struct.unpack_from("<H", preview_bytes, 34)[0] == 16
+            assert struct.unpack_from("<I", preview_bytes, 40)[0] == len(payload)
+            assert preview_bytes[44:] == payload
         corrupt = root / "corrupt"
         corrupt.mkdir()
         (corrupt / "saber_1.ogg").write_bytes(fixture[:60])
         for index in (2, 3):
             (corrupt / f"saber_{index}.ogg").write_bytes(fixture)
+        (corrupt / "crescent_slash.wav").write_bytes(_synthetic_wav())
         rejected = subprocess.run(
             [str(args.converter), "--source-dir", str(corrupt), "--out", str(root / "bad.bin")],
             cwd=root,
         )
         assert rejected.returncode != 0 and not (root / "bad.bin").exists()
-    print("PASS Saber SFX converter decodes synthetic OGG deterministically and rejects corruption")
+        malformed_wav = root / "malformed-wav"
+        malformed_wav.mkdir()
+        for index in range(1, 4):
+            (malformed_wav / f"saber_{index}.ogg").write_bytes(fixture)
+        (malformed_wav / "crescent_slash.wav").write_bytes(_synthetic_wav()[:20])
+        rejected_wav = subprocess.run(
+            [str(args.converter), "--source-dir", str(malformed_wav), "--out", str(root / "bad-wav.bin")],
+            cwd=root, capture_output=True, text=True,
+        )
+        # Mutation red: remove strict decode_wav() bounds and format checks.
+        assert rejected_wav.returncode != 0 and not (root / "bad-wav.bin").exists()
+        assert "WAV" in rejected_wav.stderr
+    print("PASS Saber SFX converter decodes five clips, previews rendered PCM, pitches uppercut, and rejects corrupt OGG/WAV")
     return 0
 
 

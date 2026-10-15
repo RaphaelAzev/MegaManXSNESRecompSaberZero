@@ -661,6 +661,10 @@ static MmxSaberSfxAttackCue attack_cue(const MmxSaberAttack *attack) {
       return MMX_SABER_SFX_ATTACK_WALL;
     case SABER_KIND_DASH:
       return MMX_SABER_SFX_ATTACK_DASH;
+    case SABER_KIND_UPPERCUT:
+      return MMX_SABER_SFX_ATTACK_UPPERCUT;
+    case SABER_KIND_ROLLING:
+      return MMX_SABER_SFX_ATTACK_ROLLING;
     default:
       return MMX_SABER_SFX_ATTACK_COUNT;
   }

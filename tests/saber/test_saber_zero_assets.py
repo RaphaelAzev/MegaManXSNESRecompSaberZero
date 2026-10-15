@@ -26,6 +26,7 @@ REQUIRED_ASSETS = (
     ASSET_ROOT / "sfx" / "saber_1.ogg",
     ASSET_ROOT / "sfx" / "saber_2.ogg",
     ASSET_ROOT / "sfx" / "saber_3.ogg",
+    ASSET_ROOT / "sfx" / "crescent_slash.wav",
 )
 
 

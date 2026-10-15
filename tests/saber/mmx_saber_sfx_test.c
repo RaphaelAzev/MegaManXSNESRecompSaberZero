@@ -63,6 +63,29 @@ static int expect_reject(const uint8_t *data, size_t size,
   return check(!sfx && strstr(reason, category) != NULL, category);
 }
 
+static int attack_map_test(void) {
+  static const unsigned expected[MMX_SABER_SFX_ATTACK_COUNT] = {
+    MMX_SABER_SFX_CLIP_SABER_1,
+    MMX_SABER_SFX_CLIP_SABER_2,
+    MMX_SABER_SFX_CLIP_SABER_3,
+    MMX_SABER_SFX_CLIP_SABER_3,
+    MMX_SABER_SFX_CLIP_SABER_1,
+    MMX_SABER_SFX_CLIP_SABER_1,
+    MMX_SABER_SFX_CLIP_SABER_2,
+    MMX_SABER_SFX_CLIP_UPPERCUT,
+    MMX_SABER_SFX_CLIP_CRESCENT_SLASH
+  };
+  int ok = 1;
+  /* Mutation red: edit kAttackClips in src/saber/mmx_saber_sfx.c. */
+  for (unsigned i = 0; i < MMX_SABER_SFX_ATTACK_COUNT; ++i)
+    ok &= check(MmxSaberSfxAttackClip((MmxSaberSfxAttackCue)i) == expected[i],
+                "every Saber attack cue maps to its clip");
+  ok &= check(MmxSaberSfxAttackClip(MMX_SABER_SFX_ATTACK_COUNT) ==
+                  MMX_SABER_SFX_CLIP_COUNT,
+              "out-of-range Saber attack cue is rejected");
+  return ok;
+}
+
 static int file_exists(const char *path) {
   FILE *file = path ? fopen(path, "rb") : NULL;
   if (!file) return 0;
@@ -113,6 +136,7 @@ int main(void) {
   char reason[64] = {0};
   int cache_result;
 
+  if (!attack_map_test()) return 1;
   cache_result = actual_cache_test();
   if (cache_result == 77) return 77;
   if (!cache_result) return 1;

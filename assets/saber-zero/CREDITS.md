@@ -20,3 +20,9 @@ armor pose by Justin3009; ride chaser pose by Blue Warrior. Original art © Capc
 redraw made for this project (`tools/saber/extract_saber_crescent.py`). Its shapes are
 traced from a rip of Zero's crescent slash in Capcom's PlayStation Mega Man X games.
 Original art © Capcom.
+
+## Special-move sounds
+
+`sfx/crescent_slash.wav` (the rolling slash) was supplied by the project author. The
+uppercut reuses `sfx/saber_1.ogg`, pitched up offline. Both go through the same
+converter as the other Saber sounds (`tools/saber/mmx_saber_sfx_convert`).

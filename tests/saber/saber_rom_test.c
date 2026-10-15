@@ -8777,7 +8777,9 @@ static void saber_assets_checks(const char *x1_rom, const char *x3_rom,
     MMX_SABER_SFX_ATTACK_X3_FINISHER,
     MMX_SABER_SFX_ATTACK_AIR,
     MMX_SABER_SFX_ATTACK_WALL,
-    MMX_SABER_SFX_ATTACK_DASH
+    MMX_SABER_SFX_ATTACK_DASH,
+    MMX_SABER_SFX_ATTACK_UPPERCUT,
+    MMX_SABER_SFX_ATTACK_ROLLING
   };
   static const unsigned kExpectedClips[] = {
     MMX_SABER_SFX_CLIP_SABER_1,
@@ -8786,7 +8788,9 @@ static void saber_assets_checks(const char *x1_rom, const char *x3_rom,
     MMX_SABER_SFX_CLIP_SABER_3,
     MMX_SABER_SFX_CLIP_SABER_1,
     MMX_SABER_SFX_CLIP_SABER_1,
-    MMX_SABER_SFX_CLIP_SABER_2
+    MMX_SABER_SFX_CLIP_SABER_2,
+    MMX_SABER_SFX_CLIP_UPPERCUT,
+    MMX_SABER_SFX_CLIP_CRESCENT_SLASH
   };
   check(empty_cache && empty_cache[0], "runner supplies an empty Saber cache");
 
@@ -10372,9 +10376,13 @@ static void saber_specials_unlock_checks(const char *x1_rom,
   saber_specials_unlock_load(capsule, 2);
   frame(SNES_PAD_UP | SNES_PAD_Y);
   snapshot = MmxSaberAttackSnapshotGet();
+  /* Mutation red: remove SABER_KIND_UPPERCUT from attack_cue() in
+   * src/saber/mmx_saber_attack.c. */
   check(snapshot.kind == SABER_KIND_UPPERCUT &&
-            snapshot.phase != SABER_PHASE_IDLE,
-        "capsule (2 defeated) ground Up+Y starts uppercut");
+            snapshot.phase != SABER_PHASE_IDLE &&
+            MmxSaberAttackCueCount() == 1 &&
+            MmxSaberSfxLastClip() == MMX_SABER_SFX_CLIP_UPPERCUT,
+        "capsule (2 defeated) ground Up+Y starts uppercut and emits exactly one uppercut cue");
   snapshot = saber_specials_unlock_dash(capsule, 2);
   check(snapshot.kind == SABER_KIND_UPPERCUT &&
             snapshot.phase != SABER_PHASE_IDLE,
@@ -11033,6 +11041,11 @@ static void saber_rolling_spin_checks(const char *capsule) {
             trace.launch_snapshot.phase != SABER_PHASE_IDLE &&
             trace.launch_snapshot.tick == 0,
         "saber-rolling starts one synthetic airborne spin at the rise top");
+  /* Mutation red: remove SABER_KIND_ROLLING from attack_cue() in
+   * src/saber/mmx_saber_attack.c. */
+  check(MmxSaberAttackCueCount() == 1 &&
+            MmxSaberSfxLastClip() == MMX_SABER_SFX_CLIP_CRESCENT_SLASH,
+        "saber-rolling start emits exactly one crescent-slash cue");
 
   for (unsigned tick = 0; tick < SABER_ROLLING_TICK_COUNT; ++tick) {
     const MmxSaberAttackSnapshot *snapshot = trace.snapshots + tick;
