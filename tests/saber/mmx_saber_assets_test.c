@@ -14,10 +14,10 @@
 #endif
 
 static const uint8_t kSaberManifestSha[32] = {
-  0xd5, 0x11, 0xc3, 0x46, 0x8b, 0x52, 0x4f, 0xd6,
-  0xf7, 0xc8, 0x2f, 0x7e, 0x8f, 0xf3, 0x2b, 0xa8,
-  0x2f, 0x9c, 0x1a, 0xe4, 0x5f, 0xcd, 0x6c, 0xfc,
-  0x11, 0xe1, 0x4a, 0x0e, 0xef, 0xd0, 0xe9, 0x03,
+  0x99, 0x1d, 0x13, 0x43, 0xd8, 0x41, 0x07, 0xe7,
+  0xa4, 0x23, 0x23, 0xc2, 0x71, 0x3b, 0xe3, 0xc2,
+  0x12, 0xe3, 0x44, 0x32, 0x09, 0xfa, 0xdd, 0x1f,
+  0x0a, 0xbe, 0x50, 0x8e, 0x90, 0x7e, 0x8f, 0xc5,
 };
 
 static const uint8_t kRideManifestSha[32] = {
@@ -119,16 +119,16 @@ static int check_empty_blade_frames(const MmxSaberAssets *assets,
 static int check_saber_assets(const MmxSaberAssets *assets) {
   static const uint16_t ids[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
   static const uint16_t step_counts[] = {
-    15, 15, 18, 9, 10, 15, 9, 7, 7, 9, 8, 10
+    15, 15, 18, 9, 10, 15, 9, 7, 7, 9, 8, 9
   };
   static const uint16_t total_ticks[] = {
-    30, 30, 39, 18, 20, 30, 18, 14, 14, 18, 16, 20
+    30, 30, 39, 18, 20, 30, 18, 14, 14, 18, 16, 18
   };
   static const uint16_t special_ids[] = {8, 9, 10, 11, 12};
   size_t i;
 
-  if (MmxSaberAssetsPaletteCount(assets) != 40)
-    return fail("Saber palette count is not 40");
+  if (MmxSaberAssetsPaletteCount(assets) != 37)
+    return fail("Saber palette count is not 37");
   if (!MmxSaberAssetsPalette(assets) || MmxSaberAssetsPalette(assets)[0] != 0)
     return fail("Saber palette does not reserve index zero");
   if (memcmp(MmxSaberAssetsManifestSha256(assets), kSaberManifestSha,

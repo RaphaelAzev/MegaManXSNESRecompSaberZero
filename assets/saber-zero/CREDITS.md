@@ -16,5 +16,7 @@ ROMs are never included; players provide their own Mega Man X USA and Mega Man X
 sheet on The Spriters Resource (Mega Man X Customs). Sprite edit by HansungKee; ride
 armor pose by Justin3009; ride chaser pose by Blue Warrior. Original art © Capcom.
 
-`sprites/Special_Crescent_FX.png` is a work in progress and will be replaced by the
-final crescent slash effect before the special moves ship.
+`sprites/Special_Crescent_FX.png` (the rolling slash's crescent) is an SNES-style
+redraw made for this project (`tools/saber/extract_saber_crescent.py`). Its shapes are
+traced from a rip of Zero's crescent slash in Capcom's PlayStation Mega Man X games.
+Original art © Capcom.
