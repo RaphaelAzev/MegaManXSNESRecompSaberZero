@@ -26,7 +26,7 @@ buster/special translation owns X. The other native controls remain available.
 
 | Button | Behavior |
 |--------|----------|
-| Y | Start/continue a Saber attack. On the ground it starts the 3-hit combo; in the air it is an air slash; on a wall it is a wall slash; during a grounded dash it is a dash slash. A held Y produces one edge. |
+| Y | Start/continue a Saber attack. On the ground it starts the 3-hit combo; in the air it is an air slash; on a wall it is a wall slash; during a grounded dash it is a dash slash. After they unlock, Up + Y starts the uppercut on the ground or during a dash, and the rolling slash in the air. A held Y produces one edge. |
 | X | Charge and fire the buster when the buster is selected; otherwise fire the selected special weapon. X is blocked from creating a new buster/special shot while a Saber slash, finisher, or wave-shooting animation owns the action. |
 | B | Native jump. |
 | A | Native dash. |
@@ -40,6 +40,33 @@ eligible frame after the slash. A hurt frame does not invent a buster press or
 throw away an existing release latch. While frozen by Chill Penguin, Saber
 Zero cannot slash or fire; mashing breaks the ice as it does for X, and attacks
 resume after he is free.
+
+## Special moves
+
+After any two of the eight Maverick bosses are defeated, Up + Y on the ground or
+during a dash starts the uppercut. The eight bosses are Chill Penguin, Spark
+Mandrill, Armored Armadillo, Launch Octopus, Boomer Kuwanger, Sting Chameleon,
+Storm Eagle, and Flame Mammoth. Sigma-stage bosses and Vile do not count. The
+progression follows the native boss-clear flags, so it persists through saves
+and passwords.
+
+Before the required boss count, Up + Y keeps its previous behavior: ground
+slash, air slash, dash slash, or wall slash. Wall slash always wins while Zero
+is on a wall. Both special moves are Saber Zero-only and cost no energy or
+cooldown.
+
+The uppercut makes Zero rise through the regular jump path while Y is held.
+Releasing Y early cuts the height and ends the attack. From a dash, it keeps
+dash-jump speed. It ends at the top of the rise, on landing, when Zero is hurt,
+or when the jump is not possible.
+
+After any three of the eight Mavericks are defeated, Up + Y in the air starts
+the rolling slash. It performs one 18-tick spin with normal air control and a
+hit that remains live through the spin. Landing ends it. The crescent effect is
+drawn in front of Zero when the `crescent_effect` option is enabled.
+
+The special-move art is credited in
+[assets/saber-zero/CREDITS.md](../assets/saber-zero/CREDITS.md).
 
 ## Saber attacks
 
@@ -61,8 +88,9 @@ owner uses the native action context for jump, dash, wall cling, landing, hurt,
 and death transitions, so an attack does not create a second movement system.
 
 The default normal damage is 3 / 3 / 8 for the ground combo, 3 for air, wall,
-and dash, 16 for the X3 finisher, and 6 for each wave pulse. The boss values
-are intentionally lower; the full defaults are in the option table below.
+and dash, 8 for the uppercut and rolling slash, 16 for the X3 finisher, and 6
+for each wave pulse. The boss values are intentionally lower; the full defaults
+are in the option table below.
 Damage is applied once per enemy per swing where the current attack owner
 requires that protection.
 
@@ -117,6 +145,8 @@ The default ladder is:
 | 3 | Ground slash 2, max shot 2 |
 | 4 | Ground slash 3, X3 finisher |
 | 5 | Dash slash, Saber wave |
+| 6 | Uppercut |
+| 7 | Rolling slash |
 
 The ladder is configurable through the priority options. This is a follow-up
 system, not a general “ignore all invincibility” switch.
@@ -145,7 +175,7 @@ the password like collected parts.
 | Part | Effect |
 |------|--------|
 | Legs (`$08`) | Double jump and air dash. Standing on a moving platform refreshes both aerial moves because platform contact counts as ground. Zero's ground dash remains innate. |
-| Arms (`$02`) | Purple saber blade and Saber wave. Adds 2 damage to every Saber attack, or 1 against bosses, after tuned damage and before the 32-point cap. A full buster charge fires charged X1 special weapons. |
+| Arms (`$02`) | Purple saber blade and Saber wave. Adds 2 damage to every Saber attack, including special moves, or 1 against bosses, after tuned damage and before the 32-point cap. A full buster charge fires charged X1 special weapons. |
 | Body (`$04`) | Reduces all enemy damage Saber Zero takes by 25%, including contact and hits (damage minus a quarter, rounded down). X keeps X1's native halving. |
 | Head (`$01`) | Buster charges at 1.5 times the normal rate. X1 special weapons cost half energy using fixed-point accounting, so whole-unit costs alternate. Breaks the helmet blocks X breaks in Flame Mammoth. |
 | All four parts | Black Zero: black and grey armor with pale hair. The appearance also applies on death and boss defeat. Death orbs use grey. |
@@ -178,7 +208,9 @@ Tuning lives in the separate **Characters → Saber Zero settings** feature
 unless a Zero behavior is Saber Zero. While it is disabled every option keeps
 the default below, even if a different value was stored earlier: a disabled
 feature is left out of the netplay mod comparison, so its values must not reach
-the game either. It exposes 31 numeric tuning options and `show_hitboxes`. Normal damage values accept 1–32; boss damage accepts 0–32,
+the game either. It exposes 37 numeric tuning options and four boolean options:
+`show_hitboxes`, `start_all_upgrades`, `unlock_special_moves`, and
+`crescent_effect`. Normal damage values accept 1–32; boss damage accepts 0–32,
 where 0 means “use the matching normal value”; priority values accept 1–9.
 The manifest also exposes `start` and `start_all_upgrades`; the table includes
 their defaults.
@@ -187,10 +219,10 @@ finisher. Swing volume ranges from 0–200 in steps of 10.
 
 | Group | Options and defaults |
 |-------|----------------------|
-| Character/debug | `start=zero`; `start_all_upgrades=false`; `show_hitboxes=false` |
-| Normal damage | `slash1_damage=3`, `slash2_damage=3`, `slash3_damage=8`, `x3_finisher_damage=16`, `air_damage=3`, `wall_damage=3`, `dash_damage=3`, `wave_damage=6` |
-| Boss damage | `boss_slash1_damage=1`, `boss_slash2_damage=1`, `boss_slash3_damage=2`, `boss_air_damage=1`, `boss_wall_damage=1`, `boss_dash_damage=1`, `boss_x3_finisher_damage=6`, `boss_wave_damage=4` |
-| Priority | `slash1_priority=2`, `slash2_priority=3`, `slash3_priority=4`, `air_priority=1`, `wall_priority=1`, `dash_priority=5`, `charge_small_priority=1`, `charge_full_priority=1`, `max_shot1_priority=2`, `max_shot2_priority=3`, `x3_finisher_priority=4`, `wave_priority=5` |
+| Character/debug | `start=zero`; `start_all_upgrades=false`; `show_hitboxes=false`; `unlock_special_moves=false` (testing aid); `crescent_effect=true` |
+| Normal damage | `slash1_damage=3`, `slash2_damage=3`, `slash3_damage=8`, `x3_finisher_damage=16`, `air_damage=3`, `wall_damage=3`, `dash_damage=3`, `wave_damage=6`, `uppercut_damage=8`, `rolling_slash_damage=8` |
+| Boss damage | `boss_slash1_damage=1`, `boss_slash2_damage=1`, `boss_slash3_damage=2`, `boss_air_damage=1`, `boss_wall_damage=1`, `boss_dash_damage=1`, `boss_x3_finisher_damage=6`, `boss_wave_damage=4`, `boss_uppercut_damage=2`, `boss_rolling_slash_damage=2` |
+| Priority | `slash1_priority=2`, `slash2_priority=3`, `slash3_priority=4`, `air_priority=1`, `wall_priority=1`, `dash_priority=5`, `charge_small_priority=1`, `charge_full_priority=1`, `max_shot1_priority=2`, `max_shot2_priority=3`, `x3_finisher_priority=4`, `wave_priority=5`, `uppercut_priority=6`, `rolling_slash_priority=7` |
 | Windows/audio | `priority_window_frames=70`, `finisher_window_frames=27`, `saber_swing_volume=50` |
 
 ## Co-op, savestates and netplay
