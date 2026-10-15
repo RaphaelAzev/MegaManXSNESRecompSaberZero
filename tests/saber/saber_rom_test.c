@@ -10996,6 +10996,360 @@ static void saber_rolling_checks(const char *fixture_dir) {
   puts("ok: saber-rolling");
 }
 
+typedef unsigned (*SaberSpecialStart)(const char *path);
+
+static unsigned saber_specials_uppercut_live_slot(const char *path) {
+  MmxSaberAttackSnapshot snapshot;
+
+  saber_specials_unlock_load(path, 2);
+  check(saber_test_grounded(),
+        "saber-specials-damage uppercut starts from capsule standing ground");
+  frame(SNES_PAD_UP | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  for (unsigned i = 0; i < 32 && snapshot.phase != SABER_PHASE_ACTIVE; ++i) {
+    frame(SNES_PAD_Y);
+    snapshot = MmxSaberAttackSnapshotGet();
+  }
+  check(snapshot.kind == SABER_KIND_UPPERCUT &&
+            snapshot.phase == SABER_PHASE_ACTIVE,
+        "saber-specials-damage uppercut reaches ACTIVE from Up+Y");
+  const unsigned slot = saber_active_slot();
+  check(slot != 0 && tagged_projectiles() == 1,
+        "saber-specials-damage uppercut has one live tagged slot");
+  return slot;
+}
+
+static unsigned saber_specials_rolling_live_slot(const char *path) {
+  MmxSaberAttackSnapshot snapshot = {0};
+  unsigned previous_y;
+  unsigned airborne_frames = 0;
+  bool airborne = false;
+  bool saw_rise = false;
+  bool launched = false;
+
+  saber_rolling_load(path);
+  previous_y = read_ram_word(g_ram, 0x0bb0);
+  for (unsigned frame_number = 1;
+       frame_number <= SABER_ROLLING_TRACE_LIMIT && !launched;
+       ++frame_number) {
+    if (airborne && saber_test_grounded()) break;
+    const unsigned current_y = read_ram_word(g_ram, 0x0bb0);
+    const bool rising = current_y < previous_y;
+    const bool at_top = airborne && airborne_frames >= 3 && saw_rise && !rising;
+    unsigned input = SNES_PAD_B | SNES_PAD_RIGHT;
+    if (at_top) input |= SNES_PAD_UP | SNES_PAD_Y;
+    frame(input);
+    if (!saber_test_grounded()) {
+      airborne = true;
+      ++airborne_frames;
+    }
+    if (at_top) {
+      snapshot = MmxSaberAttackSnapshotGet();
+      launched = true;
+      break;
+    }
+    if (rising) saw_rise = true;
+    previous_y = current_y;
+  }
+  check(launched && snapshot.kind == SABER_KIND_ROLLING &&
+            snapshot.phase == SABER_PHASE_STARTUP,
+        "saber-specials-damage rolling starts at the synthetic rise top");
+  for (unsigned tick = 1; tick <= SABER_ROLLING_ACTIVE_FIRST; ++tick) {
+    frame(SNES_PAD_B | SNES_PAD_RIGHT);
+    snapshot = MmxSaberAttackSnapshotGet();
+  }
+  check(snapshot.kind == SABER_KIND_ROLLING &&
+            snapshot.phase == SABER_PHASE_ACTIVE,
+        "saber-specials-damage rolling reaches ACTIVE");
+  const unsigned slot = saber_active_slot();
+  check(slot != 0 && tagged_projectiles() == 1,
+        "saber-specials-damage rolling has one live tagged slot");
+  return slot;
+}
+
+static void saber_specials_boss_unlock_load(const char *path) {
+  load_response_fixture(path);
+  g_ram[0x1f88] |= 0x40;
+  g_ram[0x1f8a] |= 0x40;
+  g_ram[0x1f8c] |= 0x40;
+  MmxSaberFrameReset();
+  check(MmxSaberDefeatedMavericks(g_ram) >= 3,
+        "saber-specials-damage boss fixture unlocks both air specials");
+}
+
+static unsigned saber_specials_direct_live_slot(MmxSaberPadKind expected_kind,
+                                                bool grounded,
+                                                bool preserve_history) {
+  MmxSaberAttackSnapshot snapshot;
+
+  if (preserve_history)
+    MmxSaberAttackResetRam(g_ram);
+  else
+    MmxSaberFrameReset();
+  MmxSaberAttackStepWithWallAndDash(
+      true, grounded, false, false, true, true, false, true, g_ram,
+      g_ram[0x0c11], 0);
+  MmxSaberAttackRuntimeTick(g_ram);
+  snapshot = MmxSaberAttackSnapshotGet();
+  for (unsigned i = 0; i < 32 && snapshot.phase != SABER_PHASE_ACTIVE; ++i) {
+    MmxSaberAttackStepWithWallAndDash(
+        false, grounded, false, false, true, true, false, true, g_ram,
+        g_ram[0x0c11], 0);
+    MmxSaberAttackRuntimeTick(g_ram);
+    snapshot = MmxSaberAttackSnapshotGet();
+  }
+  check(snapshot.kind == expected_kind &&
+            snapshot.phase == SABER_PHASE_ACTIVE,
+        "saber-specials-damage direct special reaches ACTIVE");
+  const unsigned slot = saber_active_slot();
+  check(slot != 0 && tagged_projectiles() == 1,
+        "saber-specials-damage direct special has one live tagged slot");
+  return slot;
+}
+
+static unsigned saber_specials_boss_uppercut_live_slot(const char *path) {
+  saber_specials_boss_unlock_load(path);
+  return saber_specials_direct_live_slot(SABER_KIND_UPPERCUT, true, false);
+}
+
+static unsigned saber_specials_boss_rolling_live_slot(const char *path) {
+  saber_specials_boss_unlock_load(path);
+  return saber_specials_direct_live_slot(SABER_KIND_ROLLING, false, false);
+}
+
+static unsigned saber_specials_callback_damage(const char *label,
+                                               unsigned enemy,
+                                               unsigned slot,
+                                               unsigned expected) {
+  const unsigned bit = 1u << ((enemy - 0xe68) / 64);
+  const unsigned initial_hp = g_ram[enemy + 0x27] & 127;
+  const unsigned first = MmxSaberAttackDamage(g_ram, enemy, slot, 1);
+  const unsigned second = MmxSaberAttackDamage(g_ram, enemy, slot, 1);
+  const unsigned drop = apply_test_damage(enemy, first);
+
+  printf("reference: %s enemy=0x%X hp=%u->%u damage=%u then=%u mask=0x%X\n",
+         label, enemy, initial_hp, g_ram[enemy + 0x27] & 127, first, second,
+         MmxSaberAttackHitSlots());
+  check(first == expected && second == 0 && drop == expected &&
+            (MmxSaberAttackHitSlots() & bit) &&
+            (g_ram[enemy + 0x27] & 127) == initial_hp - expected,
+        label);
+  return first;
+}
+
+static void saber_specials_normal_damage_case(
+    const char *path, SaberSpecialStart start, const char *label,
+    MmxSaberPriorityClass expected_class, unsigned expected_priority,
+    unsigned expected_damage, bool arms) {
+  unsigned slot = start(path);
+  unsigned enemy = empty_enemy_slot();
+  check(slot != 0 && enemy != 0,
+        "saber-specials-damage normal case has a live slot and probe enemy");
+  saber_damage_set_arms(arms);
+  g_ram[enemy + 0x27] = 32;
+  check(priority_classify_live(expected_class, expected_priority, label) == slot,
+        label);
+  saber_specials_callback_damage(label, enemy, slot, expected_damage);
+
+  slot = start(path);
+  enemy = empty_enemy_slot();
+  saber_damage_set_arms(arms);
+  g_ram[enemy + 0x27] = 32;
+  const unsigned fresh_damage = MmxSaberAttackDamage(g_ram, enemy, slot, 1);
+  const unsigned fresh_drop = apply_test_damage(enemy, fresh_damage);
+  const unsigned bit = 1u << ((enemy - 0xe68) / 64);
+  check(fresh_damage == expected_damage && fresh_drop == expected_damage &&
+            (MmxSaberAttackHitSlots() & bit),
+        "saber-specials-damage new swing can hit the normal enemy");
+}
+
+static void saber_specials_boss_damage_case(
+    const char *path, SaberSpecialStart start, const char *label,
+    MmxSaberPriorityClass expected_class, unsigned expected_priority,
+    unsigned expected_damage, bool arms) {
+  unsigned slot = start(path);
+  unsigned boss = saber_damage_boss_slot();
+  check(slot != 0 && boss != 0 &&
+            MmxWidePolicy_IsBossEncounter(g_ram[boss + 0x0a]),
+        "saber-specials-damage boss case has a live tagged slot and boss flag");
+  saber_damage_set_arms(arms);
+  g_ram[boss + 0x27] = 32;
+  check(priority_classify_live(expected_class, expected_priority, label) == slot,
+        label);
+  saber_specials_callback_damage(label, boss, slot, expected_damage);
+
+  slot = start(path);
+  boss = saber_damage_boss_slot();
+  saber_damage_set_arms(arms);
+  g_ram[boss + 0x27] = 32;
+  const unsigned fresh_damage = MmxSaberAttackDamage(g_ram, boss, slot, 1);
+  const unsigned fresh_drop = apply_test_damage(boss, fresh_damage);
+  const unsigned bit = 1u << ((boss - 0xe68) / 64);
+  check(fresh_damage == expected_damage && fresh_drop == expected_damage &&
+            (MmxSaberAttackHitSlots() & bit),
+        "saber-specials-damage new swing can hit the boss");
+}
+
+static void saber_specials_uppercut_tuning_case(const char *path) {
+  MmxSaberTuning saved = *MmxSaberTuningGet();
+  MmxSaberTuning *mutable_tuning =
+      (MmxSaberTuning *)(uintptr_t)MmxSaberTuningGet();
+  const unsigned default_damage = MmxSaberTuningNormalDamage(
+      MMX_SABER_TUNING_DAMAGE_UPPERCUT);
+
+  check(default_damage == 8,
+        "saber-specials-damage uppercut normal tuning defaults to 8");
+  /* Mutation red: map UPPERCUT to MMX_SABER_TUNING_DAMAGE_SLASH1 in
+   * attack_damage_kind(), which would make this tuning mutation inert. */
+  mutable_tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_UPPERCUT] = 12;
+  unsigned slot = saber_specials_uppercut_live_slot(path);
+  unsigned enemy = empty_enemy_slot();
+  saber_damage_set_arms(false);
+  g_ram[enemy + 0x27] = 32;
+  const unsigned damage = MmxSaberAttackDamage(g_ram, enemy, slot, 1);
+  const unsigned drop = apply_test_damage(enemy, damage);
+  check(damage == 12 && drop == 12,
+        "saber-specials-damage uppercut normal tuning 12 reaches ROM damage");
+  *mutable_tuning = saved;
+  check(MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_UPPERCUT) ==
+            default_damage,
+        "saber-specials-damage restores uppercut normal tuning");
+}
+
+static void saber_specials_rolling_priority_case(const char *path) {
+  MmxSaberPriorityHistory lower_history;
+  const unsigned lower_priority = MmxSaberPriorityTuned(
+      MMX_SABER_PRIORITY_CLASS_SLASH1);
+  const unsigned rolling_priority = MmxSaberPriorityTuned(
+      MMX_SABER_PRIORITY_CLASS_ROLLING);
+
+  saber_specials_boss_unlock_load(path);
+  unsigned boss = saber_damage_boss_slot();
+  check(boss != 0 && MmxWidePolicy_IsBossEncounter(g_ram[boss + 0x0a]),
+        "saber-specials-damage priority case finds Penguin boss");
+  g_ram[boss + 0x27] = 32;
+  saber_damage_set_arms(false);
+  const unsigned lower_slot = priority_ground_attack_preserving_history(0);
+  const unsigned lower_damage = MmxSaberAttackDamage(
+      g_ram, boss, lower_slot, 1);
+  apply_test_damage(boss, lower_damage);
+  check(lower_slot != 0 && lower_damage != 0 &&
+            MmxSaberPriorityHistoryLookup(g_ram, boss, &lower_history) &&
+            lower_history.priority == lower_priority &&
+            lower_priority < rolling_priority,
+        "saber-specials-damage records a lower-priority Saber hit first");
+
+  /* Mutation red: change rolling priority default 7 to 5 in the tuning table;
+   * the native response would stop accepting this rolling bypass. */
+  g_ram[boss + 0x28] = 0x05;
+  g_ram[boss + 0x35] = 0x46;
+  const unsigned rolling_slot = saber_specials_direct_live_slot(
+      SABER_KIND_ROLLING, false, true);
+  check(priority_classify_live(MMX_SABER_PRIORITY_CLASS_ROLLING,
+                               rolling_priority,
+                               "saber-specials-damage rolling priority 7") ==
+            rolling_slot,
+        "saber-specials-damage rolling live slot uses priority 7");
+  const unsigned response = MmxZeroResponse(g_ram, boss, rolling_slot, 0);
+  const unsigned damage = MmxZeroDamage(g_ram, boss, rolling_slot, 0);
+  const unsigned second_damage = MmxZeroDamage(g_ram, boss, rolling_slot, 0);
+  apply_test_damage(boss, damage);
+  check(response == 1 && damage == 2 && second_damage == 0,
+        "saber-specials-damage rolling priority 7 bypasses lower Saber hit");
+}
+
+static void saber_specials_damage_checks(const char *fixture_dir) {
+  char capsule[4096];
+  char save0[4096];
+  char penguin[4096];
+  const unsigned uppercut_normal = MmxSaberTuningNormalDamage(
+      MMX_SABER_TUNING_DAMAGE_UPPERCUT);
+  const unsigned uppercut_boss = MmxSaberTuningBossDamage(
+      MMX_SABER_TUNING_DAMAGE_UPPERCUT);
+  const unsigned uppercut_priority = MmxSaberPriorityTuned(
+      MMX_SABER_PRIORITY_CLASS_UPPERCUT);
+  const unsigned rolling_normal = MmxSaberTuningNormalDamage(
+      MMX_SABER_TUNING_DAMAGE_ROLLING);
+  const unsigned rolling_boss = MmxSaberTuningBossDamage(
+      MMX_SABER_TUNING_DAMAGE_ROLLING);
+  const unsigned rolling_priority = MmxSaberPriorityTuned(
+      MMX_SABER_PRIORITY_CLASS_ROLLING);
+  int written;
+
+  check(fixture_dir && fixture_dir[0],
+        "saber-specials-damage receives a fixture directory");
+  written = snprintf(capsule, sizeof(capsule), "%s/%s", fixture_dir,
+                     "capsule.sav");
+  check(written >= 0 && written < (int)sizeof(capsule),
+        "saber-specials-damage capsule path fits");
+  written = snprintf(save0, sizeof(save0), "%s/%s", fixture_dir,
+                     "save0.sav");
+  check(written >= 0 && written < (int)sizeof(save0),
+        "saber-specials-damage save0 path fits");
+  written = snprintf(penguin, sizeof(penguin), "%s/%s", fixture_dir,
+                     "penguin-fight.sav");
+  check(written >= 0 && written < (int)sizeof(penguin),
+        "saber-specials-damage Penguin path fits");
+  check(readable_file(capsule) && readable_file(save0) &&
+            readable_file(penguin),
+        "saber-specials-damage fixtures exist");
+  check(uppercut_normal == 8 && uppercut_boss == 2 &&
+            uppercut_priority == 6 && rolling_normal == 8 &&
+            rolling_boss == 2 && rolling_priority == 7 &&
+            uppercut_normal + 2 == 10 && uppercut_boss + 1 == 3 &&
+            rolling_normal + 2 == 10 && rolling_boss + 1 == 3,
+        "saber-specials-damage defaults are 8/2, Arms is 10/3, priorities 6/7");
+
+  /* Mutation red: map UPPERCUT to the GROUND1 damage kind. */
+  saber_specials_normal_damage_case(
+      capsule, saber_specials_uppercut_live_slot,
+      "saber-specials-damage uppercut normal",
+      MMX_SABER_PRIORITY_CLASS_UPPERCUT, uppercut_priority,
+      uppercut_normal, false);
+  saber_specials_normal_damage_case(
+      capsule, saber_specials_uppercut_live_slot,
+      "saber-specials-damage uppercut Arms normal",
+      MMX_SABER_PRIORITY_CLASS_UPPERCUT, uppercut_priority,
+      uppercut_normal + 2, true);
+  saber_specials_boss_damage_case(
+      penguin, saber_specials_boss_uppercut_live_slot,
+      "saber-specials-damage uppercut boss",
+      MMX_SABER_PRIORITY_CLASS_UPPERCUT, uppercut_priority,
+      uppercut_boss, false);
+  saber_specials_boss_damage_case(
+      penguin, saber_specials_boss_uppercut_live_slot,
+      "saber-specials-damage uppercut Arms boss",
+      MMX_SABER_PRIORITY_CLASS_UPPERCUT, uppercut_priority,
+      uppercut_boss + 1, true);
+  saber_specials_uppercut_tuning_case(capsule);
+
+  /* Mutation red: map ROLLING to the GROUND1 damage kind. */
+  saber_specials_normal_damage_case(
+      save0, saber_specials_rolling_live_slot,
+      "saber-specials-damage rolling normal",
+      MMX_SABER_PRIORITY_CLASS_ROLLING, rolling_priority,
+      rolling_normal, false);
+  saber_specials_normal_damage_case(
+      save0, saber_specials_rolling_live_slot,
+      "saber-specials-damage rolling Arms normal",
+      MMX_SABER_PRIORITY_CLASS_ROLLING, rolling_priority,
+      rolling_normal + 2, true);
+  saber_specials_boss_damage_case(
+      penguin, saber_specials_boss_rolling_live_slot,
+      "saber-specials-damage rolling boss",
+      MMX_SABER_PRIORITY_CLASS_ROLLING, rolling_priority,
+      rolling_boss, false);
+  saber_specials_boss_damage_case(
+      penguin, saber_specials_boss_rolling_live_slot,
+      "saber-specials-damage rolling Arms boss",
+      MMX_SABER_PRIORITY_CLASS_ROLLING, rolling_priority,
+      rolling_boss + 1, true);
+  saber_specials_rolling_priority_case(penguin);
+
+  saber_damage_set_arms(false);
+  puts("ok: saber-specials-damage");
+}
+
 int main(int argc, char **argv) {
   check(argc == 2, "X1 ROM supplied");
   const char *fixture = getenv("MMX_ZERO_TEST_FIXTURE");
@@ -11010,6 +11364,7 @@ int main(int argc, char **argv) {
       !strcmp(only, "saber-frozen") ||
       !strcmp(only, "saber-capsule") ||
       !strcmp(only, "saber-specials-unlock") ||
+      !strcmp(only, "saber-specials-damage") ||
       !strcmp(only, "saber-wall") ||
       !strcmp(only, "saber-cancel") || !strcmp(only, "saber-buster-rules") ||
       !strcmp(only, "saber-damage") || !strcmp(only, "saber-priority") ||
@@ -11113,6 +11468,8 @@ int main(int argc, char **argv) {
   const bool saber_ground_lifecycle = only && !strcmp(only, "saber-ground-lifecycle");
   const bool saber_specials_unlock =
       only && !strcmp(only, "saber-specials-unlock");
+  const bool saber_specials_damage =
+      only && !strcmp(only, "saber-specials-damage");
   const bool saber_uppercut = only && !strcmp(only, "saber-uppercut");
   const bool saber_rolling = only && !strcmp(only, "saber-rolling");
   const bool saber_lifecycle_load = only && !strcmp(only, "saber-lifecycle-load");
@@ -11139,6 +11496,7 @@ int main(int argc, char **argv) {
       saber_input || saber_fire_wave_armor || saber_ground_1 || saber_ground_combo ||
       saber_air || saber_legs || saber_frozen || saber_capsule || saber_wall || saber_dash || saber_land || saber_ground_lifecycle ||
       saber_specials_unlock ||
+      saber_specials_damage ||
       saber_uppercut ||
       saber_rolling ||
       saber_ground_hit || saber_cancel || saber_lifecycle_load ||
@@ -11221,6 +11579,10 @@ int main(int argc, char **argv) {
           "saber-specials-unlock runs with the Saber package enabled");
     saber_specials_unlock_checks(argv[1], x3_rom, fixture, assets,
                                  fixture_dir);
+  } else if (saber_specials_damage) {
+    check(MmxSaberEnabled(),
+          "saber-specials-damage runs with the Saber package enabled");
+    saber_specials_damage_checks(fixture_dir);
   } else if (saber_uppercut) {
     check(MmxSaberEnabled(),
           "saber-uppercut runs with the Saber package enabled");
@@ -11395,6 +11757,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-land") &&
       strcmp(only, "saber-ground-lifecycle") &&
       strcmp(only, "saber-specials-unlock") &&
+      strcmp(only, "saber-specials-damage") &&
        strcmp(only, "saber-uppercut") &&
       strcmp(only, "saber-rolling") &&
       strcmp(only, "saber-lifecycle-load") &&
