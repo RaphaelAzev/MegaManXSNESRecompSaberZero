@@ -322,6 +322,8 @@ class SaberConverterTests(unittest.TestCase):
             10: "Special_RollingSlash.png",
             11: "Special_RollingSlash_FX.png",
             12: "Special_Crescent_FX.png",
+            13: "Special_DownThrust.png",
+            14: "Special_DownThrust_FX.png",
         }
         for source_id, expected_file in expected_special_sources.items():
             with self.subTest(source=source_id):
@@ -336,6 +338,8 @@ class SaberConverterTests(unittest.TestCase):
             10: (10, list(range(1106, 1115))),
             11: (11, list(range(1115, 1123))),
             12: (12, list(range(1123, 1132))),
+            13: (13, list(range(1132, 1139))),
+            14: (14, list(range(1139, 1144))),
         }
         animations_by_id = {
             animation["id"]: animation for animation in manifest["animations"]
@@ -375,8 +379,8 @@ class SaberConverterTests(unittest.TestCase):
                     )
 
         self.assertEqual(
-            sorted(frame_id for frame_id in frames_by_id if 1092 <= frame_id <= 1131),
-            list(range(1092, 1132)),
+            sorted(frame_id for frame_id in frames_by_id if 1092 <= frame_id <= 1143),
+            list(range(1092, 1144)),
         )
         saber2_origins = [
             (frame["source_frame"], tuple(frame["body"]["origin"]))
@@ -561,9 +565,9 @@ class SaberConverterTests(unittest.TestCase):
         )
         self.assertEqual(source_count, len(manifest["sources"]))
         self.assertEqual(palette_count, 37)
-        self.assertEqual(animation_count, 12)
-        self.assertEqual(step_count, 131)
-        self.assertEqual(frame_count, 131)
+        self.assertEqual(animation_count, 14)
+        self.assertEqual(step_count, 143)
+        self.assertEqual(frame_count, 143)
         section = 112 + source_count * 36
         section += palette_count * 2
         section = (section + 3) & ~3

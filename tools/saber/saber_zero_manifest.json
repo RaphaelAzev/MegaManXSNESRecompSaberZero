@@ -61,6 +61,16 @@
       "id": 12,
       "file": "Special_Crescent_FX.png",
       "sha256": "3ca7a136fd6464629d75ee8396d00a53afec8ca11b1419969f6c5d86a007dbdb"
+    },
+    {
+      "id": 13,
+      "file": "Special_DownThrust.png",
+      "sha256": "f84e0758805d7842b156fa59235d20709afb21b99daa37a7717b5e3e56824768"
+    },
+    {
+      "id": 14,
+      "file": "Special_DownThrust_FX.png",
+      "sha256": "f11ed2f771dd443e66098c53f5f2c8b990c30a46b3f32f88f07e357ce6459d35"
     }
   ],
   "frames": [
@@ -2290,6 +2300,210 @@
         ]
       },
       "source_frame": 8
+    },
+    {
+      "id": 1132,
+      "source": 13,
+      "body": {
+        "rect": [
+          44,
+          45,
+          40,
+          41
+        ],
+        "origin": [
+          45,
+          48
+        ]
+      },
+      "source_frame": 0
+    },
+    {
+      "id": 1133,
+      "source": 13,
+      "body": {
+        "rect": [
+          172,
+          38,
+          39,
+          52
+        ],
+        "origin": [
+          45,
+          41
+        ]
+      },
+      "source_frame": 1
+    },
+    {
+      "id": 1134,
+      "source": 13,
+      "body": {
+        "rect": [
+          307,
+          32,
+          37,
+          59
+        ],
+        "origin": [
+          52,
+          35
+        ]
+      },
+      "source_frame": 2
+    },
+    {
+      "id": 1135,
+      "source": 13,
+      "body": {
+        "rect": [
+          444,
+          31,
+          28,
+          60
+        ],
+        "origin": [
+          61,
+          34
+        ]
+      },
+      "source_frame": 3
+    },
+    {
+      "id": 1136,
+      "source": 13,
+      "body": {
+        "rect": [
+          560,
+          56,
+          40,
+          35
+        ],
+        "origin": [
+          49,
+          59
+        ]
+      },
+      "source_frame": 4
+    },
+    {
+      "id": 1137,
+      "source": 13,
+      "body": {
+        "rect": [
+          688,
+          56,
+          40,
+          35
+        ],
+        "origin": [
+          49,
+          59
+        ]
+      },
+      "source_frame": 5
+    },
+    {
+      "id": 1138,
+      "source": 13,
+      "body": {
+        "rect": [
+          815,
+          53,
+          45,
+          37
+        ],
+        "origin": [
+          48,
+          56
+        ]
+      },
+      "source_frame": 6
+    },
+    {
+      "id": 1139,
+      "source": 14,
+      "body": {
+        "rect": [
+          79,
+          51,
+          21,
+          13
+        ],
+        "origin": [
+          80,
+          54
+        ]
+      },
+      "source_frame": 0
+    },
+    {
+      "id": 1140,
+      "source": 14,
+      "body": {
+        "rect": [
+          205,
+          72,
+          9,
+          34
+        ],
+        "origin": [
+          78,
+          75
+        ]
+      },
+      "source_frame": 1
+    },
+    {
+      "id": 1141,
+      "source": 14,
+      "body": {
+        "rect": [
+          335,
+          72,
+          5,
+          34
+        ],
+        "origin": [
+          80,
+          75
+        ]
+      },
+      "source_frame": 2
+    },
+    {
+      "id": 1142,
+      "source": 14,
+      "body": {
+        "rect": [
+          463,
+          79,
+          5,
+          14
+        ],
+        "origin": [
+          80,
+          82
+        ]
+      },
+      "source_frame": 3
+    },
+    {
+      "id": 1143,
+      "source": 14,
+      "body": {
+        "rect": [
+          592,
+          80,
+          3,
+          14
+        ],
+        "origin": [
+          81,
+          83
+        ]
+      },
+      "source_frame": 4
     }
   ],
   "animations": [
@@ -2885,6 +3099,66 @@
         },
         {
           "frame": 1131,
+          "ticks": 2
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "facing_xor": 1,
+      "steps": [
+        {
+          "frame": 1132,
+          "ticks": 2
+        },
+        {
+          "frame": 1133,
+          "ticks": 2
+        },
+        {
+          "frame": 1134,
+          "ticks": 2
+        },
+        {
+          "frame": 1135,
+          "ticks": 2
+        },
+        {
+          "frame": 1136,
+          "ticks": 2
+        },
+        {
+          "frame": 1137,
+          "ticks": 2
+        },
+        {
+          "frame": 1138,
+          "ticks": 2
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "facing_xor": 1,
+      "steps": [
+        {
+          "frame": 1139,
+          "ticks": 2
+        },
+        {
+          "frame": 1140,
+          "ticks": 2
+        },
+        {
+          "frame": 1141,
+          "ticks": 2
+        },
+        {
+          "frame": 1142,
+          "ticks": 2
+        },
+        {
+          "frame": 1143,
           "ticks": 2
         }
       ]
