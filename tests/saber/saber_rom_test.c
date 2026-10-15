@@ -10378,6 +10378,289 @@ static void saber_specials_unlock_checks(const char *x1_rom,
   puts("ok: saber-specials-unlock");
 }
 
+enum {
+  SABER_UPPERCUT_ARC_CAPACITY = 96,
+  SABER_UPPERCUT_DASH_FRAMES = 10,
+};
+
+typedef struct SaberUppercutArc {
+  unsigned count;
+  unsigned y[SABER_UPPERCUT_ARC_CAPACITY];
+  unsigned apex_frame;
+  unsigned apex_y;
+  unsigned landing_frame;
+  MmxSaberAttackSnapshot apex_snapshot;
+  MmxSaberAttackSnapshot release_snapshot;
+  MmxSaberAttackExitReason apex_exit;
+  MmxSaberAttackExitReason release_exit;
+  bool release_seen;
+  bool apex_airborne;
+  bool airborne;
+  bool landing_seen;
+  bool landing_idle;
+  bool no_restart_after_apex;
+} SaberUppercutArc;
+
+static unsigned saber_uppercut_min_y_frame(const unsigned y[], unsigned count) {
+  unsigned frame_number = 0;
+  for (unsigned i = 1; i < count; ++i) {
+    if (y[i] < y[frame_number]) frame_number = i;
+  }
+  return frame_number;
+}
+
+static bool saber_uppercut_y_match(const unsigned left[],
+                                   const unsigned right[],
+                                   unsigned last_frame) {
+  return !memcmp(left, right, (last_frame + 1) * sizeof(left[0]));
+}
+
+static void saber_uppercut_print_y(const char *label, const unsigned y[],
+                                   unsigned count) {
+  printf("reference: saber-uppercut %s frames=%u y=", label, count);
+  for (unsigned i = 0; i < count; ++i)
+    printf("%u%s", y[i], i + 1 == count ? "" : ",");
+  putchar('\n');
+}
+
+static unsigned saber_uppercut_record_jump_arc(
+    const char *path, bool short_hop,
+    unsigned y[SABER_UPPERCUT_ARC_CAPACITY]) {
+  bool airborne = false;
+  unsigned count = 0;
+
+  saber_specials_unlock_load(path, 2);
+  MmxSaberFrameReset();
+  for (unsigned frame_number = 1;
+       frame_number < SABER_UPPERCUT_ARC_CAPACITY; ++frame_number) {
+    unsigned input = short_hop ?
+        (frame_number < 6 ? SNES_PAD_B : 0) :
+        SNES_PAD_B; /* held for the whole arc, like the uppercut's Y */
+    frame(input);
+    y[count++] = read_ram_word(g_ram, 0x0bb0);
+    const bool grounded = (g_ram[0xbd3] & 4) || (g_ram[0xbd4] & 4);
+    if (!grounded)
+      airborne = true;
+    else if (airborne)
+      return count;
+  }
+  return 0;
+}
+
+static SaberUppercutArc saber_uppercut_arc(const char *path,
+                                           unsigned release_frame) {
+  SaberUppercutArc arc = {0};
+
+  arc.apex_frame = SABER_UPPERCUT_ARC_CAPACITY;
+  arc.apex_exit = MMX_SABER_ATTACK_EXIT_CONTEXT;
+  arc.release_exit = MMX_SABER_ATTACK_EXIT_CONTEXT;
+  arc.no_restart_after_apex = true;
+  saber_specials_unlock_load(path, 2);
+  check(saber_test_grounded(),
+        "saber-uppercut capsule route starts from standing ground");
+  for (unsigned frame_number = 1;
+       frame_number < SABER_UPPERCUT_ARC_CAPACITY; ++frame_number) {
+    unsigned input = 0;
+    if (!release_frame || frame_number < release_frame)
+      input = SNES_PAD_Y | (frame_number == 1 ? SNES_PAD_UP : 0);
+    frame(input);
+
+    const unsigned sample = arc.count++;
+    const int vy = saber_signed_ram_word(g_ram, 0x0bc4);
+    const MmxSaberAttackSnapshot snapshot = MmxSaberAttackSnapshotGet();
+    const bool grounded = saber_test_grounded();
+    arc.y[sample] = read_ram_word(g_ram, 0x0bb0);
+    if (release_frame && frame_number == release_frame) {
+      arc.release_seen = true;
+      arc.release_snapshot = snapshot;
+      arc.release_exit = MmxSaberAttackLastExitReason();
+    }
+    if (arc.apex_frame == SABER_UPPERCUT_ARC_CAPACITY && vy < 0) {
+      arc.apex_frame = sample;
+      arc.apex_y = arc.y[sample];
+      arc.apex_snapshot = snapshot;
+      arc.apex_exit = MmxSaberAttackLastExitReason();
+      arc.apex_airborne = !grounded;
+    } else if (arc.apex_frame != SABER_UPPERCUT_ARC_CAPACITY &&
+               sample > arc.apex_frame && snapshot.phase != SABER_PHASE_IDLE) {
+      arc.no_restart_after_apex = false;
+    }
+    if (!grounded)
+      arc.airborne = true;
+    else if (arc.airborne) {
+      arc.landing_seen = true;
+      arc.landing_frame = sample;
+      arc.landing_idle = snapshot.phase == SABER_PHASE_IDLE &&
+          snapshot.kind == SABER_KIND_NONE;
+      break;
+    }
+  }
+  return arc;
+}
+
+static unsigned saber_uppercut_dash_trace(
+    const char *path, bool uppercut, SaberDashSample samples[],
+    unsigned *start_x, int *travel) {
+  bool all_airborne = true;
+  saber_specials_unlock_load(path, 2);
+  check(start_saber_dash_right(0) != 0, uppercut ?
+        "saber-uppercut dash route starts native action $14" :
+        "saber-uppercut native dash-jump route starts native action $14");
+  *start_x = read_ram_word(g_ram, 0x0bad);
+  for (unsigned i = 0; i < SABER_UPPERCUT_DASH_FRAMES; ++i) {
+    unsigned input = SNES_PAD_A | SNES_PAD_RIGHT;
+    if (uppercut)
+      input |= SNES_PAD_Y | (i == 0 ? SNES_PAD_UP : 0);
+    else
+      input |= SNES_PAD_B;
+    frame(input);
+    samples[i] = saber_dash_sample();
+    if (uppercut && i == 0) {
+      const MmxSaberAttackSnapshot snapshot = MmxSaberAttackSnapshotGet();
+      check(snapshot.kind == SABER_KIND_UPPERCUT &&
+                snapshot.phase != SABER_PHASE_IDLE,
+            "saber-uppercut dash frame selects the uppercut owner");
+    }
+    if (saber_test_grounded()) all_airborne = false;
+  }
+  *travel = (int)samples[SABER_UPPERCUT_DASH_FRAMES - 1].x -
+      (int)*start_x;
+  return all_airborne ? SABER_UPPERCUT_DASH_FRAMES : 0;
+}
+
+static unsigned saber_uppercut_standing_trace(
+    const char *path, SaberDashSample samples[], unsigned *start_x,
+    int *travel) {
+  bool all_airborne = true;
+  saber_specials_unlock_load(path, 2);
+  *start_x = read_ram_word(g_ram, 0x0bad);
+  for (unsigned i = 0; i < SABER_UPPERCUT_DASH_FRAMES; ++i) {
+    frame(SNES_PAD_B | SNES_PAD_RIGHT);
+    samples[i] = saber_dash_sample();
+    if (saber_test_grounded()) all_airborne = false;
+  }
+  *travel = (int)samples[SABER_UPPERCUT_DASH_FRAMES - 1].x -
+      (int)*start_x;
+  return all_airborne ? SABER_UPPERCUT_DASH_FRAMES : 0;
+}
+
+static void saber_uppercut_checks(const char *fixture_dir) {
+  char capsule[4096];
+  int written;
+  unsigned native_held[SABER_UPPERCUT_ARC_CAPACITY];
+  unsigned native_short[SABER_UPPERCUT_ARC_CAPACITY];
+  SaberUppercutArc held;
+  SaberUppercutArc short_hop;
+  SaberDashSample native_dash[SABER_UPPERCUT_DASH_FRAMES];
+  SaberDashSample uppercut_dash[SABER_UPPERCUT_DASH_FRAMES];
+  SaberDashSample standing[SABER_UPPERCUT_DASH_FRAMES];
+  unsigned native_dash_start_x;
+  unsigned uppercut_dash_start_x;
+  unsigned standing_start_x;
+  int native_dash_travel;
+  int uppercut_dash_travel;
+  int standing_travel;
+
+  check(fixture_dir && fixture_dir[0],
+        "saber-uppercut receives a fixture directory");
+  written = snprintf(capsule, sizeof(capsule), "%s/%s", fixture_dir,
+                     "capsule.sav");
+  check(written >= 0 && written < (int)sizeof(capsule),
+        "saber-uppercut capsule fixture path fits");
+  check(readable_file(capsule), "saber-uppercut capsule fixture exists");
+
+  /* Mutation red: stop injecting the native jump while Y is held. */
+  saber_specials_unlock_load(capsule, 2);
+  check(saber_test_grounded(),
+        "saber-uppercut held comparison starts on capsule standing ground");
+  const unsigned native_held_count =
+      saber_uppercut_record_jump_arc(capsule, false, native_held);
+  held = saber_uppercut_arc(capsule, 0);
+  const unsigned native_held_apex =
+      saber_uppercut_min_y_frame(native_held, native_held_count);
+  const unsigned held_apex =
+      saber_uppercut_min_y_frame(held.y, held.count);
+  saber_uppercut_print_y("native-held", native_held, native_held_count);
+  saber_uppercut_print_y("uppercut-held", held.y, held.count);
+  check(native_held_count != 0 && held.count == native_held_count &&
+            native_held[0] == held.y[0] &&
+            saber_uppercut_y_match(native_held, held.y, native_held_apex) &&
+            native_held[native_held_apex] == held.y[held_apex],
+        "held uppercut Y arc matches native B-held jump through its apex");
+
+  /* Mutation red: ignore uppercut Y release and keep the full jump hold. */
+  const unsigned native_short_count =
+      saber_uppercut_record_jump_arc(capsule, true, native_short);
+  short_hop = saber_uppercut_arc(capsule, 6);
+  const unsigned native_short_apex =
+      saber_uppercut_min_y_frame(native_short, native_short_count);
+  const unsigned short_apex =
+      saber_uppercut_min_y_frame(short_hop.y, short_hop.count);
+  saber_uppercut_print_y("native-short", native_short, native_short_count);
+  saber_uppercut_print_y("uppercut-short", short_hop.y, short_hop.count);
+  const unsigned held_height = native_held[0] - native_held[native_held_apex];
+  const unsigned short_height =
+      native_short[0] - native_short[native_short_apex];
+  check(native_short_count != 0 && short_hop.count == native_short_count &&
+            native_short[0] == short_hop.y[0] &&
+            saber_uppercut_y_match(native_short, short_hop.y,
+                                   native_short_apex),
+        "uppercut Y release at frame 6 matches the native short-hop arc");
+  check(short_height < held_height &&
+            short_hop.y[short_apex] == native_short[native_short_apex],
+        "uppercut release reaches a shorter native short-hop height");
+  check(short_hop.release_seen &&
+            short_hop.release_snapshot.phase == SABER_PHASE_IDLE &&
+            short_hop.release_snapshot.kind == SABER_KIND_NONE &&
+            short_hop.release_exit == MMX_SABER_ATTACK_EXIT_RELEASE,
+        "uppercut exits with EXIT_RELEASE on the Y release frame");
+
+  /* Mutation red: clear $0BC2/$0BC3 at uppercut start and lose dash momentum. */
+  const unsigned native_dash_count = saber_uppercut_dash_trace(
+      capsule, false, native_dash, &native_dash_start_x, &native_dash_travel);
+  const unsigned uppercut_dash_count = saber_uppercut_dash_trace(
+      capsule, true, uppercut_dash, &uppercut_dash_start_x,
+      &uppercut_dash_travel);
+  bool dash_motion_equal = true;
+  for (unsigned i = 0; i < SABER_UPPERCUT_DASH_FRAMES; ++i) {
+    const int native_x = (int)native_dash[i].x - (int)native_dash_start_x;
+    const int uppercut_x =
+        (int)uppercut_dash[i].x - (int)uppercut_dash_start_x;
+    if (native_dash[i].vx != uppercut_dash[i].vx || native_x != uppercut_x)
+      dash_motion_equal = false;
+  }
+  const unsigned standing_count = saber_uppercut_standing_trace(
+      capsule, standing, &standing_start_x, &standing_travel);
+  printf("reference: saber-uppercut dash first10 native_travel=%d "
+         "uppercut_travel=%d standing_travel=%d\n",
+         native_dash_travel, uppercut_dash_travel, standing_travel);
+  check(native_dash_count == SABER_UPPERCUT_DASH_FRAMES &&
+            uppercut_dash_count == SABER_UPPERCUT_DASH_FRAMES &&
+            standing_count == SABER_UPPERCUT_DASH_FRAMES &&
+            dash_motion_equal,
+        "dash uppercut preserves native dash VX and X for ten airborne frames");
+  check(native_dash_travel > standing_travel &&
+            uppercut_dash_travel > standing_travel,
+        "native and uppercut dash jumps travel farther than a standing Right jump");
+
+  /* Mutation red: remove the apex exit at signed-negative $0BC4. */
+  printf("reference: saber-uppercut held apex_frame=%u apex_y=%u "
+         "landing_frame=%u\n",
+         held.apex_frame + 1, held.apex_y, held.landing_frame + 1);
+  check(held.apex_frame < SABER_UPPERCUT_ARC_CAPACITY &&
+            held.apex_airborne &&
+            held.apex_snapshot.phase == SABER_PHASE_IDLE &&
+            held.apex_snapshot.kind == SABER_KIND_NONE &&
+            held.apex_exit == MMX_SABER_ATTACK_EXIT_NATURAL,
+        "held uppercut exits NATURAL on the first airborne negative $0BC4 frame");
+  check(held.no_restart_after_apex,
+        "held Y does not start a second uppercut after apex without a new press");
+  check(held.landing_seen && held.landing_idle,
+        "uppercut remains idle when the native jump later lands");
+
+  puts("ok: saber-uppercut");
+}
+
 int main(int argc, char **argv) {
   check(argc == 2, "X1 ROM supplied");
   const char *fixture = getenv("MMX_ZERO_TEST_FIXTURE");
@@ -10398,7 +10681,8 @@ int main(int argc, char **argv) {
       !strcmp(only, "saber-armadillo") ||
       !strcmp(only, "saber-ride-pilot") ||
       !strcmp(only, "saber-contexts") ||
-      !strcmp(only, "saber-boss-death")))
+       !strcmp(only, "saber-boss-death") ||
+       !strcmp(only, "saber-uppercut")))
     check(fixture_dir && fixture_dir[0], "MMX_SABER_FIXTURE_DIR supplied");
 
   SDL_SetMainReady();
@@ -10493,6 +10777,7 @@ int main(int argc, char **argv) {
   const bool saber_ground_lifecycle = only && !strcmp(only, "saber-ground-lifecycle");
   const bool saber_specials_unlock =
       only && !strcmp(only, "saber-specials-unlock");
+  const bool saber_uppercut = only && !strcmp(only, "saber-uppercut");
   const bool saber_lifecycle_load = only && !strcmp(only, "saber-lifecycle-load");
   const bool saber_contexts = only && !strcmp(only, "saber-contexts");
   const bool saber_buster_rules = only && !strcmp(only, "saber-buster-rules");
@@ -10517,6 +10802,7 @@ int main(int argc, char **argv) {
       saber_input || saber_fire_wave_armor || saber_ground_1 || saber_ground_combo ||
       saber_air || saber_legs || saber_frozen || saber_capsule || saber_wall || saber_dash || saber_land || saber_ground_lifecycle ||
       saber_specials_unlock ||
+      saber_uppercut ||
       saber_ground_hit || saber_cancel || saber_lifecycle_load ||
       saber_contexts ||
       saber_render_snapshot || saber_buster_rules || saber_burst_height ||
@@ -10597,6 +10883,10 @@ int main(int argc, char **argv) {
           "saber-specials-unlock runs with the Saber package enabled");
     saber_specials_unlock_checks(argv[1], x3_rom, fixture, assets,
                                  fixture_dir);
+  } else if (saber_uppercut) {
+    check(MmxSaberEnabled(),
+          "saber-uppercut runs with the Saber package enabled");
+    saber_uppercut_checks(fixture_dir);
   } else if (saber_lifecycle_load) {
     check(MmxSaberEnabled(),
           "saber-lifecycle-load runs with the Saber package enabled");
@@ -10763,6 +11053,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-land") &&
       strcmp(only, "saber-ground-lifecycle") &&
       strcmp(only, "saber-specials-unlock") &&
+       strcmp(only, "saber-uppercut") &&
       strcmp(only, "saber-lifecycle-load") &&
       strcmp(only, "saber-contexts") &&
         strcmp(only, "saber-buster-rules") &&
