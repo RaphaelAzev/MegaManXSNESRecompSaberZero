@@ -12,6 +12,7 @@
 #include "saber/mmx_saber_attack.h"
 #include "saber/mmx_saber_combo.h"
 #include "saber/mmx_saber_frame.h"
+#include "saber/mmx_saber_unlock.h"
 #include "saber/mmx_saber_hitbox_debug.h"
 #include "saber/mmx_saber_plugin.h"
 #include "saber/mmx_saber_priority.h"
@@ -10150,6 +10151,233 @@ static void saber_boss_death_checks(const char *fixture_dir) {
   puts("ok: saber-boss-death");
 }
 
+static void saber_specials_unlock_load(const char *path,
+                                       unsigned expected_defeated) {
+  check(readable_file(path),
+        "saber-specials-unlock fixture exists");
+  check(RtlLoadSnapshot(path),
+        "saber-specials-unlock fixture loads");
+  check(MmxZeroActive() && !MmxZeroModern(),
+        "saber-specials-unlock fixture runs as X3 Zero");
+  check(MmxSaberDefeatedMavericks(g_ram) == expected_defeated,
+        "saber-specials-unlock fixture has the measured clear count");
+  MmxZeroCancel(g_ram);
+  MmxSaberFrameReset();
+}
+
+static MmxSaberAttackSnapshot saber_specials_unlock_air(
+    const char *path, unsigned expected_defeated) {
+  saber_specials_unlock_load(path, expected_defeated);
+  frame(SNES_PAD_B | SNES_PAD_UP);
+  frame(SNES_PAD_B | SNES_PAD_UP);
+  check(!saber_test_grounded(),
+        "saber-specials-unlock air route is airborne before Up+Y");
+  frame(SNES_PAD_B | SNES_PAD_UP | SNES_PAD_Y);
+  return MmxSaberAttackSnapshotGet();
+}
+
+static MmxSaberAttackSnapshot saber_specials_unlock_dash(
+    const char *path, unsigned expected_defeated) {
+  saber_specials_unlock_load(path, expected_defeated);
+  check(start_saber_dash_right(0) != 0,
+        "saber-specials-unlock dash route reaches native action $14");
+  frame(SNES_PAD_A | SNES_PAD_RIGHT | SNES_PAD_UP | SNES_PAD_Y);
+  return MmxSaberAttackSnapshotGet();
+}
+
+static void saber_specials_unlock_checks(const char *x1_rom,
+                                         const char *x3_rom,
+                                         const char *fixture,
+                                         const char *assets,
+                                         const char *fixture_dir) {
+  char mammoth_room[4096];
+  char capsule[4096];
+  char armadillo_fight[4096];
+  int written;
+  MmxSaberAttackSnapshot snapshot;
+  const size_t snapshot_capacity = RtlSaveSnapshotToMemory(NULL, 0);
+  uint8_t *saved_snapshot = malloc(snapshot_capacity);
+
+  check(fixture_dir && fixture_dir[0],
+        "saber-specials-unlock receives a fixture directory");
+  written = snprintf(mammoth_room, sizeof(mammoth_room), "%s/%s", fixture_dir,
+                     "mammoth-fight.sav");
+  check(written >= 0 && written < (int)sizeof(mammoth_room),
+        "saber-specials-unlock Mammoth fixture path fits");
+  written = snprintf(capsule, sizeof(capsule), "%s/%s", fixture_dir,
+                     "capsule.sav");
+  check(written >= 0 && written < (int)sizeof(capsule),
+        "saber-specials-unlock capsule fixture path fits");
+  written = snprintf(armadillo_fight, sizeof(armadillo_fight), "%s/%s",
+                     fixture_dir, "armadillo-fight.sav");
+  check(written >= 0 && written < (int)sizeof(armadillo_fight),
+        "saber-specials-unlock Armadillo fixture path fits");
+  check(readable_file(armadillo_fight),
+        "saber-specials-unlock Armadillo fixture exists");
+  check(snapshot_capacity != 0 && saved_snapshot != NULL,
+        "saber-specials-unlock allocates a snapshot buffer");
+
+  /* Mutation red: read Up from $A6 bit $04, or drop pad.up_held before the
+   * real frame bridge calls MmxSaberAttackStepWithWallAndDash. */
+  saber_specials_unlock_load(fixture, 0);
+  frame(SNES_PAD_UP | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_GROUND1 &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "save0 (0 defeated) ground Up+Y keeps ground-1");
+  snapshot = saber_specials_unlock_air(fixture, 0);
+  check(snapshot.kind == SABER_KIND_AIR &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "save0 (0 defeated) air Up+Y keeps air slash");
+  snapshot = saber_specials_unlock_dash(fixture, 0);
+  check(snapshot.kind == SABER_KIND_DASH &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "save0 (0 defeated) dash Up+Y keeps dash slash");
+
+  /* Mutation red: lower the uppercut threshold from defeated >=2 to >=1. */
+  saber_specials_unlock_load(mammoth_room, 1);
+  frame(SNES_PAD_UP | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_GROUND1 &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "mammoth-fight (1 defeated) ground Up+Y stays locked to ground-1");
+
+  /* Mutation red: change uppercut priority, or drop pad.up_held at the frame
+   * bridge. The dash route proves the special wins over dash. */
+  saber_specials_unlock_load(capsule, 2);
+  frame(SNES_PAD_UP | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_UPPERCUT &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "capsule (2 defeated) ground Up+Y starts uppercut");
+  snapshot = saber_specials_unlock_dash(capsule, 2);
+  check(snapshot.kind == SABER_KIND_UPPERCUT &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "capsule (2 defeated) dash Up+Y starts uppercut over dash slash");
+
+  /* Mutation red: lower rolling threshold from defeated >=3 to >=2. */
+  snapshot = saber_specials_unlock_air(capsule, 2);
+  check(snapshot.kind == SABER_KIND_AIR &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "capsule (2 defeated) air Up+Y stays below rolling threshold");
+
+  /* Mutation red: make Up sticky, or drop the no-Up path's held-state
+   * distinction. */
+  saber_specials_unlock_load(capsule, 2);
+  frame(SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_GROUND1 &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "capsule (2 defeated) ground Y without Up stays ground-1");
+
+  /* Mutation red: move wall below rolling/air/uppercut, or drop the real
+   * wall-cling context. Wall priority must remain above every Up special.
+   * Route matches the existing Armadillo wall test: walk, jump into cling,
+   * settle, then press. */
+  static const SaberWallRoute wall_route = {
+    "OPEN-RIGHT", SNES_PAD_LEFT, SNES_PAD_B | SNES_PAD_LEFT,
+    SNES_PAD_LEFT, 60, 20, 5142, 2665, 0x40, 1
+  };
+  const unsigned wall_frame = saber_wall_setup(armadillo_fight, &wall_route,
+                                                false);
+  check(wall_frame == wall_route.expected_wall_frame &&
+            MmxSaberDefeatedMavericks(g_ram) == 0,
+        "armadillo-fight (0 defeated) reaches the real wall cling");
+  frame(wall_route.travel_input | SNES_PAD_UP | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_WALL &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "armadillo-fight wall Up+Y keeps wall slash priority");
+
+  /* SYNTHETIC: no real fixture with 3 clears exists yet. Add one measured
+   * Launch Octopus clear bit to the real two-clear capsule RAM only. */
+  saber_specials_unlock_load(capsule, 2);
+  g_ram[0x1f88] |= 0x40;
+  check(MmxSaberDefeatedMavericks(g_ram) == 3,
+        "SYNTHETIC capsule plus Launch Octopus bit has 3 defeated Mavericks");
+  frame(SNES_PAD_B | SNES_PAD_UP);
+  frame(SNES_PAD_B | SNES_PAD_UP);
+  check(!saber_test_grounded(),
+        "SYNTHETIC rolling route is airborne before Up+Y");
+  frame(SNES_PAD_B | SNES_PAD_UP | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_ROLLING &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "SYNTHETIC capsule (3 defeated) air Up+Y starts rolling slash");
+
+  saber_specials_unlock_load(capsule, 2);
+  g_ram[0x1f88] |= 0x40;
+  check(MmxSaberDefeatedMavericks(g_ram) == 3,
+        "SYNTHETIC ground route keeps the added third clear bit");
+  frame(SNES_PAD_UP | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_UPPERCUT &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "SYNTHETIC capsule (3 defeated) ground Up+Y starts uppercut");
+
+  /* Mutation red: omit Saber attack state from the save/load extension.
+   * Save/restore must preserve selected special owner, not only native RAM. */
+  saber_specials_unlock_load(capsule, 2);
+  frame(SNES_PAD_UP | SNES_PAD_Y);
+  const MmxSaberAttackSnapshot uppercut_before =
+      MmxSaberAttackSnapshotGet();
+  check(uppercut_before.kind == SABER_KIND_UPPERCUT &&
+            uppercut_before.phase != SABER_PHASE_IDLE,
+        "capsule uppercut save route starts mid-attack");
+  size_t snapshot_size =
+      RtlSaveSnapshotToMemory(saved_snapshot, snapshot_capacity);
+  check(snapshot_size != 0, "capsule uppercut save route captures state");
+  frame(0);
+  check(RtlLoadSnapshotFromMemory(saved_snapshot, snapshot_size),
+        "capsule uppercut save route restores through the normal loader");
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_UPPERCUT &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "capsule uppercut save/restore keeps UPPERCUT selected");
+
+  /* Same save proof for the synthetic rolling owner. */
+  saber_specials_unlock_load(capsule, 2);
+  g_ram[0x1f88] |= 0x40;
+  frame(SNES_PAD_B | SNES_PAD_UP);
+  frame(SNES_PAD_B | SNES_PAD_UP);
+  check(!saber_test_grounded(),
+        "SYNTHETIC rolling save route is airborne before Up+Y");
+  frame(SNES_PAD_B | SNES_PAD_UP | SNES_PAD_Y);
+  const MmxSaberAttackSnapshot rolling_before =
+      MmxSaberAttackSnapshotGet();
+  check(rolling_before.kind == SABER_KIND_ROLLING &&
+            rolling_before.phase != SABER_PHASE_IDLE,
+        "SYNTHETIC rolling save route starts mid-attack");
+  snapshot_size = RtlSaveSnapshotToMemory(saved_snapshot, snapshot_capacity);
+  check(snapshot_size != 0,
+        "SYNTHETIC rolling save route captures state");
+  frame(0);
+  check(RtlLoadSnapshotFromMemory(saved_snapshot, snapshot_size),
+        "SYNTHETIC rolling save route restores through the normal loader");
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_ROLLING &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "SYNTHETIC rolling save/restore keeps ROLLING selected");
+
+  /* Mutation red: leave Saber enabled for behavior=x3, or route base Zero's
+   * Up+Y into the Saber attack owner. Base Zero must stay untouched. */
+  activate_zero(x1_rom, x3_rom, assets, false, false);
+  check(!MmxSaberEnabled(),
+        "saber-specials-unlock disables Saber for the base Zero control");
+  saber_specials_unlock_load(capsule, 2);
+  frame(SNES_PAD_UP | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_NONE &&
+            snapshot.phase == SABER_PHASE_IDLE,
+        "base Zero capsule Up+Y starts no Saber attack");
+  activate_zero(x1_rom, x3_rom, assets, true, true);
+  check(MmxSaberEnabled(),
+        "saber-specials-unlock restores Saber after the base control");
+
+  free(saved_snapshot);
+  puts("ok: saber-specials-unlock");
+}
+
 int main(int argc, char **argv) {
   check(argc == 2, "X1 ROM supplied");
   const char *fixture = getenv("MMX_ZERO_TEST_FIXTURE");
@@ -10163,6 +10391,7 @@ int main(int argc, char **argv) {
   if (only && (!strcmp(only, "fixtures") || !strcmp(only, "saber-legs") ||
       !strcmp(only, "saber-frozen") ||
       !strcmp(only, "saber-capsule") ||
+      !strcmp(only, "saber-specials-unlock") ||
       !strcmp(only, "saber-wall") ||
       !strcmp(only, "saber-cancel") || !strcmp(only, "saber-buster-rules") ||
       !strcmp(only, "saber-damage") || !strcmp(only, "saber-priority") ||
@@ -10262,6 +10491,8 @@ int main(int argc, char **argv) {
   const bool saber_cancel = only && !strcmp(only, "saber-cancel");
   const bool saber_land = only && !strcmp(only, "saber-land");
   const bool saber_ground_lifecycle = only && !strcmp(only, "saber-ground-lifecycle");
+  const bool saber_specials_unlock =
+      only && !strcmp(only, "saber-specials-unlock");
   const bool saber_lifecycle_load = only && !strcmp(only, "saber-lifecycle-load");
   const bool saber_contexts = only && !strcmp(only, "saber-contexts");
   const bool saber_buster_rules = only && !strcmp(only, "saber-buster-rules");
@@ -10285,6 +10516,7 @@ int main(int argc, char **argv) {
   const bool saber_enabled_group = saber_package || zero_extension ||
       saber_input || saber_fire_wave_armor || saber_ground_1 || saber_ground_combo ||
       saber_air || saber_legs || saber_frozen || saber_capsule || saber_wall || saber_dash || saber_land || saber_ground_lifecycle ||
+      saber_specials_unlock ||
       saber_ground_hit || saber_cancel || saber_lifecycle_load ||
       saber_contexts ||
       saber_render_snapshot || saber_buster_rules || saber_burst_height ||
@@ -10360,6 +10592,11 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-ground-lifecycle runs with the Saber package enabled");
     saber_ground_lifecycle_checks(fixture);
+  } else if (saber_specials_unlock) {
+    check(MmxSaberEnabled(),
+          "saber-specials-unlock runs with the Saber package enabled");
+    saber_specials_unlock_checks(argv[1], x3_rom, fixture, assets,
+                                 fixture_dir);
   } else if (saber_lifecycle_load) {
     check(MmxSaberEnabled(),
           "saber-lifecycle-load runs with the Saber package enabled");
@@ -10525,6 +10762,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-cancel") &&
       strcmp(only, "saber-land") &&
       strcmp(only, "saber-ground-lifecycle") &&
+      strcmp(only, "saber-specials-unlock") &&
       strcmp(only, "saber-lifecycle-load") &&
       strcmp(only, "saber-contexts") &&
         strcmp(only, "saber-buster-rules") &&

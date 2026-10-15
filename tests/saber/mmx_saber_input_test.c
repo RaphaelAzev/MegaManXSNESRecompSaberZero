@@ -26,7 +26,7 @@ static void check_frame_pad(void) {
     ++failures;
   }
 
-  ram[0x00a6] = 0x08;
+  ram[0x00a8] = 0x08;
   pad = MmxSaberFrameSampleNativePad(ram);
   if (!pad.up_held || pad.x_held || pad.y_pressed || pad.y_held) {
     printf("FAIL: Up held maps only Up\n");
@@ -34,7 +34,7 @@ static void check_frame_pad(void) {
   }
 
   memset(ram, 0, sizeof(ram));
-  ram[0x00a6] = 0x40;
+  ram[0x00a8] = 0x40;
   pad = MmxSaberFrameSampleNativePad(ram);
   if (!pad.y_held || pad.x_held || pad.y_pressed || pad.up_held) {
     printf("FAIL: Y held maps only Y held\n");
