@@ -125,6 +125,8 @@ static void check_manifest_defaults(const char *program_path) {
     {"wall_damage", tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_WALL], false},
     {"dash_damage", tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_DASH], false},
     {"wave_damage", tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_WAVE], false},
+    {"uppercut_damage", tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_UPPERCUT], false},
+    {"rolling_slash_damage", tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_ROLLING], false},
     {"boss_slash1_damage", tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_SLASH1], false},
     {"boss_slash2_damage", tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_SLASH2], false},
     {"boss_slash3_damage", tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_SLASH3], false},
@@ -133,6 +135,8 @@ static void check_manifest_defaults(const char *program_path) {
     {"boss_dash_damage", tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_DASH], false},
     {"boss_x3_finisher_damage", tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_X3_FINISHER], false},
     {"boss_wave_damage", tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_WAVE], false},
+    {"boss_uppercut_damage", tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_UPPERCUT], false},
+    {"boss_rolling_slash_damage", tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_ROLLING], false},
     {"slash1_priority", tuning->priority[MMX_SABER_TUNING_PRIORITY_SLASH1], false},
     {"slash2_priority", tuning->priority[MMX_SABER_TUNING_PRIORITY_SLASH2], false},
     {"slash3_priority", tuning->priority[MMX_SABER_TUNING_PRIORITY_SLASH3], false},
@@ -145,11 +149,15 @@ static void check_manifest_defaults(const char *program_path) {
     {"max_shot2_priority", tuning->priority[MMX_SABER_TUNING_PRIORITY_MAX_SHOT2], false},
     {"x3_finisher_priority", tuning->priority[MMX_SABER_TUNING_PRIORITY_X3_FINISHER], false},
     {"wave_priority", tuning->priority[MMX_SABER_TUNING_PRIORITY_WAVE], false},
+    {"uppercut_priority", tuning->priority[MMX_SABER_TUNING_PRIORITY_UPPERCUT], false},
+    {"rolling_slash_priority", tuning->priority[MMX_SABER_TUNING_PRIORITY_ROLLING], false},
     {"priority_window_frames", tuning->priority_window_frames, false},
     {"finisher_window_frames", tuning->finisher_window_frames, false},
     {"saber_swing_volume", tuning->saber_swing_volume, false},
     {"show_hitboxes", tuning->show_hitboxes ? 1 : 0, false},
     {"start_all_upgrades", tuning->start_all_upgrades ? 1 : 0, false},
+    {"unlock_special_moves", tuning->unlock_special_moves ? 1 : 0, false},
+    {"crescent_effect", tuning->crescent_effect ? 1 : 0, false},
   };
   const unsigned spec_count = sizeof(specs) / sizeof(specs[0]);
   char line[256];
@@ -256,6 +264,11 @@ static void check_defaults(void) {
         "show_hitboxes defaults off");
   check(!tuning->start_all_upgrades && !MmxSaberTuningStartAllUpgrades(),
         "start_all_upgrades defaults off");
+  check(!tuning->unlock_special_moves &&
+            !MmxSaberTuningUnlockSpecialMoves(),
+        "unlock_special_moves defaults off");
+  check(tuning->crescent_effect && MmxSaberTuningCrescentEffect(),
+        "crescent_effect defaults on");
   check(MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_SLASH3) == 2,
         "boss slash 3 default returns the tuned boss value");
 }
@@ -266,20 +279,25 @@ static void check_each_id_maps_to_field(void) {
     {"slash3_damage", "13"}, {"x3_finisher_damage", "14"},
     {"air_damage", "15"}, {"wall_damage", "16"},
     {"dash_damage", "17"}, {"wave_damage", "18"},
+    {"uppercut_damage", "19"}, {"rolling_slash_damage", "20"},
     {"boss_slash1_damage", "21"}, {"boss_slash2_damage", "22"},
     {"boss_slash3_damage", "23"}, {"boss_air_damage", "24"},
     {"boss_wall_damage", "25"}, {"boss_dash_damage", "26"},
     {"boss_x3_finisher_damage", "27"}, {"boss_wave_damage", "28"},
+    {"boss_uppercut_damage", "31"}, {"boss_rolling_slash_damage", "32"},
     {"slash1_priority", "1"}, {"slash2_priority", "2"},
     {"slash3_priority", "3"}, {"air_priority", "4"},
     {"wall_priority", "5"}, {"dash_priority", "6"},
     {"charge_small_priority", "7"}, {"charge_full_priority", "8"},
     {"max_shot1_priority", "9"}, {"max_shot2_priority", "1"},
     {"x3_finisher_priority", "2"}, {"wave_priority", "3"},
+    {"uppercut_priority", "4"}, {"rolling_slash_priority", "5"},
     {"priority_window_frames", "71"}, {"finisher_window_frames", "60"},
     {"saber_swing_volume", "90"},
     {"show_hitboxes", "true"},
     {"start_all_upgrades", "true"},
+    {"unlock_special_moves", "true"},
+    {"crescent_effect", "false"},
   };
   FakeOptions source = {options, sizeof(options) / sizeof(options[0])};
   static const int expected_boss[] = {21, 22, 23, 27, 24, 25, 26, 28};
@@ -305,11 +323,29 @@ static void check_each_id_maps_to_field(void) {
         "finisher window option id maps to its field");
   check(MmxSaberTuningSaberSwingVolume() == 90,
         "swing volume option id maps to its field");
+  check(MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_UPPERCUT) == 19,
+        "uppercut normal damage option id maps to its field");
+  check(MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_ROLLING) == 20,
+        "rolling slash normal damage option id maps to its field");
+  check(MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_UPPERCUT) == 31,
+        "uppercut boss damage option id maps to its field");
+  check(MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_ROLLING) == 32,
+        "rolling slash boss damage option id maps to its field");
+  check(MmxSaberTuningPriority(MMX_SABER_TUNING_PRIORITY_UPPERCUT) == 4,
+        "uppercut priority option id maps to its field");
+  check(MmxSaberTuningPriority(MMX_SABER_TUNING_PRIORITY_ROLLING) == 5,
+        "rolling slash priority option id maps to its field");
   check(MmxSaberTuningGet()->show_hitboxes && MmxSaberTuningShowHitboxes(),
         "boolean show_hitboxes option maps to its field");
   check(MmxSaberTuningGet()->start_all_upgrades &&
             MmxSaberTuningStartAllUpgrades(),
         "boolean start_all_upgrades option maps to its field");
+  check(MmxSaberTuningGet()->unlock_special_moves &&
+            MmxSaberTuningUnlockSpecialMoves(),
+        "boolean unlock_special_moves option maps to its field");
+  check(!MmxSaberTuningGet()->crescent_effect &&
+            !MmxSaberTuningCrescentEffect(),
+        "boolean crescent_effect option maps to its field");
 }
 
 static void check_clamping_and_invalid_fallback(void) {
@@ -317,11 +353,19 @@ static void check_clamping_and_invalid_fallback(void) {
     {"slash1_damage", "0"},
     {"slash2_damage", "99"},
     {"slash3_damage", "not-an-integer"},
+    {"uppercut_damage", "0"},
+    {"rolling_slash_damage", "99"},
+    {"boss_uppercut_damage", "-1"},
+    {"boss_rolling_slash_damage", "99"},
     {"priority_window_frames", "29"},
     {"finisher_window_frames", "61"},
     {"saber_swing_volume", "-10"},
     {"wave_priority", "10"},
+    {"uppercut_priority", "0"},
+    {"rolling_slash_priority", "10"},
     {"start_all_upgrades", "not-a-boolean"},
+    {"unlock_special_moves", "not-a-boolean"},
+    {"crescent_effect", "not-a-boolean"},
     {"air_damage", "3x"},
     {"show_hitboxes", "not-a-boolean"},
   };
@@ -344,14 +388,34 @@ static void check_clamping_and_invalid_fallback(void) {
         "priority clamps to its manifest maximum");
   check(MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_AIR) == 3,
         "trailing text falls back to the normal damage default");
+  check(MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_UPPERCUT) == 1,
+        "uppercut normal damage clamps to its manifest minimum");
+  check(MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_ROLLING) == 32,
+        "rolling slash normal damage clamps to its manifest maximum");
+  check(MmxSaberTuningGet()->boss_damage[MMX_SABER_TUNING_DAMAGE_UPPERCUT] == 0,
+        "uppercut boss damage clamps to its manifest minimum");
+  check(MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_ROLLING) == 32,
+        "rolling slash boss damage clamps to its manifest maximum");
+  check(MmxSaberTuningPriority(MMX_SABER_TUNING_PRIORITY_UPPERCUT) == 1,
+        "uppercut priority clamps to its manifest minimum");
+  check(MmxSaberTuningPriority(MMX_SABER_TUNING_PRIORITY_ROLLING) == 9,
+        "rolling slash priority clamps to its manifest maximum");
   check(!MmxSaberTuningShowHitboxes(),
         "invalid boolean falls back to show_hitboxes off");
   check(!MmxSaberTuningStartAllUpgrades(),
         "invalid boolean falls back to start_all_upgrades off");
+  check(!MmxSaberTuningUnlockSpecialMoves(),
+        "invalid boolean falls back to unlock_special_moves off");
+  check(MmxSaberTuningCrescentEffect(),
+        "invalid boolean falls back to crescent_effect on");
 }
 
 static void check_boss_semantics(void) {
   static const FakeOption options[] = {
+    {"uppercut_damage", "32"},
+    {"boss_uppercut_damage", "0"},
+    {"rolling_slash_damage", "31"},
+    {"boss_rolling_slash_damage", "0"},
     {"slash3_damage", "32"},
     {"boss_slash3_damage", "0"},
     {"boss_air_damage", "5"},
@@ -359,6 +423,10 @@ static void check_boss_semantics(void) {
   FakeOptions source = {options, sizeof(options) / sizeof(options[0])};
 
   MmxSaberTuningLoad(fake_reader, &source);
+  check(MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_UPPERCUT) == 32,
+        "uppercut boss zero resolves to the tuned normal value");
+  check(MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_ROLLING) == 31,
+        "rolling slash boss zero resolves to the tuned normal value");
   check(MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_SLASH3) == 32,
         "boss zero resolves to the tuned normal value");
   check(MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_AIR) == 5,

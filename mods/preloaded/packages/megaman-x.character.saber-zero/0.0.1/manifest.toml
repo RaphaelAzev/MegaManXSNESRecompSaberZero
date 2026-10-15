@@ -37,6 +37,22 @@ default = false
 
 [[option]]
 feature = "saber-zero"
+id = "unlock_special_moves"
+label = "Unlock special moves"
+description = "Testing aid: the uppercut and rolling slash are available without defeating any Mavericks."
+type = "boolean"
+default = false
+
+[[option]]
+feature = "saber-zero"
+id = "crescent_effect"
+label = "Rolling slash crescent"
+description = "Draw the crescent effect around the rolling slash."
+type = "boolean"
+default = true
+
+[[option]]
+feature = "saber-zero"
 id = "slash1_damage"
 label = "Slash 1 damage"
 description = "Normal damage dealt by the first ground slash."
@@ -125,6 +141,28 @@ step = 1
 
 [[option]]
 feature = "saber-zero"
+id = "uppercut_damage"
+label = "Uppercut damage"
+description = "Normal damage dealt by an uppercut."
+type = "integer"
+default = 8
+min = 1
+max = 32
+step = 1
+
+[[option]]
+feature = "saber-zero"
+id = "rolling_slash_damage"
+label = "Rolling slash damage"
+description = "Normal damage dealt by a rolling slash."
+type = "integer"
+default = 8
+min = 1
+max = 32
+step = 1
+
+[[option]]
+feature = "saber-zero"
 id = "boss_slash1_damage"
 label = "Boss slash 1 damage"
 description = "0 = same as the normal value"
@@ -207,6 +245,28 @@ label = "Boss Saber wave damage"
 description = "0 = same as the normal value"
 type = "integer"
 default = 4
+min = 0
+max = 32
+step = 1
+
+[[option]]
+feature = "saber-zero"
+id = "boss_uppercut_damage"
+label = "Uppercut boss damage"
+description = "0 = same as the normal value"
+type = "integer"
+default = 2
+min = 0
+max = 32
+step = 1
+
+[[option]]
+feature = "saber-zero"
+id = "boss_rolling_slash_damage"
+label = "Rolling slash boss damage"
+description = "0 = same as the normal value"
+type = "integer"
+default = 2
 min = 0
 max = 32
 step = 1
@@ -339,6 +399,28 @@ label = "Saber wave hit priority"
 description = "Hit-priority ladder value for a Saber wave."
 type = "integer"
 default = 5
+min = 1
+max = 9
+step = 1
+
+[[option]]
+feature = "saber-zero"
+id = "uppercut_priority"
+label = "Uppercut hit priority"
+description = "Hit-priority ladder value for an uppercut."
+type = "integer"
+default = 6
+min = 1
+max = 9
+step = 1
+
+[[option]]
+feature = "saber-zero"
+id = "rolling_slash_priority"
+label = "Rolling slash hit priority"
+description = "Hit-priority ladder value for a rolling slash."
+type = "integer"
+default = 7
 min = 1
 max = 9
 step = 1

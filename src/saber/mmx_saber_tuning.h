@@ -48,6 +48,8 @@ typedef struct MmxSaberTuning {
   int saber_swing_volume;
   bool show_hitboxes;
   bool start_all_upgrades;
+  bool unlock_special_moves;
+  bool crescent_effect;
 } MmxSaberTuning;
 
 /* The reader returns true when it supplied a value for option_id. */
@@ -68,6 +70,8 @@ int MmxSaberTuningFinisherWindowFrames(void);
 int MmxSaberTuningSaberSwingVolume(void);
 bool MmxSaberTuningShowHitboxes(void);
 bool MmxSaberTuningStartAllUpgrades(void);
+bool MmxSaberTuningUnlockSpecialMoves(void);
+bool MmxSaberTuningCrescentEffect(void);
 
 /* Short name for call sites that already establish the Saber context. */
 int MmxSaberTuningSwingVolume(void);

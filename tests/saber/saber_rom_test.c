@@ -16,6 +16,7 @@
 #include "saber/mmx_saber_hitbox_debug.h"
 #include "saber/mmx_saber_plugin.h"
 #include "saber/mmx_saber_priority.h"
+#include "saber/mmx_saber_render.h"
 #include "saber/mmx_saber_sfx.h"
 #include "saber/mmx_saber_tuning.h"
 #include "saber/mmx_saber_armor.h"
@@ -2377,6 +2378,15 @@ static bool saber_lifecycle_idle(void) {
       MmxSaberAttackHitSlots() == 0;
 }
 
+static bool saber_unlock_special_moves_reader(const char *id, char *value,
+                                              size_t value_size,
+                                              void *context) {
+  (void)context;
+  if (strcmp(id, "unlock_special_moves") != 0) return false;
+  if (value_size != 0) snprintf(value, value_size, "true");
+  return true;
+}
+
 static void saber_attack_selection_case(
     unsigned defeated, bool grounded, bool wall_clinging, bool dash_active,
     bool up_held, MmxSaberPadKind expected, const char *label) {
@@ -2398,6 +2408,8 @@ static void saber_attack_selection_case(
 
 static void saber_attack_selection_checks(void) {
   static const unsigned locked_counts[] = {0, 1};
+
+  MmxSaberTuningLoad(NULL, NULL);
 
   for (unsigned i = 0; i < sizeof(locked_counts) / sizeof(locked_counts[0]);
        ++i) {
@@ -2422,6 +2434,16 @@ static void saber_attack_selection_checks(void) {
   saber_attack_selection_case(
       3, false, false, false, true, SABER_KIND_ROLLING,
       "three defeated Mavericks unlock rolling slash in air");
+
+  MmxSaberTuningLoad(saber_unlock_special_moves_reader, NULL);
+  saber_attack_selection_case(
+      0, true, false, false, true, SABER_KIND_UPPERCUT,
+      "unlock_special_moves enables uppercut with zero defeated Mavericks");
+  saber_attack_selection_case(
+      0, false, false, false, true, SABER_KIND_ROLLING,
+      "unlock_special_moves enables rolling slash with zero defeated Mavericks");
+  MmxSaberTuningLoad(NULL, NULL);
+
   saber_attack_selection_case(
       8, true, true, true, true, SABER_KIND_WALL,
       "wall cling always selects wall slash");
@@ -6230,6 +6252,38 @@ static void saber_tuning_checks(void) {
             g_mod_provider->ctx, "megaman-x.character.saber-zero",
             "saber-zero", "finisher_window_frames", "60"),
         "test catalog sets finisher_window_frames through feature_set_option");
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, "megaman-x.character.saber-zero",
+            "saber-zero", "uppercut_damage", "11"),
+        "test catalog sets uppercut_damage through feature_set_option");
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, "megaman-x.character.saber-zero",
+            "saber-zero", "boss_uppercut_damage", "0"),
+        "test catalog sets boss_uppercut_damage through feature_set_option");
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, "megaman-x.character.saber-zero",
+            "saber-zero", "rolling_slash_damage", "12"),
+        "test catalog sets rolling_slash_damage through feature_set_option");
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, "megaman-x.character.saber-zero",
+            "saber-zero", "boss_rolling_slash_damage", "0"),
+        "test catalog sets boss_rolling_slash_damage through feature_set_option");
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, "megaman-x.character.saber-zero",
+            "saber-zero", "uppercut_priority", "8"),
+        "test catalog sets uppercut_priority through feature_set_option");
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, "megaman-x.character.saber-zero",
+            "saber-zero", "rolling_slash_priority", "9"),
+        "test catalog sets rolling_slash_priority through feature_set_option");
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, "megaman-x.character.saber-zero",
+            "saber-zero", "unlock_special_moves", "true"),
+        "test catalog sets unlock_special_moves through feature_set_option");
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, "megaman-x.character.saber-zero",
+            "saber-zero", "crescent_effect", "false"),
+        "test catalog sets crescent_effect through feature_set_option");
   puts("reference: Saber tuning options set through the copied catalog "
        "feature_set_option API before plugin activation");
   snes_mod_runtime_activate_plugins_c();
@@ -6244,6 +6298,35 @@ static void saber_tuning_checks(void) {
         "priority_window_frames preserves an arbitrary in-range integer");
   check(MmxSaberTuningFinisherWindowFrames() == 60,
         "finisher_window_frames reaches the typed getter after activation");
+  check(MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_UPPERCUT) == 11 &&
+            MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_ROLLING) == 12,
+        "special normal damage options reach the typed getters after activation");
+  check(MmxSaberTuningGet()->boss_damage[MMX_SABER_TUNING_DAMAGE_UPPERCUT] == 0 &&
+            MmxSaberTuningGet()->boss_damage[MMX_SABER_TUNING_DAMAGE_ROLLING] == 0,
+        "special boss zero options retain both fallback markers");
+  check(MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_UPPERCUT) == 11 &&
+            MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_ROLLING) == 12,
+        "special boss zero options fall back to both normal values");
+  check(MmxSaberTuningPriority(MMX_SABER_TUNING_PRIORITY_UPPERCUT) == 8 &&
+            MmxSaberTuningPriority(MMX_SABER_TUNING_PRIORITY_ROLLING) == 9,
+        "special priority options reach the typed getters after activation");
+  check(MmxSaberTuningUnlockSpecialMoves(),
+        "unlock_special_moves reaches the plugin tuning cache after activation");
+  check(!MmxSaberRenderCrescentEnabled(),
+        "crescent_effect reaches the renderer on option reactivation");
+  {
+    MmxSaberAssets *oracle = load_render_oracle();
+    MmxRenderPlayerOverlay overlay;
+    const MmxSaberAttackSnapshot rolling = {
+      SABER_KIND_ROLLING, 0, SABER_PHASE_ACTIVE, 2, 10, 0, 0x40};
+    check(MmxSaberRenderResolveSnapshot(oracle, rolling, &overlay) &&
+              overlay.active && overlay.front.pixels == NULL &&
+              overlay.front.width == 0 && overlay.front.height == 0 &&
+              overlay.front.origin_x == 0 && overlay.front.origin_y == 0 &&
+              overlay.front_palette == NULL && overlay.front_palette_count == 0,
+          "crescent_effect off clears the rolling slash front plane after plugin application");
+    MmxSaberAssetsFree(oracle);
+  }
   puts("ok: saber-tuning");
 }
 

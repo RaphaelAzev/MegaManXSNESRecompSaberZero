@@ -975,7 +975,8 @@ void MmxSaberAttackStepWithWallAndDash(bool saber_pressed, bool grounded,
 
   if (state.phase == SABER_PHASE_IDLE) {
     if (saber_pressed) {
-      const unsigned defeated = MmxSaberDefeatedMavericks(ram);
+      const unsigned defeated = MmxSaberTuningUnlockSpecialMoves() ? 8 :
+          MmxSaberDefeatedMavericks(ram);
       const MmxSaberPadKind kind = wall_clinging ? SABER_KIND_WALL :
           (!grounded && up_held && defeated >= 3 ? SABER_KIND_ROLLING :
            (!grounded ? SABER_KIND_AIR :

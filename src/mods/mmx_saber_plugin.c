@@ -295,6 +295,7 @@ bool MmxSaberActivate(const char *package, const char *feature, bool coop) {
   MmxSaberSfxSetHost(&kSaberSfxHost);
   MmxSaberSfxSetWarningCallback(saber_sfx_warning, NULL);
   MmxSaberTuningLoad(saber_tuning_option_reader, NULL);
+  MmxSaberRenderSetCrescentEnabled(MmxSaberTuningCrescentEffect());
   MmxSaberSfxSetVolume(MmxSaberTuningSaberSwingVolume());
   MmxSaberComboSetWindowFrames((unsigned)MmxSaberTuningFinisherWindowFrames());
   release_saber_assets();
@@ -344,6 +345,7 @@ bool MmxSaberActivate(const char *package, const char *feature, bool coop) {
 
 static void reset(void) {
   g_mmx_saber_enabled = false;
+  MmxSaberRenderSetCrescentEnabled(true);
   MmxSaberFrameSetPadSource(NULL);
   MmxRendererSetPlayerOverlayProvider(NULL);
   MmxRendererSetWorldSpriteProvider(NULL);

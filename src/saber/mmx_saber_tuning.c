@@ -23,6 +23,8 @@ static MmxSaberTuning g_tuning = {
   50,
   false,
   false,
+  false,
+  true,
 };
 
 static MmxSaberTuningOption k_options[] = {
@@ -42,6 +44,10 @@ static MmxSaberTuningOption k_options[] = {
    &g_tuning.normal_damage[MMX_SABER_TUNING_DAMAGE_DASH]},
   {"wave_damage", 6, 1, 32,
    &g_tuning.normal_damage[MMX_SABER_TUNING_DAMAGE_WAVE]},
+  {"uppercut_damage", 8, 1, 32,
+   &g_tuning.normal_damage[MMX_SABER_TUNING_DAMAGE_UPPERCUT]},
+  {"rolling_slash_damage", 8, 1, 32,
+   &g_tuning.normal_damage[MMX_SABER_TUNING_DAMAGE_ROLLING]},
 
   {"boss_slash1_damage", 1, 0, 32,
    &g_tuning.boss_damage[MMX_SABER_TUNING_DAMAGE_SLASH1]},
@@ -59,6 +65,10 @@ static MmxSaberTuningOption k_options[] = {
    &g_tuning.boss_damage[MMX_SABER_TUNING_DAMAGE_X3_FINISHER]},
   {"boss_wave_damage", 4, 0, 32,
    &g_tuning.boss_damage[MMX_SABER_TUNING_DAMAGE_WAVE]},
+  {"boss_uppercut_damage", 2, 0, 32,
+   &g_tuning.boss_damage[MMX_SABER_TUNING_DAMAGE_UPPERCUT]},
+  {"boss_rolling_slash_damage", 2, 0, 32,
+   &g_tuning.boss_damage[MMX_SABER_TUNING_DAMAGE_ROLLING]},
 
   {"slash1_priority", 2, 1, 9,
    &g_tuning.priority[MMX_SABER_TUNING_PRIORITY_SLASH1]},
@@ -84,6 +94,10 @@ static MmxSaberTuningOption k_options[] = {
    &g_tuning.priority[MMX_SABER_TUNING_PRIORITY_X3_FINISHER]},
   {"wave_priority", 5, 1, 9,
    &g_tuning.priority[MMX_SABER_TUNING_PRIORITY_WAVE]},
+  {"uppercut_priority", 6, 1, 9,
+   &g_tuning.priority[MMX_SABER_TUNING_PRIORITY_UPPERCUT]},
+  {"rolling_slash_priority", 7, 1, 9,
+   &g_tuning.priority[MMX_SABER_TUNING_PRIORITY_ROLLING]},
 
   {"priority_window_frames", 70, 30, 120,
    &g_tuning.priority_window_frames},
@@ -92,6 +106,8 @@ static MmxSaberTuningOption k_options[] = {
   {"saber_swing_volume", 50, 0, 200, &g_tuning.saber_swing_volume},
   {"show_hitboxes", 0, 0, 1, &g_tuning.show_hitboxes, true},
   {"start_all_upgrades", 0, 0, 1, &g_tuning.start_all_upgrades, true},
+  {"unlock_special_moves", 0, 0, 1, &g_tuning.unlock_special_moves, true},
+  {"crescent_effect", 1, 0, 1, &g_tuning.crescent_effect, true},
 };
 
 static bool parse_integer(const char *text, int *out) {
@@ -187,6 +203,14 @@ bool MmxSaberTuningShowHitboxes(void) {
 
 bool MmxSaberTuningStartAllUpgrades(void) {
   return g_tuning.start_all_upgrades;
+}
+
+bool MmxSaberTuningUnlockSpecialMoves(void) {
+  return g_tuning.unlock_special_moves;
+}
+
+bool MmxSaberTuningCrescentEffect(void) {
+  return g_tuning.crescent_effect;
 }
 
 int MmxSaberTuningSwingVolume(void) {
