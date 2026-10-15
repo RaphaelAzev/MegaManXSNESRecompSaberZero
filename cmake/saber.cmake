@@ -283,6 +283,12 @@ if(BUILD_TESTING)
     set_tests_properties(saber_asset_layout PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/tmp")
 
+    add_test(NAME saber_special_bounds
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/saber/test_saber_special_bounds.py")
+    set_tests_properties(saber_special_bounds PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/tmp")
+
     add_executable(mmx_saber_check
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/saber/mmx_saber_check.c"
         "${_saber_assets_source}"

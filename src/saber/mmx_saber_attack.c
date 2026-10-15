@@ -50,6 +50,29 @@ static const MmxSaberBoundsSegment kDashSlashBounds[] = {
     {6, 9, 45, 0, 30, 17},
     {10, 11, 14, -15, 24, 6}};
 
+/* Special FX boxes use exclusive player-canvas coordinates.  The renderer
+ * maps X relative to canvas 64 and Y relative to native $0BB0 through its
+ * normal -8 pose offset, so native centers are canvas (x - 64, y - 72).
+ * Integer centers use the lower midpoint; half-extents round up. */
+static const MmxSaberBoundsSegment kUppercutBounds[] = {
+    {0, 1, -15, 4, 10, 6},
+    {2, 3, 5, 13, 32, 7},
+    {4, 5, 22, -6, 16, 30},
+    {6, 7, 23, -13, 16, 23},
+    {8, 9, 23, -20, 17, 17},
+    {10, 11, -17, -37, 4, 11},
+    {12, 255, -3, -32, 4, 8}};
+
+static const MmxSaberBoundsSegment kRollingSlashBounds[] = {
+    {2, 3, 16, -21, 27, 23},
+    {4, 5, 29, -12, 16, 27},
+    {6, 7, 22, 8, 23, 27},
+    {8, 9, 14, 21, 27, 16},
+    {10, 11, -6, 14, 27, 23},
+    {12, 13, -20, 6, 16, 27},
+    {14, 15, -13, -14, 23, 27},
+    {16, 17, -4, -28, 27, 16}};
+
 /* Ported from old src/mmx_saber.c:260-400.  In particular, keep the numeric
  * timing values here independent of the ROM test's old-table oracle. */
 static const MmxSaberAttack kSaberAttacks[] = {
@@ -199,11 +222,11 @@ static const MmxSaberAttack kSaberAttacks[] = {
         .buffer_open_tick = MMX_SABER_NO_WINDOW,
         .buffer_close_tick = MMX_SABER_NO_WINDOW,
         .next_index = MMX_SABER_NO_WINDOW,
-        .bounds_segments = kGroundSlash1Bounds,
-        .bounds_segment_count = sizeof(kGroundSlash1Bounds) /
-            sizeof(kGroundSlash1Bounds[0]),
+        .bounds_segments = kUppercutBounds,
+        .bounds_segment_count = sizeof(kUppercutBounds) /
+            sizeof(kUppercutBounds[0]),
         .damage = 8,
-        .bounds_pointer = MMX_SABER_ATTACK_BOUNDS_POINTER},
+        .bounds_pointer = MMX_SABER_AIR_BOUNDS_POINTER},
     {
         .kind = SABER_KIND_ROLLING,
         .index = 0,
@@ -218,9 +241,9 @@ static const MmxSaberAttack kSaberAttacks[] = {
         .buffer_open_tick = MMX_SABER_NO_WINDOW,
         .buffer_close_tick = MMX_SABER_NO_WINDOW,
         .next_index = MMX_SABER_NO_WINDOW,
-        .bounds_segments = kAirSlashBounds,
-        .bounds_segment_count = sizeof(kAirSlashBounds) /
-            sizeof(kAirSlashBounds[0]),
+        .bounds_segments = kRollingSlashBounds,
+        .bounds_segment_count = sizeof(kRollingSlashBounds) /
+            sizeof(kRollingSlashBounds[0]),
         .damage = 8,
         .bounds_pointer = MMX_SABER_AIR_BOUNDS_POINTER}};
 
@@ -653,12 +676,20 @@ static uint16_t bounds_pointer(const MmxSaberAttack *attack, uint8_t tick) {
   return attack ? attack->bounds_pointer : MMX_SABER_ATTACK_BOUNDS_POINTER;
 }
 
+static bool shared_air_special(const MmxSaberAttack *attack) {
+  return attack && (attack->kind == SABER_KIND_UPPERCUT ||
+                    attack->kind == SABER_KIND_ROLLING);
+}
+
 static void bounds_records_for_window(uint8_t out[40], uint16_t window_pointer) {
+  const MmxSaberAttack *active_special =
+      window_pointer == MMX_SABER_AIR_BOUNDS_POINTER ? state_attack() : NULL;
   memset(out, 255, 40);
   for (size_t attack_index = 0;
        attack_index < sizeof(kSaberAttacks) / sizeof(kSaberAttacks[0]);
        ++attack_index) {
     const MmxSaberAttack *attack = kSaberAttacks + attack_index;
+    if (shared_air_special(attack) && attack != active_special) continue;
     if (attack->bounds_pointer < window_pointer ||
         attack->bounds_pointer >= window_pointer + 40) continue;
     unsigned record = (attack->bounds_pointer - window_pointer) / 4;
@@ -681,6 +712,7 @@ static bool air_collision_attack(const MmxSaberAttack *attack) {
   return attack && (attack->kind == SABER_KIND_AIR ||
                     attack->kind == SABER_KIND_WALL ||
                     attack->kind == SABER_KIND_DASH ||
+                    attack->kind == SABER_KIND_UPPERCUT ||
                     attack->kind == SABER_KIND_ROLLING);
 }
 
@@ -716,6 +748,10 @@ static void collision_window_update(MmxSaberCollisionWindow *window,
 
   if (window->installed) {
     if (!memcmp(rom + window->offset, window->bytes, sizeof(window->bytes))) {
+      if (memcmp(window->bytes, expected, sizeof(window->bytes))) {
+        memcpy(rom + window->offset, expected, sizeof(window->bytes));
+        memcpy(window->bytes, expected, sizeof(window->bytes));
+      }
       if (MmxZeroActive()) {
         window->ready = true;
       } else {
@@ -763,15 +799,26 @@ static void collision_window_update(MmxSaberCollisionWindow *window,
   window->ready = true;
 }
 
-void MmxSaberAttackCollisionRom(uint8_t *rom, size_t size) {
+static void collision_windows_refresh(void) {
   uint8_t ground[40], air[40];
+  if (!native_collision_rom) {
+    ground_collision.ready = false;
+    air_collision.ready = false;
+    return;
+  }
+  bounds_records_for_window(ground, MMX_SABER_ATTACK_BOUNDS_POINTER);
+  bounds_records_for_window(air, MMX_SABER_AIR_BOUNDS_POINTER);
+  collision_window_update(&ground_collision, native_collision_rom,
+                          native_collision_rom_size, ground);
+  collision_window_update(&air_collision, native_collision_rom,
+                          native_collision_rom_size, air);
+}
+
+void MmxSaberAttackCollisionRom(uint8_t *rom, size_t size) {
   native_collision_rom = rom;
   native_collision_rom_size = size;
   MmxSaberHitboxDebugSetRom(rom, size);
-  bounds_records_for_window(ground, MMX_SABER_ATTACK_BOUNDS_POINTER);
-  bounds_records_for_window(air, MMX_SABER_AIR_BOUNDS_POINTER);
-  collision_window_update(&ground_collision, rom, size, ground);
-  collision_window_update(&air_collision, rom, size, air);
+  collision_windows_refresh();
   MmxSaberWaveRuntimeCollisionRom(rom, size);
 }
 
@@ -863,6 +910,7 @@ void MmxSaberAttackExit(uint8_t *ram, MmxSaberAttackExitReason reason) {
   retire_all_tagged(target);
   clear_attack();
   clear_native_observation();
+  collision_windows_refresh();
 }
 
 MmxSaberAttackExitReason MmxSaberAttackLastExitReason(void) {
@@ -1061,6 +1109,7 @@ void MmxSaberAttackRuntimeTick(uint8_t *ram) {
   const MmxSaberAttack *attack;
   runtime_ram = ram;
   if (!ram) return;
+  collision_windows_refresh();
   attack = state_attack();
   if (state.phase != SABER_PHASE_ACTIVE || !attack ||
       !attack->bounds_segments) {

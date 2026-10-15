@@ -994,6 +994,124 @@ static void uppercut_attack_checks(void) {
         "uppercut refused native action 6 exits with context after two frames");
 }
 
+static unsigned render_test_saber_slot(const uint8_t *ram) {
+  for (unsigned d = 0x1228; d < 0x1428; d += 64) {
+    const unsigned tag = ram[d + 0x3e] | ((unsigned)ram[d + 0x3f] << 8);
+    if (ram[d] && (tag & MMX_SABER_PROJECTILE_TAG_FAMILY_MASK) ==
+                     MMX_SABER_PROJECTILE_TAG_FAMILY)
+      return d;
+  }
+  return 0;
+}
+
+static const MmxSaberBoundsSegment *render_test_saber_segment(
+    const MmxSaberAttack *attack, uint8_t tick, unsigned *index) {
+  if (!attack) return NULL;
+  for (unsigned i = 0; i < attack->bounds_segment_count; ++i) {
+    const MmxSaberBoundsSegment *segment = attack->bounds_segments + i;
+    if (tick >= segment->first_tick && tick <= segment->last_tick) {
+      if (index) *index = i;
+      return segment;
+    }
+  }
+  return NULL;
+}
+
+static void special_live_bounds_checks_one(MmxSaberPadKind kind,
+                                            bool grounded,
+                                            unsigned defeated,
+                                            uint8_t direction,
+                                            const char *label) {
+  static uint8_t ram[0x20000];
+  static uint8_t rom[0x40000];
+  const MmxSaberAttack *attack = MmxSaberAttackRecord(kind, 0);
+  bool seen[MMX_SABER_MAX_ACTIVE_SEGMENTS] = {false};
+  const uint8_t native_facing = direction == 1 ? 0x40 : 0;
+  const uint8_t expected_projectile_facing = direction == 1 ? 0 : 0x40;
+
+  memset(ram, 0, sizeof(ram));
+  for (unsigned i = 0; i < defeated; ++i)
+    ram[0x1f88 + i * 2] = 0x40;
+  ram[0x0bd3] = grounded ? 4 : 0;
+  check(attack && attack->bounds_pointer == MMX_SABER_AIR_BOUNDS_POINTER,
+        "special uses the shared AIR collision-record window");
+  check(attack && attack->bounds_segment_count <=
+            MMX_SABER_MAX_ACTIVE_SEGMENTS,
+        "special bounds fit the live segment capacity");
+
+  MmxSaberAttackResetRam(ram);
+  memset(rom, 0xff, sizeof(rom));
+  MmxSaberAttackCollisionRom(rom, sizeof(rom));
+  MmxSaberAttackStepWithWallAndDash(
+      true, grounded, false, false, true, true, false, true, ram,
+      native_facing, direction);
+  check(MmxSaberAttackSnapshotGet().kind == kind,
+        "special starts through the normal attack selector");
+  printf("reference: %s facing=%s segments=%u\n", label,
+         direction == 1 ? "right" : "left", attack->bounds_segment_count);
+
+  for (unsigned tick = 0; tick < attack->total_ticks; ++tick) {
+    const MmxSaberAttackSnapshot snapshot = MmxSaberAttackSnapshotGet();
+    unsigned segment_index = 0;
+    const MmxSaberBoundsSegment *segment = render_test_saber_segment(
+        attack, snapshot.tick, &segment_index);
+    unsigned slot;
+
+    MmxSaberAttackRuntimeTick(ram);
+    if (!segment) {
+      check(render_test_saber_slot(ram) == 0,
+            "special startup without an art frame has no live slot");
+    } else {
+      const unsigned pointer = attack->bounds_pointer + segment_index * 4;
+      const unsigned offset = 0x37f40 +
+          (pointer - MMX_SABER_AIR_BOUNDS_POINTER);
+      const uint8_t expected_record[4] = {
+          (uint8_t)segment->bounds_x, (uint8_t)segment->bounds_y,
+          segment->bounds_half_width, segment->bounds_half_height};
+      check(!memcmp(rom + offset, expected_record, sizeof(expected_record)),
+            "live AIR record equals the current art segment");
+      seen[segment_index] = true;
+
+      slot = render_test_saber_slot(ram);
+      if (snapshot.phase == SABER_PHASE_ACTIVE) {
+        check(slot && (ram[slot + 0x11] & 0x40) ==
+                  expected_projectile_facing,
+              "active slot carries the native mirror facing");
+        const int stored_x = rom[offset] < 128 ? rom[offset] : rom[offset] - 256;
+        const int effective_x = (ram[slot + 0x11] & 0x40) ?
+            -stored_x : stored_x;
+        const int expected_x = direction == 1 ?
+            (int)segment->bounds_x : -(int)segment->bounds_x;
+        check(slot && (ram[slot + 0x20] == (uint8_t)pointer) &&
+                  (ram[slot + 0x21] == (uint8_t)(pointer >> 8)) &&
+                  effective_x == expected_x,
+              "active slot points at the mirrored current segment");
+      } else {
+        check(slot == 0, "startup art record is not a live projectile yet");
+      }
+    }
+
+    if (tick + 1 < attack->total_ticks)
+      MmxSaberAttackStepWithWallAndDash(
+          false, grounded, false, false, true, true, false, true, ram,
+          native_facing, direction);
+  }
+  for (unsigned i = 0; i < attack->bounds_segment_count; ++i)
+    check(seen[i], "every special art segment reaches the live AIR window");
+  MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
+}
+
+static void special_live_bounds_checks(void) {
+  special_live_bounds_checks_one(SABER_KIND_UPPERCUT, true, 2, 1,
+                                 "uppercut");
+  special_live_bounds_checks_one(SABER_KIND_UPPERCUT, true, 2, 2,
+                                 "uppercut");
+  special_live_bounds_checks_one(SABER_KIND_ROLLING, false, 3, 1,
+                                 "rolling slash");
+  special_live_bounds_checks_one(SABER_KIND_ROLLING, false, 3, 2,
+                                 "rolling slash");
+}
+
 int main(void) {
   char path[4096];
   char ride_path[4096];
@@ -1073,6 +1191,7 @@ int main(void) {
       check_tuple(assets, animation, &kOldTuples[animation][tuple]);
   ride_matrix_checks(ride);
   uppercut_attack_checks();
+  special_live_bounds_checks();
 
   MmxSaberAttackReset();
   MmxSaberAttackStep(true, true, true, 0, 0);
