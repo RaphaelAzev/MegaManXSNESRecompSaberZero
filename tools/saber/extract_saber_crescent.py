@@ -1,399 +1,395 @@
 #!/usr/bin/env python3
-"""Extract crescent-slash frames from a noisy custom effect sheet.
+"""Extract an SNES-style crescent strip from a PlayStation crescent rip.
 
-Source credit: The Spriters Resource, Mega Man X Customs, asset 124142
-(https://www.spriters-resource.com/custom_edited/megamanxcustoms/asset/124142/).
-TODO(credit): add the asset author.
+Shape traced from a rip of Zero's crescent slash in Capcom's PlayStation Mega
+Man X games (provided by the project author); SNES-style redraw made for this
+project; original art (c) Capcom.
 """
 import argparse
 import math
-import statistics
+from collections import Counter
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image
 
 
 CELL = 128
-ROLLING_FRAMES = 9
-_LANCZOS = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
-
-
-def _clamp(value, low, high):
-    return max(low, min(high, value))
-
-
-def _border_median(image):
-    """Return the per-channel median of the image border."""
-    width, height = image.size
-    if width < 1 or height < 1:
-        raise ValueError("The source sheet is empty")
-
-    border = []
-    for x in range(width):
-        border.append(image.getpixel((x, 0)))
-        if height > 1:
-            border.append(image.getpixel((x, height - 1)))
-    for y in range(1, height - 1):
-        border.append(image.getpixel((0, y)))
-        if width > 1:
-            border.append(image.getpixel((width - 1, y)))
-
-    return tuple(
-        int(round(statistics.median(pixel[channel] for pixel in border)))
-        for channel in range(3)
-    )
+RAMP = (
+    (200, 72, 0),
+    (248, 144, 0),
+    (248, 216, 32),
+    (248, 248, 160),
+    (248, 248, 248),
+)
+_RESAMPLING = getattr(Image, "Resampling", Image)
+_BOX = _RESAMPLING.BOX
+_NEAREST = _RESAMPLING.NEAREST
 
 
 def _colour_distance(pixel, background):
     return math.sqrt(
-        sum((int(channel) - int(bg_channel)) ** 2
-            for channel, bg_channel in zip(pixel, background))
+        sum((pixel[channel] - background[channel]) ** 2 for channel in range(3))
     )
 
 
-def _soft_alpha(pixel, background, tolerance):
-    """Return keyed foreground alpha as a float in the range 0..1."""
-    distance = _colour_distance(pixel, background)
-    if distance <= tolerance:
-        return 0.0
-
-    # Smooth blue changes can be glow or just the sheet background.  Judge
-    # them by RGB value too, retaining only a clearly brighter glow.
-    blue_tinted = pixel[2] >= pixel[0] and pixel[2] >= pixel[1]
-    brightness_gain = max(pixel) - max(background)
-    if (
-        blue_tinted
-        and distance < 2 * tolerance
-        and brightness_gain < max(8.0, tolerance * 0.25)
-    ):
-        return 0.0
-
-    return _clamp((distance - tolerance) / tolerance, 0.0, 1.0)
-
-
-def _key_sheet(sheet, background, tolerance):
-    """Build soft alpha and keyed column bounds for the whole source sheet."""
+def _key_mask(sheet, background, tolerance):
+    """Return the keyed binary mask for the complete source sheet."""
     width, height = sheet.size
-    alpha = Image.new("L", sheet.size)
-    alpha_values = bytearray(width * height)
-    column_top = [height] * width
-    column_bottom = [-1] * width
     pixels = sheet.load()
-
-    for y in range(height):
-        row = y * width
-        for x in range(width):
-            soft = _soft_alpha(pixels[x, y], background, tolerance)
-            value = int(round(soft * 255))
-            if soft > 0.0 and value == 0:
-                value = 1
-            alpha_values[row + x] = value
-            if value:
-                column_top[x] = min(column_top[x], y)
-                column_bottom[x] = y
-
-    alpha.putdata(alpha_values)
-    return alpha, column_top, column_bottom
+    return [
+        [
+            _colour_distance(pixels[x, y], background) > tolerance
+            for x in range(width)
+        ]
+        for y in range(height)
+    ]
 
 
-def _frame_boxes(column_top, column_bottom, min_gap):
-    """Find and merge foreground column runs, returning inclusive source boxes."""
-    foreground = [bottom >= 0 for bottom in column_bottom]
+def _frame_boxes(mask, min_gap):
+    """Find foreground column runs and return inclusive frame boxes."""
+    height = len(mask)
+    width = len(mask[0]) if height else 0
+    columns = [
+        any(mask[y][x] for y in range(height))
+        for x in range(width)
+    ]
+
     runs = []
-    run_start = None
-    for x, is_foreground in enumerate(foreground):
-        if is_foreground and run_start is None:
-            run_start = x
-        elif not is_foreground and run_start is not None:
-            runs.append((run_start, x - 1))
-            run_start = None
-    if run_start is not None:
-        runs.append((run_start, len(foreground) - 1))
+    start = None
+    for x, foreground in enumerate(columns + [False]):
+        if foreground and start is None:
+            start = x
+        elif not foreground and start is not None:
+            runs.append((start, x - 1))
+            start = None
 
     merged = []
     for left, right in runs:
-        if merged and left - merged[-1][1] - 1 < min_gap:
+        gap = left - merged[-1][1] - 1 if merged else None
+        if merged and gap < min_gap:
             merged[-1] = (merged[-1][0], right)
         else:
             merged.append((left, right))
 
     boxes = []
     for left, right in merged:
-        top = min(column_top[left:right + 1])
-        bottom = max(column_bottom[left:right + 1])
-        boxes.append((left, top, right, bottom))
+        rows = [
+            y
+            for y in range(height)
+            if any(mask[y][x] for x in range(left, right + 1))
+        ]
+        if not rows:
+            continue
+        boxes.append((left, min(rows), right, max(rows)))
     if not boxes:
-        raise ValueError("No keyed foreground found in the source sheet")
+        raise ValueError("No keyed foreground found in the source rip")
     return boxes
 
 
-def _rgba_crop(sheet, alpha, box):
-    left, top, right, bottom = box
-    rgb = sheet.crop((left, top, right + 1, bottom + 1))
-    mask = alpha.crop((left, top, right + 1, bottom + 1))
-    return Image.merge("RGBA", (*rgb.split(), mask))
+def _fit_circle(mask, box):
+    """Fit a Kasa least-squares circle to one frame's edge pixels."""
+    height = len(mask)
+    width = len(mask[0]) if height else 0
+    x0, y0, x1, y1 = box
+    points = []
+    for y in range(y0, y1 + 1):
+        for x in range(x0, x1 + 1):
+            if mask[y][x] and any(
+                not (
+                    0 <= y + dy < height
+                    and 0 <= x + dx < width
+                    and mask[y + dy][x + dx]
+                )
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))
+            ):
+                points.append((x, y))
+
+    if not points:
+        raise ValueError(f"Frame {box} has no edge pixels")
+
+    count = len(points)
+    sx = sum(point[0] for point in points) / count
+    sy = sum(point[1] for point in points) / count
+    suu = svv = suv = suuu = svvv = suvv = svuu = 0.0
+    for x, y in points:
+        u, v = x - sx, y - sy
+        suu += u * u
+        svv += v * v
+        suv += u * v
+        suuu += u ** 3
+        svvv += v ** 3
+        suvv += u * v * v
+        svuu += v * u * u
+
+    a, b, c, d = suu, suv, suv, svv
+    e = 0.5 * (suuu + suvv)
+    f = 0.5 * (svvv + svuu)
+    determinant = a * d - b * c
+    if determinant == 0:
+        raise ValueError(f"Frame {box} has a degenerate edge circle fit")
+
+    uc = (e * d - b * f) / determinant
+    vc = (a * f - e * c) / determinant
+    cx, cy = uc + sx, vc + sy
+    radius = math.sqrt(uc * uc + vc * vc + (suu + svv) / count)
+    return (cx, cy), radius
 
 
-def _downscale(frame, scale, frame_index, background, tolerance):
-    width = max(1, int(round(frame.width / scale)))
-    height = max(1, int(round(frame.height / scale)))
-    if width > CELL or height > CELL:
-        raise ValueError(
-            f"Frame {frame_index} downscaled size {width}x{height} exceeds "
-            f"{CELL}x{CELL}; use a larger --scale"
-        )
+def _shape(mask, box, scale, centre):
+    """Resize one binary frame with BOX coverage and return its scaled centre."""
+    x0, y0, x1, y1 = box
+    width = x1 - x0 + 1
+    height = y1 - y0 + 1
+    coverage = Image.new("L", (width, height), 0)
+    pixels = coverage.load()
+    for y in range(height):
+        for x in range(width):
+            pixels[x, y] = 255 if mask[y0 + y][x0 + x] else 0
 
-    source_pixels = list(frame.getdata())
-    premultiplied_pixels = [
-        (
-            int(round(red * alpha_value / 255)),
-            int(round(green * alpha_value / 255)),
-            int(round(blue * alpha_value / 255)),
-        )
-        for red, green, blue, alpha_value in source_pixels
+    target = (
+        max(1, round(width / scale)),
+        max(1, round(height / scale)),
+    )
+    small = coverage.resize(target, _BOX)
+    binary = small.point(lambda value: 255 if value >= 128 else 0)
+    scaled_centre = ((centre[0] - x0) / scale, (centre[1] - y0) / scale)
+    return binary, scaled_centre
+
+
+def _bfs(mask, width, height, seeds):
+    """Return 4-neighbour distances from seeds inside a binary shape."""
+    infinite = 1 << 30
+    distances = [[infinite] * width for _ in range(height)]
+    queue = list(seeds)
+    for x, y in queue:
+        distances[y][x] = 0
+
+    index = 0
+    while index < len(queue):
+        x, y = queue[index]
+        index += 1
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, ny = x + dx, y + dy
+            if (
+                0 <= nx < width
+                and 0 <= ny < height
+                and mask[ny][nx]
+                and distances[ny][nx] > distances[y][x] + 1
+            ):
+                distances[ny][nx] = distances[y][x] + 1
+                queue.append((nx, ny))
+    return distances
+
+
+def _sym(outer_distance, inner_distance):
+    """Apply the approved five-colour ramp from both shape edges."""
+    distance = min(outer_distance, inner_distance)
+    return RAMP[distance] if distance < 4 else RAMP[4]
+
+
+def _redraw(mask_image, centre):
+    """Colour a resized binary shape using symmetric edge-distance bands."""
+    width, height = mask_image.size
+    pixels = mask_image.load()
+    mask = [
+        [pixels[x, y] > 0 for x in range(width)]
+        for y in range(height)
     ]
-    premultiplied = Image.new("RGB", frame.size)
-    premultiplied.putdata(premultiplied_pixels)
-    small_colour = premultiplied.resize((width, height), _LANCZOS)
-    small_alpha = frame.getchannel("A").resize((width, height), _LANCZOS)
+    points = [
+        (x, y)
+        for y in range(height)
+        for x in range(width)
+        if mask[y][x]
+    ]
+    if not points:
+        return Image.new("RGBA", (width, height), (0, 0, 0, 0))
 
-    output_pixels = []
-    for (red, green, blue), alpha_value in zip(
-        small_colour.getdata(), small_alpha.getdata()
-    ):
-        alpha_value = int(alpha_value)
-        if alpha_value < 128:
-            output_pixels.append((0, 0, 0, 0))
-            continue
+    centre_x, centre_y = centre
+    mean_radius = sum(
+        math.hypot(x - centre_x, y - centre_y)
+        for x, y in points
+    ) / len(points)
+    outer = []
+    inner = []
+    for x, y in points:
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, ny = x + dx, y + dy
+            if not (
+                0 <= nx < width
+                and 0 <= ny < height
+                and mask[ny][nx]
+            ):
+                seeds = outer if math.hypot(
+                    nx - centre_x, ny - centre_y
+                ) > mean_radius else inner
+                seeds.append((x, y))
+                break
 
-        red = _clamp(int(round(red * 255 / alpha_value)), 0, 255)
-        green = _clamp(int(round(green * 255 / alpha_value)), 0, 255)
-        blue = _clamp(int(round(blue * 255 / alpha_value)), 0, 255)
-        colour = (red, green, blue)
-        if _colour_distance(colour, background) <= tolerance:
-            output_pixels.append((0, 0, 0, 0))
-        else:
-            output_pixels.append((*colour, 255))
-
-    output = Image.new("RGBA", (width, height))
-    output.putdata(output_pixels)
+    outer_distance = _bfs(mask, width, height, outer)
+    inner_distance = _bfs(mask, width, height, inner)
+    output = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    output_pixels = output.load()
+    for x, y in points:
+        output_pixels[x, y] = _sym(
+            outer_distance[y][x],
+            inner_distance[y][x],
+        ) + (255,)
     return output
 
 
-def _quantize_frames(frames, colors, background, tolerance):
-    """Use one MEDIANCUT palette for every frame and return RGBA frames."""
-    opaque_pixels = [
-        pixel[:3]
-        for frame in frames
-        for pixel in frame.getdata()
-        if pixel[3] == 255
-    ]
-    if not opaque_pixels:
-        raise ValueError("No opaque foreground remains after downscaling")
+def _load_rolling(path):
+    with Image.open(path) as opened:
+        rolling = opened.convert("RGBA")
+    if rolling.width == 0 or rolling.width % CELL:
+        raise ValueError("--rolling must contain whole 128x128 cells")
+    if rolling.height < CELL:
+        raise ValueError("--rolling must contain 128-pixel-tall cells")
 
-    palette_source = Image.new("RGB", (len(opaque_pixels), 1))
-    palette_source.putdata(opaque_pixels)
-    quantized = palette_source.quantize(
-        colors=colors,
-        method=Image.Quantize.MEDIANCUT,
-        dither=Image.Dither.NONE,
-    )
-    assignments = list(quantized.getdata())
-    raw_palette = quantized.getpalette()
-    used_indices = sorted(set(assignments))
-    palette = {
-        index: tuple(raw_palette[index * 3:index * 3 + 3])
-        for index in used_indices
-    }
-
-    colour_to_index = {}
-    for colour, index in zip(opaque_pixels, assignments):
-        colour_to_index.setdefault(colour, index)
-    valid_indices = [
-        index
-        for index in used_indices
-        if _colour_distance(palette[index], background) > tolerance
-    ]
-
-    output_frames = []
-    output_colours = set()
-    for frame in frames:
-        output_pixels = []
-        for red, green, blue, alpha_value in frame.getdata():
-            if alpha_value != 255:
-                output_pixels.append((0, 0, 0, 0))
-                continue
-
-            source_colour = (red, green, blue)
-            index = colour_to_index[source_colour]
-            if index not in valid_indices:
-                if not valid_indices:
-                    output_pixels.append((0, 0, 0, 0))
-                    continue
-                index = min(
-                    valid_indices,
-                    key=lambda candidate: sum(
-                        (palette[candidate][channel] - source_colour[channel]) ** 2
-                        for channel in range(3)
-                    ),
-                )
-            colour = palette[index]
-            if _colour_distance(colour, background) <= tolerance:
-                output_pixels.append((0, 0, 0, 0))
-            else:
-                output_pixels.append((*colour, 255))
-                output_colours.add(colour)
-
-        output = Image.new("RGBA", frame.size)
-        output.putdata(output_pixels)
-        output_frames.append(output)
-
-    if not output_colours:
-        raise ValueError("No opaque foreground remains after palette keying")
-    return output_frames, sorted(output_colours)
+    cells = []
+    for index in range(rolling.width // CELL):
+        cell = rolling.crop((index * CELL, 0, (index + 1) * CELL, CELL))
+        bbox = cell.getbbox()
+        if bbox is None:
+            raise ValueError(f"--rolling cell {index} has no opaque pixels")
+        anchor = ((bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2)
+        cells.append((cell, anchor))
+    return cells
 
 
-def _place_frames(frames):
-    strip = Image.new("RGBA", (CELL * len(frames), CELL), (0, 0, 0, 0))
-    for index, frame in enumerate(frames):
-        x = index * CELL + CELL // 2 - frame.width // 2
-        y = CELL // 2 - frame.height // 2
-        strip.alpha_composite(frame, (x, y))
+def _place_crescents(shapes, rolling_cells):
+    """Render crescent cells and reject placement that clips a 128x128 cell."""
+    placed = []
+    for index, (mask_image, centre) in enumerate(shapes):
+        crescent = _redraw(mask_image, centre)
+        _, (zero_x, zero_y) = rolling_cells[index]
+        left = round(zero_x - centre[0])
+        top = round(zero_y - centre[1])
+        if (
+            left < 0
+            or top < 0
+            or left + crescent.width > CELL
+            or top + crescent.height > CELL
+        ):
+            raise ValueError(
+                f"Crescent frame {index} clips its {CELL}x{CELL} cell "
+                f"at ({left}, {top}) with size "
+                f"{crescent.width}x{crescent.height}"
+            )
+
+        cell = Image.new("RGBA", (CELL, CELL), (0, 0, 0, 0))
+        cell.alpha_composite(crescent, (left, top))
+        placed.append((cell, crescent.size, (left, top)))
+    return placed
+
+
+def _make_strip(placed):
+    strip = Image.new("RGBA", (CELL * len(placed), CELL), (0, 0, 0, 0))
+    for index, (cell, _, _) in enumerate(placed):
+        strip.alpha_composite(cell, (index * CELL, 0))
     return strip
 
 
-def _rolling_preview_row(strip, rolling_path):
-    with Image.open(rolling_path) as opened:
-        rolling = opened.convert("RGBA")
-    if rolling.width < CELL * ROLLING_FRAMES or rolling.height < CELL:
-        raise ValueError(
-            f"--rolling must contain at least {ROLLING_FRAMES} 128x128 frames"
-        )
-
-    row = Image.new("RGBA", strip.size, (0, 0, 0, 0))
-    for index in range(strip.width // CELL):
-        base = rolling.crop(
-            (index % ROLLING_FRAMES * CELL, 0,
-             (index % ROLLING_FRAMES + 1) * CELL, CELL)
-        )
-        row.alpha_composite(base, (index * CELL, 0))
-        crescent = strip.crop(
-            (index * CELL, 0, (index + 1) * CELL, CELL)
-        )
-        row.alpha_composite(crescent, (index * CELL, 0))
-    return row
-
-
-def _make_preview(strip, rolling_path):
-    scale = 2
-    label_height = 18
-    row_gap = 6
-    rows = [("crescent frames", strip)]
-    if rolling_path is not None:
-        rows.append(("crescent over rolling slash", _rolling_preview_row(strip, rolling_path)))
-
-    row_height = label_height + CELL * scale + row_gap
-    preview = Image.new(
-        "RGBA",
-        (strip.width * scale, row_height * len(rows)),
-        (40, 40, 48, 255),
+def _make_preview(placed, rolling_cells, rolling_path):
+    fx_path = rolling_path.with_name(
+        f"{rolling_path.stem}_FX{rolling_path.suffix}"
     )
-    draw = ImageDraw.Draw(preview)
-    for row_index, (title, row) in enumerate(rows):
-        top = row_index * row_height
-        draw.text((4, top + 1), title, fill=(255, 255, 255, 255))
-        image_top = top + label_height
-        enlarged = row.resize((row.width * scale, row.height * scale), Image.NEAREST)
-        preview.alpha_composite(enlarged, (0, image_top))
-        for frame_index in range(strip.width // CELL):
-            left = frame_index * CELL * scale
-            draw.rectangle(
-                (left, image_top, left + CELL * scale - 1,
-                 image_top + CELL * scale - 1),
-                outline=(100, 100, 120, 255),
+    with Image.open(fx_path) as opened:
+        fx_strip = opened.convert("RGBA")
+    if fx_strip.height < CELL or fx_strip.width < CELL * (len(placed) - 1):
+        raise ValueError(
+            f"{fx_path} must contain at least "
+            f"{len(placed) - 1} 128x128 FX cells"
+        )
+
+    row = Image.new("RGBA", (CELL * len(placed), CELL), (0, 0, 0, 0))
+    for index, (crescent, _, _) in enumerate(placed):
+        cell = Image.new("RGBA", (CELL, CELL), (0, 0, 0, 0))
+        cell.alpha_composite(rolling_cells[index][0], (0, 0))
+        if index >= 1:
+            fx = fx_strip.crop(
+                ((index - 1) * CELL, 0, index * CELL, CELL)
             )
-            draw.text(
-                (left + 3, image_top + 2),
-                str(frame_index),
-                fill=(220, 220, 220, 255),
-            )
-    return preview
+            cell.alpha_composite(fx, (0, 0))
+        cell.alpha_composite(crescent, (0, 0))
+        row.alpha_composite(cell, (index * CELL, 0))
+    return row.resize((row.width * 2, row.height * 2), _NEAREST)
 
 
-def _print_report(background, boxes, frames, palette):
-    print(f"Background estimate: {background}")
+def _print_report(background, boxes, fits, placed, strip):
+    print(f"Background: {background}")
     print(f"Frames: {len(boxes)}")
-    for index, (box, frame) in enumerate(zip(boxes, frames)):
+    for index, (box, (centre, radius), (_, size, offset)) in enumerate(
+        zip(boxes, fits, placed)
+    ):
         print(
             f"Frame {index}: box={box}, "
-            f"downscaled size={frame.width}x{frame.height}"
+            f"arc centre=({centre[0]:.6f}, {centre[1]:.6f}), "
+            f"radius={radius:.6f}, scaled size={size[0]}x{size[1]}, "
+            f"offset={offset}"
         )
-    print(f"Palette colours: {palette}")
+    colours = Counter(
+        pixel[:3]
+        for pixel in strip.getdata()
+        if pixel[3] == 255
+    )
+    print(f"Colour count: {len(colours)}")
+    for colour in sorted(colours):
+        print(f"  {colour}: {colours[colour]}")
 
 
 def extract_crescent(
-    sheet_path,
+    rip_path,
+    rolling_path,
     out,
-    preview,
-    scale=4,
-    colors=8,
-    key_tolerance=60.0,
-    min_gap=6,
-    rolling=None,
+    preview=None,
+    scale=1.4,
+    key_tolerance=80.0,
+    min_gap=3,
     report=False,
 ):
-    """Extract, palette, place, save, and preview the crescent frames."""
+    """Extract, redraw, anchor, save, and optionally preview crescent frames."""
     if scale <= 0:
         raise ValueError("--scale must be greater than zero")
-    if colors < 1 or colors > 256:
-        raise ValueError("--colors must be between 1 and 256")
     if key_tolerance <= 0:
         raise ValueError("--key-tolerance must be greater than zero")
     if min_gap < 0:
         raise ValueError("--min-gap must not be negative")
 
-    with Image.open(sheet_path) as opened:
-        sheet = opened.convert("RGB")
-    background = _border_median(sheet)
-    alpha, column_top, column_bottom = _key_sheet(
-        sheet, background, key_tolerance
-    )
-    boxes = _frame_boxes(column_top, column_bottom, min_gap)
-    downscaled = [
-        _downscale(
-            _rgba_crop(sheet, alpha, box),
-            scale,
-            index,
-            background,
-            key_tolerance,
+    with Image.open(rip_path) as opened:
+        rip = opened.convert("RGB")
+    background = Counter(rip.getdata()).most_common(1)[0][0]
+    mask = _key_mask(rip, background, key_tolerance)
+    boxes = _frame_boxes(mask, min_gap)
+    rolling_cells = _load_rolling(rolling_path)
+    if len(boxes) != len(rolling_cells):
+        raise ValueError(
+            f"Rip produced {len(boxes)} frames, but --rolling has "
+            f"{len(rolling_cells)} 128x128 cells"
         )
-        for index, box in enumerate(boxes)
+    fits = [_fit_circle(mask, box) for box in boxes]
+
+    shapes = [
+        _shape(mask, box, scale, centre)
+        for box, (centre, _) in zip(boxes, fits)
     ]
-    frames, palette = _quantize_frames(
-        downscaled, colors, background, key_tolerance
-    )
-    strip = _place_frames(frames)
-    preview_image = _make_preview(strip, rolling)
+    placed = _place_crescents(shapes, rolling_cells)
+    strip = _make_strip(placed)
 
     out = Path(out)
-    preview = Path(preview)
     out.parent.mkdir(parents=True, exist_ok=True)
-    preview.parent.mkdir(parents=True, exist_ok=True)
     strip.save(out)
-    preview_image.save(preview)
+
+    if preview is not None:
+        preview = Path(preview)
+        preview.parent.mkdir(parents=True, exist_ok=True)
+        _make_preview(placed, rolling_cells, Path(rolling_path)).save(preview)
 
     if report:
-        _print_report(background, boxes, frames, palette)
-    return {
-        "background": background,
-        "boxes": boxes,
-        "sizes": [frame.size for frame in frames],
-        "palette": palette,
-    }
+        _print_report(background, boxes, fits, placed, strip)
 
 
-def _positive_int(value):
-    number = int(value)
+def _positive_float(value):
+    number = float(value)
     if number <= 0:
         raise argparse.ArgumentTypeError("must be greater than zero")
     return number
@@ -406,36 +402,27 @@ def _nonnegative_int(value):
     return number
 
 
-def _positive_float(value):
-    number = float(value)
-    if number <= 0:
-        raise argparse.ArgumentTypeError("must be greater than zero")
-    return number
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("sheet", type=Path)
+    parser.add_argument("rip", type=Path)
+    parser.add_argument("--rolling", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--preview", type=Path, required=True)
-    parser.add_argument("--rolling", type=Path)
-    parser.add_argument("--scale", type=_positive_int, default=4)
-    parser.add_argument("--colors", type=_positive_int, default=8)
-    parser.add_argument("--key-tolerance", type=_positive_float, default=60.0)
-    parser.add_argument("--min-gap", type=_nonnegative_int, default=6)
+    parser.add_argument("--preview", type=Path)
+    parser.add_argument("--scale", type=_positive_float, default=1.4)
+    parser.add_argument("--key-tolerance", type=_positive_float, default=80.0)
+    parser.add_argument("--min-gap", type=_nonnegative_int, default=3)
     parser.add_argument("--report", action="store_true")
     args = parser.parse_args()
 
     try:
         extract_crescent(
-            args.sheet,
+            args.rip,
+            args.rolling,
             args.out,
-            args.preview,
+            preview=args.preview,
             scale=args.scale,
-            colors=args.colors,
             key_tolerance=args.key_tolerance,
             min_gap=args.min_gap,
-            rolling=args.rolling,
             report=args.report,
         )
     except (OSError, ValueError) as error:
