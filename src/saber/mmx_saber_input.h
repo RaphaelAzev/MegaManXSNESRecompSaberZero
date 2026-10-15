@@ -70,6 +70,8 @@ typedef struct MmxSaberPadSaber {
   bool wave_active;
   bool finisher_active;
   bool release_pending;
+  /* Current attack tick; derived view, not serialized state. */
+  uint8_t tick;
 } MmxSaberPadSaber;
 
 typedef struct MmxSaberPadZero {
@@ -89,6 +91,9 @@ typedef struct MmxSaberPadOut {
   bool saber_pressed;
   bool saber_held;
 } MmxSaberPadOut;
+
+void MmxSaberApplyUppercutJump(MmxSaberNativePad *native,
+                               MmxSaberPadSaber saber, bool y_held);
 
 MmxSaberPadOut MmxSaberComputePad(MmxSaberPhysicalPad phys,
                                   MmxSaberNativePad native_mapped,

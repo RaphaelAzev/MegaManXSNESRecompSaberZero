@@ -304,6 +304,7 @@ static void pre_player(uint8_t *ram) {
    * only then compute/write the native pad.  saber_pressed is phase-independent,
    * so the pad written for this frame already reflects a newly started slash. */
   out = MmxSaberComputePad(physical, read_native_pad(ram), saber, zero);
+  MmxSaberApplyUppercutJump(&out.native, saber, pad.y_held);
   if (finisher_claimed) out.saber_pressed = false;
   if (zero.hurt)
     MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_HURT);
@@ -313,6 +314,7 @@ static void pre_player(uint8_t *ram) {
       out.saber_pressed, zero.grounded, native_wall_clinging(ram),
       native_dash_active(ram),
       pad.up_held,
+      pad.y_held,
       (out.native.action_pressed & MMX_SABER_NATIVE_JUMP_BIT) != 0,
       !zero.hurt && !zero.dead_or_reset, ram, ram[0x0c11],
       native_horizontal_direction(ram));
@@ -326,6 +328,7 @@ static void pre_player(uint8_t *ram) {
       saber.phase != SABER_PHASE_IDLE)
     saber.phase = SABER_PHASE_STARTUP;
   out = MmxSaberComputePad(physical, read_native_pad(ram), saber, zero);
+  MmxSaberApplyUppercutJump(&out.native, saber, pad.y_held);
   publish_ground_swing(ram, saber);
 
   /* The computed view is the sole input write for this frame. There is no

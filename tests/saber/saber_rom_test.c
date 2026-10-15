@@ -2387,7 +2387,7 @@ static void saber_attack_selection_case(
   for (unsigned i = 0; i < defeated && i < 8; ++i)
     g_ram[0x1f88 + 2 * i] = 0x40;
   MmxSaberAttackStepWithWallAndDash(
-      true, grounded, wall_clinging, dash_active, up_held, false, true,
+      true, grounded, wall_clinging, dash_active, up_held, true, false, true,
       g_ram, g_ram[0x0c11], 0);
   snapshot = MmxSaberAttackSnapshotGet();
   check(snapshot.kind == expected && snapshot.index == 0 &&
@@ -6578,12 +6578,12 @@ static unsigned priority_air_attack_preserving_history(void) {
   MmxSaberAttackSnapshot snapshot;
   MmxSaberAttackResetRam(g_ram);
   MmxSaberAttackStepWithWallAndDash(true, false, false, false, false, false,
-                                    true, g_ram, g_ram[0x0c11], 0);
+                                    false, true, g_ram, g_ram[0x0c11], 0);
   MmxSaberAttackRuntimeTick(g_ram);
   snapshot = MmxSaberAttackSnapshotGet();
   for (unsigned i = 0; i < 32 && snapshot.phase != SABER_PHASE_ACTIVE; ++i) {
     MmxSaberAttackStepWithWallAndDash(false, false, false, false, false, false,
-                                      true, g_ram, g_ram[0x0c11], 0);
+                                      false, true, g_ram, g_ram[0x0c11], 0);
     MmxSaberAttackRuntimeTick(g_ram);
     snapshot = MmxSaberAttackSnapshotGet();
   }
@@ -7017,13 +7017,13 @@ static unsigned priority_direct_context(MmxSaberPadKind expected_kind,
   MmxSaberAttackSnapshot snapshot;
   MmxSaberFrameReset();
   MmxSaberAttackStepWithWallAndDash(
-      true, grounded, wall, dash, false, false, true, g_ram,
+      true, grounded, wall, dash, false, false, false, true, g_ram,
       g_ram[0x0c11], 0);
   MmxSaberAttackRuntimeTick(g_ram);
   snapshot = MmxSaberAttackSnapshotGet();
   for (unsigned i = 0; i < 32 && snapshot.phase != SABER_PHASE_ACTIVE; ++i) {
     MmxSaberAttackStepWithWallAndDash(
-        false, grounded, wall, dash, false, false, true, g_ram,
+        false, grounded, wall, dash, false, false, false, true, g_ram,
         g_ram[0x0c11], 0);
     MmxSaberAttackRuntimeTick(g_ram);
     snapshot = MmxSaberAttackSnapshotGet();

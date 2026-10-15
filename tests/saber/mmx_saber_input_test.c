@@ -515,6 +515,88 @@ static void check_startup_edges(void) {
   }
 }
 
+static void check_uppercut_jump_mapping(void) {
+  MmxSaberNativePad mapped = mapped_pad();
+  const MmxSaberPadZero zero = {false, false, false, true, false};
+  MmxSaberPadSaber uppercut = {
+      SABER_PHASE_STARTUP, SABER_KIND_UPPERCUT, false, false, false, 0};
+  MmxSaberPadOut out;
+
+  mapped.action_held = (uint8_t)(mapped.action_held &
+                                 (uint8_t)~MMX_SABER_NATIVE_JUMP_BIT);
+  mapped.action_pressed = (uint8_t)(mapped.action_pressed &
+                                    (uint8_t)~MMX_SABER_NATIVE_JUMP_BIT);
+  out = MmxSaberComputePad(physical_pad(false, false, true, false), mapped,
+                           uppercut, zero);
+  if ((out.native.action_held & MMX_SABER_NATIVE_JUMP_BIT) != 0 ||
+      (out.native.action_pressed & MMX_SABER_NATIVE_JUMP_BIT) != 0) {
+    printf("FAIL: ComputePad alone injects uppercut jump\n");
+    ++failures;
+  } else {
+    printf("ok: ComputePad alone leaves uppercut jump clear\n");
+  }
+
+  MmxSaberApplyUppercutJump(&out.native, uppercut, true);
+  if ((out.native.action_held & MMX_SABER_NATIVE_JUMP_BIT) == 0 ||
+      (out.native.action_pressed & MMX_SABER_NATIVE_JUMP_BIT) == 0) {
+    printf("FAIL: uppercut start injects native jump held+pressed\n");
+    ++failures;
+  } else {
+    printf("ok: uppercut start injects native jump held+pressed\n");
+  }
+
+  uppercut.tick = 1;
+  out = MmxSaberComputePad(physical_pad(false, true, true, true), mapped,
+                           uppercut, zero);
+  MmxSaberApplyUppercutJump(&out.native, uppercut, true);
+  if ((out.native.action_held & MMX_SABER_NATIVE_JUMP_BIT) == 0 ||
+      (out.native.action_pressed & MMX_SABER_NATIVE_JUMP_BIT) != 0) {
+    printf("FAIL: uppercut held Y injects only native jump held\n");
+    ++failures;
+  } else {
+    printf("ok: uppercut held Y injects only native jump held\n");
+  }
+
+  out = MmxSaberComputePad(physical_pad(false, true, false, true), mapped,
+                           uppercut, zero);
+  MmxSaberApplyUppercutJump(&out.native, uppercut, false);
+  if ((out.native.action_held & MMX_SABER_NATIVE_JUMP_BIT) != 0 ||
+      (out.native.action_pressed & MMX_SABER_NATIVE_JUMP_BIT) != 0) {
+    printf("FAIL: uppercut release injects no native jump bit\n");
+    ++failures;
+  } else {
+    printf("ok: uppercut release injects no native jump bit\n");
+  }
+
+  mapped.action_held =
+      (uint8_t)(mapped.action_held | MMX_SABER_NATIVE_JUMP_BIT);
+  out = MmxSaberComputePad(physical_pad(false, true, false, true), mapped,
+                           uppercut, zero);
+  MmxSaberApplyUppercutJump(&out.native, uppercut, false);
+  if ((out.native.action_held & MMX_SABER_NATIVE_JUMP_BIT) == 0) {
+    printf("FAIL: physical B held survives uppercut Y release\n");
+    ++failures;
+  } else {
+    printf("ok: physical B held survives uppercut Y release\n");
+  }
+
+  mapped.action_held = (uint8_t)(mapped.action_held | 0x03 |
+                                 MMX_SABER_NATIVE_JUMP_BIT);
+  mapped.action_pressed = (uint8_t)(mapped.action_pressed | 0x03 |
+                                    MMX_SABER_NATIVE_JUMP_BIT);
+  out = MmxSaberComputePad(physical_pad(false, false, false, false), mapped,
+                           (MmxSaberPadSaber){SABER_PHASE_IDLE, SABER_KIND_NONE,
+                                              false, false, false, 0},
+                           zero);
+  if ((out.native.action_held & MMX_SABER_NATIVE_JUMP_BIT) == 0 ||
+      (out.native.action_pressed & MMX_SABER_NATIVE_JUMP_BIT) == 0) {
+    printf("FAIL: normal B jump passes through idle Saber pad\n");
+    ++failures;
+  } else {
+    printf("ok: normal B jump passes through idle Saber pad\n");
+  }
+}
+
 int main(void) {
   check_frame_pad();
   check_defeated_mavericks();
@@ -523,6 +605,7 @@ int main(void) {
   check_exhaustive_properties();
   check_cr1_sequence();
   check_startup_edges();
+  check_uppercut_jump_mapping();
   if (failures != 0) {
     printf("FAIL: mmx_saber_input (%d failures)\n", failures);
     return 1;

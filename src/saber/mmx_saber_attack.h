@@ -70,7 +70,8 @@ typedef enum MmxSaberAttackExitReason {
   MMX_SABER_ATTACK_EXIT_DEATH,
   MMX_SABER_ATTACK_EXIT_CONTEXT,
   MMX_SABER_ATTACK_EXIT_PROJECTILE,
-  MMX_SABER_ATTACK_EXIT_LANDING
+  MMX_SABER_ATTACK_EXIT_LANDING,
+  MMX_SABER_ATTACK_EXIT_RELEASE
 } MmxSaberAttackExitReason;
 
 const MmxSaberAttack *MmxSaberAttackRecord(MmxSaberPadKind kind,
@@ -86,6 +87,7 @@ void MmxSaberAttackResetHostState(void);
 void MmxSaberAttackResetRam(uint8_t *ram);
 void MmxSaberAttackResetCueCount(void);
 void MmxSaberAttackExit(uint8_t *ram, MmxSaberAttackExitReason reason);
+MmxSaberAttackExitReason MmxSaberAttackLastExitReason(void);
 
 /* Advance one pre-player frame.  A press is the physical Y edge; it is not
  * derived from the current attack phase, so a held Y cannot create another
@@ -104,11 +106,13 @@ void MmxSaberAttackStepWithWall(bool saber_pressed, bool grounded,
 /* Full native-context form.  dash_active is the old native action gate
  * ($0BAA == $14); jump_pressed is retained for the frame-bridge ABI but
  * cancellation is decided from the post-native observation below.
- * up_held selects the unlocked special attack; ram supplies the unlock count.
- * Selection priority is wall > rolling/air > uppercut > dash > ground. */
+ * up_held selects the unlocked special attack; y_held owns uppercut release;
+ * ram supplies the unlock count. Selection priority is wall > rolling/air >
+ * uppercut > dash > ground. */
 void MmxSaberAttackStepWithWallAndDash(bool saber_pressed, bool grounded,
                                        bool wall_clinging, bool dash_active,
-                                       bool up_held, bool jump_pressed,
+                                       bool up_held, bool y_held,
+                                       bool jump_pressed,
                                        bool playable, uint8_t *ram,
                                        uint8_t native_facing,
                                        uint8_t horizontal_direction);

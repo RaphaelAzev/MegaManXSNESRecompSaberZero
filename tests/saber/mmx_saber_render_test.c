@@ -921,6 +921,79 @@ static void wave_sequence_checks(const MmxSaberWave *wave) {
         "wave resolver carries the slot facing into the mirror flag");
 }
 
+static void uppercut_attack_checks(void) {
+  uint8_t ram[0x20000] = {0};
+  MmxSaberAttackSnapshot snapshot;
+  const MmxSaberAttack *attack =
+      MmxSaberAttackRecord(SABER_KIND_UPPERCUT, 0);
+
+  ram[0x1f88] = 0x40;
+  ram[0x1f8a] = 0x40;
+  ram[0x0bd3] = 4;
+  check(attack && attack->visual_animation == 8 &&
+            attack->startup_ticks == 4 && attack->active_ticks == 26 &&
+            attack->recovery_ticks == 0 && attack->total_ticks == 30,
+        "uppercut record keeps animation 8 and startup/active-only timing");
+
+  MmxSaberAttackResetRam(ram);
+  MmxSaberAttackStepWithWallAndDash(
+      true, true, false, false, true, true, false, true, ram, 0, 0);
+  for (unsigned i = 0; i < 14; ++i)
+    MmxSaberAttackStepWithWallAndDash(
+        false, true, false, false, true, true, false, true, ram, 0, 0);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_UPPERCUT && snapshot.tick == 14 &&
+            snapshot.phase == SABER_PHASE_ACTIVE && snapshot.anim_step == 6,
+        "uppercut holds animation 8 final frame after seven two-tick frames");
+
+  MmxSaberAttackResetRam(ram);
+  MmxSaberAttackStepWithWallAndDash(
+      true, true, false, false, true, true, false, true, ram, 0, 0);
+  MmxSaberAttackStepWithWallAndDash(
+      false, true, false, false, true, false, false, true, ram, 0, 0);
+  check(MmxSaberAttackSnapshotGet().phase == SABER_PHASE_IDLE &&
+            MmxSaberAttackLastExitReason() == MMX_SABER_ATTACK_EXIT_RELEASE,
+        "uppercut Y release exits with MMX_SABER_ATTACK_EXIT_RELEASE");
+
+  MmxSaberAttackResetRam(ram);
+  MmxSaberAttackStepWithWallAndDash(
+      true, true, false, false, true, true, false, true, ram, 0, 0);
+  MmxSaberAttackObservePreNative(ram);
+  ram[0x0bd3] = 0;
+  ram[0x0baa] = 0x06;
+  put_u16(ram, 0x0bc4, 0x0100);
+  MmxSaberAttackPlayerEnd(ram);
+  check(MmxSaberAttackSnapshotGet().kind == SABER_KIND_UPPERCUT &&
+            MmxSaberAttackSnapshotGet().phase != SABER_PHASE_IDLE,
+        "uppercut own grounded-to-air jump does not context-cancel Saber");
+
+  MmxSaberAttackObservePreNative(ram);
+  ram[0x0baa] = 0x06;
+  put_u16(ram, 0x0bc4, 0xffff);
+  MmxSaberAttackPlayerEnd(ram);
+  check(MmxSaberAttackSnapshotGet().phase == SABER_PHASE_IDLE &&
+            MmxSaberAttackLastExitReason() == MMX_SABER_ATTACK_EXIT_NATURAL,
+        "uppercut exits naturally on native signed downward VY");
+
+  ram[0x0bd3] = 4;
+  ram[0x0baa] = 0;
+  MmxSaberAttackResetRam(ram);
+  MmxSaberAttackStepWithWallAndDash(
+      true, true, false, false, true, true, false, true, ram, 0, 0);
+  MmxSaberAttackObservePreNative(ram);
+  ram[0x0baa] = 0;
+  MmxSaberAttackPlayerEnd(ram);
+
+  MmxSaberAttackStepWithWallAndDash(
+      false, true, false, false, true, true, false, true, ram, 0, 0);
+  MmxSaberAttackObservePreNative(ram);
+  ram[0x0baa] = 0;
+  MmxSaberAttackPlayerEnd(ram);
+  check(MmxSaberAttackSnapshotGet().phase == SABER_PHASE_IDLE &&
+            MmxSaberAttackLastExitReason() == MMX_SABER_ATTACK_EXIT_CONTEXT,
+        "uppercut refused native action 6 exits with context after two frames");
+}
+
 int main(void) {
   char path[4096];
   char ride_path[4096];
@@ -999,6 +1072,7 @@ int main(void) {
     for (unsigned tuple = 0; tuple < 4; ++tuple)
       check_tuple(assets, animation, &kOldTuples[animation][tuple]);
   ride_matrix_checks(ride);
+  uppercut_attack_checks();
 
   MmxSaberAttackReset();
   MmxSaberAttackStep(true, true, true, 0, 0);

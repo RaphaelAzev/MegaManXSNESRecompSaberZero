@@ -191,8 +191,8 @@ static const MmxSaberAttack kSaberAttacks[] = {
         .visual_animation = 8,
         .facing_xor = 1,
         .startup_ticks = 4,
-        .active_ticks = 8,
-        .recovery_ticks = 18,
+        .active_ticks = 26,
+        .recovery_ticks = 0,
         .total_ticks = 30,
         .chain_open_tick = MMX_SABER_NO_WINDOW,
         .chain_close_tick = MMX_SABER_NO_WINDOW,
@@ -254,6 +254,9 @@ static MmxSaberPadKind native_attack_kind;
 static MmxSaberPadPhase native_attack_phase;
 static uint8_t native_action;
 static bool native_grounded;
+/* Diagnostic only.  Gameplay state stays in MmxSaberAttackState/SABR. */
+static MmxSaberAttackExitReason last_exit_reason =
+    MMX_SABER_ATTACK_EXIT_CONTEXT;
 
 typedef struct MmxSaberCollisionWindow {
   uint8_t *rom;
@@ -582,6 +585,8 @@ static uint8_t animation_step_for_tick(uint8_t animation, uint8_t tick) {
    * rendering exists. */
   if (animation == 3 && tick >= 30)
     return (uint8_t)(15 + (tick - 30) / 3);
+  if (animation == 8 && tick >= 14)
+    return 6;
   return (uint8_t)(tick / 2);
 }
 
@@ -833,6 +838,7 @@ static void reset_attack_state(uint8_t *target) {
   memset(&state, 0, sizeof(state));
   state.phase = SABER_PHASE_IDLE;
   state.cue = MMX_SABER_SFX_ATTACK_COUNT;
+  last_exit_reason = MMX_SABER_ATTACK_EXIT_CONTEXT;
   ram_reset_pending = target == NULL;
   if (target) {
     state.previous_grounded = player_grounded(target);
@@ -852,11 +858,15 @@ void MmxSaberAttackResetCueCount(void) {
 
 void MmxSaberAttackExit(uint8_t *ram, MmxSaberAttackExitReason reason) {
   uint8_t *target = ram ? ram : runtime_ram;
-  (void)reason;
+  last_exit_reason = reason;
   if (target) runtime_ram = target;
   retire_all_tagged(target);
   clear_attack();
   clear_native_observation();
+}
+
+MmxSaberAttackExitReason MmxSaberAttackLastExitReason(void) {
+  return last_exit_reason;
 }
 
 static void start_attack(const MmxSaberAttack *attack, uint8_t facing) {
@@ -882,7 +892,7 @@ void MmxSaberAttackStep(bool saber_pressed, bool grounded, bool playable,
                         uint8_t native_facing,
                         uint8_t horizontal_direction) {
   MmxSaberAttackStepWithWallAndDash(saber_pressed, grounded, false, false,
-                                    false, false, playable, runtime_ram,
+                                    false, false, false, playable, runtime_ram,
                                     native_facing,
                                     horizontal_direction);
 }
@@ -892,14 +902,16 @@ void MmxSaberAttackStepWithWall(bool saber_pressed, bool grounded,
                                 uint8_t native_facing,
                                 uint8_t horizontal_direction) {
   MmxSaberAttackStepWithWallAndDash(saber_pressed, grounded, wall_clinging,
-                                    false, false, false, playable, runtime_ram,
+                                    false, false, false, false, playable,
+                                    runtime_ram,
                                     native_facing,
                                     horizontal_direction);
 }
 
 void MmxSaberAttackStepWithWallAndDash(bool saber_pressed, bool grounded,
                                        bool wall_clinging, bool dash_active,
-                                       bool up_held, bool jump_pressed,
+                                       bool up_held, bool y_held,
+                                       bool jump_pressed,
                                        bool playable, uint8_t *ram,
                                        uint8_t native_facing,
                                        uint8_t horizontal_direction) {
@@ -932,6 +944,11 @@ void MmxSaberAttackStepWithWallAndDash(bool saber_pressed, bool grounded,
   attack = state_attack();
   if (!attack || !attack->total_ticks) {
     clear_attack();
+    return;
+  }
+
+  if (attack->kind == SABER_KIND_UPPERCUT && !y_held) {
+    MmxSaberAttackExit(runtime_ram, MMX_SABER_ATTACK_EXIT_RELEASE);
     return;
   }
 
@@ -1151,6 +1168,7 @@ static bool native_movement_accepted(const uint8_t *ram) {
 
     case SABER_KIND_AIR:
     case SABER_KIND_ROLLING:
+    case SABER_KIND_UPPERCUT:
       /* X1 has no accepted ordinary midair jump.  Following the old air
        * context rule, entering wall cling ($12) retires the air owner, while
        * a wall jump's resulting airborne $10 remains playable and does not
@@ -1180,23 +1198,35 @@ void MmxSaberAttackPlayerEnd(uint8_t *ram) {
   bool grounded;
   bool landed;
   bool movement_accepted;
+  bool uppercut_jump_refused;
   const MmxSaberAttack *attack;
 
   if (ram) runtime_ram = ram;
   if (!ram) return;
 
   movement_accepted = native_movement_accepted(ram);
+  uppercut_jump_refused = native_observation_valid &&
+      native_attack_kind == SABER_KIND_UPPERCUT && native_grounded &&
+      state.phase != SABER_PHASE_IDLE && state.tick == 1 &&
+      ram[0x0baa] != 0x06;
   clear_native_observation();
   grounded = player_grounded(ram);
   landed = state.previous_grounded_valid && !state.previous_grounded && grounded;
   state.previous_grounded = grounded;
   state.previous_grounded_valid = true;
+  attack = state_attack();
 
-  /* Landing ends AIR and ROLLING owners immediately.  The central exit
+  if (uppercut_jump_refused) {
+    MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
+    return;
+  }
+
+  /* Landing ends AIR, ROLLING, and UPPERCUT owners immediately.  The central exit
    * retires the tagged slot, clears the hit mask, and leaves native
    * movement/pose alone. */
   if (landed && (state.kind == SABER_KIND_AIR ||
-                 state.kind == SABER_KIND_ROLLING) &&
+                 state.kind == SABER_KIND_ROLLING ||
+                 state.kind == SABER_KIND_UPPERCUT) &&
       state.phase != SABER_PHASE_IDLE) {
     MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_LANDING);
     return;
@@ -1209,7 +1239,13 @@ void MmxSaberAttackPlayerEnd(uint8_t *ram) {
     return;
   }
 
-  attack = state_attack();
+  if (state.phase != SABER_PHASE_IDLE && attack &&
+      attack->kind == SABER_KIND_UPPERCUT && !grounded &&
+      (int16_t)word(ram + 0x0bc4) < 0) {
+    MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_NATURAL);
+    return;
+  }
+
   if (state.phase != SABER_PHASE_IDLE && attack &&
       attack->kind == SABER_KIND_WALL) {
     /* Old src/mmx_saber.c ended a wall owner at the central post-native
@@ -1237,7 +1273,8 @@ MmxSaberPadSaber MmxSaberAttackPadState(bool release_pending) {
   return (MmxSaberPadSaber){state.phase, state.kind,
                             false,
                             MmxZeroGetState().slash != 0,
-                            release_pending};
+                            release_pending,
+                            state.tick};
 }
 
 MmxSaberAttackSnapshot MmxSaberAttackSnapshotGet(void) {

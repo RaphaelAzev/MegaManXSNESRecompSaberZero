@@ -36,6 +36,18 @@ static bool slashing(const MmxSaberPadSaber *saber) {
       saber->finisher_active;
 }
 
+void MmxSaberApplyUppercutJump(MmxSaberNativePad *native,
+                               MmxSaberPadSaber saber, bool y_held) {
+  if (saber.kind != SABER_KIND_UPPERCUT ||
+      saber.phase == SABER_PHASE_IDLE || !y_held)
+    return;
+  native->action_held =
+      (uint8_t)(native->action_held | MMX_SABER_NATIVE_JUMP_BIT);
+  if (saber.tick == 0)
+    native->action_pressed =
+        (uint8_t)(native->action_pressed | MMX_SABER_NATIVE_JUMP_BIT);
+}
+
 static void apply_motion_masks(MmxSaberNativePad *native,
                                MmxSaberPadSaber saber) {
   if (attack_locked(saber.phase) &&
