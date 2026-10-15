@@ -312,8 +312,9 @@ static void pre_player(uint8_t *ram) {
   MmxSaberAttackStepWithWallAndDash(
       out.saber_pressed, zero.grounded, native_wall_clinging(ram),
       native_dash_active(ram),
+      pad.up_held,
       (out.native.action_pressed & MMX_SABER_NATIVE_JUMP_BIT) != 0,
-      !zero.hurt && !zero.dead_or_reset, ram[0x0c11],
+      !zero.hurt && !zero.dead_or_reset, ram, ram[0x0c11],
       native_horizontal_direction(ram));
   MmxSaberAttackRuntimeTick(ram);
   saber = MmxSaberAttackPadState(release_pending);

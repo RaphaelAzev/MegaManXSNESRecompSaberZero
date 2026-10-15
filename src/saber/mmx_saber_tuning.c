@@ -15,9 +15,9 @@ typedef struct MmxSaberTuningOption {
 } MmxSaberTuningOption;
 
 static MmxSaberTuning g_tuning = {
-  {3, 3, 8, 16, 3, 3, 3, 6},
-  {1, 1, 2, 6, 1, 1, 1, 4},
-  {2, 3, 4, 1, 1, 5, 1, 1, 2, 3, 4, 5},
+  {3, 3, 8, 16, 3, 3, 3, 6, 8, 8},
+  {1, 1, 2, 6, 1, 1, 1, 4, 2, 2},
+  {2, 3, 4, 1, 1, 5, 1, 1, 2, 3, 4, 5, 6, 7},
   70,
   27,
   50,

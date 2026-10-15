@@ -29,7 +29,8 @@ typedef struct MmxSaberBoundsSegment {
 } MmxSaberBoundsSegment;
 
 /* This is the ported donor table.  The records are ordered by donor
- * animation/attack id: ground 1/2/3, air, wall, dash, and SaberLand. */
+ * animation/attack id: ground 1/2/3, air, wall, dash, SaberLand, uppercut,
+ * and rolling. */
 typedef struct MmxSaberAttack {
   MmxSaberPadKind kind;
   uint8_t index;
@@ -103,10 +104,12 @@ void MmxSaberAttackStepWithWall(bool saber_pressed, bool grounded,
 /* Full native-context form.  dash_active is the old native action gate
  * ($0BAA == $14); jump_pressed is retained for the frame-bridge ABI but
  * cancellation is decided from the post-native observation below.
- * Priority is wall > air > dash > ground. */
+ * up_held selects the unlocked special attack; ram supplies the unlock count.
+ * Selection priority is wall > rolling/air > uppercut > dash > ground. */
 void MmxSaberAttackStepWithWallAndDash(bool saber_pressed, bool grounded,
                                        bool wall_clinging, bool dash_active,
-                                       bool jump_pressed, bool playable,
+                                       bool up_held, bool jump_pressed,
+                                       bool playable, uint8_t *ram,
                                        uint8_t native_facing,
                                        uint8_t horizontal_direction);
 

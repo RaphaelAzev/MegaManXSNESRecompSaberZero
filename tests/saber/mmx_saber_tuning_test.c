@@ -217,6 +217,9 @@ static void check_defaults(void) {
             tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_DASH] == 3 &&
             tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_WAVE] == 6,
         "normal damage defaults match the manifest");
+  check(tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_UPPERCUT] == 8 &&
+            tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_ROLLING] == 8,
+        "special normal damage defaults stay at 8 without manifest options");
   check(tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_SLASH1] == 1 &&
             tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_SLASH2] == 1 &&
             tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_SLASH3] == 2 &&
@@ -226,6 +229,9 @@ static void check_defaults(void) {
             tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_X3_FINISHER] == 6 &&
             tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_WAVE] == 4,
         "boss damage defaults match operator decision D-OP-60");
+  check(tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_UPPERCUT] == 2 &&
+            tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_ROLLING] == 2,
+        "special boss damage defaults stay at 2 without manifest options");
   check(tuning->priority[MMX_SABER_TUNING_PRIORITY_SLASH1] == 2 &&
             tuning->priority[MMX_SABER_TUNING_PRIORITY_SLASH2] == 3 &&
             tuning->priority[MMX_SABER_TUNING_PRIORITY_SLASH3] == 4 &&
@@ -239,6 +245,9 @@ static void check_defaults(void) {
             tuning->priority[MMX_SABER_TUNING_PRIORITY_X3_FINISHER] == 4 &&
             tuning->priority[MMX_SABER_TUNING_PRIORITY_WAVE] == 5,
         "priority defaults match the manifest");
+  check(tuning->priority[MMX_SABER_TUNING_PRIORITY_UPPERCUT] == 6 &&
+            tuning->priority[MMX_SABER_TUNING_PRIORITY_ROLLING] == 7,
+        "special priority defaults stay at 6 and 7 without manifest options");
   check(MmxSaberTuningPriorityWindowFrames() == 70 &&
             MmxSaberTuningFinisherWindowFrames() == 27 &&
             MmxSaberTuningSaberSwingVolume() == 50,
@@ -276,7 +285,7 @@ static void check_each_id_maps_to_field(void) {
   static const int expected_boss[] = {21, 22, 23, 27, 24, 25, 26, 28};
 
   MmxSaberTuningLoad(fake_reader, &source);
-  for (unsigned i = 0; i < MMX_SABER_TUNING_DAMAGE_COUNT; ++i) {
+  for (unsigned i = 0; i <= MMX_SABER_TUNING_DAMAGE_WAVE; ++i) {
     check(MmxSaberTuningNormalDamage((MmxSaberTuningDamageKind)i) ==
               11 + (int)i,
           "normal damage option id maps to the matching field");
@@ -286,7 +295,7 @@ static void check_each_id_maps_to_field(void) {
   }
   static const int expected_priority[] = {1, 2, 3, 4, 5, 6,
                                           7, 8, 9, 1, 2, 3};
-  for (unsigned i = 0; i < MMX_SABER_TUNING_PRIORITY_COUNT; ++i)
+  for (unsigned i = 0; i <= MMX_SABER_TUNING_PRIORITY_WAVE; ++i)
     check(MmxSaberTuningPriority((MmxSaberTuningPriorityKind)i) ==
               expected_priority[i],
           "priority option id maps to the matching field");

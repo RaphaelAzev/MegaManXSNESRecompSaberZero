@@ -277,6 +277,10 @@ int MmxSaberPriorityTuned(MmxSaberPriorityClass priority_class) {
       kind = MMX_SABER_TUNING_PRIORITY_X3_FINISHER; break;
     case MMX_SABER_PRIORITY_CLASS_WAVE:
       kind = MMX_SABER_TUNING_PRIORITY_WAVE; break;
+    case MMX_SABER_PRIORITY_CLASS_UPPERCUT:
+      kind = MMX_SABER_TUNING_PRIORITY_UPPERCUT; break;
+    case MMX_SABER_PRIORITY_CLASS_ROLLING:
+      kind = MMX_SABER_TUNING_PRIORITY_ROLLING; break;
     default:
       return 0;
   }
@@ -293,6 +297,8 @@ static MmxSaberPriorityClass slash_class(void) {
     case SABER_KIND_AIR: return MMX_SABER_PRIORITY_CLASS_AIR;
     case SABER_KIND_WALL: return MMX_SABER_PRIORITY_CLASS_WALL;
     case SABER_KIND_DASH: return MMX_SABER_PRIORITY_CLASS_DASH;
+    case SABER_KIND_UPPERCUT: return MMX_SABER_PRIORITY_CLASS_UPPERCUT;
+    case SABER_KIND_ROLLING: return MMX_SABER_PRIORITY_CLASS_ROLLING;
     default: return MMX_SABER_PRIORITY_CLASS_NONE;
   }
 }

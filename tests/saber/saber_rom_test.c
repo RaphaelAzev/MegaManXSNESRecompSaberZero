@@ -2376,11 +2376,75 @@ static bool saber_lifecycle_idle(void) {
       MmxSaberAttackHitSlots() == 0;
 }
 
+static void saber_attack_selection_case(
+    unsigned defeated, bool grounded, bool wall_clinging, bool dash_active,
+    bool up_held, MmxSaberPadKind expected, const char *label) {
+  MmxSaberAttackSnapshot snapshot;
+
+  MmxSaberAttackResetRam(g_ram);
+  memset(g_ram + 0x1f88, 0, 16);
+  for (unsigned i = 0; i < defeated && i < 8; ++i)
+    g_ram[0x1f88 + 2 * i] = 0x40;
+  MmxSaberAttackStepWithWallAndDash(
+      true, grounded, wall_clinging, dash_active, up_held, false, true,
+      g_ram, g_ram[0x0c11], 0);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == expected && snapshot.index == 0 &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        label);
+  MmxSaberAttackExit(g_ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
+}
+
+static void saber_attack_selection_checks(void) {
+  static const unsigned locked_counts[] = {0, 1};
+
+  for (unsigned i = 0; i < sizeof(locked_counts) / sizeof(locked_counts[0]);
+       ++i) {
+    const unsigned count = locked_counts[i];
+    saber_attack_selection_case(
+        count, true, false, false, true, SABER_KIND_GROUND1,
+        "locked Up+slash ground selects ground-1");
+    saber_attack_selection_case(
+        count, false, false, false, true, SABER_KIND_AIR,
+        "locked Up+slash air selects air slash");
+  }
+
+  saber_attack_selection_case(
+      2, true, false, false, true, SABER_KIND_UPPERCUT,
+      "two defeated Mavericks unlock uppercut on ground");
+  saber_attack_selection_case(
+      2, true, false, true, true, SABER_KIND_UPPERCUT,
+      "two defeated Mavericks keep uppercut priority over dash");
+  saber_attack_selection_case(
+      2, false, false, false, true, SABER_KIND_AIR,
+      "two defeated Mavericks keep air slash below rolling threshold");
+  saber_attack_selection_case(
+      3, false, false, false, true, SABER_KIND_ROLLING,
+      "three defeated Mavericks unlock rolling slash in air");
+  saber_attack_selection_case(
+      8, true, true, true, true, SABER_KIND_WALL,
+      "wall cling always selects wall slash");
+
+  for (unsigned count = 0; count <= 8; ++count) {
+    saber_attack_selection_case(
+        count, true, false, false, false, SABER_KIND_GROUND1,
+        "without Up ground slash selection stays ground-1");
+    saber_attack_selection_case(
+        count, true, false, true, false, SABER_KIND_DASH,
+        "without Up dash selection stays dash slash");
+    saber_attack_selection_case(
+        count, false, false, false, false, SABER_KIND_AIR,
+        "without Up air selection stays air slash");
+  }
+  puts("ok: saber-attack-selection");
+}
+
 static void saber_ground_lifecycle_checks(const char *fixture) {
   MmxSaberAttackSnapshot snapshot;
   unsigned cues_before;
   unsigned charge_before;
 
+  saber_attack_selection_checks();
   load_fixture(fixture);
   MmxSaberFrameReset();
   frame(SNES_PAD_Y);
@@ -6512,13 +6576,13 @@ static unsigned priority_ground_attack_preserving_history(unsigned target_index)
 static unsigned priority_air_attack_preserving_history(void) {
   MmxSaberAttackSnapshot snapshot;
   MmxSaberAttackResetRam(g_ram);
-  MmxSaberAttackStepWithWallAndDash(true, false, false, false, false, true,
-                                    g_ram[0x0c11], 0);
+  MmxSaberAttackStepWithWallAndDash(true, false, false, false, false, false,
+                                    true, g_ram, g_ram[0x0c11], 0);
   MmxSaberAttackRuntimeTick(g_ram);
   snapshot = MmxSaberAttackSnapshotGet();
   for (unsigned i = 0; i < 32 && snapshot.phase != SABER_PHASE_ACTIVE; ++i) {
-    MmxSaberAttackStepWithWallAndDash(false, false, false, false, false, true,
-                                      g_ram[0x0c11], 0);
+    MmxSaberAttackStepWithWallAndDash(false, false, false, false, false, false,
+                                      true, g_ram, g_ram[0x0c11], 0);
     MmxSaberAttackRuntimeTick(g_ram);
     snapshot = MmxSaberAttackSnapshotGet();
   }
@@ -6952,12 +7016,14 @@ static unsigned priority_direct_context(MmxSaberPadKind expected_kind,
   MmxSaberAttackSnapshot snapshot;
   MmxSaberFrameReset();
   MmxSaberAttackStepWithWallAndDash(
-      true, grounded, wall, dash, false, true, g_ram[0x0c11], 0);
+      true, grounded, wall, dash, false, false, true, g_ram,
+      g_ram[0x0c11], 0);
   MmxSaberAttackRuntimeTick(g_ram);
   snapshot = MmxSaberAttackSnapshotGet();
   for (unsigned i = 0; i < 32 && snapshot.phase != SABER_PHASE_ACTIVE; ++i) {
     MmxSaberAttackStepWithWallAndDash(
-        false, grounded, wall, dash, false, true, g_ram[0x0c11], 0);
+        false, grounded, wall, dash, false, false, true, g_ram,
+        g_ram[0x0c11], 0);
     MmxSaberAttackRuntimeTick(g_ram);
     snapshot = MmxSaberAttackSnapshotGet();
   }

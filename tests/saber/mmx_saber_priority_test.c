@@ -156,6 +156,20 @@ static void classifier_checks(void) {
               "ground slash 1 classifies with tuned priority");
 
   MmxSaberPriorityReset();
+  memset(ram + slash, 0, 64);
+  test_attack.kind = SABER_KIND_UPPERCUT;
+  make_projectile(slash, 3, 0x5303);
+  check_class(slash, MMX_SABER_PRIORITY_CLASS_UPPERCUT, 6,
+              "uppercut classifies with tuned priority");
+
+  MmxSaberPriorityReset();
+  memset(ram + slash, 0, 64);
+  test_attack.kind = SABER_KIND_ROLLING;
+  make_projectile(slash, 3, 0x5304);
+  check_class(slash, MMX_SABER_PRIORITY_CLASS_ROLLING, 7,
+              "rolling slash classifies with tuned priority");
+
+  MmxSaberPriorityReset();
   memset(ram + small, 0, 64);
   MmxSaberPriorityObservePrePlayer(ram, 0, 0);
   make_projectile(small, 1, 0);

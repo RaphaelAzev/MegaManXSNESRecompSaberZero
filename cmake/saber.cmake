@@ -311,7 +311,7 @@ if(BUILD_TESTING)
         "${_saber_render_source}" "${_saber_black_zero_source}"
         "${_saber_assets_source}"
         "${_saber_wave_source}"
-        "${_saber_attack_source}" "${_saber_wave_runtime_source}" "${_saber_sfx_source}"
+        "${_saber_attack_source}" "${_saber_unlock_source}" "${_saber_wave_runtime_source}" "${_saber_sfx_source}"
         "${_saber_priority_source}" "${_saber_tuning_source}"
         "${_saber_hitbox_debug_source}"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/mmx_wide_policy.c"
