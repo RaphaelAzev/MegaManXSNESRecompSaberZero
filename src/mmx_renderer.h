@@ -36,6 +36,10 @@ typedef struct MmxRenderPlayerOverlay {
   const uint16_t *palette;
   unsigned palette_count;
   bool facing_left;
+  /* An optional plane drawn in front of body and blade. */
+  MmxRenderPlayerOverlayPlane front;
+  const uint16_t *front_palette;
+  unsigned front_palette_count;
 } MmxRenderPlayerOverlay;
 
 /* Called for each Zero body the renderer draws: the live seat at BeginFrame,

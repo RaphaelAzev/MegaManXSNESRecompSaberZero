@@ -1389,6 +1389,9 @@ static void player_overlay_row(const MmxRenderPlayerOverlay *overlay, int y,
   if (overlay->blade_layer == 2)
     player_overlay_plane_row(&overlay->blade, overlay->palette, overlay->palette_count,
         y, zx, zy, overlay->facing_left, z, view, objects, object_colors);
+  player_overlay_plane_row(&overlay->front, overlay->front_palette,
+      overlay->front_palette_count, y, zx, zy, overlay->facing_left, z, view,
+      objects, object_colors);
 }
 static void coop_partner_row(const Ppu *ppu,const Raster *r,int y,MmxRenderView view,
                              uint16_t *objects,int *colors) {

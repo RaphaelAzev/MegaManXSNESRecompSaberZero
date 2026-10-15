@@ -48,11 +48,13 @@ static uint8_t body_pixels[] = {
   0, 0, 0, 3, 1,
 };
 static uint8_t blade_pixels[] = {1, 3, 1};
+static const uint8_t front_pixels[] = {1};
 static const uint8_t world_pixels[] = {
   1, 2, 0,
   3, 1, 2,
 };
 static const uint16_t overlay_palette[] = {0, 31, 31 << 5, 31 << 10};
+static const uint16_t front_palette[] = {0, 31 | (31 << 5) | (31 << 10)};
 
 static void check(bool okay, const char *message) {
   if (!okay) {
@@ -546,6 +548,47 @@ static void blade_order(void) {
         "layer-2 blade is in front of body pixels");
 }
 
+static void front_order(void) {
+  scene();
+  provider_overlay = synthetic_overlay(false, 2);
+  provider_overlay.front = (MmxRenderPlayerOverlayPlane){
+    front_pixels, 1, 1, 63, 63};
+  provider_overlay.front_palette = front_palette;
+  provider_overlay.front_palette_count = sizeof(front_palette) / sizeof(front_palette[0]);
+  MmxRendererSetPlayerOverlayProvider(provide_overlay);
+  render();
+  check(output[39 * 256 + 39] == 0xffffff,
+        "player_overlay_row order draws front after body and layer-2 blade");
+  check(output[39 * 256 + 39] == expand_color(front_palette[1]) &&
+            front_palette[1] != overlay_palette[1],
+        "player_overlay_row passes front_palette to player_overlay_plane_row");
+
+  scene();
+  provider_overlay = synthetic_overlay(true, 2);
+  provider_overlay.front = (MmxRenderPlayerOverlayPlane){
+    front_pixels, 1, 1, 63, 63};
+  provider_overlay.front_palette = front_palette;
+  provider_overlay.front_palette_count = sizeof(front_palette) / sizeof(front_palette[0]);
+  MmxRendererSetPlayerOverlayProvider(provide_overlay);
+  render();
+  check(output[39 * 256 + 40] == 0xffffff,
+        "player_overlay_row passes facing_left to front plane mirroring");
+
+  scene();
+  provider_overlay = synthetic_overlay(false, 2);
+  provider_overlay.front = (MmxRenderPlayerOverlayPlane){
+    front_pixels, 1, 1, 63, 63};
+  provider_overlay.front_palette = front_palette;
+  provider_overlay.front_palette_count = sizeof(front_palette) / sizeof(front_palette[0]);
+  memset(&provider_overlay.front, 0, sizeof(provider_overlay.front));
+  provider_overlay.front_palette = NULL;
+  provider_overlay.front_palette_count = 0;
+  MmxRendererSetPlayerOverlayProvider(provide_overlay);
+  render();
+  check(output[39 * 256 + 39] == 0x0000ff,
+        "player_overlay_plane_row skips cleared front and restores layer-2 blade");
+}
+
 static void donor_origin_and_palette(const MmxSaberAssets *assets) {
   const MmxSaberFrame *frame = MmxSaberAssetsFrameForStep(assets, 1, 0);
   MmxRenderPlayerOverlay donor = {0};
@@ -581,6 +624,10 @@ static void donor_origin_and_palette(const MmxSaberAssets *assets) {
 static void invisible_zero_is_empty(void) {
   scene();
   provider_overlay = synthetic_overlay(false, 2);
+  provider_overlay.front = (MmxRenderPlayerOverlayPlane){
+    front_pixels, 1, 1, 63, 63};
+  provider_overlay.front_palette = front_palette;
+  provider_overlay.front_palette_count = sizeof(front_palette) / sizeof(front_palette[0]);
   MmxRendererSetPlayerOverlayProvider(provide_overlay);
   ppu.oam[32] = 0xe000;
   ppu.oam[33] = 0;
@@ -589,7 +636,7 @@ static void invisible_zero_is_empty(void) {
   for (int y = 0; y < 224 && !any; ++y)
     for (int x = 0; x < 256; ++x)
       any |= output[y * 256 + x] != 0;
-  check(!any, "an invisible Zero OAM piece draws no overlay pixels");
+  check(!any, "zero_body OAM visibility gate suppresses overlay and front-plane pixels");
 }
 
 int main(void) {
@@ -627,6 +674,7 @@ int main(void) {
   body_geometry_and_mirror();
   pilot_overlay_owns_submission();
   blade_order();
+  front_order();
   donor_origin_and_palette(assets);
   invisible_zero_is_empty();
   MmxSaberAssetsFree(assets);
