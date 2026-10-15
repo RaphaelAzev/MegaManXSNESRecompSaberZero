@@ -10661,6 +10661,341 @@ static void saber_uppercut_checks(const char *fixture_dir) {
   puts("ok: saber-uppercut");
 }
 
+enum {
+  SABER_ROLLING_TICK_COUNT = 18,
+  SABER_ROLLING_ACTIVE_FIRST = 2,
+  SABER_ROLLING_ACTIVE_LAST = 17,
+  SABER_ROLLING_TRACE_LIMIT = 96,
+};
+
+/* Independent oracle for kRollingSlashBounds, encoded in the live $37F40
+ * window. Keep these bytes separate from the production table. */
+static const uint8_t kSaberRollingBounds[32] = {
+  /* kRollingSlashBounds centre x/y and half sizes, segment 0..7. */
+  16, 235, 27, 23, 29, 244, 16, 27,
+  22, 8, 23, 27, 14, 21, 27, 16,
+  250, 14, 27, 23, 236, 6, 16, 27,
+  243, 242, 23, 27, 252, 228, 27, 16,
+};
+
+typedef struct SaberRollingTrace {
+  unsigned x[SABER_ROLLING_TICK_COUNT];
+  unsigned y[SABER_ROLLING_TICK_COUNT];
+  MmxSaberAttackSnapshot snapshots[SABER_ROLLING_TICK_COUNT];
+  unsigned tagged_counts[SABER_ROLLING_TICK_COUNT];
+  unsigned live_slots[SABER_ROLLING_TICK_COUNT];
+  unsigned live_pointers[SABER_ROLLING_TICK_COUNT];
+  bool bounds_match[SABER_ROLLING_TICK_COUNT];
+  bool record_match[SABER_ROLLING_TICK_COUNT];
+  bool hitbox_live[SABER_ROLLING_TICK_COUNT];
+  unsigned damage;
+  unsigned count;
+  unsigned launch_frame;
+  unsigned airborne_frames;
+  MmxSaberAttackSnapshot launch_snapshot;
+  MmxSaberAttackSnapshot natural_snapshot;
+  MmxSaberAttackExitReason natural_exit;
+  bool natural_seen;
+  bool landed;
+} SaberRollingTrace;
+
+static void saber_rolling_load(const char *path) {
+  /* SYNTHETIC: no fixture has three clears. save0.sav (open Highway, no
+   * clears) gets the Launch Octopus, Sting Chameleon and Armored Armadillo
+   * clear bits ($40 at $1F88/$1F8A/$1F8C). capsule.sav cannot be used: a jump
+   * there touches Dr. Light's capsule and starts its walk-in (action $1E). */
+  saber_specials_unlock_load(path, 0);
+  g_ram[0x1f88] |= 0x40;
+  g_ram[0x1f8a] |= 0x40;
+  g_ram[0x1f8c] |= 0x40;
+  check(MmxSaberDefeatedMavericks(g_ram) == 3,
+        "saber-rolling synthetic save0 has 3 defeated Mavericks");
+}
+
+static void saber_rolling_capture_live(SaberRollingTrace *trace,
+                                       unsigned tick) {
+  const unsigned slot = saber_active_slot();
+  const unsigned enemy = empty_enemy_slot();
+  trace->tagged_counts[tick] = tagged_projectiles();
+  trace->live_slots[tick] = slot;
+  if (!slot) return;
+  trace->live_pointers[tick] = read_ram_word(g_ram, slot + 0x20);
+  if (tick >= SABER_ROLLING_ACTIVE_FIRST) {
+    const unsigned segment = (tick - SABER_ROLLING_ACTIVE_FIRST) / 2;
+    const unsigned expected_pointer =
+        MMX_SABER_AIR_BOUNDS_POINTER + segment * 4;
+    const uint8_t *expected_record =
+        g_snes->cart->rom + 0x28000 + expected_pointer;
+    /* Projectile stores native $FF40/$FF44 records.  ROM collision window
+     * stores same records at physical 0x37F40/0x37F44. */
+    const uint8_t *live_record =
+        g_snes->cart->rom + 0x28000 + trace->live_pointers[tick];
+    trace->bounds_match[tick] =
+        memcmp(expected_record, kSaberRollingBounds + segment * 4, 4) == 0;
+    trace->record_match[tick] =
+        memcmp(live_record, kSaberRollingBounds + segment * 4, 4) == 0;
+  }
+  trace->hitbox_live[tick] = MmxSaberAttackHitbox(g_ram, enemy, slot, 1) == 1;
+  if (tick == SABER_ROLLING_ACTIVE_LAST)
+    trace->damage = MmxSaberAttackDamage(g_ram, enemy, slot, 1);
+}
+
+static SaberRollingTrace saber_rolling_jump_trace(
+    const char *path, unsigned direction, unsigned attack_buttons) {
+  SaberRollingTrace trace = {0};
+  unsigned previous_y;
+  bool airborne = false;
+  bool saw_rise = false;
+  bool launched = false;
+
+  saber_rolling_load(path);
+  previous_y = read_ram_word(g_ram, 0x0bb0);
+  for (unsigned frame_number = 1;
+       frame_number <= SABER_ROLLING_TRACE_LIMIT; ++frame_number) {
+    if (airborne && saber_test_grounded()) break;
+    const unsigned current_y = read_ram_word(g_ram, 0x0bb0);
+    const bool rising = current_y < previous_y;
+    const bool at_top = airborne && trace.airborne_frames >= 3 &&
+        saw_rise && !rising;
+    unsigned input = SNES_PAD_B | direction;
+    if (at_top) input |= attack_buttons;
+    frame(input);
+    if (!saber_test_grounded()) {
+      airborne = true;
+      ++trace.airborne_frames;
+    }
+    if (at_top) {
+      trace.launch_frame = frame_number;
+      trace.launch_snapshot = MmxSaberAttackSnapshotGet();
+      trace.x[0] = read_ram_word(g_ram, 0x0bad);
+      trace.y[0] = read_ram_word(g_ram, 0x0bb0);
+      trace.snapshots[0] = trace.launch_snapshot;
+      saber_rolling_capture_live(&trace, 0);
+      trace.count = 1;
+      launched = true;
+      break;
+    }
+    if (rising) saw_rise = true;
+    previous_y = current_y;
+  }
+  if (!launched) return trace;
+
+  for (unsigned tick = 1; tick < SABER_ROLLING_TICK_COUNT; ++tick) {
+    frame(SNES_PAD_B | direction);
+    if (!saber_test_grounded()) ++trace.airborne_frames;
+    trace.x[tick] = read_ram_word(g_ram, 0x0bad);
+    trace.y[tick] = read_ram_word(g_ram, 0x0bb0);
+    trace.snapshots[tick] = MmxSaberAttackSnapshotGet();
+    saber_rolling_capture_live(&trace, tick);
+    trace.count = tick + 1;
+  }
+
+  if (attack_buttons == (SNES_PAD_UP | SNES_PAD_Y)) {
+    /* Mutation red: total_ticks=20 keeps the owner alive after tick 17,
+     * so this natural-end frame must stop being idle/NATURAL. */
+    frame(SNES_PAD_B | direction);
+    if (!saber_test_grounded()) ++trace.airborne_frames;
+    trace.natural_snapshot = MmxSaberAttackSnapshotGet();
+    trace.natural_exit = MmxSaberAttackLastExitReason();
+    trace.natural_seen = true;
+    for (unsigned i = 0;
+         i < SABER_ROLLING_TRACE_LIMIT && !saber_test_grounded(); ++i) {
+      frame(SNES_PAD_B | direction);
+      if (!saber_test_grounded()) ++trace.airborne_frames;
+    }
+    trace.landed = saber_test_grounded();
+  }
+  return trace;
+}
+
+static bool saber_rolling_positions_match(const SaberRollingTrace *left,
+                                          const SaberRollingTrace *right) {
+  return left && right && left->count == SABER_ROLLING_TICK_COUNT &&
+      right->count == SABER_ROLLING_TICK_COUNT &&
+      !memcmp(left->x, right->x, sizeof(left->x)) &&
+      !memcmp(left->y, right->y, sizeof(left->y));
+}
+
+static void saber_rolling_spin_checks(const char *capsule) {
+  const MmxSaberAttack *rolling =
+      MmxSaberAttackRecord(SABER_KIND_ROLLING, 0);
+  const SaberRollingTrace trace =
+      saber_rolling_jump_trace(capsule, SNES_PAD_RIGHT,
+                               SNES_PAD_UP | SNES_PAD_Y);
+  bool timing_ok = true;
+  bool live_ok = true;
+
+  /* Mutation red: active_ticks=8 leaves ticks 10..17 without a live hit. */
+  check(rolling && rolling->visual_animation == 10 &&
+            rolling->startup_ticks == 2 && rolling->active_ticks == 16 &&
+            rolling->recovery_ticks == 0 && rolling->total_ticks == 18 &&
+            rolling->bounds_pointer == MMX_SABER_AIR_BOUNDS_POINTER,
+        "rolling record publishes animation 10, startup 2, active 16, recovery 0, total 18, and $FF40");
+  check(trace.count == SABER_ROLLING_TICK_COUNT &&
+            trace.launch_snapshot.kind == SABER_KIND_ROLLING &&
+            trace.launch_snapshot.phase != SABER_PHASE_IDLE &&
+            trace.launch_snapshot.tick == 0,
+        "saber-rolling starts one synthetic airborne spin at the rise top");
+
+  for (unsigned tick = 0; tick < SABER_ROLLING_TICK_COUNT; ++tick) {
+    const MmxSaberAttackSnapshot *snapshot = trace.snapshots + tick;
+    const MmxSaberPadPhase expected_phase = tick < SABER_ROLLING_ACTIVE_FIRST ?
+        SABER_PHASE_STARTUP : SABER_PHASE_ACTIVE;
+    if (snapshot->kind != SABER_KIND_ROLLING || snapshot->index != 0 ||
+        snapshot->tick != tick || snapshot->anim_id != 10 ||
+        snapshot->anim_step != tick / 2 || snapshot->phase != expected_phase)
+      timing_ok = false;
+
+    if (tick < SABER_ROLLING_ACTIVE_FIRST) {
+      if (trace.tagged_counts[tick] != 0) live_ok = false;
+      continue;
+    }
+
+    const unsigned segment = (tick - SABER_ROLLING_ACTIVE_FIRST) / 2;
+    const unsigned expected_pointer =
+        MMX_SABER_AIR_BOUNDS_POINTER + segment * 4;
+    if (trace.tagged_counts[tick] != 1 || !trace.live_slots[tick] ||
+        trace.live_pointers[tick] != expected_pointer ||
+        saber_record_pointer(snapshot) != expected_pointer ||
+        !trace.bounds_match[tick] || !trace.record_match[tick] ||
+        !trace.hitbox_live[tick])
+      live_ok = false;
+  }
+
+  check(timing_ok && trace.airborne_frames >= 20,
+        "saber-rolling stays non-idle for exactly 18 ticks, with animation steps 0..8 for two ticks each and an airborne arc of at least 20 frames");
+  /* Mutation red: removing rolling from shared_air_special() or
+   * air_collision_attack() leaves this spin without its live AIR hitbox. */
+  check(live_ok && trace.damage == 8,
+        "saber-rolling has no hitbox on ticks 0-1 and live tagged bounds/hitbox on every tick 2-17");
+  check(trace.natural_seen && trace.natural_snapshot.kind == SABER_KIND_NONE &&
+            trace.natural_snapshot.phase == SABER_PHASE_IDLE &&
+            trace.natural_exit == MMX_SABER_ATTACK_EXIT_NATURAL &&
+            tagged_projectiles() == 0 && MmxSaberAttackHitSlots() == 0,
+        "saber-rolling exits NATURAL immediately after tick 17 and retires its live slot");
+  check(!memcmp(g_snes->cart->rom + 0x37f40, kSaberAirBounds,
+                sizeof(kSaberAirBounds)),
+        "saber-rolling restores normal air/wall/dash records after its natural end");
+  check(trace.landed,
+        "saber-rolling natural route later lands with no live Saber owner");
+}
+
+static void saber_rolling_control_checks(const char *capsule,
+                                         unsigned direction,
+                                         const char *label) {
+  const SaberRollingTrace no_attack =
+      saber_rolling_jump_trace(capsule, direction, 0);
+  const SaberRollingTrace air =
+      saber_rolling_jump_trace(capsule, direction, SNES_PAD_Y);
+  const SaberRollingTrace rolling =
+      saber_rolling_jump_trace(capsule, direction,
+                               SNES_PAD_UP | SNES_PAD_Y);
+
+  /* Mutation red: adding rolling to apply_motion_masks() horizontal lock, or
+   * writing rolling-specific motion, breaks this no-attack parity. */
+  check(no_attack.launch_frame == air.launch_frame &&
+            no_attack.launch_frame == rolling.launch_frame &&
+            no_attack.launch_snapshot.kind == SABER_KIND_NONE &&
+            no_attack.launch_snapshot.phase == SABER_PHASE_IDLE &&
+            air.launch_snapshot.kind == SABER_KIND_AIR &&
+            rolling.launch_snapshot.kind == SABER_KIND_ROLLING,
+        label);
+  check(saber_rolling_positions_match(&no_attack, &air) &&
+            saber_rolling_positions_match(&no_attack, &rolling),
+        direction == SNES_PAD_RIGHT ?
+            "Right-held rolling and air slashes match the plain jump X/Y trace" :
+            "Left-held rolling and air slashes match the plain jump X/Y trace");
+}
+
+static void saber_rolling_landing_checks(const char *capsule) {
+  const unsigned direction = SNES_PAD_RIGHT;
+  unsigned ground_y;
+  unsigned previous_y;
+  bool airborne = false;
+  bool saw_rise = false;
+  bool launch_attempted = false;
+  MmxSaberAttackSnapshot launch_snapshot = {0};
+
+  saber_rolling_load(capsule);
+  ground_y = read_ram_word(g_ram, 0x0bb0);
+  previous_y = ground_y;
+
+  for (unsigned frame_number = 1;
+       frame_number <= SABER_ROLLING_TRACE_LIMIT && !launch_attempted;
+       ++frame_number) {
+    if (airborne && saber_test_grounded()) break;
+    const unsigned current_y = read_ram_word(g_ram, 0x0bb0);
+    const bool rising = current_y < previous_y;
+    const bool descending = airborne && saw_rise && !rising;
+    const unsigned distance = ground_y > current_y ? ground_y - current_y : 0;
+    unsigned input = SNES_PAD_B | direction;
+    if (descending && distance <= 24) {
+      /* Mutation red: removing rolling from the AIR landing owner list makes
+       * this late spin finish NATURAL or CONTEXT instead of LANDING. */
+      input |= SNES_PAD_UP | SNES_PAD_Y;
+      launch_attempted = true;
+    }
+    frame(input);
+    if (!saber_test_grounded()) airborne = true;
+    if (launch_attempted) launch_snapshot = MmxSaberAttackSnapshotGet();
+    if (rising) saw_rise = true;
+    previous_y = current_y;
+  }
+
+  check(launch_attempted && launch_snapshot.kind == SABER_KIND_ROLLING &&
+            launch_snapshot.phase != SABER_PHASE_IDLE &&
+            !saber_test_grounded(),
+        "saber-rolling starts late while airborne near the landing arc");
+
+  bool landing_seen = false;
+  unsigned landing_tick = SABER_ROLLING_TICK_COUNT;
+  MmxSaberAttackSnapshot landing_snapshot = launch_snapshot;
+  for (unsigned i = 0; i < SABER_ROLLING_TICK_COUNT; ++i) {
+    const bool was_grounded = saber_test_grounded();
+    const MmxSaberAttackSnapshot before = MmxSaberAttackSnapshotGet();
+    frame(SNES_PAD_B | direction);
+    landing_snapshot = MmxSaberAttackSnapshotGet();
+    if (!was_grounded && saber_test_grounded()) {
+      landing_seen = true;
+      landing_tick = before.tick;
+      /* A natural landing publishes the native ground flag after this
+       * frame's PlayerEnd, so the LANDING exit lands on the next frame. */
+      if (landing_snapshot.phase != SABER_PHASE_IDLE) {
+        frame(direction);
+        landing_snapshot = MmxSaberAttackSnapshotGet();
+      }
+      break;
+    }
+  }
+  check(landing_seen && landing_tick < SABER_ROLLING_TICK_COUNT - 1 &&
+            landing_snapshot.kind == SABER_KIND_NONE &&
+            landing_snapshot.phase == SABER_PHASE_IDLE &&
+            MmxSaberAttackLastExitReason() == MMX_SABER_ATTACK_EXIT_LANDING &&
+            tagged_projectiles() == 0 && MmxSaberAttackHitSlots() == 0,
+        "late saber-rolling landing exits within one frame of touching down with EXIT_LANDING before tick 18");
+}
+
+static void saber_rolling_checks(const char *fixture_dir) {
+  char capsule[4096];
+  const int written = snprintf(capsule, sizeof(capsule), "%s/%s", fixture_dir,
+                               "save0.sav");
+
+  check(fixture_dir && fixture_dir[0],
+        "saber-rolling receives a fixture directory");
+  check(written >= 0 && written < (int)sizeof(capsule),
+        "saber-rolling capsule fixture path fits");
+  check(readable_file(capsule), "saber-rolling capsule fixture exists");
+  saber_rolling_spin_checks(capsule);
+  saber_rolling_control_checks(
+      capsule, SNES_PAD_RIGHT,
+      "Right-held rolling and air routes start from the same rise-top frame");
+  saber_rolling_control_checks(
+      capsule, SNES_PAD_LEFT,
+      "Left-held rolling and air routes start from the same rise-top frame");
+  saber_rolling_landing_checks(capsule);
+  puts("ok: saber-rolling");
+}
+
 int main(int argc, char **argv) {
   check(argc == 2, "X1 ROM supplied");
   const char *fixture = getenv("MMX_ZERO_TEST_FIXTURE");
@@ -10682,7 +11017,8 @@ int main(int argc, char **argv) {
       !strcmp(only, "saber-ride-pilot") ||
       !strcmp(only, "saber-contexts") ||
        !strcmp(only, "saber-boss-death") ||
-       !strcmp(only, "saber-uppercut")))
+       !strcmp(only, "saber-uppercut") ||
+       !strcmp(only, "saber-rolling")))
     check(fixture_dir && fixture_dir[0], "MMX_SABER_FIXTURE_DIR supplied");
 
   SDL_SetMainReady();
@@ -10778,6 +11114,7 @@ int main(int argc, char **argv) {
   const bool saber_specials_unlock =
       only && !strcmp(only, "saber-specials-unlock");
   const bool saber_uppercut = only && !strcmp(only, "saber-uppercut");
+  const bool saber_rolling = only && !strcmp(only, "saber-rolling");
   const bool saber_lifecycle_load = only && !strcmp(only, "saber-lifecycle-load");
   const bool saber_contexts = only && !strcmp(only, "saber-contexts");
   const bool saber_buster_rules = only && !strcmp(only, "saber-buster-rules");
@@ -10803,6 +11140,7 @@ int main(int argc, char **argv) {
       saber_air || saber_legs || saber_frozen || saber_capsule || saber_wall || saber_dash || saber_land || saber_ground_lifecycle ||
       saber_specials_unlock ||
       saber_uppercut ||
+      saber_rolling ||
       saber_ground_hit || saber_cancel || saber_lifecycle_load ||
       saber_contexts ||
       saber_render_snapshot || saber_buster_rules || saber_burst_height ||
@@ -10887,6 +11225,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-uppercut runs with the Saber package enabled");
     saber_uppercut_checks(fixture_dir);
+  } else if (saber_rolling) {
+    check(MmxSaberEnabled(),
+          "saber-rolling runs with the Saber package enabled");
+    saber_rolling_checks(fixture_dir);
   } else if (saber_lifecycle_load) {
     check(MmxSaberEnabled(),
           "saber-lifecycle-load runs with the Saber package enabled");
@@ -11054,6 +11396,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-ground-lifecycle") &&
       strcmp(only, "saber-specials-unlock") &&
        strcmp(only, "saber-uppercut") &&
+      strcmp(only, "saber-rolling") &&
       strcmp(only, "saber-lifecycle-load") &&
       strcmp(only, "saber-contexts") &&
         strcmp(only, "saber-buster-rules") &&
