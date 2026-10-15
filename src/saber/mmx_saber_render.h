@@ -30,6 +30,10 @@ bool MmxSaberRenderResolve(const MmxSaberAssets *assets,
                            const MmxZeroState *zero,
                            MmxRenderPlayerOverlay *out);
 
+/* Enable or disable the rolling slash crescent. Defaults to enabled. */
+void MmxSaberRenderSetCrescentEnabled(bool enabled);
+bool MmxSaberRenderCrescentEnabled(void);
+
 /* Resolve one live X3 wave against its validated sidecar. */
 bool MmxSaberRenderResolveWaveSnapshot(const MmxSaberWave *wave,
                                        uint8_t age, int16_t world_x,

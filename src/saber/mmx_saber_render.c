@@ -29,6 +29,7 @@ static const uint16_t *purple_wave_source;
 static uint16_t purple_wave_source_count;
 static bool purple_wave_palette_cached;
 static const MmxSaberWave *render_wave;
+static bool crescent_enabled = true;
 
 static void mark_palette_indices(const MmxSaberPlane *plane,
                                  uint16_t palette_count,
@@ -167,6 +168,18 @@ static void clear_overlay(MmxRenderPlayerOverlay *out) {
   if (out) memset(out, 0, sizeof(*out));
 }
 
+static bool copy_overlay_plane(MmxRenderPlayerOverlayPlane *out,
+                               const MmxSaberPlane *plane) {
+  if (!out || !plane || !plane->pixels || !plane->width || !plane->height)
+    return false;
+  out->pixels = plane->pixels;
+  out->width = plane->width;
+  out->height = plane->height;
+  out->origin_x = plane->origin_x;
+  out->origin_y = plane->origin_y;
+  return true;
+}
+
 static unsigned color_luminance(uint16_t color) {
   unsigned red = color & 31, green = (color >> 5) & 31, blue = (color >> 10) & 31;
   return red * 299 + green * 587 + blue * 114;
@@ -266,8 +279,11 @@ static bool resolve_snapshot(const MmxSaberAssets *assets,
   const MmxSaberAttack *attack;
   const MmxSaberAnimation *animation;
   const MmxSaberFrame *frame = NULL;
+  const MmxSaberFrame *blade_frame = NULL;
+  const MmxSaberFrame *front_frame = NULL;
   MmxSaberArmorFlags armor;
   uint16_t tick;
+  uint16_t step_index = 0;
 
   clear_overlay(out);
   if (!out || !assets || snapshot.phase == SABER_PHASE_IDLE)
@@ -286,19 +302,46 @@ static bool resolve_snapshot(const MmxSaberAssets *assets,
    * can outlive its sidecar animation, so its final sidecar tick is held. */
   tick = snapshot.tick < animation->total_ticks ? snapshot.tick :
       (uint16_t)(animation->total_ticks - 1);
-  for (uint16_t i = 0; i < animation->step_count; ++i) {
+  for (; step_index < animation->step_count; ++step_index) {
     const MmxSaberStep *step = MmxSaberAssetsAnimationStep(
-        assets, snapshot.anim_id, i);
+        assets, snapshot.anim_id, step_index);
     if (!step) return false;
     if (tick < step->duration_ticks) {
       frame = MmxSaberAssetsFrameForStep(assets,
-                                         snapshot.anim_id, i);
+                                         snapshot.anim_id, step_index);
       break;
     }
     tick = (uint16_t)(tick - step->duration_ticks);
   }
   if (!frame || !frame->body.pixels || !frame->body.width ||
       !frame->body.height) return false;
+
+  if (snapshot.anim_id == 8) {
+    blade_frame = MmxSaberAssetsFrameForStep(assets, 9, step_index);
+    if (!blade_frame || !blade_frame->body.pixels ||
+        !blade_frame->body.width || !blade_frame->body.height) {
+      clear_overlay(out);
+      return false;
+    }
+  } else if (snapshot.anim_id == 10) {
+    if (step_index) {
+      blade_frame = MmxSaberAssetsFrameForStep(assets, 11,
+                                                (uint16_t)(step_index - 1));
+      if (!blade_frame || !blade_frame->body.pixels ||
+          !blade_frame->body.width || !blade_frame->body.height) {
+        clear_overlay(out);
+        return false;
+      }
+    }
+    if (crescent_enabled) {
+      front_frame = MmxSaberAssetsFrameForStep(assets, 12, step_index);
+      if (!front_frame || !front_frame->body.pixels ||
+          !front_frame->body.width || !front_frame->body.height) {
+        clear_overlay(out);
+        return false;
+      }
+    }
+  }
 
   out->body.pixels = frame->body.pixels;
   out->body.width = frame->body.width;
@@ -311,6 +354,25 @@ static bool resolve_snapshot(const MmxSaberAssets *assets,
   out->blade.origin_x = frame->blade.origin_x;
   out->blade.origin_y = frame->blade.origin_y;
   out->blade_layer = frame->blade_layer;
+  if (snapshot.anim_id == 10 && !step_index) {
+    memset(&out->blade, 0, sizeof(out->blade));
+    out->blade_layer = 0;
+  }
+  if (blade_frame) {
+    if (!copy_overlay_plane(&out->blade, &blade_frame->body)) {
+      clear_overlay(out);
+      return false;
+    }
+    out->blade_layer = 2;
+  }
+  if (front_frame) {
+    if (!copy_overlay_plane(&out->front, &front_frame->body)) {
+      clear_overlay(out);
+      return false;
+    }
+    out->front_palette = MmxSaberAssetsPalette(assets);
+    out->front_palette_count = MmxSaberAssetsPaletteCount(assets);
+  }
   armor = MmxSaberArmorCurrent();
   out->palette = select_overlay_palette(
       assets, MmxSaberAssetsPalette(assets), MmxSaberAssetsPaletteCount(assets),
@@ -328,6 +390,14 @@ static bool resolve_snapshot(const MmxSaberAssets *assets,
   out->active = out->palette && out->palette_count;
   if (!out->active) clear_overlay(out);
   return out->active;
+}
+
+void MmxSaberRenderSetCrescentEnabled(bool enabled) {
+  crescent_enabled = enabled;
+}
+
+bool MmxSaberRenderCrescentEnabled(void) {
+  return crescent_enabled;
 }
 
 bool MmxSaberRenderResolveSnapshot(const MmxSaberAssets *assets,

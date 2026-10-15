@@ -265,6 +265,18 @@ static int check_plane(const MmxRenderPlayerOverlayPlane *actual,
       actual->origin_y == expected->origin_y;
 }
 
+static int same_overlay_plane(const MmxRenderPlayerOverlayPlane *left,
+                              const MmxRenderPlayerOverlayPlane *right) {
+  return left->pixels == right->pixels && left->width == right->width &&
+      left->height == right->height && left->origin_x == right->origin_x &&
+      left->origin_y == right->origin_y;
+}
+
+static int empty_overlay_plane(const MmxRenderPlayerOverlayPlane *plane) {
+  return plane && !plane->pixels && !plane->width && !plane->height &&
+      !plane->origin_x && !plane->origin_y;
+}
+
 static unsigned color_luminance(uint16_t color) {
   unsigned red = color & 31, green = (color >> 5) & 31, blue = (color >> 10) & 31;
   return red * 299 + green * 587 + blue * 114;
@@ -805,8 +817,148 @@ static void check_tuple(const MmxSaberAssets *assets, unsigned animation_index,
             actual.blade_layer == frame->blade_layer &&
             actual.palette == MmxSaberAssetsPalette(assets) &&
             actual.palette_count == MmxSaberAssetsPaletteCount(assets) &&
-            !actual.facing_left,
+            !actual.facing_left && empty_overlay_plane(&actual.front) &&
+            actual.front_palette == NULL && actual.front_palette_count == 0,
         "resolver returns the exact donor planes, palette, layer, and facing");
+}
+
+static void special_render_checks(const MmxSaberAssets *assets) {
+  const uint16_t *raw_palette = MmxSaberAssetsPalette(assets);
+  const uint16_t raw_palette_count = MmxSaberAssetsPaletteCount(assets);
+  const MmxSaberAnimation *upper =
+      MmxSaberAssetsAnimationById(assets, 8);
+  const MmxSaberAnimation *upper_arc =
+      MmxSaberAssetsAnimationById(assets, 9);
+  const MmxSaberAnimation *rolling =
+      MmxSaberAssetsAnimationById(assets, 10);
+  const MmxSaberAnimation *rolling_arc =
+      MmxSaberAssetsAnimationById(assets, 11);
+  const MmxSaberAnimation *crescent =
+      MmxSaberAssetsAnimationById(assets, 12);
+  MmxRenderPlayerOverlay actual;
+  MmxRenderPlayerOverlay normal_step_one = {0};
+  MmxSaberAttackSnapshot rolling_step_one;
+  uint16_t tick;
+  uint8_t rolling_step_one_tick = 0;
+
+  check(upper && upper_arc && rolling && rolling_arc && crescent &&
+            upper->step_count == 7 && upper_arc->step_count == 7 &&
+            rolling->step_count == 9 && rolling_arc->step_count == 8 &&
+            crescent->step_count == 9,
+        "production asset exposes complete uppercut and rolling pairing animations");
+  check(MmxSaberRenderCrescentEnabled(),
+        "MmxSaberRenderSetCrescentEnabled defaults to enabled");
+  MmxSaberRenderSetCrescentEnabled(true);
+
+  test_zero_state = (MmxZeroState){0};
+  test_black_zero = false;
+  test_arms = false;
+  tick = 0;
+  for (uint16_t step = 0; step < upper->step_count; ++step) {
+    const MmxSaberStep *timing =
+        MmxSaberAssetsAnimationStep(assets, 8, step);
+    const MmxSaberFrame *body =
+        MmxSaberAssetsFrameForStep(assets, 8, step);
+    const MmxSaberFrame *arc =
+        MmxSaberAssetsFrameForStep(assets, 9, step);
+    MmxSaberAttackSnapshot snapshot = {
+      SABER_KIND_UPPERCUT, 0, SABER_PHASE_ACTIVE, (uint8_t)tick, 8, 0, 0x40};
+
+    check(timing && body && arc,
+          "production asset exposes every uppercut body and arc step");
+    check(MmxSaberRenderResolveSnapshot(assets, snapshot, &actual),
+          "production edit resolve_snapshot resolves every uppercut step");
+    check(actual.active && check_plane(&actual.body, &body->body) &&
+              check_plane(&actual.blade, &arc->body) &&
+              actual.blade_layer == 2 &&
+              empty_overlay_plane(&actual.front) &&
+              actual.front_palette == NULL && actual.front_palette_count == 0 &&
+              actual.palette == raw_palette &&
+              actual.palette_count == raw_palette_count && !actual.facing_left,
+          "production edit resolve_snapshot pairs animation 8 body with animation 9 arc at layer 2");
+    tick = (uint16_t)(tick + timing->duration_ticks);
+  }
+
+  tick = 0;
+  for (uint16_t step = 0; step < rolling->step_count; ++step) {
+    const MmxSaberStep *timing =
+        MmxSaberAssetsAnimationStep(assets, 10, step);
+    const MmxSaberFrame *body =
+        MmxSaberAssetsFrameForStep(assets, 10, step);
+    const MmxSaberFrame *arc = step ?
+        MmxSaberAssetsFrameForStep(assets, 11, (uint16_t)(step - 1)) : NULL;
+    const MmxSaberFrame *front =
+        MmxSaberAssetsFrameForStep(assets, 12, step);
+    MmxSaberAttackSnapshot snapshot = {
+      SABER_KIND_ROLLING, 0, SABER_PHASE_ACTIVE, (uint8_t)tick, 10, 0, 0x40};
+
+    check(timing && body && front && (!step || arc),
+          "production asset exposes every rolling body, delayed arc, and crescent step");
+    check(MmxSaberRenderResolveSnapshot(assets, snapshot, &actual),
+          "production edit resolve_snapshot resolves every rolling step");
+    check(actual.active && check_plane(&actual.body, &body->body) &&
+              (step ? check_plane(&actual.blade, &arc->body) :
+                      empty_overlay_plane(&actual.blade)) &&
+              actual.blade_layer == (step ? 2 : 0) &&
+              check_plane(&actual.front, &front->body) &&
+              actual.front_palette == raw_palette &&
+              actual.front_palette_count == raw_palette_count &&
+              actual.palette == raw_palette && !actual.facing_left,
+          "production edit resolve_snapshot pairs animation 10 body, delayed animation 11 arc, and animation 12 crescent");
+    if (step == 1) {
+      normal_step_one = actual;
+      rolling_step_one_tick = (uint8_t)tick;
+    }
+    tick = (uint16_t)(tick + timing->duration_ticks);
+  }
+
+  rolling_step_one = (MmxSaberAttackSnapshot){
+    SABER_KIND_ROLLING, 0, SABER_PHASE_ACTIVE, rolling_step_one_tick,
+    10, 0, 0x40};
+  test_black_zero = true;
+  check(MmxSaberRenderResolveSnapshot(assets, rolling_step_one, &actual) &&
+            actual.palette != raw_palette &&
+            actual.front_palette == raw_palette &&
+            actual.front_palette_count == raw_palette_count &&
+            same_overlay_plane(&actual.front, &normal_step_one.front),
+        "production edit resolve_snapshot keeps crescent raw under Black Zero palette");
+  test_black_zero = false;
+  test_arms = true;
+  check(MmxSaberRenderResolveSnapshot(assets, rolling_step_one, &actual) &&
+            actual.palette != raw_palette &&
+            actual.front_palette == raw_palette &&
+            actual.front_palette_count == raw_palette_count &&
+            same_overlay_plane(&actual.front, &normal_step_one.front),
+        "production edit resolve_snapshot keeps crescent raw under Arms palette");
+  test_arms = false;
+  test_zero_state.charge = 30;
+  test_zero_state.charge_phase = 0;
+  check(MmxSaberRenderResolveSnapshot(assets, rolling_step_one, &actual) &&
+            actual.palette != raw_palette &&
+            actual.front_palette == raw_palette &&
+            actual.front_palette_count == raw_palette_count &&
+            same_overlay_plane(&actual.front, &normal_step_one.front),
+        "production edit resolve_snapshot keeps crescent raw under charge flash palette");
+
+  test_zero_state = (MmxZeroState){0};
+  MmxSaberRenderSetCrescentEnabled(false);
+  check(!MmxSaberRenderCrescentEnabled(),
+        "MmxSaberRenderSetCrescentEnabled disables crescent");
+  check(MmxSaberRenderResolveSnapshot(assets, rolling_step_one, &actual),
+        "production edit resolve_snapshot resolves rolling slash without crescent");
+  check(actual.active && same_overlay_plane(&actual.body, &normal_step_one.body) &&
+            same_overlay_plane(&actual.blade, &normal_step_one.blade) &&
+            actual.blade_layer == normal_step_one.blade_layer &&
+            actual.palette == normal_step_one.palette &&
+            actual.palette_count == normal_step_one.palette_count &&
+            actual.facing_left == normal_step_one.facing_left &&
+            empty_overlay_plane(&actual.front) && actual.front_palette == NULL &&
+            actual.front_palette_count == 0,
+        "production edit MmxSaberRenderSetCrescentEnabled clears only front fields");
+  MmxSaberRenderSetCrescentEnabled(true);
+  check(MmxSaberRenderCrescentEnabled(),
+        "MmxSaberRenderSetCrescentEnabled restores crescent");
+  test_zero_state = (MmxZeroState){0};
 }
 
 static void ride_matrix_checks(const MmxSaberAssets *assets) {
@@ -1189,6 +1341,7 @@ int main(void) {
   for (unsigned animation = 0; animation < 7; ++animation)
     for (unsigned tuple = 0; tuple < 4; ++tuple)
       check_tuple(assets, animation, &kOldTuples[animation][tuple]);
+  special_render_checks(assets);
   ride_matrix_checks(ride);
   uppercut_attack_checks();
   special_live_bounds_checks();
