@@ -8620,8 +8620,6 @@ static void zero_hook_parity_checks(const char *fixture) {
 static void saber_assets_checks(const char *x1_rom, const char *x3_rom,
                                 const char *fixture, const char *assets) {
   const char *empty_cache = getenv("MMX_SABER_EMPTY_CACHE");
-  const char *cache = getenv("MMX_SABER_TEST_CACHE");
-  char sfx_path[4096];
   static const MmxSaberSfxAttackCue kCues[] = {
     MMX_SABER_SFX_ATTACK_GROUND_SLASH_1,
     MMX_SABER_SFX_ATTACK_GROUND_SLASH_2,
@@ -8641,10 +8639,6 @@ static void saber_assets_checks(const char *x1_rom, const char *x3_rom,
     MMX_SABER_SFX_CLIP_SABER_2
   };
   check(empty_cache && empty_cache[0], "runner supplies an empty Saber cache");
-  check(cache && cache[0] &&
-            snprintf(sfx_path, sizeof(sfx_path), "%s/mmx-source/%s", cache,
-                     "saber-sfx-v2.bin") < (int)sizeof(sfx_path),
-        "runner supplies an isolated Saber SFX cache path");
 
   activate_zero(x1_rom, x3_rom, assets, true, true);
   check(MmxSaberAssetsLoaded() && MmxSaberRideAssetsLoaded() &&
@@ -8661,23 +8655,23 @@ static void saber_assets_checks(const char *x1_rom, const char *x3_rom,
   check(MmxSaberSfxRegisteredClipCount() == MMX_SABER_SFX_CLIP_COUNT,
         "Saber SFX clips register lazily on first cue");
 
-  check(remove(sfx_path) == 0, "temporary SFX cache can be removed");
-  snes_mod_runtime_activate_plugins_c();
-  check(MmxSaberEnabled() && MmxSaberAssetsLoaded() &&
-            MmxSaberRideAssetsLoaded() && MmxSaberWaveLoaded(),
-        "missing SFX cache does not disable Saber");
-  check(!MmxSaberSfxLoaded(), "missing SFX cache leaves SFX unavailable only");
-
+  /* A fresh release has no cache beside the executable. The art and sound
+   * are compiled in and the wave is extracted from the player's X3 ROM, so
+   * Saber must still come up with nothing but the ROMs. */
   check(set_test_env("MMX_SABER_TEST_CACHE", empty_cache) == 0,
         "Saber test redirects to the empty cache");
   check(set_test_env("MMX_SABER_TEST_CACHE_ONLY", "1") == 0,
-        "Saber missing-cache run disables message boxes");
+        "Saber empty-cache run disables message boxes");
   snes_mod_runtime_activate_plugins_c();
+  check(MmxSaberEnabled() && MmxSaberAssetsLoaded() &&
+            MmxSaberRideAssetsLoaded() && MmxSaberWaveLoaded() &&
+            MmxSaberSfxLoaded(),
+        "an empty cache still enables Saber from the ROMs alone");
+
+  activate_zero(x1_rom, x3_rom, assets, false, false);
   check(MmxZeroEnabled() && MmxZeroActive() && !MmxZeroModern(),
-        "X3 Zero remains active when Saber caches are missing");
-  check(!MmxSaberEnabled() && !MmxSaberAssetsLoaded() &&
-            !MmxSaberRideAssetsLoaded() && !MmxSaberWaveLoaded(),
-        "missing Saber caches leave Saber disabled");
+        "X3 Zero remains active without the Saber behavior");
+  check(!MmxSaberEnabled(), "plain X3 Zero leaves Saber disabled");
   x3_plain_checks(fixture, SNES_PAD_Y);
   puts("ok: saber-assets");
 }

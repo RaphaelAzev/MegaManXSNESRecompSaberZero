@@ -1,4 +1,6 @@
 #include "mmx_saber_assets.h"
+#include "mmx_saber_embedded.h"
+#include "mmx_saber_sfx.h"
 
 #include "sha256.h"
 
@@ -173,6 +175,49 @@ static int check_corrupt_header(const char *path) {
   return 0;
 }
 
+/* The game parses the copies compiled into the executable, never files beside
+ * it. Pin that those copies are the build's sidecars and satisfy the exact
+ * digests the plugin enforces, so a release can never ship art it rejects. */
+static int check_embedded(const char *saber_path, const char *ride_path) {
+  char reason[128];
+  size_t size;
+  uint8_t *data;
+  MmxSaberAssets *assets;
+  MmxSaberSfx *sfx = NULL;
+  int failed;
+
+  data = read_file(saber_path, &size);
+  failed = !data || size != kMmxSaberEmbeddedSpritesSize ||
+      memcmp(data, kMmxSaberEmbeddedSprites, size) != 0;
+  free(data);
+  if (failed) return fail("embedded Saber sprites differ from the build sidecar");
+  data = read_file(ride_path, &size);
+  failed = !data || size != kMmxSaberEmbeddedRideSize ||
+      memcmp(data, kMmxSaberEmbeddedRide, size) != 0;
+  free(data);
+  if (failed) return fail("embedded Ride Armor art differs from the build sidecar");
+
+  assets = MmxSaberAssetsParse(kMmxSaberEmbeddedSprites,
+                               kMmxSaberEmbeddedSpritesSize, kSaberManifestSha,
+                               reason, sizeof(reason));
+  if (!assets) return fail("embedded Saber sprites rejected");
+  failed = check_saber_assets(assets);
+  MmxSaberAssetsFree(assets);
+  if (failed) return 1;
+  assets = MmxSaberAssetsParse(kMmxSaberEmbeddedRide, kMmxSaberEmbeddedRideSize,
+                               kRideManifestSha, reason, sizeof(reason));
+  if (!assets) return fail("embedded Ride Armor art rejected");
+  failed = check_ride_assets(assets);
+  MmxSaberAssetsFree(assets);
+  if (failed) return 1;
+  if (!MmxSaberSfxParse(kMmxSaberEmbeddedSfx, kMmxSaberEmbeddedSfxSize, &sfx,
+                        reason, sizeof(reason)))
+    return fail("embedded Saber sound rejected");
+  MmxSaberSfxFree(sfx);
+  puts("ok: embedded Saber sprites, Ride Armor art and sound parse");
+  return 0;
+}
+
 int main(void) {
   const char *directory = getenv("MMX_SABER_ASSET_CACHE_DIR");
   char saber_path[4096];
@@ -185,10 +230,8 @@ int main(void) {
   if (!join_path(saber_path, sizeof(saber_path), directory, "saber-v1.bin") ||
       !join_path(ride_path, sizeof(ride_path), directory, "ride-zero-v1.bin"))
     return fail("Saber cache directory is not configured");
-  if (!file_exists(saber_path) || !file_exists(ride_path)) {
-    printf("SKIPPED: private Saber caches are absent (%s)\n", directory);
-    return 77;
-  }
+  if (!file_exists(saber_path) || !file_exists(ride_path))
+    return fail("Saber sidecars were not built");
 
   saber = MmxSaberAssetsLoadFile(saber_path, kSaberManifestSha,
                                  reason, sizeof(reason));
@@ -207,7 +250,8 @@ int main(void) {
   }
 
   if (check_saber_assets(saber) || check_ride_assets(ride) ||
-      check_corrupt_header(saber_path)) {
+      check_corrupt_header(saber_path) ||
+      check_embedded(saber_path, ride_path)) {
     MmxSaberAssetsFree(ride);
     MmxSaberAssetsFree(saber);
     return 1;

@@ -115,8 +115,8 @@ void MmxSaberSfxSetWarningCallback(MmxSaberSfxWarningFn callback,
 void MmxSaberSfxSetVolume(int volume_percent);
 int MmxSaberSfxVolume(void);
 
-/* Runtime sidecar ownership and playback. */
-bool MmxSaberSfxLoadRuntime(const char *path, char *reason,
+/* Runtime sidecar ownership and playback.  `data` stays caller-owned. */
+bool MmxSaberSfxLoadRuntime(const uint8_t *data, size_t size, char *reason,
                             size_t reason_size);
 void MmxSaberSfxResetRuntime(void);
 bool MmxSaberSfxLoaded(void);

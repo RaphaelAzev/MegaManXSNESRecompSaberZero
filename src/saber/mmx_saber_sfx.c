@@ -260,13 +260,12 @@ void MmxSaberSfxResetRuntime(void) {
   g_mmx_saber_sfx_runtime.warning_reported = false;
 }
 
-bool MmxSaberSfxLoadRuntime(const char *path, char *reason,
+bool MmxSaberSfxLoadRuntime(const uint8_t *data, size_t size, char *reason,
                             size_t reason_size) {
   MmxSaberSfx *sfx;
   MmxSaberSfxResetRuntime();
-  sfx = MmxSaberSfxLoadFile(path, reason, reason_size);
-  if (!sfx) {
-    saber_sfx_warn_once(reason && reason[0] ? reason : "open failed");
+  if (!MmxSaberSfxParse(data, size, &sfx, reason, reason_size)) {
+    saber_sfx_warn_once(reason && reason[0] ? reason : "parse failed");
     return false;
   }
   g_mmx_saber_sfx_runtime.sfx = sfx;

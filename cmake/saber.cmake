@@ -41,55 +41,76 @@ if(NOT WIN32)
     target_link_libraries(mmx_saber_sfx_convert PRIVATE m)
 endif()
 
-set(_saber_sfx_inputs_ready FALSE)
-if(EXISTS "${_saber_sfx_source_dir}/saber_1.ogg" AND
-   EXISTS "${_saber_sfx_source_dir}/saber_2.ogg" AND
-   EXISTS "${_saber_sfx_source_dir}/saber_3.ogg" AND _saber_sfx_inputs)
-    set(_saber_sfx_inputs_ready TRUE)
-    add_custom_command(
-        OUTPUT "${_saber_sfx_cache}"
-        COMMAND "${CMAKE_COMMAND}" -E make_directory "${_saber_cache_dir}"
-        COMMAND "$<TARGET_FILE:mmx_saber_sfx_convert>"
-            --source-dir "${_saber_sfx_source_dir}"
-            --out "${_saber_sfx_cache}"
-        DEPENDS mmx_saber_sfx_convert ${_saber_sfx_inputs}
-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-        VERBATIM)
-    add_custom_target(saber_sfx_cache DEPENDS "${_saber_sfx_cache}")
+# The donor art and sound are tracked in the repository and the plugin is
+# always compiled in, so missing inputs mean a broken checkout. Fail the build
+# rather than ship an executable whose Saber Zero cannot load.
+if(NOT (EXISTS "${_saber_sfx_source_dir}/saber_1.ogg" AND
+        EXISTS "${_saber_sfx_source_dir}/saber_2.ogg" AND
+        EXISTS "${_saber_sfx_source_dir}/saber_3.ogg" AND _saber_sfx_inputs))
+    message(FATAL_ERROR "Saber Zero sound sources missing from ${_saber_sfx_source_dir}")
 endif()
+add_custom_command(
+    OUTPUT "${_saber_sfx_cache}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${_saber_cache_dir}"
+    COMMAND "$<TARGET_FILE:mmx_saber_sfx_convert>"
+        --source-dir "${_saber_sfx_source_dir}"
+        --out "${_saber_sfx_cache}"
+    DEPENDS mmx_saber_sfx_convert ${_saber_sfx_inputs}
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    VERBATIM)
+add_custom_target(saber_sfx_cache DEPENDS "${_saber_sfx_cache}")
 
-# The tracked donor sheets build the same deterministic v1 caches as the old
-# branch beside the executable.
+# The tracked donor sheets build the same deterministic v1 sidecars as the old
+# branch. The build tree keeps them as files for the format tests; the game
+# gets them compiled in (below), so no release has to stage them.
 file(GLOB _saber_donor_files CONFIGURE_DEPENDS
     "${_saber_source_dir}/*.png")
-if(EXISTS "${_saber_source_dir}" AND _saber_donor_files AND
-   EXISTS "${_saber_manifest}" AND EXISTS "${_ride_manifest}")
-    add_custom_command(
-        OUTPUT "${_saber_cache}"
-        COMMAND "${CMAKE_COMMAND}" -E make_directory "${_saber_cache_dir}"
-        COMMAND "${Python3_EXECUTABLE}" -I "${_saber_converter}"
-            --manifest "${_saber_manifest}"
-            --source-dir "${_saber_source_dir}"
-            --out "${_saber_cache}"
-        DEPENDS "${_saber_converter}" "${_saber_manifest}" ${_saber_donor_files}
-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-        VERBATIM)
-    add_custom_command(
-        OUTPUT "${_ride_cache}"
-        COMMAND "${CMAKE_COMMAND}" -E make_directory "${_saber_cache_dir}"
-        COMMAND "${Python3_EXECUTABLE}" -I "${_saber_converter}"
-            --manifest "${_ride_manifest}"
-            --source-dir "${_saber_source_dir}"
-            --out "${_ride_cache}"
-        DEPENDS "${_saber_converter}" "${_ride_manifest}" ${_saber_donor_files}
-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-        VERBATIM)
-    add_custom_target(saber_asset_caches DEPENDS "${_saber_cache}" "${_ride_cache}")
+if(NOT (EXISTS "${_saber_source_dir}" AND _saber_donor_files AND
+        EXISTS "${_saber_manifest}" AND EXISTS "${_ride_manifest}"))
+    message(FATAL_ERROR "Saber Zero donor sprites or manifests missing from ${_saber_source_dir}")
 endif()
+add_custom_command(
+    OUTPUT "${_saber_cache}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${_saber_cache_dir}"
+    COMMAND "${Python3_EXECUTABLE}" -I "${_saber_converter}"
+        --manifest "${_saber_manifest}"
+        --source-dir "${_saber_source_dir}"
+        --out "${_saber_cache}"
+    DEPENDS "${_saber_converter}" "${_saber_manifest}" ${_saber_donor_files}
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    VERBATIM)
+add_custom_command(
+    OUTPUT "${_ride_cache}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${_saber_cache_dir}"
+    COMMAND "${Python3_EXECUTABLE}" -I "${_saber_converter}"
+        --manifest "${_ride_manifest}"
+        --source-dir "${_saber_source_dir}"
+        --out "${_ride_cache}"
+    DEPENDS "${_saber_converter}" "${_ride_manifest}" ${_saber_donor_files}
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    VERBATIM)
+add_custom_target(saber_asset_caches DEPENDS "${_saber_cache}" "${_ride_cache}")
+
+# Compile the three donor-built sidecars into every target that links the
+# plugin. The ROM-derived X3 wave is not here: it is extracted at runtime from
+# the player's own X3 ROM.
+set(_saber_embedded_source "${CMAKE_CURRENT_BINARY_DIR}/generated/mmx_saber_embedded.c")
+add_custom_command(
+    OUTPUT "${_saber_embedded_source}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/generated"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DOUT=${_saber_embedded_source}"
+        "-DSABER=${_saber_cache}" "-DRIDE=${_ride_cache}"
+        "-DSFX=${_saber_sfx_cache}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_saber_sidecars.cmake"
+    DEPENDS "${_saber_cache}" "${_ride_cache}" "${_saber_sfx_cache}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_saber_sidecars.cmake"
+    VERBATIM)
+add_custom_target(saber_embedded_source DEPENDS "${_saber_embedded_source}")
 
 if(TARGET MegaManXSNESRecomp)
     target_sources(MegaManXSNESRecomp PRIVATE
-        "${_saber_plugin_source}" "${_saber_assets_source}"
+        "${_saber_embedded_source}" "${_saber_plugin_source}" "${_saber_assets_source}"
         "${_saber_wave_source}" "${_saber_wave_assets_source}"
         "${_saber_wave_runtime_source}"
         "${_saber_sfx_source}" "${_saber_input_source}"
@@ -100,17 +121,12 @@ if(TARGET MegaManXSNESRecomp)
         "${_saber_frame_source}" "${_saber_hitbox_debug_source}"
         "${_saber_render_source}" "${_saber_black_zero_source}"
         "${_saber_tuning_source}")
-    if(TARGET saber_asset_caches)
-        add_dependencies(MegaManXSNESRecomp saber_asset_caches)
-    endif()
-    if(TARGET saber_sfx_cache)
-        add_dependencies(MegaManXSNESRecomp saber_sfx_cache)
-    endif()
+    add_dependencies(MegaManXSNESRecomp saber_embedded_source)
 endif()
 
 if(MMX_STATE_TESTS AND TARGET mmx_state_tests)
     target_sources(mmx_state_tests PRIVATE
-        "${_saber_plugin_source}" "${_saber_assets_source}"
+        "${_saber_embedded_source}" "${_saber_plugin_source}" "${_saber_assets_source}"
         "${_saber_wave_source}" "${_saber_wave_assets_source}"
         "${_saber_wave_runtime_source}"
         "${_saber_sfx_source}" "${_saber_input_source}"
@@ -121,12 +137,7 @@ if(MMX_STATE_TESTS AND TARGET mmx_state_tests)
         "${_saber_frame_source}" "${_saber_hitbox_debug_source}"
         "${_saber_render_source}" "${_saber_black_zero_source}"
         "${_saber_tuning_source}")
-    if(TARGET saber_asset_caches)
-        add_dependencies(mmx_state_tests saber_asset_caches)
-    endif()
-    if(TARGET saber_sfx_cache)
-        add_dependencies(mmx_state_tests saber_sfx_cache)
-    endif()
+    add_dependencies(mmx_state_tests saber_embedded_source)
     get_target_property(_saber_sources mmx_state_tests SOURCES)
     list(REMOVE_ITEM _saber_sources
         tests/mmx_adaptive_state_test.c
@@ -178,12 +189,7 @@ if(MMX_STATE_TESTS AND TARGET mmx_state_tests)
         endif()
     endforeach()
     add_dependencies(mmx_saber_rom_tests MegaManXSNESRecomp_widescreen_overrides)
-    if(TARGET saber_asset_caches)
-        add_dependencies(mmx_saber_rom_tests saber_asset_caches)
-    endif()
-    if(TARGET saber_sfx_cache)
-        add_dependencies(mmx_saber_rom_tests saber_sfx_cache)
-    endif()
+    add_dependencies(mmx_saber_rom_tests saber_embedded_source)
 endif()
 
 if(BUILD_TESTING)
@@ -281,19 +287,18 @@ if(BUILD_TESTING)
 
     add_executable(mmx_saber_assets_test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/saber/mmx_saber_assets_test.c"
-        "${_saber_assets_source}"
+        "${_saber_assets_source}" "${_saber_sfx_source}"
+        "${_saber_embedded_source}"
         "${SNESRECOMP_ROOT}/runner/src/sha256.c")
     target_include_directories(mmx_saber_assets_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/saber"
         "${SNESRECOMP_ROOT}/runner/src")
     target_compile_definitions(mmx_saber_assets_test PRIVATE
         MMX_SABER_CACHE_DIR="${_saber_cache_dir}")
     add_test(NAME mmx_saber_assets_test COMMAND mmx_saber_assets_test)
-    set_tests_properties(mmx_saber_assets_test PROPERTIES SKIP_RETURN_CODE 77)
-    if(TARGET saber_asset_caches)
-        add_dependencies(mmx_saber_check saber_asset_caches)
-        add_dependencies(mmx_saber_assets_test saber_asset_caches)
-    endif()
+    add_dependencies(mmx_saber_check saber_asset_caches)
+    add_dependencies(mmx_saber_assets_test saber_embedded_source)
 
     add_executable(mmx_saber_render_test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/saber/mmx_saber_render_test.c"
