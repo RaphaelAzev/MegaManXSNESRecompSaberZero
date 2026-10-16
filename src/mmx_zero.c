@@ -35,6 +35,10 @@ _Static_assert(sizeof(MmxZeroState) ==
 static unsigned word(const uint8_t *p) { return p[0] | p[1] << 8; }
 static void putword(uint8_t *p, unsigned v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
 MmxZeroState MmxZeroGetState(void) { return state; }
+void MmxZeroRefreshAirActions(void) {
+  if (!MmxZeroActive()) return;
+  state.modern.jump_used = state.modern.dash_used = 0;
+}
 /* The selected starting character, also shown on title and menus until the
  * first exchange. Co-op never selects it and keeps Zero. */
 static bool start_x;

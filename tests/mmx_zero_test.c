@@ -382,7 +382,14 @@ static void modern_checks(void) {
   assert(!MmxZeroGetState().modern.dash_ticks); /* No second dash. */
   ram[0xbd3]=4; MmxZeroMovementTick(ram);
   assert(!MmxZeroGetState().modern.jump_used && !MmxZeroGetState().modern.dash_used);
-  s=MmxZeroGetState(); s.active_x=1; MmxZeroSetState(s);
+  s=MmxZeroGetState(); s.active_x=1; s.modern.jump_used = s.modern.dash_used = 1;
+  MmxZeroSetState(s);
+  /* Mutation red: remove MmxZeroActive() guard from
+   * MmxZeroRefreshAirActions(). */
+  MmxZeroState inactive_before = MmxZeroGetState();
+  MmxZeroRefreshAirActions();
+  MmxZeroState inactive_after = MmxZeroGetState();
+  assert(!memcmp(&inactive_after, &inactive_before, sizeof(inactive_after)));
   memcpy(before,ram,sizeof(ram)); MmxZeroMovementTick(ram); tick(ram[0xbdf],ram[0xbe3]);
   assert(!memcmp(before,ram,sizeof(ram))); /* X remains native. */
 
@@ -415,6 +422,13 @@ static void modern_checks(void) {
   assert(ram[0xbc2]==0x75 && ram[0xbc3]==3);
   MmxZeroPlayerEnd(ram);
   assert(MmxZeroGetState().modern.dash_ticks==17);
+  /* Mutation red: clear dash_ticks or any non-flag state in
+   * MmxZeroRefreshAirActions(), or omit either aerial-action flag. */
+  MmxZeroState refresh_expected = MmxZeroGetState();
+  refresh_expected.modern.jump_used = refresh_expected.modern.dash_used = 0;
+  MmxZeroRefreshAirActions();
+  MmxZeroState refresh_after = MmxZeroGetState();
+  assert(!memcmp(&refresh_after, &refresh_expected, sizeof(refresh_after)));
 
   /* Movement capability must not turn on modern slash/buster behavior. */
   MmxZeroSetExtension(&movement_extension); MmxZeroResetState(); player();

@@ -23,6 +23,9 @@ static bool test_arms;
 static bool test_black_zero;
 
 bool MmxZeroActive(void) { return true; }
+/* The render test links the attack module without mmx_zero.c. */
+unsigned test_air_refresh_calls;
+void MmxZeroRefreshAirActions(void) { ++test_air_refresh_calls; }
 MmxSaberArmorFlags MmxSaberArmorCurrent(void) {
   MmxSaberArmorFlags flags = {0};
   flags.black = test_black_zero;

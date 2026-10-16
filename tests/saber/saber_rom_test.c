@@ -11508,6 +11508,54 @@ static unsigned saber_thrust_air_live_slot_right(const char *path) {
   return saber_thrust_air_live_slot(path, SNES_PAD_RIGHT);
 }
 
+static unsigned saber_thrust_air_live_slot_after_actions(const char *path) {
+  MmxSaberAttackSnapshot snapshot = {0};
+  MmxZeroState state;
+
+  saber_thrust_load(path);
+  g_ram[0x1f99] = MMX_SABER_ARMOR_LEGS_BIT;
+  for (unsigned i = 0; i < 5; ++i) frame(SNES_PAD_B);
+  for (unsigned i = 0; i < 4; ++i) frame(0);
+  state = MmxZeroGetState();
+  check(!saber_test_grounded() && !state.modern.jump_used,
+        "saber-thrust refresh route makes the first jump with Legs active");
+
+  frame(SNES_PAD_B);
+  state = MmxZeroGetState();
+  /* Mutation red: remove Saber Legs from MmxSaberFrameExtension(). */
+  check(state.modern.jump_used && g_ram[0x0baa] == 6,
+        "saber-thrust refresh route spends the double jump");
+
+  frame(SNES_PAD_A | SNES_PAD_RIGHT);
+  state = MmxZeroGetState();
+  /* Mutation red: remove Saber Legs aerial movement from the route, or stop
+   * MmxZeroMovementTick() from consuming the air-dash edge. */
+  check(state.modern.dash_used && state.modern.dash_ticks,
+        "saber-thrust refresh route spends the air dash");
+  for (unsigned i = 0; i < 24 && MmxZeroGetState().modern.dash_ticks; ++i)
+    frame(SNES_PAD_RIGHT);
+  check(!saber_test_grounded() && !MmxZeroGetState().modern.dash_ticks,
+        "saber-thrust refresh route remains airborne after the air dash");
+
+  frame(SNES_PAD_DOWN | SNES_PAD_RIGHT | SNES_PAD_Y);
+  for (unsigned i = 0; i < 32; ++i) {
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (snapshot.kind == SABER_KIND_THRUST &&
+        snapshot.phase == SABER_PHASE_ACTIVE) {
+      const unsigned slot = saber_active_slot();
+      state = MmxZeroGetState();
+      check(state.modern.jump_used && state.modern.dash_used,
+            "saber-thrust refresh route reaches THRUST with both actions spent");
+      check(slot != 0 && tagged_projectiles() == 1,
+            "saber-thrust refresh route has one live tagged slot");
+      return slot;
+    }
+    frame(SNES_PAD_DOWN | SNES_PAD_RIGHT | SNES_PAD_Y);
+  }
+  check(false, "saber-thrust refresh route reaches ACTIVE after air actions");
+  return 0;
+}
+
 static void saber_thrust_boss_unlock_load(const char *path) {
   load_response_fixture(path);
   g_ram[0x1f88] |= 0x40;
@@ -11644,27 +11692,74 @@ static void saber_thrust_bounce_checks(const char *path,
         "saber-thrust hit on falling frame deals damage and starts next bounce");
 }
 
+static void saber_thrust_air_action_refresh_case(
+    const char *path, unsigned expected_damage, unsigned expected_priority) {
+  const unsigned slot = saber_thrust_air_live_slot_after_actions(path);
+  const unsigned enemy = empty_enemy_slot();
+  const unsigned enemy_bit = 1u << ((enemy - 0xe68) / 64);
+  MmxZeroState spent;
+  MmxZeroState refreshed;
+
+  g_ram[enemy + 0x27] = 32;
+  check(priority_classify_live(MMX_SABER_PRIORITY_CLASS_THRUST,
+                               expected_priority,
+                               "saber-thrust refresh priority 8") == slot,
+        "saber-thrust refresh live slot carries priority 8");
+  spent = MmxZeroGetState();
+  const unsigned damage = MmxSaberAttackDamage(g_ram, enemy, slot, 1);
+  refreshed = MmxZeroGetState();
+  const unsigned drop = apply_test_damage(enemy, damage);
+  /* Mutation red: omit MmxZeroRefreshAirActions() after the bounce VY write
+   * in bounce_thrust_on_hit(). */
+  check(spent.modern.jump_used && spent.modern.dash_used &&
+            damage == expected_damage && drop == expected_damage &&
+            read_ram_word(g_ram, 0x0bc4) == SABER_THRUST_BOUNCE_VY &&
+            (MmxSaberAttackHitSlots() & enemy_bit) != 0 &&
+            !refreshed.modern.jump_used && !refreshed.modern.dash_used,
+        "saber-thrust bounce refreshes double jump and air dash immediately");
+
+  const unsigned before_y = read_ram_word(g_ram, 0x0bb0);
+  frame(SNES_PAD_B | SNES_PAD_RIGHT);
+  const unsigned after_y = read_ram_word(g_ram, 0x0bb0);
+  refreshed = MmxZeroGetState();
+  /* Mutation red: omit the bounce refresh call, leaving jump_used spent. */
+  check(refreshed.modern.jump_used && after_y < before_y,
+        "saber-thrust bounce lets B start a second jump and Zero rises");
+
+  frame(SNES_PAD_A | SNES_PAD_RIGHT);
+  refreshed = MmxZeroGetState();
+  /* Mutation red: omit the bounce refresh call, leaving dash_used spent. */
+  check(refreshed.modern.dash_used && refreshed.modern.dash_ticks,
+        "saber-thrust bounce lets an air-dash input start an air dash");
+}
+
 static void saber_thrust_zero_bounce_case(const char *path,
                                           unsigned expected_damage) {
   const MmxSaberTuning saved = *MmxSaberTuningGet();
   MmxSaberTuning *mutable_tuning =
       (MmxSaberTuning *)(uintptr_t)MmxSaberTuningGet();
-  const unsigned slot = saber_thrust_air_live_slot(path, SNES_PAD_RIGHT);
+  const unsigned slot = saber_thrust_air_live_slot_after_actions(path);
   const unsigned enemy = empty_enemy_slot();
   const unsigned bit = 1u << ((enemy - 0xe68) / 64);
+  MmxZeroState spent;
+  MmxZeroState after;
 
   mutable_tuning->thrust_bounce_height = 0;
   saber_damage_set_arms(false);
   g_ram[enemy + 0x27] = 32;
   write_ram_word(g_ram, 0x0bc4, 0x1234);
+  spent = MmxZeroGetState();
   const unsigned damage = MmxSaberAttackDamage(g_ram, enemy, slot, 1);
+  after = MmxZeroGetState();
   const unsigned drop = apply_test_damage(enemy, damage);
   /* Mutation red: move the thrust_bounce_height <= 0 guard below the VY
-   * write, which would mutate movement even when the option is zero. */
-  check(damage == expected_damage && drop == expected_damage &&
+   * write, or refresh air actions before that guard. */
+  check(spent.modern.jump_used && spent.modern.dash_used &&
+            damage == expected_damage && drop == expected_damage &&
             read_ram_word(g_ram, 0x0bc4) == 0x1234 &&
-            (MmxSaberAttackHitSlots() & bit),
-        "saber-thrust bounce height 0 deals damage without writing VY");
+            (MmxSaberAttackHitSlots() & bit) &&
+            after.modern.jump_used && after.modern.dash_used,
+        "saber-thrust bounce height 0 deals damage without VY or action refresh");
   *mutable_tuning = saved;
   check(MmxSaberTuningThrustBounceHeight() ==
             (unsigned)saved.thrust_bounce_height,
@@ -11808,6 +11903,7 @@ static void saber_thrust_checks(const char *fixture_dir) {
   /* Mutation red: remove the THRUST priority mapping from slash_class(), or
    * map MMX_SABER_PRIORITY_CLASS_THRUST to the wrong tuning entry. */
   saber_thrust_bounce_checks(save0, normal_damage, priority);
+  saber_thrust_air_action_refresh_case(save0, normal_damage, priority);
   saber_thrust_zero_bounce_case(save0, normal_damage);
   saber_damage_set_arms(false);
   puts("ok: saber-thrust");

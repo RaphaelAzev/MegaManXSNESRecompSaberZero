@@ -127,6 +127,8 @@ unsigned MmxZeroResponse(uint8_t *ram, unsigned enemy, unsigned projectile,
 unsigned MmxZeroDamage(uint8_t ram[0x20000], unsigned enemy, unsigned projectile, unsigned original);
 unsigned MmxZeroHitbox(const uint8_t ram[0x20000], unsigned enemy, unsigned projectile, unsigned original);
 MmxZeroState MmxZeroGetState(void);
+/* Make the aerial double jump and air dash available again, as landing does. */
+void MmxZeroRefreshAirActions(void);
 bool MmxZeroValidState(const MmxZeroState *state);
 void MmxZeroSetState(MmxZeroState state);
 /* A co-op seat exchange: as MmxZeroSetState, but the extension keeps its

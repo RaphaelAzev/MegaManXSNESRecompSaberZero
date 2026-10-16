@@ -72,7 +72,8 @@ pitched up.
 After any four of the eight Mavericks are defeated, Down + Y in the air starts
 the downward thrust. It uses the normal fall and air control. It lasts until
 landing or until Y is released. A hit bounces Zero up by `thrust_bounce_height`,
-as a percentage of a normal jump; 0 turns the bounce off. The thrust continues,
+as a percentage of a normal jump; 0 turns the bounce off. Each bounce also makes
+the double jump and air dash available again, as landing does. The thrust continues,
 with one hit per bounce. Its default damage is 4 against normal enemies and 2
 against bosses. Its default hit priority is 8.
 

@@ -627,6 +627,7 @@ static void bounce_thrust_on_hit(uint8_t *ram, unsigned projectile,
   /* Damage runs after native PlayerEnd. This RAM write is therefore present
    * before the next native gravity update, like scale_uppercut_jump(). */
   putword(ram + 0x0bc4, scaled_jump_velocity((unsigned)bounce));
+  MmxZeroRefreshAirActions();
 }
 
 static void retire_projectile_slot(uint8_t *ram, unsigned d) {
