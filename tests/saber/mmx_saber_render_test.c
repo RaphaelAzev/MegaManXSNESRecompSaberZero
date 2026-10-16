@@ -1295,10 +1295,22 @@ static void thrust_attack_checks(void) {
   ram[enemy + 0x27] = 32;
   put_u16(ram, 0x0bc4, 0x0123);
   const unsigned damage = MmxSaberAttackDamage(ram, enemy, slot, 1);
+  const unsigned enemy_bit = 1u << ((enemy - 0xe68) / 64);
+  /* Mutation red: re-add the immediate hit-mask clear in
+   * bounce_thrust_on_hit. */
   check(slot != 0 && damage == 4 && thrust_test_vy(ram) == 0x0420 &&
-            MmxSaberAttackHitSlots() == 0 &&
+            (MmxSaberAttackHitSlots() & enemy_bit) &&
             MmxSaberAttackSnapshotGet().phase == SABER_PHASE_ACTIVE,
-        "thrust hit writes VY 0x0420 at bounce height 60, clears hit mask, and stays active");
+        "thrust hit writes VY 0x0420 at bounce height 60, keeps the hit mask, and stays active");
+
+  put_u16(ram, 0x0bc4, 0x0123);
+  MmxSaberAttackPlayerEnd(ram);
+  check((MmxSaberAttackHitSlots() & enemy_bit) != 0,
+        "thrust bounce keeps hit mask while VY is nonnegative");
+  put_u16(ram, 0x0bc4, 0xffff);
+  MmxSaberAttackPlayerEnd(ram);
+  check((MmxSaberAttackHitSlots() & enemy_bit) == 0,
+        "thrust bounce clears hit mask on first falling frame");
 
   saved_tuning = *MmxSaberTuningGet();
   mutable_tuning = (MmxSaberTuning *)(uintptr_t)MmxSaberTuningGet();
@@ -1312,7 +1324,6 @@ static void thrust_attack_checks(void) {
   ram[enemy + 0x27] = 32;
   put_u16(ram, 0x0bc4, 0x0123);
   const unsigned no_bounce_damage = MmxSaberAttackDamage(ram, enemy, slot, 1);
-  const unsigned enemy_bit = 1u << ((enemy - 0xe68) / 64);
   check(no_bounce_damage == 4 && thrust_test_vy(ram) == 0x0123 &&
             (MmxSaberAttackHitSlots() & enemy_bit),
         "thrust bounce height 0 leaves VY alone");

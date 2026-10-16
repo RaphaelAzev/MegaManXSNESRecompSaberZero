@@ -11273,6 +11273,545 @@ static void saber_rolling_checks(const char *fixture_dir) {
 
 typedef unsigned (*SaberSpecialStart)(const char *path);
 
+enum {
+  SABER_THRUST_TRACE_LIMIT = 96,
+  SABER_THRUST_RELEASE_DELAY = 4,
+  SABER_THRUST_BOUNCE_VY = 0x0420,
+};
+
+/* Independent oracle for kThrustBounds in src/saber/mmx_saber_attack.c. */
+static const uint8_t kSaberThrustBounds[20] = {
+  26, 244, 11, 7, 18, 20, 8, 17, 18, 20,
+  8, 17, 18, 17, 8, 7, 18, 20, 8, 17,
+};
+
+typedef enum SaberThrustTraceMode {
+  SABER_THRUST_TRACE_PLAIN,
+  SABER_THRUST_TRACE_HELD,
+  SABER_THRUST_TRACE_RELEASE,
+} SaberThrustTraceMode;
+
+typedef struct SaberThrustTrace {
+  unsigned x[SABER_THRUST_TRACE_LIMIT];
+  unsigned y[SABER_THRUST_TRACE_LIMIT];
+  MmxSaberAttackSnapshot snapshots[SABER_THRUST_TRACE_LIMIT];
+  unsigned tagged_counts[SABER_THRUST_TRACE_LIMIT];
+  unsigned live_pointers[SABER_THRUST_TRACE_LIMIT];
+  bool bounds_match[SABER_THRUST_TRACE_LIMIT];
+  bool hitbox_live[SABER_THRUST_TRACE_LIMIT];
+  bool segment_seen[5];
+  unsigned count;
+  unsigned airborne_frames;
+  unsigned apex_frame;
+  unsigned launch_frame;
+  unsigned touchdown_frame;
+  unsigned release_frame;
+  unsigned landing_delay;
+  bool apex_seen;
+  bool launched;
+  bool landing_seen;
+  bool release_seen;
+  MmxSaberAttackSnapshot landing_snapshot;
+  MmxSaberAttackSnapshot release_snapshot;
+  MmxSaberAttackExitReason landing_exit;
+  MmxSaberAttackExitReason release_exit;
+} SaberThrustTrace;
+
+static void saber_thrust_load(const char *path) {
+  /* SYNTHETIC: save0.sav (open Highway, no clears) gets the four clear bits
+   * used by the Down+Y thrust unlock. Never jump on capsule.sav: its jump
+   * touches Dr. Light's capsule and starts the walk-in. */
+  saber_specials_unlock_load(path, 0);
+  g_ram[0x1f88] |= 0x40;
+  g_ram[0x1f8a] |= 0x40;
+  g_ram[0x1f8c] |= 0x40;
+  g_ram[0x1f8e] |= 0x40;
+  check(MmxSaberDefeatedMavericks(g_ram) == 4,
+        "saber-thrust synthetic save0 has four defeated Mavericks");
+}
+
+static void saber_thrust_capture_live(SaberThrustTrace *trace,
+                                      unsigned sample) {
+  const MmxSaberAttackSnapshot snapshot = trace->snapshots[sample];
+  const unsigned slot = saber_active_slot();
+  const unsigned enemy = empty_enemy_slot();
+  unsigned segment;
+  unsigned expected_pointer;
+  const uint8_t *live_record;
+
+  trace->tagged_counts[sample] = tagged_projectiles();
+  if (!slot || snapshot.phase != SABER_PHASE_ACTIVE || snapshot.tick < 2)
+    return;
+  segment = snapshot.tick < 10 ? (snapshot.tick - 2) / 2 : 4;
+  expected_pointer = MMX_SABER_AIR_BOUNDS_POINTER + segment * 4;
+  trace->live_pointers[sample] = read_ram_word(g_ram, slot + 0x20);
+  live_record = g_snes->cart->rom + 0x28000 + expected_pointer;
+  trace->segment_seen[segment] = true;
+  trace->bounds_match[sample] =
+      trace->live_pointers[sample] == expected_pointer &&
+      saber_record_pointer(&snapshot) == expected_pointer &&
+      !memcmp(live_record, kSaberThrustBounds + segment * 4, 4);
+  trace->hitbox_live[sample] = enemy != 0 &&
+      MmxSaberAttackHitbox(g_ram, enemy, slot, 1) == 1;
+}
+
+static SaberThrustTrace saber_thrust_trace(const char *path,
+                                           unsigned direction,
+                                           SaberThrustTraceMode mode) {
+  SaberThrustTrace trace = {0};
+  unsigned previous_y;
+  bool airborne = false;
+  bool saw_rise = false;
+
+  saber_thrust_load(path);
+  previous_y = read_ram_word(g_ram, 0x0bb0);
+  for (unsigned frame_number = 0;
+       frame_number < SABER_THRUST_TRACE_LIMIT; ++frame_number) {
+    const bool was_grounded = saber_test_grounded();
+    const unsigned current_y = read_ram_word(g_ram, 0x0bb0);
+    const bool rising = current_y < previous_y;
+    const bool at_top = airborne && trace.airborne_frames >= 3 &&
+        saw_rise && !rising;
+    const bool release_now = mode == SABER_THRUST_TRACE_RELEASE &&
+        trace.launched &&
+        frame_number == trace.launch_frame + SABER_THRUST_RELEASE_DELAY;
+    unsigned input = SNES_PAD_B | direction;
+
+    if (airborne && was_grounded) break;
+    if (mode != SABER_THRUST_TRACE_PLAIN) {
+      if (at_top && !trace.launched) {
+        input |= SNES_PAD_DOWN | SNES_PAD_Y;
+      } else if (trace.launched &&
+                 (mode == SABER_THRUST_TRACE_HELD ||
+                  (mode == SABER_THRUST_TRACE_RELEASE &&
+                   frame_number < trace.launch_frame + SABER_THRUST_RELEASE_DELAY))) {
+        input |= SNES_PAD_Y;
+      }
+    }
+
+    frame(input);
+    const unsigned sample = trace.count++;
+    const bool grounded = saber_test_grounded();
+    const MmxSaberAttackSnapshot snapshot = MmxSaberAttackSnapshotGet();
+    trace.x[sample] = read_ram_word(g_ram, 0x0bad);
+    trace.y[sample] = read_ram_word(g_ram, 0x0bb0);
+    trace.snapshots[sample] = snapshot;
+    saber_thrust_capture_live(&trace, sample);
+
+    if (!grounded) {
+      airborne = true;
+      ++trace.airborne_frames;
+    }
+    if (at_top && !trace.apex_seen) {
+      trace.apex_seen = true;
+      trace.apex_frame = sample;
+      if (mode != SABER_THRUST_TRACE_PLAIN) {
+        trace.launched = true;
+        trace.launch_frame = sample;
+      }
+    }
+    if (release_now) {
+      trace.release_seen = true;
+      trace.release_frame = sample;
+      trace.release_snapshot = snapshot;
+      trace.release_exit = MmxSaberAttackLastExitReason();
+    }
+    if (airborne && !was_grounded && grounded) {
+      trace.landing_seen = true;
+      trace.touchdown_frame = sample;
+      trace.landing_snapshot = snapshot;
+      trace.landing_exit = MmxSaberAttackLastExitReason();
+      /* Native publishes the ground flag after PlayerEnd. Allow one next
+       * frame for the LANDING exit, like saber-rolling. Keep Y held so the
+       * thrust release rule cannot win that boundary. */
+      if (snapshot.phase != SABER_PHASE_IDLE) {
+        frame(SNES_PAD_B | direction | SNES_PAD_Y);
+        trace.landing_delay = 1;
+        trace.landing_snapshot = MmxSaberAttackSnapshotGet();
+        trace.landing_exit = MmxSaberAttackLastExitReason();
+      }
+      break;
+    }
+    if (rising) saw_rise = true;
+    previous_y = current_y;
+  }
+  return trace;
+}
+
+static bool saber_thrust_positions_match(const SaberThrustTrace *left,
+                                         const SaberThrustTrace *right) {
+  return left && right && left->landing_seen && right->landing_seen &&
+      left->count == right->count &&
+      !memcmp(left->x, right->x, left->count * sizeof(left->x[0])) &&
+      !memcmp(left->y, right->y, left->count * sizeof(left->y[0]));
+}
+
+static bool saber_thrust_positions_match_from(const SaberThrustTrace *left,
+                                              const SaberThrustTrace *right,
+                                              unsigned first_frame) {
+  if (!saber_thrust_positions_match(left, right) ||
+      first_frame >= left->count)
+    return false;
+  return !memcmp(left->x + first_frame, right->x + first_frame,
+                 (left->count - first_frame) * sizeof(left->x[0])) &&
+      !memcmp(left->y + first_frame, right->y + first_frame,
+              (left->count - first_frame) * sizeof(left->y[0]));
+}
+
+static unsigned saber_thrust_air_live_slot(const char *path,
+                                           unsigned direction) {
+  MmxSaberAttackSnapshot snapshot = {0};
+  unsigned previous_y;
+  unsigned airborne_frames = 0;
+  bool airborne = false;
+  bool saw_rise = false;
+  bool launched = false;
+
+  saber_thrust_load(path);
+  previous_y = read_ram_word(g_ram, 0x0bb0);
+  for (unsigned frame_number = 0;
+       frame_number < SABER_THRUST_TRACE_LIMIT; ++frame_number) {
+    if (airborne && saber_test_grounded()) break;
+    const unsigned current_y = read_ram_word(g_ram, 0x0bb0);
+    const bool rising = current_y < previous_y;
+    const bool at_top = airborne && airborne_frames >= 3 &&
+        saw_rise && !rising;
+    unsigned input = SNES_PAD_B | direction;
+    if (at_top && !launched) {
+      input |= SNES_PAD_DOWN | SNES_PAD_Y;
+      launched = true;
+    } else if (launched) {
+      input |= SNES_PAD_Y;
+    }
+    frame(input);
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (!saber_test_grounded()) {
+      airborne = true;
+      ++airborne_frames;
+    }
+    if (launched && snapshot.kind == SABER_KIND_THRUST &&
+        snapshot.phase == SABER_PHASE_ACTIVE) {
+      const unsigned slot = saber_active_slot();
+      check(slot != 0 && tagged_projectiles() == 1,
+            "saber-thrust normal route has one live tagged slot");
+      return slot;
+    }
+    if (rising) saw_rise = true;
+    previous_y = current_y;
+  }
+  check(false, "saber-thrust normal route reaches ACTIVE before landing");
+  return 0;
+}
+
+static unsigned saber_thrust_air_live_slot_right(const char *path) {
+  return saber_thrust_air_live_slot(path, SNES_PAD_RIGHT);
+}
+
+static void saber_thrust_boss_unlock_load(const char *path) {
+  load_response_fixture(path);
+  g_ram[0x1f88] |= 0x40;
+  g_ram[0x1f8a] |= 0x40;
+  g_ram[0x1f8c] |= 0x40;
+  g_ram[0x1f8e] |= 0x40;
+  MmxSaberFrameReset();
+  check(MmxSaberDefeatedMavericks(g_ram) >= 4,
+        "saber-thrust boss fixture has four defeated Mavericks");
+}
+
+static unsigned saber_thrust_boss_live_slot(const char *path) {
+  MmxSaberAttackSnapshot snapshot;
+
+  saber_thrust_boss_unlock_load(path);
+  MmxSaberAttackResetRam(g_ram);
+  MmxSaberAttackStepWithWallAndDash(
+      true, false, false, false, false, true, true, false, true, g_ram,
+      g_ram[0x0c11], 0);
+  MmxSaberAttackRuntimeTick(g_ram);
+  snapshot = MmxSaberAttackSnapshotGet();
+  for (unsigned i = 0; i < 32 && snapshot.phase != SABER_PHASE_ACTIVE; ++i) {
+    MmxSaberAttackStepWithWallAndDash(
+        false, false, false, false, false, true, true, false, true, g_ram,
+        g_ram[0x0c11], 0);
+    MmxSaberAttackRuntimeTick(g_ram);
+    snapshot = MmxSaberAttackSnapshotGet();
+  }
+  check(snapshot.kind == SABER_KIND_THRUST &&
+            snapshot.phase == SABER_PHASE_ACTIVE,
+        "saber-thrust boss route reaches ACTIVE without a capsule jump");
+  const unsigned slot = saber_active_slot();
+  check(slot != 0 && tagged_projectiles() == 1,
+        "saber-thrust boss route has one live tagged slot");
+  return slot;
+}
+
+static void saber_thrust_damage_value_case(
+    const char *path, SaberSpecialStart start, bool boss, bool arms,
+    unsigned expected_damage, unsigned expected_priority, const char *label) {
+  const unsigned slot = start(path);
+  const unsigned enemy = boss ? saber_damage_boss_slot() : empty_enemy_slot();
+  check(slot != 0 && enemy != 0 &&
+            (!boss || MmxWidePolicy_IsBossEncounter(g_ram[enemy + 0x0a])),
+        label);
+  const unsigned enemy_bit = 1u << ((enemy - 0xe68) / 64);
+  saber_damage_set_arms(arms);
+  g_ram[enemy + 0x27] = 32;
+  check(priority_classify_live(MMX_SABER_PRIORITY_CLASS_THRUST,
+                               expected_priority, label) == slot,
+        label);
+  const unsigned damage = MmxSaberAttackDamage(g_ram, enemy, slot, 1);
+  const unsigned drop = apply_test_damage(enemy, damage);
+  check(damage == expected_damage && drop == expected_damage &&
+            read_ram_word(g_ram, 0x0bc4) == SABER_THRUST_BOUNCE_VY &&
+            (MmxSaberAttackHitSlots() & enemy_bit) != 0 &&
+            MmxSaberAttackSnapshotGet().kind == SABER_KIND_THRUST &&
+            MmxSaberAttackSnapshotGet().phase == SABER_PHASE_ACTIVE,
+        label);
+}
+
+static void saber_thrust_bounce_checks(const char *path,
+                                       unsigned expected_damage,
+                                       unsigned expected_priority) {
+  const unsigned slot = saber_thrust_air_live_slot(path, SNES_PAD_RIGHT);
+  const unsigned enemy = empty_enemy_slot();
+  const unsigned enemy_bit = 1u << ((enemy - 0xe68) / 64);
+  unsigned rising_frames = 0;
+  bool rising_mask_ok = true;
+  bool falling_seen = false;
+  bool falling_mask_ok = false;
+
+  check(slot != 0 && enemy != 0,
+        "saber-thrust bounce has a live slot and probe enemy");
+  saber_damage_set_arms(false);
+  g_ram[enemy + 0x27] = 32;
+  check(priority_classify_live(MMX_SABER_PRIORITY_CLASS_THRUST,
+                               expected_priority,
+                               "saber-thrust bounce priority 8") == slot,
+        "saber-thrust bounce live slot carries priority 8");
+  const unsigned first = MmxSaberAttackDamage(g_ram, enemy, slot, 1);
+  const unsigned first_drop = apply_test_damage(enemy, first);
+  const unsigned first_vy = read_ram_word(g_ram, 0x0bc4);
+  const MmxSaberAttackSnapshot first_snapshot = MmxSaberAttackSnapshotGet();
+  const uint16_t first_mask = MmxSaberAttackHitSlots();
+  /* Mutation red: re-add state.hit_slots = 0 in bounce_thrust_on_hit. */
+  check(first == expected_damage && first_drop == expected_damage &&
+            first_vy == SABER_THRUST_BOUNCE_VY &&
+            (first_mask & enemy_bit) != 0 &&
+            first_snapshot.kind == SABER_KIND_THRUST &&
+            first_snapshot.phase == SABER_PHASE_ACTIVE,
+        "saber-thrust hit deals normal damage, writes $0BC4=$0420, keeps the mask, and keeps THRUST active");
+
+  /* Mutation red: clear the mask before the second same-frame damage call. */
+  const unsigned second = MmxSaberAttackDamage(g_ram, enemy, slot, 1);
+  const unsigned second_drop = apply_test_damage(enemy, second);
+  const unsigned second_vy = read_ram_word(g_ram, 0x0bc4);
+  check(second == 0 && second_drop == 0 &&
+            second_vy == SABER_THRUST_BOUNCE_VY &&
+            (MmxSaberAttackHitSlots() & enemy_bit) != 0,
+        "saber-thrust same-frame re-hit returns 0, leaves $0BC4=$0420, and keeps the mask");
+
+  /* Mutation red: clear hit_slots on a rising frame, or defer the clear past
+   * the first signed-negative VY frame. */
+  for (unsigned i = 0; i < SABER_THRUST_TRACE_LIMIT && !falling_seen; ++i) {
+    frame(SNES_PAD_B | SNES_PAD_RIGHT | SNES_PAD_Y);
+    const int16_t vy = (int16_t)read_ram_word(g_ram, 0x0bc4);
+    const MmxSaberAttackSnapshot snapshot = MmxSaberAttackSnapshotGet();
+    if (vy < 0) {
+      falling_seen = true;
+      falling_mask_ok = snapshot.kind == SABER_KIND_THRUST &&
+          snapshot.phase == SABER_PHASE_ACTIVE &&
+          MmxSaberAttackHitSlots() == 0;
+    } else {
+      if (vy > 0) ++rising_frames;
+      if (snapshot.kind != SABER_KIND_THRUST ||
+          snapshot.phase == SABER_PHASE_IDLE ||
+          (MmxSaberAttackHitSlots() & enemy_bit) == 0)
+        rising_mask_ok = false;
+    }
+  }
+  check(rising_frames >= 5 && rising_mask_ok && falling_seen &&
+            falling_mask_ok,
+        "saber-thrust bounce keeps the mask through rising frames and clears it on the first falling frame while THRUST stays live");
+
+  /* Earlier hits drained the staged enemy; refill so the drop measures the
+   * full damage of this hit. */
+  g_ram[enemy + 0x27] = 32;
+  const unsigned falling_hit = MmxSaberAttackDamage(g_ram, enemy, slot, 1);
+  const unsigned falling_drop = apply_test_damage(enemy, falling_hit);
+  check(falling_hit == expected_damage && falling_drop == expected_damage &&
+            read_ram_word(g_ram, 0x0bc4) == SABER_THRUST_BOUNCE_VY &&
+            (MmxSaberAttackHitSlots() & enemy_bit) != 0,
+        "saber-thrust hit on falling frame deals damage and starts next bounce");
+}
+
+static void saber_thrust_zero_bounce_case(const char *path,
+                                          unsigned expected_damage) {
+  const MmxSaberTuning saved = *MmxSaberTuningGet();
+  MmxSaberTuning *mutable_tuning =
+      (MmxSaberTuning *)(uintptr_t)MmxSaberTuningGet();
+  const unsigned slot = saber_thrust_air_live_slot(path, SNES_PAD_RIGHT);
+  const unsigned enemy = empty_enemy_slot();
+  const unsigned bit = 1u << ((enemy - 0xe68) / 64);
+
+  mutable_tuning->thrust_bounce_height = 0;
+  saber_damage_set_arms(false);
+  g_ram[enemy + 0x27] = 32;
+  write_ram_word(g_ram, 0x0bc4, 0x1234);
+  const unsigned damage = MmxSaberAttackDamage(g_ram, enemy, slot, 1);
+  const unsigned drop = apply_test_damage(enemy, damage);
+  /* Mutation red: move the thrust_bounce_height <= 0 guard below the VY
+   * write, which would mutate movement even when the option is zero. */
+  check(damage == expected_damage && drop == expected_damage &&
+            read_ram_word(g_ram, 0x0bc4) == 0x1234 &&
+            (MmxSaberAttackHitSlots() & bit),
+        "saber-thrust bounce height 0 deals damage without writing VY");
+  *mutable_tuning = saved;
+  check(MmxSaberTuningThrustBounceHeight() ==
+            (unsigned)saved.thrust_bounce_height,
+        "saber-thrust restores bounce-height tuning");
+}
+
+static void saber_thrust_checks(const char *fixture_dir) {
+  char save0[4096];
+  char penguin[4096];
+  int written;
+  const MmxSaberAttack *thrust =
+      MmxSaberAttackRecord(SABER_KIND_THRUST, 0);
+  const unsigned normal_damage = MmxSaberTuningNormalDamage(
+      MMX_SABER_TUNING_DAMAGE_THRUST);
+  const unsigned boss_damage = MmxSaberTuningBossDamage(
+      MMX_SABER_TUNING_DAMAGE_THRUST);
+  const unsigned priority = MmxSaberPriorityTuned(
+      MMX_SABER_PRIORITY_CLASS_THRUST);
+
+  check(fixture_dir && fixture_dir[0],
+        "saber-thrust receives a fixture directory");
+  written = snprintf(save0, sizeof(save0), "%s/%s", fixture_dir,
+                     "save0.sav");
+  check(written >= 0 && written < (int)sizeof(save0),
+        "saber-thrust save0 path fits");
+  written = snprintf(penguin, sizeof(penguin), "%s/%s", fixture_dir,
+                     "penguin-fight.sav");
+  check(written >= 0 && written < (int)sizeof(penguin),
+        "saber-thrust Penguin path fits");
+  check(readable_file(save0) && readable_file(penguin),
+        "saber-thrust fixtures exist");
+
+  /* Mutation red: change the THRUST record timing, animation, or AIR window
+   * pointer in kSaberAttacks. */
+  check(thrust && thrust->visual_animation == 13 &&
+            thrust->startup_ticks == 2 && thrust->active_ticks == 253 &&
+            thrust->recovery_ticks == 0 && thrust->total_ticks == 255 &&
+            thrust->bounds_segment_count == 5 &&
+            thrust->bounds_segments[0].first_tick == 2 &&
+            thrust->bounds_segments[4].last_tick == 255 &&
+            thrust->bounds_pointer == MMX_SABER_AIR_BOUNDS_POINTER,
+        "saber-thrust record publishes animation 13, timing 2/253/255, five segments from tick 2, and $FF40");
+  check(normal_damage == 4 && boss_damage == 2 && priority == 8 &&
+            normal_damage + 2 == 6 && boss_damage + 1 == 3,
+        "saber-thrust tuning publishes damage 4/2, Arms damage 6/3, and priority 8");
+  check(MmxSaberTuningThrustBounceHeight() == 60,
+        "saber-thrust default bounce height is 60");
+
+  const SaberThrustTrace right_plain = saber_thrust_trace(
+      save0, SNES_PAD_RIGHT, SABER_THRUST_TRACE_PLAIN);
+  const SaberThrustTrace right_held = saber_thrust_trace(
+      save0, SNES_PAD_RIGHT, SABER_THRUST_TRACE_HELD);
+  /* Mutation red: add THRUST to an apply_motion_masks() movement lock, or
+   * write special movement while the shared AIR route is active. */
+  check(right_plain.apex_seen && right_held.launched &&
+            right_plain.apex_frame == right_held.launch_frame &&
+            saber_thrust_positions_match(&right_plain, &right_held),
+        "Right-held thrust matches plain jump X/Y through landing");
+
+  const SaberThrustTrace left_plain = saber_thrust_trace(
+      save0, SNES_PAD_LEFT, SABER_THRUST_TRACE_PLAIN);
+  const SaberThrustTrace left_held = saber_thrust_trace(
+      save0, SNES_PAD_LEFT, SABER_THRUST_TRACE_HELD);
+  check(left_plain.apex_seen && left_held.launched &&
+            left_plain.apex_frame == left_held.launch_frame &&
+            saber_thrust_positions_match(&left_plain, &left_held),
+        "Left-held thrust matches plain jump X/Y through landing");
+
+  bool lifecycle_ok = right_held.launched && right_held.landing_seen;
+  bool live_ok = true;
+  for (unsigned i = right_held.launch_frame;
+       lifecycle_ok && i < right_held.touchdown_frame; ++i) {
+    const MmxSaberAttackSnapshot snapshot = right_held.snapshots[i];
+    if (snapshot.kind != SABER_KIND_THRUST ||
+        snapshot.phase == SABER_PHASE_IDLE)
+      lifecycle_ok = false;
+  }
+  for (unsigned i = right_held.launch_frame;
+       live_ok && i <= right_held.touchdown_frame; ++i) {
+    const MmxSaberAttackSnapshot snapshot = right_held.snapshots[i];
+    if (snapshot.phase == SABER_PHASE_STARTUP) {
+      if (right_held.tagged_counts[i] != 0) live_ok = false;
+    } else if (snapshot.phase == SABER_PHASE_ACTIVE) {
+      if (right_held.tagged_counts[i] != 1 ||
+          !right_held.bounds_match[i] || !right_held.hitbox_live[i])
+        live_ok = false;
+    }
+  }
+  for (unsigned i = 0; i < sizeof(right_held.segment_seen) /
+                           sizeof(right_held.segment_seen[0]); ++i)
+    if (!right_held.segment_seen[i]) live_ok = false;
+  /* Mutation red: remove THRUST from the PlayerEnd landing owner list, or
+   * retire it with NATURAL before the native ground flag boundary. */
+  check(lifecycle_ok && right_held.landing_exit ==
+            MMX_SABER_ATTACK_EXIT_LANDING &&
+            right_held.landing_snapshot.kind == SABER_KIND_NONE &&
+            right_held.landing_snapshot.phase == SABER_PHASE_IDLE &&
+            right_held.landing_delay <= 1,
+        "saber-thrust stays live until landing and exits within one frame with EXIT_LANDING");
+  /* Mutation red: remove THRUST from shared_air_special() or
+   * air_collision_attack(), losing its live AIR bounds and hitbox. */
+  check(live_ok, "saber-thrust owns one live AIR bounds/hitbox slot from tick 2");
+
+  const SaberThrustTrace right_release = saber_thrust_trace(
+      save0, SNES_PAD_RIGHT, SABER_THRUST_TRACE_RELEASE);
+  bool idle_after_release = right_release.release_seen;
+  for (unsigned i = right_release.release_frame;
+       idle_after_release && i < right_release.count; ++i) {
+    if (right_release.snapshots[i].kind != SABER_KIND_NONE ||
+        right_release.snapshots[i].phase != SABER_PHASE_IDLE)
+      idle_after_release = false;
+  }
+  /* Mutation red: omit THRUST from the y_held release predicate, or release
+   * it one frame after the physical Y edge instead of on that frame. */
+  check(right_release.release_seen &&
+            right_release.release_frame < right_release.touchdown_frame &&
+            right_release.release_snapshot.kind == SABER_KIND_NONE &&
+            right_release.release_snapshot.phase == SABER_PHASE_IDLE &&
+            right_release.release_exit == MMX_SABER_ATTACK_EXIT_RELEASE &&
+            idle_after_release &&
+            saber_thrust_positions_match_from(&right_plain, &right_release,
+                                              right_release.release_frame),
+        "saber-thrust Y release exits RELEASE on the frame and keeps native fall motion");
+
+  /* Mutation red: map THRUST to another damage kind in attack_damage_kind(),
+   * skip the Arms bonus in attack_tuned_damage(), or re-add the immediate
+   * hit-mask clear in bounce_thrust_on_hit(). */
+  saber_thrust_damage_value_case(
+      save0, saber_thrust_air_live_slot_right, false, false, normal_damage,
+      priority, "saber-thrust normal damage is 4");
+  saber_thrust_damage_value_case(
+      save0, saber_thrust_air_live_slot_right, false, true, normal_damage + 2,
+      priority, "saber-thrust Arms normal damage is 6");
+  saber_thrust_damage_value_case(
+      penguin, saber_thrust_boss_live_slot, true, false, boss_damage,
+      priority, "saber-thrust boss damage is 2");
+  saber_thrust_damage_value_case(
+      penguin, saber_thrust_boss_live_slot, true, true, boss_damage + 1,
+      priority, "saber-thrust Arms boss damage is 3");
+
+  /* Mutation red: remove the THRUST priority mapping from slash_class(), or
+   * map MMX_SABER_PRIORITY_CLASS_THRUST to the wrong tuning entry. */
+  saber_thrust_bounce_checks(save0, normal_damage, priority);
+  saber_thrust_zero_bounce_case(save0, normal_damage);
+  saber_damage_set_arms(false);
+  puts("ok: saber-thrust");
+}
+
 static unsigned saber_specials_uppercut_live_slot(const char *path) {
   MmxSaberAttackSnapshot snapshot;
 
@@ -11640,6 +12179,7 @@ int main(int argc, char **argv) {
       !strcmp(only, "saber-capsule") ||
       !strcmp(only, "saber-specials-unlock") ||
       !strcmp(only, "saber-specials-damage") ||
+      !strcmp(only, "saber-thrust") ||
       !strcmp(only, "saber-wall") ||
       !strcmp(only, "saber-cancel") || !strcmp(only, "saber-buster-rules") ||
       !strcmp(only, "saber-damage") || !strcmp(only, "saber-priority") ||
@@ -11747,6 +12287,7 @@ int main(int argc, char **argv) {
       only && !strcmp(only, "saber-specials-damage");
   const bool saber_uppercut = only && !strcmp(only, "saber-uppercut");
   const bool saber_rolling = only && !strcmp(only, "saber-rolling");
+  const bool saber_thrust = only && !strcmp(only, "saber-thrust");
   const bool saber_lifecycle_load = only && !strcmp(only, "saber-lifecycle-load");
   const bool saber_contexts = only && !strcmp(only, "saber-contexts");
   const bool saber_buster_rules = only && !strcmp(only, "saber-buster-rules");
@@ -11774,6 +12315,7 @@ int main(int argc, char **argv) {
       saber_specials_damage ||
       saber_uppercut ||
       saber_rolling ||
+      saber_thrust ||
       saber_ground_hit || saber_cancel || saber_lifecycle_load ||
       saber_contexts ||
       saber_render_snapshot || saber_buster_rules || saber_burst_height ||
@@ -11866,6 +12408,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-rolling runs with the Saber package enabled");
     saber_rolling_checks(fixture_dir);
+  } else if (saber_thrust) {
+    check(MmxSaberEnabled(),
+          "saber-thrust runs with the Saber package enabled");
+    saber_thrust_checks(fixture_dir);
   } else if (saber_lifecycle_load) {
     check(MmxSaberEnabled(),
           "saber-lifecycle-load runs with the Saber package enabled");
@@ -12035,6 +12581,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-specials-damage") &&
        strcmp(only, "saber-uppercut") &&
       strcmp(only, "saber-rolling") &&
+      strcmp(only, "saber-thrust") &&
       strcmp(only, "saber-lifecycle-load") &&
       strcmp(only, "saber-contexts") &&
         strcmp(only, "saber-buster-rules") &&

@@ -629,9 +629,6 @@ static void bounce_thrust_on_hit(uint8_t *ram, unsigned projectile,
   /* Damage runs after native PlayerEnd. This RAM write is therefore present
    * before the next native gravity update, like scale_uppercut_jump(). */
   putword(ram + 0x0bc4, scaled_jump_velocity((unsigned)bounce));
-  /* One accepted hit consumes this bounce. The next collision gets a fresh
-   * target mask while the attack owner remains active. */
-  state.hit_slots = 0;
 }
 
 static void retire_projectile_slot(uint8_t *ram, unsigned d) {
@@ -1377,6 +1374,11 @@ void MmxSaberAttackPlayerEnd(uint8_t *ram) {
   state.previous_grounded = grounded;
   state.previous_grounded_valid = true;
   attack = state_attack();
+
+  if (state.phase == SABER_PHASE_ACTIVE && attack &&
+      attack->kind == SABER_KIND_THRUST &&
+      (int16_t)word(ram + 0x0bc4) < 0)
+    state.hit_slots = 0;
 
   if (uppercut_jump_refused) {
     MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
