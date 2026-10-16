@@ -1,6 +1,7 @@
 #include "mmx_saber_render.h"
 #include "mmx_saber_armor.h"
 #include "mmx_saber_black_zero.h"
+#include "mmx_saber_tuning.h"
 #include "mmx_zero.h"
 #include "sha256.h"
 
@@ -1156,6 +1157,111 @@ static unsigned render_test_saber_slot(const uint8_t *ram) {
   return 0;
 }
 
+static void thrust_test_start(uint8_t *ram) {
+  memset(ram, 0, 0x20000);
+  for (unsigned i = 0; i < 4; ++i)
+    ram[0x1f88 + i * 2] = 0x40;
+  MmxSaberAttackResetRam(ram);
+  MmxSaberAttackStepWithWallAndDash(
+      true, false, false, false, false, true, true, false, true, ram, 0, 0);
+}
+
+static void thrust_test_step(uint8_t *ram, bool y_held) {
+  MmxSaberAttackStepWithWallAndDash(
+      false, false, false, false, false, true, y_held, false, true, ram, 0, 0);
+}
+
+static unsigned thrust_test_vy(const uint8_t *ram) {
+  return ram[0x0bc4] | ((unsigned)ram[0x0bc5] << 8);
+}
+
+static void thrust_attack_checks(void) {
+  uint8_t ram[0x20000];
+  const MmxSaberAttack *attack =
+      MmxSaberAttackRecord(SABER_KIND_THRUST, 0);
+  MmxSaberTuning saved_tuning;
+  MmxSaberTuning *mutable_tuning;
+
+  check(attack && attack->visual_animation == 13 &&
+            attack->startup_ticks == 2 && attack->active_ticks == 253 &&
+            attack->recovery_ticks == 0 && attack->total_ticks == 255,
+        "thrust record publishes animation 13, startup 2, open-ended active 253, and clamped total 255");
+
+  MmxSaberTuningLoad(NULL, NULL);
+  thrust_test_start(ram);
+  thrust_test_step(ram, true);
+  thrust_test_step(ram, true);
+  for (unsigned i = 0; i < 12; ++i)
+    thrust_test_step(ram, true);
+  MmxSaberAttackSnapshot snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_THRUST && snapshot.tick == 14 &&
+            snapshot.phase == SABER_PHASE_ACTIVE && snapshot.anim_step == 6,
+        "thrust holds animation 13 final frame after seven two-tick frames");
+
+  bool open_ended = true;
+  for (unsigned i = 14; i < 60; ++i) {
+    thrust_test_step(ram, true);
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (snapshot.kind != SABER_KIND_THRUST ||
+        snapshot.phase != SABER_PHASE_ACTIVE)
+      open_ended = false;
+  }
+  check(open_ended && snapshot.tick == 60,
+        "thrust has no natural exit from tick 14 through tick 60 while airborne");
+
+  thrust_test_start(ram);
+  thrust_test_step(ram, true);
+  thrust_test_step(ram, true);
+  thrust_test_step(ram, false);
+  check(MmxSaberAttackSnapshotGet().phase == SABER_PHASE_IDLE &&
+            MmxSaberAttackLastExitReason() == MMX_SABER_ATTACK_EXIT_RELEASE,
+        "thrust slash release exits with MMX_SABER_ATTACK_EXIT_RELEASE");
+
+  thrust_test_start(ram);
+  thrust_test_step(ram, true);
+  MmxSaberAttackObservePreNative(ram);
+  ram[0x0bd3] = 4;
+  MmxSaberAttackPlayerEnd(ram);
+  check(MmxSaberAttackSnapshotGet().phase == SABER_PHASE_IDLE &&
+            MmxSaberAttackLastExitReason() == MMX_SABER_ATTACK_EXIT_LANDING,
+        "thrust landing exits with MMX_SABER_ATTACK_EXIT_LANDING");
+
+  MmxSaberTuningLoad(NULL, NULL);
+  thrust_test_start(ram);
+  thrust_test_step(ram, true);
+  thrust_test_step(ram, true);
+  MmxSaberAttackRuntimeTick(ram);
+  unsigned slot = render_test_saber_slot(ram);
+  const unsigned enemy = 0xe68;
+  ram[enemy] = 1;
+  ram[enemy + 0x27] = 32;
+  put_u16(ram, 0x0bc4, 0x0123);
+  const unsigned damage = MmxSaberAttackDamage(ram, enemy, slot, 1);
+  check(slot != 0 && damage == 4 && thrust_test_vy(ram) == 0x0420 &&
+            MmxSaberAttackHitSlots() == 0 &&
+            MmxSaberAttackSnapshotGet().phase == SABER_PHASE_ACTIVE,
+        "thrust hit writes VY 0x0420 at bounce height 60, clears hit mask, and stays active");
+
+  saved_tuning = *MmxSaberTuningGet();
+  mutable_tuning = (MmxSaberTuning *)(uintptr_t)MmxSaberTuningGet();
+  mutable_tuning->thrust_bounce_height = 0;
+  thrust_test_start(ram);
+  thrust_test_step(ram, true);
+  thrust_test_step(ram, true);
+  MmxSaberAttackRuntimeTick(ram);
+  slot = render_test_saber_slot(ram);
+  ram[enemy] = 1;
+  ram[enemy + 0x27] = 32;
+  put_u16(ram, 0x0bc4, 0x0123);
+  const unsigned no_bounce_damage = MmxSaberAttackDamage(ram, enemy, slot, 1);
+  const unsigned enemy_bit = 1u << ((enemy - 0xe68) / 64);
+  check(no_bounce_damage == 4 && thrust_test_vy(ram) == 0x0123 &&
+            (MmxSaberAttackHitSlots() & enemy_bit),
+        "thrust bounce height 0 leaves VY alone");
+  *mutable_tuning = saved_tuning;
+  MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
+}
+
 static const MmxSaberBoundsSegment *render_test_saber_segment(
     const MmxSaberAttack *attack, uint8_t tick, unsigned *index) {
   if (!attack) return NULL;
@@ -1211,9 +1317,13 @@ static void special_live_bounds_checks_one(MmxSaberPadKind kind,
     unsigned slot;
 
     MmxSaberAttackRuntimeTick(ram);
+    slot = render_test_saber_slot(ram);
     if (!segment) {
-      check(render_test_saber_slot(ram) == 0,
-            "special startup without an art frame has no live slot");
+      check(kind == SABER_KIND_THRUST && snapshot.phase == SABER_PHASE_ACTIVE ?
+                slot != 0 : slot == 0,
+            kind == SABER_KIND_THRUST && snapshot.phase == SABER_PHASE_ACTIVE ?
+                "open-ended thrust keeps its owner live outside the placeholder art window" :
+                "special startup without an art frame has no live slot");
     } else {
       const unsigned pointer = attack->bounds_pointer + segment_index * 4;
       const unsigned offset = 0x37f40 +
@@ -1225,7 +1335,6 @@ static void special_live_bounds_checks_one(MmxSaberPadKind kind,
             "live AIR record equals the current art segment");
       seen[segment_index] = true;
 
-      slot = render_test_saber_slot(ram);
       if (snapshot.phase == SABER_PHASE_ACTIVE) {
         check(slot && (ram[slot + 0x11] & 0x40) ==
                   expected_projectile_facing,
@@ -1348,6 +1457,7 @@ int main(void) {
   special_render_checks(assets);
   ride_matrix_checks(ride);
   uppercut_attack_checks();
+  thrust_attack_checks();
   special_live_bounds_checks();
 
   MmxSaberAttackReset();

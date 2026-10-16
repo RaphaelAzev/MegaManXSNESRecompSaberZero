@@ -267,6 +267,9 @@ static void check_defaults(void) {
   check(tuning->uppercut_height == 130 &&
             MmxSaberTuningUppercutHeight() == 130,
         "uppercut height defaults to 130 percent");
+  check(tuning->thrust_bounce_height == 60 &&
+            MmxSaberTuningThrustBounceHeight() == 60,
+        "thrust bounce height defaults to 60 percent without a manifest option");
   check(!tuning->show_hitboxes && !MmxSaberTuningShowHitboxes(),
         "show_hitboxes defaults off");
   check(!tuning->start_all_upgrades && !MmxSaberTuningStartAllUpgrades(),
@@ -301,6 +304,7 @@ static void check_each_id_maps_to_field(void) {
     {"uppercut_priority", "4"}, {"rolling_slash_priority", "5"},
     {"priority_window_frames", "71"}, {"finisher_window_frames", "60"},
     {"uppercut_height", "155"},
+    {"thrust_bounce_height", "88"},
     {"saber_swing_volume", "90"},
     {"show_hitboxes", "true"},
     {"start_all_upgrades", "true"},
@@ -331,6 +335,8 @@ static void check_each_id_maps_to_field(void) {
         "finisher window option id maps to its field");
   check(MmxSaberTuningUppercutHeight() == 155,
         "uppercut height option id maps to its field");
+  check(MmxSaberTuningThrustBounceHeight() == 88,
+        "thrust bounce height option id maps to its field");
   check(MmxSaberTuningSaberSwingVolume() == 90,
         "swing volume option id maps to its field");
   check(MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_UPPERCUT) == 19,
@@ -370,6 +376,7 @@ static void check_clamping_and_invalid_fallback(void) {
     {"priority_window_frames", "29"},
     {"finisher_window_frames", "61"},
     {"uppercut_height", "99"},
+    {"thrust_bounce_height", "-1"},
     {"saber_swing_volume", "-10"},
     {"wave_priority", "10"},
     {"uppercut_priority", "0"},
@@ -395,6 +402,8 @@ static void check_clamping_and_invalid_fallback(void) {
         "finisher window clamps to its manifest maximum");
   check(MmxSaberTuningUppercutHeight() == 100,
         "uppercut height clamps to its manifest minimum");
+  check(MmxSaberTuningThrustBounceHeight() == 0,
+        "thrust bounce height clamps to zero");
   check(MmxSaberTuningSaberSwingVolume() == 0,
         "swing volume clamps to its manifest minimum");
   check(MmxSaberTuningPriority(MMX_SABER_TUNING_PRIORITY_WAVE) == 9,
@@ -424,12 +433,15 @@ static void check_clamping_and_invalid_fallback(void) {
 
   static const FakeOption high_options[] = {
     {"uppercut_height", "201"},
+    {"thrust_bounce_height", "151"},
   };
   FakeOptions high_source = {
     high_options, sizeof(high_options) / sizeof(high_options[0])};
   MmxSaberTuningLoad(fake_reader, &high_source);
   check(MmxSaberTuningUppercutHeight() == 200,
         "uppercut height clamps to its manifest maximum");
+  check(MmxSaberTuningThrustBounceHeight() == 150,
+        "thrust bounce height clamps to 150 percent");
 }
 
 static void check_boss_semantics(void) {

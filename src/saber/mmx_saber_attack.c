@@ -251,10 +251,12 @@ static const MmxSaberAttack kSaberAttacks[] = {
         .index = 0,
         .visual_animation = 13,
         .facing_xor = 1,
-        .startup_ticks = 4,
-        .active_ticks = 8,
-        .recovery_ticks = 6,
-        .total_ticks = 18,
+        .startup_ticks = 2,
+        /* uint8_t timing clamps the open-ended active window at 255 total
+         * ticks. The stepper exits only after tick 254, not during gameplay. */
+        .active_ticks = 253,
+        .recovery_ticks = 0,
+        .total_ticks = 255,
         .chain_open_tick = MMX_SABER_NO_WINDOW,
         .chain_close_tick = MMX_SABER_NO_WINDOW,
         .buffer_open_tick = MMX_SABER_NO_WINDOW,
@@ -346,10 +348,10 @@ static void putword(uint8_t *p, unsigned value) {
   p[1] = (uint8_t)(value >> 8);
 }
 
-static uint16_t uppercut_jump_velocity(void) {
+static uint16_t scaled_jump_velocity(unsigned percentage) {
   const uint64_t native_velocity = 0x0553;
   const uint64_t target = native_velocity * native_velocity *
-      (uint64_t)MmxSaberTuningUppercutHeight();
+      (uint64_t)percentage;
   uint32_t root = 0;
 
   /* Find floor(sqrt(target)) without floating point.  Dividing that root by
@@ -363,6 +365,10 @@ static uint16_t uppercut_jump_velocity(void) {
       target * 4)
     ++velocity;
   return (uint16_t)velocity;
+}
+
+static uint16_t uppercut_jump_velocity(void) {
+  return scaled_jump_velocity((unsigned)MmxSaberTuningUppercutHeight());
 }
 
 static void scale_uppercut_jump(uint8_t *ram) {
@@ -606,6 +612,21 @@ static bool saber_projectile_owned(const uint8_t *ram, unsigned d) {
   return current_projectile_tagged(ram, d) && state.phase == SABER_PHASE_ACTIVE;
 }
 
+static void bounce_thrust_on_hit(uint8_t *ram, unsigned projectile,
+                                 unsigned damage) {
+  const int bounce = MmxSaberTuningThrustBounceHeight();
+  if (!ram || !damage || state.kind != SABER_KIND_THRUST ||
+      state.phase != SABER_PHASE_ACTIVE ||
+      !saber_projectile_owned(ram, projectile) || bounce <= 0)
+    return;
+  /* Damage runs after native PlayerEnd. This RAM write is therefore present
+   * before the next native gravity update, like scale_uppercut_jump(). */
+  putword(ram + 0x0bc4, scaled_jump_velocity((unsigned)bounce));
+  /* One accepted hit consumes this bounce. The next collision gets a fresh
+   * target mask while the attack owner remains active. */
+  state.hit_slots = 0;
+}
+
 static void retire_projectile_slot(uint8_t *ram, unsigned d) {
   bool live;
   if (!ram || !projectile_slot_valid(d)) return;
@@ -660,7 +681,7 @@ static uint8_t animation_step_for_tick(uint8_t animation, uint8_t tick) {
    * rendering exists. */
   if (animation == 3 && tick >= 30)
     return (uint8_t)(15 + (tick - 30) / 3);
-  if (animation == 8 && tick >= 14)
+  if ((animation == 8 || animation == 13) && tick >= 14)
     return 6;
   return (uint8_t)(tick / 2);
 }
@@ -1062,7 +1083,8 @@ void MmxSaberAttackStepWithWallAndDash(bool saber_pressed, bool grounded,
     return;
   }
 
-  if (attack->kind == SABER_KIND_UPPERCUT && !y_held) {
+  if ((attack->kind == SABER_KIND_UPPERCUT ||
+       attack->kind == SABER_KIND_THRUST) && !y_held) {
     MmxSaberAttackExit(runtime_ram, MMX_SABER_ATTACK_EXIT_RELEASE);
     return;
   }
@@ -1437,6 +1459,7 @@ unsigned MmxSaberAttackWeaponTick(uint8_t *ram, unsigned projectile,
 static unsigned saber_attack_damage_core(uint8_t *ram, unsigned enemy,
                                           unsigned projectile, unsigned value) {
   unsigned bit;
+  unsigned damage;
   const MmxSaberAttack *attack;
   if (MmxSaberWaveRuntimeOwns(ram, projectile))
     return MmxSaberWaveRuntimeDamage(ram, enemy, projectile, value);
@@ -1455,7 +1478,9 @@ static unsigned saber_attack_damage_core(uint8_t *ram, unsigned enemy,
   if (state.hit_slots & bit) return 0;
   state.hit_slots |= (uint16_t)bit;
   attack = state_attack();
-  return attack_tuned_damage(ram, enemy, attack_damage_kind(attack));
+  damage = attack_tuned_damage(ram, enemy, attack_damage_kind(attack));
+  bounce_thrust_on_hit(ram, projectile, damage);
+  return damage;
 }
 
 unsigned MmxSaberAttackDamage(uint8_t *ram, unsigned enemy,
@@ -1494,6 +1519,7 @@ unsigned MmxSaberAttackDamage(uint8_t *ram, unsigned enemy,
       ram[enemy + 0x38] = 0;
     clear_boss_protection_for_lethal_saber_damage(ram, enemy, &classification,
                                                   damage);
+    bounce_thrust_on_hit(ram, projectile, damage);
     return damage;
   }
 
