@@ -836,6 +836,10 @@ static void special_render_checks(const MmxSaberAssets *assets) {
       MmxSaberAssetsAnimationById(assets, 11);
   const MmxSaberAnimation *crescent =
       MmxSaberAssetsAnimationById(assets, 12);
+  const MmxSaberAnimation *thrust =
+      MmxSaberAssetsAnimationById(assets, 13);
+  const MmxSaberAnimation *thrust_fx =
+      MmxSaberAssetsAnimationById(assets, 14);
   MmxRenderPlayerOverlay actual;
   MmxRenderPlayerOverlay normal_step_one = {0};
   MmxSaberAttackSnapshot rolling_step_one;
@@ -847,6 +851,9 @@ static void special_render_checks(const MmxSaberAssets *assets) {
             rolling->step_count == 9 && rolling_arc->step_count == 8 &&
             crescent->step_count == 9,
         "production asset exposes complete uppercut and rolling pairing animations");
+  check(thrust && thrust_fx && thrust->step_count == 7 &&
+            thrust_fx->step_count == 5,
+        "production asset exposes complete thrust body and streak pairing animations");
   check(MmxSaberRenderCrescentEnabled(),
         "MmxSaberRenderSetCrescentEnabled defaults to enabled");
   MmxSaberRenderSetCrescentEnabled(true);
@@ -911,6 +918,57 @@ static void special_render_checks(const MmxSaberAssets *assets) {
       rolling_step_one_tick = (uint8_t)tick;
     }
     tick = (uint16_t)(tick + timing->duration_ticks);
+  }
+
+  /* Mutation red: remove the animation 13/14 branch from resolve_snapshot()
+   * in src/saber/mmx_saber_render.c. */
+  tick = 0;
+  for (uint16_t step = 0; step < thrust->step_count; ++step) {
+    const MmxSaberStep *timing =
+        MmxSaberAssetsAnimationStep(assets, 13, step);
+    const MmxSaberFrame *body =
+        MmxSaberAssetsFrameForStep(assets, 13, step);
+    const MmxSaberFrame *streak = step ?
+        MmxSaberAssetsFrameForStep(assets, 14,
+                                   step < 6 ? (uint16_t)(step - 1) : 1) : NULL;
+    MmxSaberAttackSnapshot snapshot = {
+      SABER_KIND_THRUST, 0, SABER_PHASE_ACTIVE, (uint8_t)tick, 13, 0, 0x40};
+
+    check(timing && body && (!step || streak),
+          "production asset exposes every thrust body and streak step");
+    check(MmxSaberRenderResolveSnapshot(assets, snapshot, &actual),
+          "production edit resolve_snapshot resolves every thrust step");
+    check(actual.active && check_plane(&actual.body, &body->body) &&
+              (streak ? check_plane(&actual.blade, &streak->body) :
+                        empty_overlay_plane(&actual.blade)) &&
+              actual.blade_layer == (streak ? 2 : 0) &&
+              empty_overlay_plane(&actual.front) &&
+              actual.front_palette == NULL && actual.front_palette_count == 0 &&
+              actual.palette == raw_palette &&
+              actual.palette_count == raw_palette_count && !actual.facing_left,
+          "production edit resolve_snapshot pairs animation 13 body with delayed animation 14 streak, keeps step 0 empty, and uses blade layer 2");
+    tick = (uint16_t)(tick + timing->duration_ticks);
+  }
+
+  {
+    static const uint8_t held_ticks[] = {14, 40};
+    const MmxSaberFrame *body =
+        MmxSaberAssetsFrameForStep(assets, 13, 6);
+    const MmxSaberFrame *streak =
+        MmxSaberAssetsFrameForStep(assets, 14, 1);
+    check(body && streak, "production asset exposes the held thrust body and streak");
+    for (unsigned i = 0; i < sizeof(held_ticks) / sizeof(held_ticks[0]); ++i) {
+      MmxSaberAttackSnapshot snapshot = {
+        SABER_KIND_THRUST, 0, SABER_PHASE_ACTIVE, held_ticks[i], 13, 6, 0x40};
+      check(MmxSaberRenderResolveSnapshot(assets, snapshot, &actual) &&
+                actual.active && check_plane(&actual.body, &body->body) &&
+                check_plane(&actual.blade, &streak->body) &&
+                actual.blade_layer == 2 && empty_overlay_plane(&actual.front) &&
+                actual.front_palette == NULL && actual.front_palette_count == 0 &&
+                actual.palette == raw_palette &&
+                actual.palette_count == raw_palette_count,
+            "production edit resolve_snapshot holds thrust step 6 with animation 14 step 1 streak at ticks 14 and 40");
+    }
   }
 
   rolling_step_one = (MmxSaberAttackSnapshot){
@@ -1284,6 +1342,7 @@ static void special_live_bounds_checks_one(MmxSaberPadKind kind,
   static uint8_t rom[0x40000];
   const MmxSaberAttack *attack = MmxSaberAttackRecord(kind, 0);
   bool seen[MMX_SABER_MAX_ACTIVE_SEGMENTS] = {false};
+  bool held_tick_checked = false;
   const uint8_t native_facing = direction == 1 ? 0x40 : 0;
   const uint8_t expected_projectile_facing = direction == 1 ? 0 : 0x40;
   const bool down_held = kind == SABER_KIND_THRUST;
@@ -1334,6 +1393,15 @@ static void special_live_bounds_checks_one(MmxSaberPadKind kind,
       check(!memcmp(rom + offset, expected_record, sizeof(expected_record)),
             "live AIR record equals the current art segment");
       seen[segment_index] = true;
+      if (kind == SABER_KIND_THRUST && snapshot.tick == 40) {
+        check(segment_index == 4 && segment->first_tick == 10 &&
+                  segment->last_tick == 255 && segment->bounds_x == 18 &&
+                  segment->bounds_y == 20 &&
+                  segment->bounds_half_width == 8 &&
+                  segment->bounds_half_height == 17,
+              "production edit kThrustBounds keeps the full-length held hitbox at tick 40");
+        held_tick_checked = true;
+      }
 
       if (snapshot.phase == SABER_PHASE_ACTIVE) {
         check(slot && (ram[slot + 0x11] & 0x40) ==
@@ -1361,6 +1429,9 @@ static void special_live_bounds_checks_one(MmxSaberPadKind kind,
   }
   for (unsigned i = 0; i < attack->bounds_segment_count; ++i)
     check(seen[i], "every special art segment reaches the live AIR window");
+  if (kind == SABER_KIND_THRUST)
+    check(held_tick_checked,
+          "production edit kThrustBounds reaches held tick 40 in the live AIR window");
   MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
 }
 
@@ -1373,7 +1444,11 @@ static void special_live_bounds_checks(void) {
                                  "rolling slash");
   special_live_bounds_checks_one(SABER_KIND_ROLLING, false, 3, 2,
                                  "rolling slash");
+  /* Mutation red: point THRUST back to kAirSlashBounds in
+   * src/saber/mmx_saber_attack.c. */
   special_live_bounds_checks_one(SABER_KIND_THRUST, false, 4, 1,
+                                 "thrust");
+  special_live_bounds_checks_one(SABER_KIND_THRUST, false, 4, 2,
                                  "thrust");
 }
 

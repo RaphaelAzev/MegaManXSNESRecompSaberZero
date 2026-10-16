@@ -73,10 +73,12 @@ static int attack_map_test(void) {
     MMX_SABER_SFX_CLIP_SABER_1,
     MMX_SABER_SFX_CLIP_SABER_2,
     MMX_SABER_SFX_CLIP_UPPERCUT,
-    MMX_SABER_SFX_CLIP_CRESCENT_SLASH
+    MMX_SABER_SFX_CLIP_CRESCENT_SLASH,
+    MMX_SABER_SFX_CLIP_SABER_2
   };
   int ok = 1;
-  /* Mutation red: edit kAttackClips in src/saber/mmx_saber_sfx.c. */
+  /* Mutation red: edit kAttackClips, including the THRUST row, in
+   * src/saber/mmx_saber_sfx.c. */
   for (unsigned i = 0; i < MMX_SABER_SFX_ATTACK_COUNT; ++i)
     ok &= check(MmxSaberSfxAttackClip((MmxSaberSfxAttackCue)i) == expected[i],
                 "every Saber attack cue maps to its clip");

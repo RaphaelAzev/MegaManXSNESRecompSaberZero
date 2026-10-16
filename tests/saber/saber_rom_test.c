@@ -10434,9 +10434,13 @@ static void saber_specials_unlock_checks(const char *x1_rom,
         "SYNTHETIC thrust route is airborne before Down+Y");
   frame(SNES_PAD_B | SNES_PAD_DOWN | SNES_PAD_Y);
   snapshot = MmxSaberAttackSnapshotGet();
+  /* Mutation red: remove SABER_KIND_THRUST from attack_cue() in
+   * src/saber/mmx_saber_attack.c. */
   check(snapshot.kind == SABER_KIND_THRUST &&
-            snapshot.phase != SABER_PHASE_IDLE,
-        "SYNTHETIC save0 (4 defeated) air Down+Y starts thrust");
+            snapshot.phase != SABER_PHASE_IDLE &&
+            MmxSaberAttackCueCount() == 1 &&
+            MmxSaberSfxLastClip() == MMX_SABER_SFX_CLIP_SABER_2,
+        "SYNTHETIC save0 (4 defeated) air Down+Y starts thrust and emits exactly one THRUST cue");
 
   /* Mutation red: lower IDLE thrust selection from defeated >=4. */
   saber_specials_unlock_load(fixture, 0);

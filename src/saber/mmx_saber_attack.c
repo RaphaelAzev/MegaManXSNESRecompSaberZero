@@ -73,6 +73,13 @@ static const MmxSaberBoundsSegment kRollingSlashBounds[] = {
     {14, 15, -13, -14, 23, 27},
     {16, 17, -4, -28, 27, 16}};
 
+static const MmxSaberBoundsSegment kThrustBounds[] = {
+    {2, 3, 26, -12, 11, 7},
+    {4, 5, 18, 20, 8, 17},
+    {6, 7, 18, 20, 8, 17},
+    {8, 9, 18, 17, 8, 7},
+    {10, 255, 18, 20, 8, 17}};
+
 /* Ported from old src/mmx_saber.c:260-400.  In particular, keep the numeric
  * timing values here independent of the ROM test's old-table oracle. */
 static const MmxSaberAttack kSaberAttacks[] = {
@@ -262,9 +269,9 @@ static const MmxSaberAttack kSaberAttacks[] = {
         .buffer_open_tick = MMX_SABER_NO_WINDOW,
         .buffer_close_tick = MMX_SABER_NO_WINDOW,
         .next_index = MMX_SABER_NO_WINDOW,
-        .bounds_segments = kAirSlashBounds,
-        .bounds_segment_count = sizeof(kAirSlashBounds) /
-            sizeof(kAirSlashBounds[0]),
+        .bounds_segments = kThrustBounds,
+        .bounds_segment_count = sizeof(kThrustBounds) /
+            sizeof(kThrustBounds[0]),
         .damage = 8,
         .bounds_pointer = MMX_SABER_AIR_BOUNDS_POINTER}};
 
@@ -710,6 +717,8 @@ static MmxSaberSfxAttackCue attack_cue(const MmxSaberAttack *attack) {
       return MMX_SABER_SFX_ATTACK_UPPERCUT;
     case SABER_KIND_ROLLING:
       return MMX_SABER_SFX_ATTACK_ROLLING;
+    case SABER_KIND_THRUST:
+      return MMX_SABER_SFX_ATTACK_THRUST;
     default:
       return MMX_SABER_SFX_ATTACK_COUNT;
   }

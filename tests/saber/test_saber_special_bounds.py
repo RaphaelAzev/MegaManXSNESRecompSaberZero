@@ -19,6 +19,7 @@ SPRITES = ROOT / "assets" / "saber-zero" / "sprites"
 TABLES = {
     "Uppercut": "kUppercutBounds",
     "RollingSlash": "kRollingSlashBounds",
+    "DownThrust": "kThrustBounds",
 }
 
 ENTRY = re.compile(
@@ -43,7 +44,12 @@ def fx_box(path: Path, cell: int, cell_index: int) -> tuple[int, int, int, int]:
     return x0 + 1, y0 + 3, x1 + 1, y1 + 3
 
 
-def transformed(box: tuple[int, int, int, int], first: int, last: int) -> tuple[int, ...]:
+def transformed(
+    box: tuple[int, int, int, int],
+    first: int,
+    last: int,
+    minimum_half_width: int = 0,
+) -> tuple[int, ...]:
     x0, y0, x1, y1 = box
     width = x1 - x0
     height = y1 - y0
@@ -52,7 +58,7 @@ def transformed(box: tuple[int, int, int, int], first: int, last: int) -> tuple[
         last,
         (x0 + x1) // 2 - 64,
         (y0 + y1) // 2 - 72,
-        (width + 1) // 2,
+        max((width + 1) // 2, minimum_half_width),
         (height + 1) // 2,
     )
 
@@ -79,13 +85,34 @@ class SaberSpecialBoundsTests(unittest.TestCase):
                 fx_path = SPRITES / f"Special_{move}_FX.png"
                 fx_count = len(config["moves"][move]["fx"])
                 actual = c_table(source, table_name)
-                expected = []
-                for art_index in range(fx_count):
-                    # RollingSlash_FX omits Zero step 0; its first cell is step 1.
-                    step = art_index if move == "Uppercut" else art_index + 1
-                    box = fx_box(fx_path, cell, art_index)
-                    last = 255 if move == "Uppercut" and step == 6 else step * 2 + 1
-                    expected.append(transformed(box, step * 2, last))
+                if move == "DownThrust":
+                    # DownThrust_FX starts on Zero step 1. The held pose keeps
+                    # the full-length fx1 streak and every segment is at least
+                    # eight pixels wide.
+                    schedule = (
+                        (0, 2, 3),
+                        (1, 4, 5),
+                        (2, 6, 7),
+                        (3, 8, 9),
+                        (1, 10, 255),
+                    )
+                    expected = [
+                        transformed(
+                            fx_box(fx_path, cell, art_index),
+                            first,
+                            last,
+                            minimum_half_width=8,
+                        )
+                        for art_index, first, last in schedule
+                    ]
+                else:
+                    expected = []
+                    for art_index in range(fx_count):
+                        # RollingSlash_FX omits Zero step 0; its first cell is step 1.
+                        step = art_index if move == "Uppercut" else art_index + 1
+                        box = fx_box(fx_path, cell, art_index)
+                        last = 255 if move == "Uppercut" and step == 6 else step * 2 + 1
+                        expected.append(transformed(box, step * 2, last))
 
                 self.assertEqual(
                     actual,
