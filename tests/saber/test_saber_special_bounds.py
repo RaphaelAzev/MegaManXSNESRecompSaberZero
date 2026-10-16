@@ -86,15 +86,13 @@ class SaberSpecialBoundsTests(unittest.TestCase):
                 fx_count = len(config["moves"][move]["fx"])
                 actual = c_table(source, table_name)
                 if move == "DownThrust":
-                    # DownThrust_FX starts on Zero step 1. The held pose keeps
-                    # the full-length fx1 streak and every segment is at least
+                    # DownThrust_FX starts on Zero step 1. The shortened body
+                    # uses fx0, fx1, then held fx2; every segment is at least
                     # eight pixels wide.
                     schedule = (
                         (0, 2, 3),
                         (1, 4, 5),
-                        (2, 6, 7),
-                        (3, 8, 9),
-                        (1, 10, 255),
+                        (2, 6, 255),
                     )
                     expected = [
                         transformed(

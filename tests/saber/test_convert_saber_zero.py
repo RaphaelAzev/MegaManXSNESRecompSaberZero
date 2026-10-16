@@ -338,7 +338,7 @@ class SaberConverterTests(unittest.TestCase):
             10: (10, list(range(1106, 1115))),
             11: (11, list(range(1115, 1123))),
             12: (12, list(range(1123, 1132))),
-            13: (13, list(range(1132, 1139))),
+            13: (13, list(range(1132, 1136))),
             14: (14, list(range(1139, 1144))),
         }
         animations_by_id = {
@@ -380,7 +380,7 @@ class SaberConverterTests(unittest.TestCase):
 
         self.assertEqual(
             sorted(frame_id for frame_id in frames_by_id if 1092 <= frame_id <= 1143),
-            list(range(1092, 1144)),
+            list(range(1092, 1136)) + list(range(1139, 1144)),
         )
         saber2_origins = [
             (frame["source_frame"], tuple(frame["body"]["origin"]))
@@ -566,8 +566,8 @@ class SaberConverterTests(unittest.TestCase):
         self.assertEqual(source_count, len(manifest["sources"]))
         self.assertEqual(palette_count, 37)
         self.assertEqual(animation_count, 14)
-        self.assertEqual(step_count, 143)
-        self.assertEqual(frame_count, 143)
+        self.assertEqual(step_count, 140)
+        self.assertEqual(frame_count, 140)
         section = 112 + source_count * 36
         section += palette_count * 2
         section = (section + 3) & ~3

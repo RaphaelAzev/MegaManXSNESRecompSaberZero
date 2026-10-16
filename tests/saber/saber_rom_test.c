@@ -110,10 +110,10 @@ static const char *const kMmxRomDigest =
     "b8f70a6e7fb93819f79693578887e2c11e196bdf1ac6ddc7cb924b1ad0be2d32";
 
 static const uint8_t kSaberManifestSha[32] = {
-  0x36, 0xa6, 0xf0, 0x5d, 0xa0, 0xc2, 0x2a, 0x6c,
-  0x81, 0xe4, 0x8b, 0x29, 0x26, 0xf5, 0x57, 0x1e,
-  0x44, 0x32, 0x5b, 0x83, 0xf9, 0xf3, 0x8d, 0x79,
-  0x9c, 0x7f, 0x96, 0x1a, 0x49, 0xff, 0x54, 0x87,
+  0x63, 0x18, 0x0b, 0x67, 0xc5, 0x10, 0x70, 0x7d,
+  0x77, 0x15, 0x09, 0x9e, 0x44, 0x1d, 0x7b, 0xe9,
+  0x02, 0x33, 0x3d, 0x63, 0x54, 0xca, 0xd7, 0x54,
+  0xa5, 0xe6, 0xc2, 0x46, 0xbe, 0xd7, 0xb4, 0xab,
 };
 
 static const uint8_t kRideManifestSha[32] = {
@@ -11280,9 +11280,8 @@ enum {
 };
 
 /* Independent oracle for kThrustBounds in src/saber/mmx_saber_attack.c. */
-static const uint8_t kSaberThrustBounds[20] = {
-  26, 244, 11, 7, 18, 20, 8, 17, 18, 20,
-  8, 17, 18, 17, 8, 7, 18, 20, 8, 17,
+static const uint8_t kSaberThrustBounds[12] = {
+  26, 244, 11, 7, 18, 20, 8, 17, 18, 20, 8, 17,
 };
 
 typedef enum SaberThrustTraceMode {
@@ -11299,7 +11298,7 @@ typedef struct SaberThrustTrace {
   unsigned live_pointers[SABER_THRUST_TRACE_LIMIT];
   bool bounds_match[SABER_THRUST_TRACE_LIMIT];
   bool hitbox_live[SABER_THRUST_TRACE_LIMIT];
-  bool segment_seen[5];
+  bool segment_seen[3];
   unsigned count;
   unsigned airborne_frames;
   unsigned apex_frame;
@@ -11342,7 +11341,9 @@ static void saber_thrust_capture_live(SaberThrustTrace *trace,
   trace->tagged_counts[sample] = tagged_projectiles();
   if (!slot || snapshot.phase != SABER_PHASE_ACTIVE || snapshot.tick < 2)
     return;
-  segment = snapshot.tick < 10 ? (snapshot.tick - 2) / 2 : 4;
+  /* Mutation red: restore the old five-segment tick mapping beside
+   * kThrustBounds in src/saber/mmx_saber_attack.c. */
+  segment = snapshot.tick < 6 ? (snapshot.tick - 2) / 2 : 2;
   expected_pointer = MMX_SABER_AIR_BOUNDS_POINTER + segment * 4;
   trace->live_pointers[sample] = read_ram_word(g_ram, slot + 0x20);
   live_record = g_snes->cart->rom + 0x28000 + expected_pointer;
@@ -11697,15 +11698,15 @@ static void saber_thrust_checks(const char *fixture_dir) {
         "saber-thrust fixtures exist");
 
   /* Mutation red: change the THRUST record timing, animation, or AIR window
-   * pointer in kSaberAttacks. */
+   * pointer in kSaberAttacks, or restore its old five-segment bounds count. */
   check(thrust && thrust->visual_animation == 13 &&
             thrust->startup_ticks == 2 && thrust->active_ticks == 253 &&
             thrust->recovery_ticks == 0 && thrust->total_ticks == 255 &&
-            thrust->bounds_segment_count == 5 &&
+            thrust->bounds_segment_count == 3 &&
             thrust->bounds_segments[0].first_tick == 2 &&
-            thrust->bounds_segments[4].last_tick == 255 &&
+            thrust->bounds_segments[2].last_tick == 255 &&
             thrust->bounds_pointer == MMX_SABER_AIR_BOUNDS_POINTER,
-        "saber-thrust record publishes animation 13, timing 2/253/255, five segments from tick 2, and $FF40");
+        "saber-thrust record publishes animation 13, timing 2/253/255, three segments from tick 2, and $FF40");
   check(normal_damage == 4 && boss_damage == 2 && priority == 8 &&
             normal_damage + 2 == 6 && boss_damage + 1 == 3,
         "saber-thrust tuning publishes damage 4/2, Arms damage 6/3, and priority 8");

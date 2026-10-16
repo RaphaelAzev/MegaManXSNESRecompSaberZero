@@ -325,9 +325,8 @@ static bool resolve_snapshot(const MmxSaberAssets *assets,
     }
   } else if (snapshot.anim_id == 13) {
     if (step_index) {
-      const uint16_t blade_step = step_index <= 5 ?
-          (uint16_t)(step_index - 1) : 1;
-      blade_frame = MmxSaberAssetsFrameForStep(assets, 14, blade_step);
+      blade_frame = MmxSaberAssetsFrameForStep(
+          assets, 14, (uint16_t)(step_index - 1));
       if (!blade_frame || !blade_frame->body.pixels ||
           !blade_frame->body.width || !blade_frame->body.height) {
         clear_overlay(out);

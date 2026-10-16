@@ -76,9 +76,7 @@ static const MmxSaberBoundsSegment kRollingSlashBounds[] = {
 static const MmxSaberBoundsSegment kThrustBounds[] = {
     {2, 3, 26, -12, 11, 7},
     {4, 5, 18, 20, 8, 17},
-    {6, 7, 18, 20, 8, 17},
-    {8, 9, 18, 17, 8, 7},
-    {10, 255, 18, 20, 8, 17}};
+    {6, 255, 18, 20, 8, 17}};
 
 /* Ported from old src/mmx_saber.c:260-400.  In particular, keep the numeric
  * timing values here independent of the ROM test's old-table oracle. */
@@ -685,8 +683,11 @@ static uint8_t animation_step_for_tick(uint8_t animation, uint8_t tick) {
    * rendering exists. */
   if (animation == 3 && tick >= 30)
     return (uint8_t)(15 + (tick - 30) / 3);
-  if ((animation == 8 || animation == 13) && tick >= 14)
+  if (animation == 8 && tick >= 14)
     return 6;
+  /* The downward thrust holds its fourth (diving) step. */
+  if (animation == 13 && tick >= 6)
+    return 3;
   return (uint8_t)(tick / 2);
 }
 

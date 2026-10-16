@@ -2370,57 +2370,6 @@
       "source_frame": 3
     },
     {
-      "id": 1136,
-      "source": 13,
-      "body": {
-        "rect": [
-          560,
-          56,
-          40,
-          35
-        ],
-        "origin": [
-          49,
-          59
-        ]
-      },
-      "source_frame": 4
-    },
-    {
-      "id": 1137,
-      "source": 13,
-      "body": {
-        "rect": [
-          688,
-          56,
-          40,
-          35
-        ],
-        "origin": [
-          49,
-          59
-        ]
-      },
-      "source_frame": 5
-    },
-    {
-      "id": 1138,
-      "source": 13,
-      "body": {
-        "rect": [
-          815,
-          53,
-          45,
-          37
-        ],
-        "origin": [
-          48,
-          56
-        ]
-      },
-      "source_frame": 6
-    },
-    {
       "id": 1139,
       "source": 14,
       "body": {
@@ -3121,18 +3070,6 @@
         },
         {
           "frame": 1135,
-          "ticks": 2
-        },
-        {
-          "frame": 1136,
-          "ticks": 2
-        },
-        {
-          "frame": 1137,
-          "ticks": 2
-        },
-        {
-          "frame": 1138,
           "ticks": 2
         }
       ]
