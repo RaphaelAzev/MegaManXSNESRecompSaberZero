@@ -80,6 +80,7 @@ const MmxSaberAttack *MmxSaberAttackTableAt(size_t id);
 size_t MmxSaberAttackTableCount(void);
 MmxSaberPadPhase MmxSaberAttackPhaseForTick(const MmxSaberAttack *attack,
                                             uint8_t tick);
+uint8_t MmxSaberThrustAnimationStepForTick(uint8_t tick);
 
 void MmxSaberAttackReset(void);
 /* Reset host attack state without retiring Saber-owned guest slots. */

@@ -677,18 +677,22 @@ static const MmxSaberAttack *next_ground_attack(
       attack->next_index);
 }
 
+uint8_t MmxSaberThrustAnimationStepForTick(uint8_t tick) {
+  if (tick < 4) return (uint8_t)(tick / 2);
+  return (uint8_t)(2 + ((tick - 4) / 4) % 2);
+}
+
 static uint8_t animation_step_for_tick(uint8_t animation, uint8_t tick) {
   /* The donor sidecar uses two ticks per step for animations 1, 2, 4, 5, 6,
-   * 7, 8, 10, and 13. Animation 3's final three steps are three ticks each.
-   * Keeping the resolved step here makes the state query useful before
-   * rendering exists. */
+   * 7, 8, and 10. Animation 13 uses its shared open-ended thrust helper;
+   * animation 3's final three steps are three ticks each. Keeping the
+   * resolved step here makes the state query useful before rendering exists. */
+  if (animation == 13)
+    return MmxSaberThrustAnimationStepForTick(tick);
   if (animation == 3 && tick >= 30)
     return (uint8_t)(15 + (tick - 30) / 3);
   if (animation == 8 && tick >= 14)
     return 6;
-  /* The downward thrust holds its fourth (diving) step. */
-  if (animation == 13 && tick >= 6)
-    return 3;
   return (uint8_t)(tick / 2);
 }
 
@@ -1024,6 +1028,7 @@ static void start_attack(const MmxSaberAttack *attack, uint8_t facing) {
 }
 
 static unsigned special_unlock_count(const uint8_t *ram) {
+  if (!MmxSaberTuningSpecialMoves()) return 0;
   return MmxSaberTuningUnlockSpecialMoves() ? 8 :
       MmxSaberDefeatedMavericks(ram);
 }

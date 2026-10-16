@@ -923,9 +923,9 @@ static void special_render_checks(const MmxSaberAssets *assets) {
     tick = (uint16_t)(tick + timing->duration_ticks);
   }
 
-  /* Mutation red: remove the animation 13/14 branch from resolve_snapshot(),
-   * or restore its old held-step fallback, in src/saber/mmx_saber_render.c. */
-  tick = 0;
+  /* Mutation red: restore manifest-duration stepping in the thrust branch of
+   * resolve_snapshot() in src/saber/mmx_saber_render.c. */
+  static const uint8_t thrust_ticks[] = {0, 2, 4, 8};
   for (uint16_t step = 0; step < thrust->step_count; ++step) {
     const MmxSaberStep *timing =
         MmxSaberAssetsAnimationStep(assets, 13, step);
@@ -934,7 +934,8 @@ static void special_render_checks(const MmxSaberAssets *assets) {
     const MmxSaberFrame *streak = step ?
         MmxSaberAssetsFrameForStep(assets, 14, (uint16_t)(step - 1)) : NULL;
     MmxSaberAttackSnapshot snapshot = {
-      SABER_KIND_THRUST, 0, SABER_PHASE_ACTIVE, (uint8_t)tick, 13, 0, 0x40};
+      SABER_KIND_THRUST, 0, SABER_PHASE_ACTIVE, thrust_ticks[step], 13,
+      (uint8_t)step, 0x40};
 
     check(timing && body && (!step || streak),
           "production asset exposes every thrust body and streak step");
@@ -949,19 +950,21 @@ static void special_render_checks(const MmxSaberAssets *assets) {
               actual.palette == raw_palette &&
               actual.palette_count == raw_palette_count && !actual.facing_left,
           "production edit resolve_snapshot pairs animation 13 body with delayed animation 14 streak, keeps step 0 empty, and uses blade layer 2");
-    tick = (uint16_t)(tick + timing->duration_ticks);
   }
 
   {
     static const uint8_t held_ticks[] = {14, 40};
-    const MmxSaberFrame *body =
-        MmxSaberAssetsFrameForStep(assets, 13, 3);
-    const MmxSaberFrame *streak =
-        MmxSaberAssetsFrameForStep(assets, 14, 2);
-    check(body && streak, "production asset exposes the held thrust body and streak");
+    static const uint8_t body_steps[] = {2, 3};
+    static const uint8_t streak_steps[] = {1, 2};
     for (unsigned i = 0; i < sizeof(held_ticks) / sizeof(held_ticks[0]); ++i) {
+      const MmxSaberFrame *body =
+          MmxSaberAssetsFrameForStep(assets, 13, body_steps[i]);
+      const MmxSaberFrame *streak =
+          MmxSaberAssetsFrameForStep(assets, 14, streak_steps[i]);
       MmxSaberAttackSnapshot snapshot = {
-        SABER_KIND_THRUST, 0, SABER_PHASE_ACTIVE, held_ticks[i], 13, 3, 0x40};
+        SABER_KIND_THRUST, 0, SABER_PHASE_ACTIVE, held_ticks[i], 13,
+        body_steps[i], 0x40};
+      check(body && streak, "production asset exposes the held thrust body and streak");
       check(MmxSaberRenderResolveSnapshot(assets, snapshot, &actual) &&
                 actual.active && check_plane(&actual.body, &body->body) &&
                 check_plane(&actual.blade, &streak->body) &&
@@ -969,7 +972,7 @@ static void special_render_checks(const MmxSaberAssets *assets) {
                 actual.front_palette == NULL && actual.front_palette_count == 0 &&
                 actual.palette == raw_palette &&
                 actual.palette_count == raw_palette_count,
-            "production edit resolve_snapshot holds thrust step 3 with animation 14 step 2 streak at ticks 14 and 40");
+            "production edit resolve_snapshot alternates held thrust steps 2/3 with animation 14 streak steps 1/2 at ticks 14 and 40");
     }
   }
 
@@ -1248,17 +1251,41 @@ static void thrust_attack_checks(void) {
         "thrust record publishes animation 13, startup 2, open-ended active 253, and clamped total 255");
 
   MmxSaberTuningLoad(NULL, NULL);
+  {
+    static const uint8_t expected_steps[] = {
+      0, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3,
+      3, 2, 2, 2, 2, 3, 3, 3, 3, 2
+    };
+    bool sequence_ok = true;
+
+    thrust_test_start(ram);
+    for (unsigned tick = 0;
+         tick < sizeof(expected_steps) / sizeof(expected_steps[0]); ++tick) {
+      const MmxSaberAttackSnapshot sequence_snapshot =
+          MmxSaberAttackSnapshotGet();
+      if (MmxSaberThrustAnimationStepForTick((uint8_t)tick) !=
+              expected_steps[tick] ||
+          sequence_snapshot.anim_step != expected_steps[tick])
+        sequence_ok = false;
+      if (tick + 1 < sizeof(expected_steps) / sizeof(expected_steps[0]))
+        thrust_test_step(ram, true);
+    }
+    /* Mutation red: restore the old animation 13 hold in
+     * animation_step_for_tick() in src/saber/mmx_saber_attack.c. */
+    check(sequence_ok,
+          "production edit shares the thrust animation step sequence through tick 20");
+  }
   thrust_test_start(ram);
   thrust_test_step(ram, true);
   thrust_test_step(ram, true);
   for (unsigned i = 0; i < 12; ++i)
     thrust_test_step(ram, true);
   MmxSaberAttackSnapshot snapshot = MmxSaberAttackSnapshotGet();
-  /* Mutation red: restore the seven-step animation timing in
+  /* Mutation red: restore a permanently held final thrust step in
    * update_animation() in src/saber/mmx_saber_attack.c. */
   check(snapshot.kind == SABER_KIND_THRUST && snapshot.tick == 14 &&
-            snapshot.phase == SABER_PHASE_ACTIVE && snapshot.anim_step == 3,
-        "thrust holds animation 13 final frame after the shortened four-step animation");
+            snapshot.phase == SABER_PHASE_ACTIVE && snapshot.anim_step == 2,
+        "thrust alternates animation 13 held steps after the shortened four-step animation");
 
   bool open_ended = true;
   for (unsigned i = 14; i < 60; ++i) {

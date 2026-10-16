@@ -50,6 +50,8 @@ Storm Eagle, and Flame Mammoth. Sigma-stage bosses and Vile do not count. The
 progression follows the native boss-clear flags, so it persists through saves
 and passwords.
 
+The `special_moves` option defaults to true; when off, Up or Down + Y keeps the behavior it had before these moves existed.
+
 Before the required boss count, Up + Y keeps its previous behavior: ground
 slash, air slash, dash slash, or wall slash. Wall slash always wins while Zero
 is on a wall. Both special moves are Saber Zero-only and cost no energy or
@@ -221,8 +223,8 @@ Tuning lives in the separate **Characters → Saber Zero settings** feature
 unless a Zero behavior is Saber Zero. While it is disabled every option keeps
 the default below, even if a different value was stored earlier: a disabled
 feature is left out of the netplay mod comparison, so its values must not reach
-the game either. It exposes 42 numeric tuning options and four boolean options:
-`show_hitboxes`, `start_all_upgrades`, `unlock_special_moves`, and
+the game either. It exposes 42 numeric tuning options and five boolean options:
+`show_hitboxes`, `start_all_upgrades`, `special_moves`, `unlock_special_moves`, and
 `crescent_effect`. Normal damage values accept 1–32; boss damage accepts 0–32,
 where 0 means “use the matching normal value”; priority values accept 1–9.
 The manifest also exposes `start` and `start_all_upgrades`; the table includes
@@ -232,7 +234,7 @@ finisher. Swing volume ranges from 0–200 in steps of 10.
 
 | Group | Options and defaults |
 |-------|----------------------|
-| Character/debug | `start=zero`; `start_all_upgrades=false`; `show_hitboxes=false`; `unlock_special_moves=false` (testing aid); `crescent_effect=true`; `uppercut_height=130`; `thrust_bounce_height=60` |
+| Character/debug | `start=zero`; `start_all_upgrades=false`; `show_hitboxes=false`; `special_moves=true`; `unlock_special_moves=false` (testing aid); `crescent_effect=true`; `uppercut_height=130`; `thrust_bounce_height=60` |
 | Normal damage | `slash1_damage=3`, `slash2_damage=3`, `slash3_damage=8`, `x3_finisher_damage=16`, `air_damage=3`, `wall_damage=3`, `dash_damage=3`, `wave_damage=6`, `uppercut_damage=8`, `rolling_slash_damage=8`, `thrust_damage=4` |
 | Boss damage | `boss_slash1_damage=1`, `boss_slash2_damage=1`, `boss_slash3_damage=2`, `boss_air_damage=1`, `boss_wall_damage=1`, `boss_dash_damage=1`, `boss_x3_finisher_damage=6`, `boss_wave_damage=4`, `boss_uppercut_damage=2`, `boss_rolling_slash_damage=2`, `boss_thrust_damage=2` |
 | Priority | `slash1_priority=2`, `slash2_priority=3`, `slash3_priority=4`, `air_priority=1`, `wall_priority=1`, `dash_priority=5`, `charge_small_priority=1`, `charge_full_priority=1`, `max_shot1_priority=2`, `max_shot2_priority=3`, `x3_finisher_priority=4`, `wave_priority=5`, `uppercut_priority=6`, `rolling_slash_priority=7`, `thrust_priority=8` |

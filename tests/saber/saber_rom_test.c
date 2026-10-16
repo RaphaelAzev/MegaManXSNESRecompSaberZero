@@ -2387,6 +2387,21 @@ static bool saber_unlock_special_moves_reader(const char *id, char *value,
   return true;
 }
 
+static bool saber_special_moves_off_reader(const char *id, char *value,
+                                            size_t value_size,
+                                            void *context) {
+  (void)context;
+  if (!strcmp(id, "special_moves")) {
+    if (value_size != 0) snprintf(value, value_size, "false");
+    return true;
+  }
+  if (!strcmp(id, "unlock_special_moves")) {
+    if (value_size != 0) snprintf(value, value_size, "true");
+    return true;
+  }
+  return false;
+}
+
 static void saber_attack_selection_case(
     unsigned defeated, bool grounded, bool wall_clinging, bool dash_active,
     bool up_held, bool down_held, MmxSaberPadKind expected,
@@ -2405,6 +2420,56 @@ static void saber_attack_selection_case(
   check(snapshot.kind == expected && snapshot.index == 0 &&
             snapshot.phase != SABER_PHASE_IDLE,
         label);
+  MmxSaberAttackExit(g_ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
+}
+
+static void saber_special_moves_off_cancel_checks(void) {
+  MmxSaberAttackSnapshot snapshot;
+
+  MmxSaberAttackResetRam(g_ram);
+  MmxSaberAttackStepWithWallAndDash(
+      true, true, false, true, false, false, true, false, true,
+      g_ram, g_ram[0x0c11], 0);
+  MmxSaberAttackStepWithWallAndDash(
+      false, true, false, true, false, false, true, false, true,
+      g_ram, g_ram[0x0c11], 0);
+  MmxSaberAttackStepWithWallAndDash(
+      false, true, false, true, false, false, true, false, true,
+      g_ram, g_ram[0x0c11], 0);
+  MmxSaberAttackStepWithWallAndDash(
+      true, true, false, true, true, false, true, false, true,
+      g_ram, g_ram[0x0c11], 0);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_DASH &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "special_moves off blocks DASH to UPPERCUT cancel with unlock on");
+  MmxSaberAttackExit(g_ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
+
+  MmxSaberAttackResetRam(g_ram);
+  MmxSaberAttackStepWithWallAndDash(
+      true, true, false, false, false, false, true, false, true,
+      g_ram, g_ram[0x0c11], 0);
+  for (unsigned tick = 1; tick < OLD_SABER_GROUND1_CHAIN_OPEN; ++tick)
+    MmxSaberAttackStepWithWallAndDash(
+        false, true, false, false, false, false, true, false, true,
+        g_ram, g_ram[0x0c11], 0);
+  MmxSaberAttackStepWithWallAndDash(
+      true, true, false, false, false, false, true, false, true,
+      g_ram, g_ram[0x0c11], 0);
+  for (unsigned tick = 1; tick < OLD_SABER_GROUND2_CHAIN_OPEN; ++tick)
+    MmxSaberAttackStepWithWallAndDash(
+        false, true, false, false, false, false, true, false, true,
+        g_ram, g_ram[0x0c11], 0);
+  MmxSaberAttackStepWithWallAndDash(
+      true, true, false, false, false, false, true, false, true,
+      g_ram, g_ram[0x0c11], 0);
+  MmxSaberAttackStepWithWallAndDash(
+      true, true, false, false, true, false, true, false, true,
+      g_ram, g_ram[0x0c11], 0);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_GROUND3 &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "special_moves off blocks GROUND3 to UPPERCUT cancel with unlock on");
   MmxSaberAttackExit(g_ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
 }
 
@@ -2472,6 +2537,29 @@ static void saber_attack_selection_checks(void) {
   saber_attack_selection_case(
       8, true, false, true, false, true, SABER_KIND_DASH,
       "Down on ground keeps dash selection");
+
+  MmxSaberTuningLoad(saber_special_moves_off_reader, NULL);
+  /* Mutation red: remove the special_moves gate from special_unlock_count()
+   * in src/saber/mmx_saber_attack.c. */
+  saber_attack_selection_case(
+      8, true, false, false, true, false, SABER_KIND_GROUND1,
+      "special_moves off with unlock on keeps ground-1 selection");
+  saber_attack_selection_case(
+      8, false, false, false, true, false, SABER_KIND_AIR,
+      "special_moves off with unlock on keeps air selection for Up+slash");
+  saber_attack_selection_case(
+      8, false, false, false, false, true, SABER_KIND_AIR,
+      "special_moves off with unlock on keeps air selection for Down+slash");
+  saber_attack_selection_case(
+      8, true, false, true, true, false, SABER_KIND_DASH,
+      "special_moves off with unlock on keeps dash selection");
+  saber_attack_selection_case(
+      8, true, true, true, true, true, SABER_KIND_WALL,
+      "special_moves off with unlock on keeps wall selection");
+  /* Mutation red: remove the same special_unlock_count() gate from the
+   * GROUND3/DASH cancel branch in src/saber/mmx_saber_attack.c. */
+  saber_special_moves_off_cancel_checks();
+  MmxSaberTuningLoad(NULL, NULL);
 
   for (unsigned count = 0; count <= 8; ++count) {
     saber_attack_selection_case(
@@ -10441,6 +10529,66 @@ static void saber_specials_unlock_checks(const char *x1_rom,
             MmxSaberAttackCueCount() == 1 &&
             MmxSaberSfxLastClip() == MMX_SABER_SFX_CLIP_SABER_2,
         "SYNTHETIC save0 (4 defeated) air Down+Y starts thrust and emits exactly one THRUST cue");
+
+  /* Mutation red: remove the special_moves option from
+   * mods/preloaded/packages/megaman-x.character.saber-zero/0.0.1/manifest.toml. */
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, MMX_SABER_SETTINGS_PACKAGE,
+            MMX_SABER_SETTINGS_FEATURE, "special_moves", "false"),
+        "saber-specials-unlock sets special_moves off");
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, MMX_SABER_SETTINGS_PACKAGE,
+            MMX_SABER_SETTINGS_FEATURE, "unlock_special_moves", "true"),
+        "saber-specials-unlock enables unlock_special_moves for the off test");
+  snes_mod_runtime_activate_plugins_c();
+  check(!MmxSaberTuningSpecialMoves() && MmxSaberTuningUnlockSpecialMoves(),
+        "special_moves off overrides unlock_special_moves after plugin activation");
+
+  /* Mutation red: remove the special_moves gate from special_unlock_count()
+   * in src/saber/mmx_saber_attack.c. */
+  saber_specials_unlock_load(fixture, 0);
+  g_ram[0x1f88] |= 0x40;
+  g_ram[0x1f8a] |= 0x40;
+  g_ram[0x1f8c] |= 0x40;
+  g_ram[0x1f8e] |= 0x40;
+  check(MmxSaberDefeatedMavericks(g_ram) == 4,
+        "special_moves off route has four synthetic clears");
+  frame(SNES_PAD_B | SNES_PAD_DOWN);
+  frame(SNES_PAD_B | SNES_PAD_DOWN);
+  check(!saber_test_grounded(),
+        "special_moves off Down+Y route is airborne before selection");
+  frame(SNES_PAD_B | SNES_PAD_DOWN | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_AIR &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "special_moves off with four clears keeps air Down+Y as AIR");
+
+  saber_specials_unlock_load(fixture, 0);
+  g_ram[0x1f88] |= 0x40;
+  g_ram[0x1f8a] |= 0x40;
+  g_ram[0x1f8c] |= 0x40;
+  g_ram[0x1f8e] |= 0x40;
+  frame(SNES_PAD_B | SNES_PAD_UP);
+  frame(SNES_PAD_B | SNES_PAD_UP);
+  check(!saber_test_grounded(),
+        "special_moves off Up+Y route is airborne before selection");
+  frame(SNES_PAD_B | SNES_PAD_UP | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_AIR &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "special_moves off with four clears keeps air Up+Y as AIR");
+
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, MMX_SABER_SETTINGS_PACKAGE,
+            MMX_SABER_SETTINGS_FEATURE, "special_moves", "true"),
+        "saber-specials-unlock restores special_moves");
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, MMX_SABER_SETTINGS_PACKAGE,
+            MMX_SABER_SETTINGS_FEATURE, "unlock_special_moves", "false"),
+        "saber-specials-unlock restores unlock_special_moves");
+  snes_mod_runtime_activate_plugins_c();
+  check(MmxSaberTuningSpecialMoves() && !MmxSaberTuningUnlockSpecialMoves(),
+        "saber-specials-unlock restores special-move tuning defaults");
 
   /* Mutation red: lower IDLE thrust selection from defeated >=4. */
   saber_specials_unlock_load(fixture, 0);

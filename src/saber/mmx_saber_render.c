@@ -298,20 +298,26 @@ static bool resolve_snapshot(const MmxSaberAssets *assets,
   animation = MmxSaberAssetsAnimationById(assets, snapshot.anim_id);
   if (!animation || !animation->total_ticks) return false;
 
-  /* Match oldsaber/saber-zero-variant:src/mmx_saber.c:1351-1355: an attack
-   * can outlive its sidecar animation, so its final sidecar tick is held. */
-  tick = snapshot.tick < animation->total_ticks ? snapshot.tick :
-      (uint16_t)(animation->total_ticks - 1);
-  for (; step_index < animation->step_count; ++step_index) {
-    const MmxSaberStep *step = MmxSaberAssetsAnimationStep(
-        assets, snapshot.anim_id, step_index);
-    if (!step) return false;
-    if (tick < step->duration_ticks) {
-      frame = MmxSaberAssetsFrameForStep(assets,
-                                         snapshot.anim_id, step_index);
-      break;
+  /* Match oldsaber/saber-zero-variant:src/mmx_saber.c:1351-1355 for
+   * manifest-timed attacks. Open-ended thrust uses its shared step helper. */
+  if (snapshot.anim_id == 13) {
+    step_index = MmxSaberThrustAnimationStepForTick(snapshot.tick);
+    if (step_index >= animation->step_count) return false;
+    frame = MmxSaberAssetsFrameForStep(assets, snapshot.anim_id, step_index);
+  } else {
+    tick = snapshot.tick < animation->total_ticks ? snapshot.tick :
+        (uint16_t)(animation->total_ticks - 1);
+    for (; step_index < animation->step_count; ++step_index) {
+      const MmxSaberStep *step = MmxSaberAssetsAnimationStep(
+          assets, snapshot.anim_id, step_index);
+      if (!step) return false;
+      if (tick < step->duration_ticks) {
+        frame = MmxSaberAssetsFrameForStep(assets,
+                                           snapshot.anim_id, step_index);
+        break;
+      }
+      tick = (uint16_t)(tick - step->duration_ticks);
     }
-    tick = (uint16_t)(tick - step->duration_ticks);
   }
   if (!frame || !frame->body.pixels || !frame->body.width ||
       !frame->body.height) return false;

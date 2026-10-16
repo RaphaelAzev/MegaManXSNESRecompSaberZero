@@ -25,6 +25,7 @@ static MmxSaberTuning g_tuning = {
   60,
   false,
   false,
+  true,
   false,
   true,
 };
@@ -116,6 +117,7 @@ static MmxSaberTuningOption k_options[] = {
   {"saber_swing_volume", 50, 0, 200, &g_tuning.saber_swing_volume},
   {"show_hitboxes", 0, 0, 1, &g_tuning.show_hitboxes, true},
   {"start_all_upgrades", 0, 0, 1, &g_tuning.start_all_upgrades, true},
+  {"special_moves", 1, 0, 1, &g_tuning.special_moves, true},
   {"unlock_special_moves", 0, 0, 1, &g_tuning.unlock_special_moves, true},
   {"crescent_effect", 1, 0, 1, &g_tuning.crescent_effect, true},
 };
@@ -221,6 +223,10 @@ bool MmxSaberTuningShowHitboxes(void) {
 
 bool MmxSaberTuningStartAllUpgrades(void) {
   return g_tuning.start_all_upgrades;
+}
+
+bool MmxSaberTuningSpecialMoves(void) {
+  return g_tuning.special_moves;
 }
 
 bool MmxSaberTuningUnlockSpecialMoves(void) {

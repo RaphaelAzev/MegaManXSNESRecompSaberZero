@@ -37,6 +37,14 @@ default = false
 
 [[option]]
 feature = "saber-zero"
+id = "special_moves"
+label = "Special moves"
+description = "Enables the uppercut, rolling slash and downward thrust. When off, Up or Down + slash do what they did before these moves existed."
+type = "boolean"
+default = true
+
+[[option]]
+feature = "saber-zero"
 id = "unlock_special_moves"
 label = "Unlock special moves"
 description = "Testing aid: the uppercut and rolling slash are available without defeating any Mavericks."

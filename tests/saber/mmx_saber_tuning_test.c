@@ -116,6 +116,9 @@ static ManifestDefaultSpec *find_manifest_spec(ManifestDefaultSpec *specs,
 
 static void check_manifest_defaults(const char *program_path) {
   const MmxSaberTuning *tuning = MmxSaberTuningGet();
+  /* Mutation red: remove special_moves from the manifest or its k_options
+   * entry in mods/preloaded/packages/megaman-x.character.saber-zero/0.0.1/
+   * manifest.toml or src/saber/mmx_saber_tuning.c. */
   ManifestDefaultSpec specs[] = {
     {"slash1_damage", tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_SLASH1], false},
     {"slash2_damage", tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_SLASH2], false},
@@ -161,6 +164,7 @@ static void check_manifest_defaults(const char *program_path) {
     {"saber_swing_volume", tuning->saber_swing_volume, false},
     {"show_hitboxes", tuning->show_hitboxes ? 1 : 0, false},
     {"start_all_upgrades", tuning->start_all_upgrades ? 1 : 0, false},
+    {"special_moves", tuning->special_moves ? 1 : 0, false},
     {"unlock_special_moves", tuning->unlock_special_moves ? 1 : 0, false},
     {"crescent_effect", tuning->crescent_effect ? 1 : 0, false},
   };
@@ -278,6 +282,10 @@ static void check_defaults(void) {
         "show_hitboxes defaults off");
   check(!tuning->start_all_upgrades && !MmxSaberTuningStartAllUpgrades(),
         "start_all_upgrades defaults off");
+  /* Mutation red: remove or miswire the special_moves k_options entry in
+   * src/saber/mmx_saber_tuning.c. */
+  check(tuning->special_moves && MmxSaberTuningSpecialMoves(),
+        "special_moves defaults on");
   check(!tuning->unlock_special_moves &&
             !MmxSaberTuningUnlockSpecialMoves(),
         "unlock_special_moves defaults off");
@@ -315,6 +323,7 @@ static void check_each_id_maps_to_field(void) {
     {"saber_swing_volume", "90"},
     {"show_hitboxes", "true"},
     {"start_all_upgrades", "true"},
+    {"special_moves", "false"},
     {"unlock_special_moves", "true"},
     {"crescent_effect", "false"},
   };
@@ -372,6 +381,11 @@ static void check_each_id_maps_to_field(void) {
   check(MmxSaberTuningGet()->start_all_upgrades &&
             MmxSaberTuningStartAllUpgrades(),
         "boolean start_all_upgrades option maps to its field");
+  /* Mutation red: remove or miswire the special_moves k_options entry in
+   * src/saber/mmx_saber_tuning.c. */
+  check(!MmxSaberTuningGet()->special_moves &&
+            !MmxSaberTuningSpecialMoves(),
+        "boolean special_moves option maps to its field");
   check(MmxSaberTuningGet()->unlock_special_moves &&
             MmxSaberTuningUnlockSpecialMoves(),
         "boolean unlock_special_moves option maps to its field");
@@ -405,6 +419,7 @@ static void check_clamping_and_invalid_fallback(void) {
     {"crescent_effect", "not-a-boolean"},
     {"air_damage", "3x"},
     {"show_hitboxes", "not-a-boolean"},
+    {"special_moves", "not-a-boolean"},
   };
   FakeOptions source = {options, sizeof(options) / sizeof(options[0])};
 
@@ -454,6 +469,10 @@ static void check_clamping_and_invalid_fallback(void) {
         "invalid boolean falls back to show_hitboxes off");
   check(!MmxSaberTuningStartAllUpgrades(),
         "invalid boolean falls back to start_all_upgrades off");
+  /* Mutation red: change the special_moves default or invalid-boolean path in
+   * src/saber/mmx_saber_tuning.c. */
+  check(MmxSaberTuningSpecialMoves(),
+        "invalid boolean falls back to special_moves on");
   check(!MmxSaberTuningUnlockSpecialMoves(),
         "invalid boolean falls back to unlock_special_moves off");
   check(MmxSaberTuningCrescentEffect(),
