@@ -21,14 +21,16 @@ static void check_frame_pad(void) {
   MmxSaberFramePad pad;
 
   pad = MmxSaberFrameSampleNativePad(ram);
-  if (pad.x_held || pad.y_pressed || pad.up_held || pad.y_held) {
+  if (pad.x_held || pad.y_pressed || pad.up_held || pad.y_held ||
+      pad.down_held) {
     printf("FAIL: native pad starts clear\n");
     ++failures;
   }
 
   ram[0x00a8] = 0x08;
   pad = MmxSaberFrameSampleNativePad(ram);
-  if (!pad.up_held || pad.x_held || pad.y_pressed || pad.y_held) {
+  if (!pad.up_held || pad.x_held || pad.y_pressed || pad.y_held ||
+      pad.down_held) {
     printf("FAIL: Up held maps only Up\n");
     ++failures;
   }
@@ -36,15 +38,26 @@ static void check_frame_pad(void) {
   memset(ram, 0, sizeof(ram));
   ram[0x00a8] = 0x40;
   pad = MmxSaberFrameSampleNativePad(ram);
-  if (!pad.y_held || pad.x_held || pad.y_pressed || pad.up_held) {
+  if (!pad.y_held || pad.x_held || pad.y_pressed || pad.up_held ||
+      pad.down_held) {
     printf("FAIL: Y held maps only Y held\n");
+    ++failures;
+  }
+
+  memset(ram, 0, sizeof(ram));
+  ram[0x00a8] = 0x04;
+  pad = MmxSaberFrameSampleNativePad(ram);
+  if (!pad.down_held || pad.x_held || pad.y_pressed || pad.up_held ||
+      pad.y_held) {
+    printf("FAIL: Down held maps only Down\n");
     ++failures;
   }
 
   memset(ram, 0, sizeof(ram));
   ram[0x00a7] = 0x40;
   pad = MmxSaberFrameSampleNativePad(ram);
-  if (!pad.x_held || pad.y_pressed || pad.up_held || pad.y_held) {
+  if (!pad.x_held || pad.y_pressed || pad.up_held || pad.y_held ||
+      pad.down_held) {
     printf("FAIL: existing X held mapping changed\n");
     ++failures;
   }
@@ -52,8 +65,27 @@ static void check_frame_pad(void) {
   memset(ram, 0, sizeof(ram));
   ram[0x00ac] = 0x40;
   pad = MmxSaberFrameSampleNativePad(ram);
-  if (pad.x_held || !pad.y_pressed || pad.up_held || pad.y_held) {
+  if (pad.x_held || !pad.y_pressed || pad.up_held || pad.y_held ||
+      pad.down_held) {
     printf("FAIL: existing Y pressed mapping changed\n");
+    ++failures;
+  }
+}
+
+static void check_coop_frame_pad(void) {
+  MmxSaberFramePad pad = {true, true, false, false, false};
+
+  MmxSaberFrameApplyCoopHeldPad(&pad, true, (uint16_t)(1u << 5));
+  if (!pad.x_held || !pad.y_pressed || pad.up_held || pad.y_held ||
+      !pad.down_held) {
+    printf("FAIL: co-op seat bit 5 maps only Down held\n");
+    ++failures;
+  }
+
+  pad = (MmxSaberFramePad){false, false, true, true, true};
+  MmxSaberFrameApplyCoopHeldPad(&pad, false, (uint16_t)(1u << 5));
+  if (pad.up_held || pad.y_held || pad.down_held) {
+    printf("FAIL: inactive co-op pad clears held directions\n");
     ++failures;
   }
 }
@@ -599,6 +631,7 @@ static void check_uppercut_jump_mapping(void) {
 
 int main(void) {
   check_frame_pad();
+  check_coop_frame_pad();
   check_defeated_mavericks();
   check_table();
   check_special_charge_sequence();

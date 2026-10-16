@@ -245,6 +245,25 @@ static const MmxSaberAttack kSaberAttacks[] = {
         .bounds_segment_count = sizeof(kRollingSlashBounds) /
             sizeof(kRollingSlashBounds[0]),
         .damage = 8,
+        .bounds_pointer = MMX_SABER_AIR_BOUNDS_POINTER},
+    {
+        .kind = SABER_KIND_THRUST,
+        .index = 0,
+        .visual_animation = 13,
+        .facing_xor = 1,
+        .startup_ticks = 4,
+        .active_ticks = 8,
+        .recovery_ticks = 6,
+        .total_ticks = 18,
+        .chain_open_tick = MMX_SABER_NO_WINDOW,
+        .chain_close_tick = MMX_SABER_NO_WINDOW,
+        .buffer_open_tick = MMX_SABER_NO_WINDOW,
+        .buffer_close_tick = MMX_SABER_NO_WINDOW,
+        .next_index = MMX_SABER_NO_WINDOW,
+        .bounds_segments = kAirSlashBounds,
+        .bounds_segment_count = sizeof(kAirSlashBounds) /
+            sizeof(kAirSlashBounds[0]),
+        .damage = 8,
         .bounds_pointer = MMX_SABER_AIR_BOUNDS_POINTER}};
 
 typedef struct MmxSaberAttackState {
@@ -377,6 +396,8 @@ static MmxSaberTuningDamageKind attack_damage_kind(
       return MMX_SABER_TUNING_DAMAGE_UPPERCUT;
     case SABER_KIND_ROLLING:
       return MMX_SABER_TUNING_DAMAGE_ROLLING;
+    case SABER_KIND_THRUST:
+      return MMX_SABER_TUNING_DAMAGE_THRUST;
     case SABER_KIND_AIR:
       return MMX_SABER_TUNING_DAMAGE_AIR;
     case SABER_KIND_WALL:
@@ -419,7 +440,8 @@ static bool priority_saber_class(MmxSaberPriorityClass priority_class) {
   return (priority_class >= MMX_SABER_PRIORITY_CLASS_SLASH1 &&
           priority_class <= MMX_SABER_PRIORITY_CLASS_WAVE) ||
       priority_class == MMX_SABER_PRIORITY_CLASS_UPPERCUT ||
-      priority_class == MMX_SABER_PRIORITY_CLASS_ROLLING;
+      priority_class == MMX_SABER_PRIORITY_CLASS_ROLLING ||
+      priority_class == MMX_SABER_PRIORITY_CLASS_THRUST;
 }
 
 static bool saber_owned_damage_class(MmxSaberPriorityClass priority_class) {
@@ -482,6 +504,8 @@ static MmxSaberTuningDamageKind priority_damage_kind(
       return MMX_SABER_TUNING_DAMAGE_UPPERCUT;
     case MMX_SABER_PRIORITY_CLASS_ROLLING:
       return MMX_SABER_TUNING_DAMAGE_ROLLING;
+    case MMX_SABER_PRIORITY_CLASS_THRUST:
+      return MMX_SABER_TUNING_DAMAGE_THRUST;
     case MMX_SABER_PRIORITY_CLASS_SLASH1:
       return MMX_SABER_TUNING_DAMAGE_SLASH1;
     case MMX_SABER_PRIORITY_CLASS_SLASH2:
@@ -631,7 +655,7 @@ static const MmxSaberAttack *next_ground_attack(
 
 static uint8_t animation_step_for_tick(uint8_t animation, uint8_t tick) {
   /* The donor sidecar uses two ticks per step for animations 1, 2, 4, 5, 6,
-   * 7, 8, and 10. Animation 3's final three steps are three ticks each.
+   * 7, 8, 10, and 13. Animation 3's final three steps are three ticks each.
    * Keeping the resolved step here makes the state query useful before
    * rendering exists. */
   if (animation == 3 && tick >= 30)
@@ -710,7 +734,8 @@ static uint16_t bounds_pointer(const MmxSaberAttack *attack, uint8_t tick) {
 
 static bool shared_air_special(const MmxSaberAttack *attack) {
   return attack && (attack->kind == SABER_KIND_UPPERCUT ||
-                    attack->kind == SABER_KIND_ROLLING);
+                    attack->kind == SABER_KIND_ROLLING ||
+                    attack->kind == SABER_KIND_THRUST);
 }
 
 static void bounds_records_for_window(uint8_t out[40], uint16_t window_pointer) {
@@ -745,7 +770,8 @@ static bool air_collision_attack(const MmxSaberAttack *attack) {
                     attack->kind == SABER_KIND_WALL ||
                     attack->kind == SABER_KIND_DASH ||
                     attack->kind == SABER_KIND_UPPERCUT ||
-                    attack->kind == SABER_KIND_ROLLING);
+                    attack->kind == SABER_KIND_ROLLING ||
+                    attack->kind == SABER_KIND_THRUST);
 }
 
 static bool collision_ready(const MmxSaberAttack *attack) {
@@ -977,7 +1003,8 @@ void MmxSaberAttackStep(bool saber_pressed, bool grounded, bool playable,
                         uint8_t native_facing,
                         uint8_t horizontal_direction) {
   MmxSaberAttackStepWithWallAndDash(saber_pressed, grounded, false, false,
-                                    false, false, false, playable, runtime_ram,
+                                    false, false, false, false, playable,
+                                    runtime_ram,
                                     native_facing,
                                     horizontal_direction);
 }
@@ -987,7 +1014,8 @@ void MmxSaberAttackStepWithWall(bool saber_pressed, bool grounded,
                                 uint8_t native_facing,
                                 uint8_t horizontal_direction) {
   MmxSaberAttackStepWithWallAndDash(saber_pressed, grounded, wall_clinging,
-                                    false, false, false, false, playable,
+                                    false, false, false, false, false,
+                                    playable,
                                     runtime_ram,
                                     native_facing,
                                     horizontal_direction);
@@ -995,7 +1023,8 @@ void MmxSaberAttackStepWithWall(bool saber_pressed, bool grounded,
 
 void MmxSaberAttackStepWithWallAndDash(bool saber_pressed, bool grounded,
                                        bool wall_clinging, bool dash_active,
-                                       bool up_held, bool y_held,
+                                       bool up_held, bool down_held,
+                                       bool y_held,
                                        bool jump_pressed,
                                        bool playable, uint8_t *ram,
                                        uint8_t native_facing,
@@ -1014,10 +1043,11 @@ void MmxSaberAttackStepWithWallAndDash(bool saber_pressed, bool grounded,
     if (saber_pressed) {
       const unsigned defeated = special_unlock_count(ram);
       const MmxSaberPadKind kind = wall_clinging ? SABER_KIND_WALL :
-          (!grounded && up_held && defeated >= 3 ? SABER_KIND_ROLLING :
+          (!grounded && down_held && defeated >= 4 ? SABER_KIND_THRUST :
+           (!grounded && up_held && defeated >= 3 ? SABER_KIND_ROLLING :
            (!grounded ? SABER_KIND_AIR :
-            (up_held && defeated >= 2 ? SABER_KIND_UPPERCUT :
-             (dash_active ? SABER_KIND_DASH : SABER_KIND_GROUND1))));
+            (grounded && up_held && defeated >= 2 ? SABER_KIND_UPPERCUT :
+             (dash_active ? SABER_KIND_DASH : SABER_KIND_GROUND1)))));
       const uint8_t facing = wall_clinging || kind == SABER_KIND_DASH ?
           (native_facing & 0x40) :
           facing_for_direction(horizontal_direction, native_facing);
@@ -1267,6 +1297,7 @@ static bool native_movement_accepted(const uint8_t *ram) {
     case SABER_KIND_AIR:
     case SABER_KIND_ROLLING:
     case SABER_KIND_UPPERCUT:
+    case SABER_KIND_THRUST:
       /* X1 has no accepted ordinary midair jump.  Following the old air
        * context rule, entering wall cling ($12) retires the air owner, while
        * a wall jump's resulting airborne $10 remains playable and does not
@@ -1321,12 +1352,13 @@ void MmxSaberAttackPlayerEnd(uint8_t *ram) {
     return;
   }
 
-  /* Landing ends AIR, ROLLING, and UPPERCUT owners immediately.  The central exit
-   * retires the tagged slot, clears the hit mask, and leaves native
-   * movement/pose alone. */
+  /* Landing ends AIR, ROLLING, UPPERCUT, and THRUST owners immediately.  The
+   * central exit retires the tagged slot, clears the hit mask, and leaves
+   * native movement/pose alone. */
   if (landed && (state.kind == SABER_KIND_AIR ||
                  state.kind == SABER_KIND_ROLLING ||
-                 state.kind == SABER_KIND_UPPERCUT) &&
+                 state.kind == SABER_KIND_UPPERCUT ||
+                 state.kind == SABER_KIND_THRUST) &&
       state.phase != SABER_PHASE_IDLE) {
     MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_LANDING);
     return;

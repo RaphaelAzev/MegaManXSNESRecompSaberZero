@@ -227,7 +227,8 @@ static void check_defaults(void) {
             tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_WAVE] == 6,
         "normal damage defaults match the manifest");
   check(tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_UPPERCUT] == 8 &&
-            tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_ROLLING] == 8,
+            tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_ROLLING] == 8 &&
+            tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_THRUST] == 4,
         "special normal damage defaults stay at 8 without manifest options");
   check(tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_SLASH1] == 1 &&
             tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_SLASH2] == 1 &&
@@ -239,7 +240,8 @@ static void check_defaults(void) {
             tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_WAVE] == 4,
         "boss damage defaults match operator decision D-OP-60");
   check(tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_UPPERCUT] == 2 &&
-            tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_ROLLING] == 2,
+            tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_ROLLING] == 2 &&
+            tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_THRUST] == 2,
         "special boss damage defaults stay at 2 without manifest options");
   check(tuning->priority[MMX_SABER_TUNING_PRIORITY_SLASH1] == 2 &&
             tuning->priority[MMX_SABER_TUNING_PRIORITY_SLASH2] == 3 &&
@@ -255,8 +257,9 @@ static void check_defaults(void) {
             tuning->priority[MMX_SABER_TUNING_PRIORITY_WAVE] == 5,
         "priority defaults match the manifest");
   check(tuning->priority[MMX_SABER_TUNING_PRIORITY_UPPERCUT] == 6 &&
-            tuning->priority[MMX_SABER_TUNING_PRIORITY_ROLLING] == 7,
-        "special priority defaults stay at 6 and 7 without manifest options");
+            tuning->priority[MMX_SABER_TUNING_PRIORITY_ROLLING] == 7 &&
+            tuning->priority[MMX_SABER_TUNING_PRIORITY_THRUST] == 8,
+        "special priority defaults stay at 6, 7, and 8 without manifest options");
   check(MmxSaberTuningPriorityWindowFrames() == 70 &&
             MmxSaberTuningFinisherWindowFrames() == 27 &&
             MmxSaberTuningSaberSwingVolume() == 50,

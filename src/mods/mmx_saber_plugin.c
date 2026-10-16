@@ -11,6 +11,7 @@
 #include "saber/mmx_saber_wave_assets.h"
 #include "saber/mmx_saber_combo.h"
 #include "saber/mmx_saber_frame.h"
+#include "saber/mmx_saber_frame_pad.h"
 #include "saber/mmx_saber_hitbox_debug.h"
 #include "saber/mmx_saber_render.h"
 #include "saber/mmx_saber_tuning.h"
@@ -50,8 +51,8 @@ static void coop_seat_pad(const uint8_t *ram, MmxSaberFramePad *pad) {
   const bool live = MmxCoopEnabled() && state.initialized;
   (void)ram;
   MmxCoopSeatButtons(&pad->x_held, &pad->y_pressed);
-  pad->up_held = live && (state.players[state.current].input & (1u << 4)) != 0;
-  pad->y_held = live && (state.players[state.current].input & (1u << 1)) != 0;
+  MmxSaberFrameApplyCoopHeldPad(
+      pad, live, state.players[state.current].input);
 }
 
 static void saber_activation_failed(void) {

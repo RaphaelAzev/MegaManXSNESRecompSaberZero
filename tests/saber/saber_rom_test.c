@@ -2389,7 +2389,8 @@ static bool saber_unlock_special_moves_reader(const char *id, char *value,
 
 static void saber_attack_selection_case(
     unsigned defeated, bool grounded, bool wall_clinging, bool dash_active,
-    bool up_held, MmxSaberPadKind expected, const char *label) {
+    bool up_held, bool down_held, MmxSaberPadKind expected,
+    const char *label) {
   MmxSaberAttackSnapshot snapshot;
 
   MmxSaberAttackResetRam(g_ram);
@@ -2397,7 +2398,8 @@ static void saber_attack_selection_case(
   for (unsigned i = 0; i < defeated && i < 8; ++i)
     g_ram[0x1f88 + 2 * i] = 0x40;
   MmxSaberAttackStepWithWallAndDash(
-      true, grounded, wall_clinging, dash_active, up_held, true, false, true,
+      true, grounded, wall_clinging, dash_active, up_held, down_held, true,
+      false, true,
       g_ram, g_ram[0x0c11], 0);
   snapshot = MmxSaberAttackSnapshotGet();
   check(snapshot.kind == expected && snapshot.index == 0 &&
@@ -2415,48 +2417,71 @@ static void saber_attack_selection_checks(void) {
        ++i) {
     const unsigned count = locked_counts[i];
     saber_attack_selection_case(
-        count, true, false, false, true, SABER_KIND_GROUND1,
+        count, true, false, false, true, false, SABER_KIND_GROUND1,
         "locked Up+slash ground selects ground-1");
     saber_attack_selection_case(
-        count, false, false, false, true, SABER_KIND_AIR,
+        count, false, false, false, true, false, SABER_KIND_AIR,
         "locked Up+slash air selects air slash");
   }
 
   saber_attack_selection_case(
-      2, true, false, false, true, SABER_KIND_UPPERCUT,
+      3, false, false, false, false, true, SABER_KIND_AIR,
+      "three defeated Mavericks keep Down+slash locked to air slash");
+  saber_attack_selection_case(
+      4, false, false, false, false, true, SABER_KIND_THRUST,
+      "four defeated Mavericks unlock Down+slash thrust in air");
+  saber_attack_selection_case(
+      4, false, false, false, true, true, SABER_KIND_THRUST,
+      "four defeated Mavericks give Down+slash priority over Up+slash");
+  saber_attack_selection_case(
+      3, false, false, false, true, true, SABER_KIND_ROLLING,
+      "three defeated Mavericks keep Up+slash rolling when thrust is locked");
+
+  saber_attack_selection_case(
+      2, true, false, false, true, false, SABER_KIND_UPPERCUT,
       "two defeated Mavericks unlock uppercut on ground");
   saber_attack_selection_case(
-      2, true, false, true, true, SABER_KIND_UPPERCUT,
+      2, true, false, true, true, false, SABER_KIND_UPPERCUT,
       "two defeated Mavericks keep uppercut priority over dash");
   saber_attack_selection_case(
-      2, false, false, false, true, SABER_KIND_AIR,
+      2, false, false, false, true, false, SABER_KIND_AIR,
       "two defeated Mavericks keep air slash below rolling threshold");
   saber_attack_selection_case(
-      3, false, false, false, true, SABER_KIND_ROLLING,
+      3, false, false, false, true, false, SABER_KIND_ROLLING,
       "three defeated Mavericks unlock rolling slash in air");
 
   MmxSaberTuningLoad(saber_unlock_special_moves_reader, NULL);
   saber_attack_selection_case(
-      0, true, false, false, true, SABER_KIND_UPPERCUT,
+      0, true, false, false, true, false, SABER_KIND_UPPERCUT,
       "unlock_special_moves enables uppercut with zero defeated Mavericks");
   saber_attack_selection_case(
-      0, false, false, false, true, SABER_KIND_ROLLING,
+      0, false, false, false, true, false, SABER_KIND_ROLLING,
       "unlock_special_moves enables rolling slash with zero defeated Mavericks");
+  saber_attack_selection_case(
+      0, false, false, false, false, true, SABER_KIND_THRUST,
+      "unlock_special_moves enables thrust with zero defeated Mavericks");
   MmxSaberTuningLoad(NULL, NULL);
 
   saber_attack_selection_case(
-      8, true, true, true, true, SABER_KIND_WALL,
+      8, true, true, true, false, true, SABER_KIND_WALL,
       "wall cling always selects wall slash");
+
+  saber_attack_selection_case(
+      8, true, false, false, false, true, SABER_KIND_GROUND1,
+      "Down on ground keeps ground-1 selection");
+  saber_attack_selection_case(
+      8, true, false, true, false, true, SABER_KIND_DASH,
+      "Down on ground keeps dash selection");
 
   for (unsigned count = 0; count <= 8; ++count) {
     saber_attack_selection_case(
-        count, true, false, false, false, SABER_KIND_GROUND1,
+        count, true, false, false, false, false, SABER_KIND_GROUND1,
         "without Up ground slash selection stays ground-1");
     saber_attack_selection_case(
-        count, true, false, true, false, SABER_KIND_DASH,
+        count, true, false, true, false, false, SABER_KIND_DASH,
         "without Up dash selection stays dash slash");
     saber_attack_selection_case(
-        count, false, false, false, false, SABER_KIND_AIR,
+        count, false, false, false, false, false, SABER_KIND_AIR,
         "without Up air selection stays air slash");
   }
   puts("ok: saber-attack-selection");
@@ -6661,12 +6686,12 @@ static unsigned priority_air_attack_preserving_history(void) {
   MmxSaberAttackSnapshot snapshot;
   MmxSaberAttackResetRam(g_ram);
   MmxSaberAttackStepWithWallAndDash(true, false, false, false, false, false,
-                                    false, true, g_ram, g_ram[0x0c11], 0);
+                                    false, false, true, g_ram, g_ram[0x0c11], 0);
   MmxSaberAttackRuntimeTick(g_ram);
   snapshot = MmxSaberAttackSnapshotGet();
   for (unsigned i = 0; i < 32 && snapshot.phase != SABER_PHASE_ACTIVE; ++i) {
     MmxSaberAttackStepWithWallAndDash(false, false, false, false, false, false,
-                                      false, true, g_ram, g_ram[0x0c11], 0);
+                                      false, false, true, g_ram, g_ram[0x0c11], 0);
     MmxSaberAttackRuntimeTick(g_ram);
     snapshot = MmxSaberAttackSnapshotGet();
   }
@@ -7100,13 +7125,13 @@ static unsigned priority_direct_context(MmxSaberPadKind expected_kind,
   MmxSaberAttackSnapshot snapshot;
   MmxSaberFrameReset();
   MmxSaberAttackStepWithWallAndDash(
-      true, grounded, wall, dash, false, false, false, true, g_ram,
+      true, grounded, wall, dash, false, false, false, false, true, g_ram,
       g_ram[0x0c11], 0);
   MmxSaberAttackRuntimeTick(g_ram);
   snapshot = MmxSaberAttackSnapshotGet();
   for (unsigned i = 0; i < 32 && snapshot.phase != SABER_PHASE_ACTIVE; ++i) {
     MmxSaberAttackStepWithWallAndDash(
-        false, grounded, wall, dash, false, false, false, true, g_ram,
+        false, grounded, wall, dash, false, false, false, false, true, g_ram,
         g_ram[0x0c11], 0);
     MmxSaberAttackRuntimeTick(g_ram);
     snapshot = MmxSaberAttackSnapshotGet();
@@ -10346,8 +10371,8 @@ static void saber_specials_unlock_checks(const char *x1_rom,
   check(snapshot_capacity != 0 && saved_snapshot != NULL,
         "saber-specials-unlock allocates a snapshot buffer");
 
-  /* Mutation red: read Up from $A6 bit $04, or drop pad.up_held before the
-   * real frame bridge calls MmxSaberAttackStepWithWallAndDash. */
+  /* Mutation red: change MmxSaberFrameSampleNativePad()'s $A8 Up mask, or
+   * drop pad.up_held before pre_player() calls the attack selector. */
   saber_specials_unlock_load(fixture, 0);
   frame(SNES_PAD_UP | SNES_PAD_Y);
   snapshot = MmxSaberAttackSnapshotGet();
@@ -10393,6 +10418,42 @@ static void saber_specials_unlock_checks(const char *x1_rom,
   check(snapshot.kind == SABER_KIND_AIR &&
             snapshot.phase != SABER_PHASE_IDLE,
         "capsule (2 defeated) air Up+Y stays below rolling threshold");
+
+  /* Mutation red: change MmxSaberFrameSampleNativePad()'s $A8 Down mask, or
+   * drop pad.down_held before pre_player() calls the attack selector. */
+  saber_specials_unlock_load(fixture, 0);
+  g_ram[0x1f88] |= 0x40;
+  g_ram[0x1f8a] |= 0x40;
+  g_ram[0x1f8c] |= 0x40;
+  g_ram[0x1f8e] |= 0x40;
+  check(MmxSaberDefeatedMavericks(g_ram) == 4,
+        "SYNTHETIC save0 has four selected clear bits");
+  frame(SNES_PAD_B | SNES_PAD_DOWN);
+  frame(SNES_PAD_B | SNES_PAD_DOWN);
+  check(!saber_test_grounded(),
+        "SYNTHETIC thrust route is airborne before Down+Y");
+  frame(SNES_PAD_B | SNES_PAD_DOWN | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_THRUST &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "SYNTHETIC save0 (4 defeated) air Down+Y starts thrust");
+
+  /* Mutation red: lower IDLE thrust selection from defeated >=4. */
+  saber_specials_unlock_load(fixture, 0);
+  g_ram[0x1f88] |= 0x40;
+  g_ram[0x1f8a] |= 0x40;
+  g_ram[0x1f8c] |= 0x40;
+  check(MmxSaberDefeatedMavericks(g_ram) == 3,
+        "SYNTHETIC save0 has three selected clear bits");
+  frame(SNES_PAD_B | SNES_PAD_DOWN);
+  frame(SNES_PAD_B | SNES_PAD_DOWN);
+  check(!saber_test_grounded(),
+        "SYNTHETIC air-lock route is airborne before Down+Y");
+  frame(SNES_PAD_B | SNES_PAD_DOWN | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_AIR &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "SYNTHETIC save0 (3 defeated) air Down+Y starts AIR");
 
   /* Mutation red: make Up sticky, or drop the no-Up path's held-state
    * distinction. */
@@ -11297,13 +11358,13 @@ static unsigned saber_specials_direct_live_slot(MmxSaberPadKind expected_kind,
   else
     MmxSaberFrameReset();
   MmxSaberAttackStepWithWallAndDash(
-      true, grounded, false, false, true, true, false, true, g_ram,
+      true, grounded, false, false, true, false, true, false, true, g_ram,
       g_ram[0x0c11], 0);
   MmxSaberAttackRuntimeTick(g_ram);
   snapshot = MmxSaberAttackSnapshotGet();
   for (unsigned i = 0; i < 32 && snapshot.phase != SABER_PHASE_ACTIVE; ++i) {
     MmxSaberAttackStepWithWallAndDash(
-        false, grounded, false, false, true, true, false, true, g_ram,
+        false, grounded, false, false, true, false, true, false, true, g_ram,
         g_ram[0x0c11], 0);
     MmxSaberAttackRuntimeTick(g_ram);
     snapshot = MmxSaberAttackSnapshotGet();

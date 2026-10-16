@@ -1089,10 +1089,10 @@ static void uppercut_attack_checks(void) {
 
   MmxSaberAttackResetRam(ram);
   MmxSaberAttackStepWithWallAndDash(
-      true, true, false, false, true, true, false, true, ram, 0, 0);
+      true, true, false, false, true, false, true, false, true, ram, 0, 0);
   for (unsigned i = 0; i < 14; ++i)
     MmxSaberAttackStepWithWallAndDash(
-        false, true, false, false, true, true, false, true, ram, 0, 0);
+        false, true, false, false, true, false, true, false, true, ram, 0, 0);
   snapshot = MmxSaberAttackSnapshotGet();
   check(snapshot.kind == SABER_KIND_UPPERCUT && snapshot.tick == 14 &&
             snapshot.phase == SABER_PHASE_ACTIVE && snapshot.anim_step == 6,
@@ -1100,16 +1100,16 @@ static void uppercut_attack_checks(void) {
 
   MmxSaberAttackResetRam(ram);
   MmxSaberAttackStepWithWallAndDash(
-      true, true, false, false, true, true, false, true, ram, 0, 0);
+      true, true, false, false, true, false, true, false, true, ram, 0, 0);
   MmxSaberAttackStepWithWallAndDash(
-      false, true, false, false, true, false, false, true, ram, 0, 0);
+      false, true, false, false, true, false, false, false, true, ram, 0, 0);
   check(MmxSaberAttackSnapshotGet().phase == SABER_PHASE_IDLE &&
             MmxSaberAttackLastExitReason() == MMX_SABER_ATTACK_EXIT_RELEASE,
         "uppercut Y release exits with MMX_SABER_ATTACK_EXIT_RELEASE");
 
   MmxSaberAttackResetRam(ram);
   MmxSaberAttackStepWithWallAndDash(
-      true, true, false, false, true, true, false, true, ram, 0, 0);
+      true, true, false, false, true, false, true, false, true, ram, 0, 0);
   MmxSaberAttackObservePreNative(ram);
   ram[0x0bd3] = 0;
   ram[0x0baa] = 0x06;
@@ -1131,13 +1131,13 @@ static void uppercut_attack_checks(void) {
   ram[0x0baa] = 0;
   MmxSaberAttackResetRam(ram);
   MmxSaberAttackStepWithWallAndDash(
-      true, true, false, false, true, true, false, true, ram, 0, 0);
+      true, true, false, false, true, false, true, false, true, ram, 0, 0);
   MmxSaberAttackObservePreNative(ram);
   ram[0x0baa] = 0;
   MmxSaberAttackPlayerEnd(ram);
 
   MmxSaberAttackStepWithWallAndDash(
-      false, true, false, false, true, true, false, true, ram, 0, 0);
+      false, true, false, false, true, false, true, false, true, ram, 0, 0);
   MmxSaberAttackObservePreNative(ram);
   ram[0x0baa] = 0;
   MmxSaberAttackPlayerEnd(ram);
@@ -1180,6 +1180,7 @@ static void special_live_bounds_checks_one(MmxSaberPadKind kind,
   bool seen[MMX_SABER_MAX_ACTIVE_SEGMENTS] = {false};
   const uint8_t native_facing = direction == 1 ? 0x40 : 0;
   const uint8_t expected_projectile_facing = direction == 1 ? 0 : 0x40;
+  const bool down_held = kind == SABER_KIND_THRUST;
 
   memset(ram, 0, sizeof(ram));
   for (unsigned i = 0; i < defeated; ++i)
@@ -1195,7 +1196,7 @@ static void special_live_bounds_checks_one(MmxSaberPadKind kind,
   memset(rom, 0xff, sizeof(rom));
   MmxSaberAttackCollisionRom(rom, sizeof(rom));
   MmxSaberAttackStepWithWallAndDash(
-      true, grounded, false, false, true, true, false, true, ram,
+      true, grounded, false, false, true, down_held, true, false, true, ram,
       native_facing, direction);
   check(MmxSaberAttackSnapshotGet().kind == kind,
         "special starts through the normal attack selector");
@@ -1245,7 +1246,8 @@ static void special_live_bounds_checks_one(MmxSaberPadKind kind,
 
     if (tick + 1 < attack->total_ticks)
       MmxSaberAttackStepWithWallAndDash(
-          false, grounded, false, false, true, true, false, true, ram,
+          false, grounded, false, false, true, down_held, true, false, true,
+          ram,
           native_facing, direction);
   }
   for (unsigned i = 0; i < attack->bounds_segment_count; ++i)
@@ -1262,6 +1264,8 @@ static void special_live_bounds_checks(void) {
                                  "rolling slash");
   special_live_bounds_checks_one(SABER_KIND_ROLLING, false, 3, 2,
                                  "rolling slash");
+  special_live_bounds_checks_one(SABER_KIND_THRUST, false, 4, 1,
+                                 "thrust");
 }
 
 int main(void) {

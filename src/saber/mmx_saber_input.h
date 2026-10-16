@@ -61,7 +61,8 @@ typedef enum MmxSaberPadKind {
   SABER_KIND_SABER_LAND,
   SABER_KIND_LAND = SABER_KIND_SABER_LAND,
   SABER_KIND_UPPERCUT,
-  SABER_KIND_ROLLING
+  SABER_KIND_ROLLING,
+  SABER_KIND_THRUST
 } MmxSaberPadKind;
 
 typedef struct MmxSaberPadSaber {

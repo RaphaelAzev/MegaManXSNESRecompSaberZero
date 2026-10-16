@@ -95,7 +95,7 @@ void MmxSaberFrameSetPadSource(MmxSaberFramePadSource source) {
 }
 
 static MmxSaberFramePad sample_pad(const uint8_t *ram) {
-  MmxSaberFramePad pad = {false, false, false, false};
+  MmxSaberFramePad pad = {false, false, false, false, false};
   if (!ram) return pad;
   if (pad_source) {
     pad_source(ram, &pad);
@@ -314,6 +314,7 @@ static void pre_player(uint8_t *ram) {
       out.saber_pressed, zero.grounded, native_wall_clinging(ram),
       native_dash_active(ram),
       pad.up_held,
+      pad.down_held,
       pad.y_held,
       (out.native.action_pressed & MMX_SABER_NATIVE_JUMP_BIT) != 0,
       !zero.hurt && !zero.dead_or_reset, ram, ram[0x0c11],
