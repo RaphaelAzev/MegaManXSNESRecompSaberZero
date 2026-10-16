@@ -37,7 +37,8 @@ slashes, the X3 finisher with its Saber wave, hit-priority follow-ups, and Ride
 Armor pilot art. The X button keeps Zero's buster and special weapons.
 After any two of the eight Maverick bosses are defeated, Up+Y performs the
 uppercut on the ground or during a dash; after any three, it performs the
-rolling slash in the air.
+rolling slash in the air; after any four, Down+Y performs the downward thrust
+in the air.
 
 Choose **Zero behavior → Saber Zero** in **Characters → Add Zero** (single
 player; **Starting character** and native **Select** exchange are unchanged) or

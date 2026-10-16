@@ -26,7 +26,7 @@ buster/special translation owns X. The other native controls remain available.
 
 | Button | Behavior |
 |--------|----------|
-| Y | Start/continue a Saber attack. On the ground it starts the 3-hit combo; in the air it is an air slash; on a wall it is a wall slash; during a grounded dash it is a dash slash. After they unlock, Up + Y starts the uppercut on the ground or during a dash, and the rolling slash in the air. A held Y produces one edge. |
+| Y | Start/continue a Saber attack. On the ground it starts the 3-hit combo; in the air it is an air slash; on a wall it is a wall slash; during a grounded dash it is a dash slash. After they unlock, Up + Y starts the uppercut on the ground or during a dash, and the rolling slash in the air. After any four of the eight Mavericks, Down + Y starts the downward thrust in the air. A held Y produces one edge. |
 | X | Charge and fire the buster when the buster is selected; otherwise fire the selected special weapon. X is blocked from creating a new buster/special shot while a Saber slash, finisher, or wave-shooting animation owns the action. |
 | B | Native jump. |
 | A | Native dash. |
@@ -68,6 +68,13 @@ hit that remains live through the spin. Landing ends it. The crescent effect is
 drawn in front of Zero when the `crescent_effect` option is enabled. The rolling
 slash plays its own crescent-slash sound; the uppercut plays the first slash sound
 pitched up.
+
+After any four of the eight Mavericks are defeated, Down + Y in the air starts
+the downward thrust. It uses the normal fall and air control. It lasts until
+landing or until Y is released. A hit bounces Zero up by `thrust_bounce_height`,
+as a percentage of a normal jump; 0 turns the bounce off. The thrust continues,
+with one hit per bounce. Its default damage is 4 against normal enemies and 2
+against bosses. Its default hit priority is 8.
 
 The special-move art is credited in
 [assets/saber-zero/CREDITS.md](../assets/saber-zero/CREDITS.md).
@@ -151,6 +158,7 @@ The default ladder is:
 | 5 | Dash slash, Saber wave |
 | 6 | Uppercut |
 | 7 | Rolling slash |
+| 8 | Downward thrust |
 
 The ladder is configurable through the priority options. This is a follow-up
 system, not a general “ignore all invincibility” switch.
@@ -212,7 +220,7 @@ Tuning lives in the separate **Characters → Saber Zero settings** feature
 unless a Zero behavior is Saber Zero. While it is disabled every option keeps
 the default below, even if a different value was stored earlier: a disabled
 feature is left out of the netplay mod comparison, so its values must not reach
-the game either. It exposes 38 numeric tuning options and four boolean options:
+the game either. It exposes 42 numeric tuning options and four boolean options:
 `show_hitboxes`, `start_all_upgrades`, `unlock_special_moves`, and
 `crescent_effect`. Normal damage values accept 1–32; boss damage accepts 0–32,
 where 0 means “use the matching normal value”; priority values accept 1–9.
@@ -223,10 +231,10 @@ finisher. Swing volume ranges from 0–200 in steps of 10.
 
 | Group | Options and defaults |
 |-------|----------------------|
-| Character/debug | `start=zero`; `start_all_upgrades=false`; `show_hitboxes=false`; `unlock_special_moves=false` (testing aid); `crescent_effect=true`; `uppercut_height=130` |
-| Normal damage | `slash1_damage=3`, `slash2_damage=3`, `slash3_damage=8`, `x3_finisher_damage=16`, `air_damage=3`, `wall_damage=3`, `dash_damage=3`, `wave_damage=6`, `uppercut_damage=8`, `rolling_slash_damage=8` |
-| Boss damage | `boss_slash1_damage=1`, `boss_slash2_damage=1`, `boss_slash3_damage=2`, `boss_air_damage=1`, `boss_wall_damage=1`, `boss_dash_damage=1`, `boss_x3_finisher_damage=6`, `boss_wave_damage=4`, `boss_uppercut_damage=2`, `boss_rolling_slash_damage=2` |
-| Priority | `slash1_priority=2`, `slash2_priority=3`, `slash3_priority=4`, `air_priority=1`, `wall_priority=1`, `dash_priority=5`, `charge_small_priority=1`, `charge_full_priority=1`, `max_shot1_priority=2`, `max_shot2_priority=3`, `x3_finisher_priority=4`, `wave_priority=5`, `uppercut_priority=6`, `rolling_slash_priority=7` |
+| Character/debug | `start=zero`; `start_all_upgrades=false`; `show_hitboxes=false`; `unlock_special_moves=false` (testing aid); `crescent_effect=true`; `uppercut_height=130`; `thrust_bounce_height=60` |
+| Normal damage | `slash1_damage=3`, `slash2_damage=3`, `slash3_damage=8`, `x3_finisher_damage=16`, `air_damage=3`, `wall_damage=3`, `dash_damage=3`, `wave_damage=6`, `uppercut_damage=8`, `rolling_slash_damage=8`, `thrust_damage=4` |
+| Boss damage | `boss_slash1_damage=1`, `boss_slash2_damage=1`, `boss_slash3_damage=2`, `boss_air_damage=1`, `boss_wall_damage=1`, `boss_dash_damage=1`, `boss_x3_finisher_damage=6`, `boss_wave_damage=4`, `boss_uppercut_damage=2`, `boss_rolling_slash_damage=2`, `boss_thrust_damage=2` |
+| Priority | `slash1_priority=2`, `slash2_priority=3`, `slash3_priority=4`, `air_priority=1`, `wall_priority=1`, `dash_priority=5`, `charge_small_priority=1`, `charge_full_priority=1`, `max_shot1_priority=2`, `max_shot2_priority=3`, `x3_finisher_priority=4`, `wave_priority=5`, `uppercut_priority=6`, `rolling_slash_priority=7`, `thrust_priority=8` |
 | Windows/audio | `priority_window_frames=70`, `finisher_window_frames=27`, `saber_swing_volume=50` |
 
 ## Co-op, savestates and netplay

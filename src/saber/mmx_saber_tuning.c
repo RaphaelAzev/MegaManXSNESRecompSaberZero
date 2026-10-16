@@ -50,6 +50,8 @@ static MmxSaberTuningOption k_options[] = {
    &g_tuning.normal_damage[MMX_SABER_TUNING_DAMAGE_UPPERCUT]},
   {"rolling_slash_damage", 8, 1, 32,
    &g_tuning.normal_damage[MMX_SABER_TUNING_DAMAGE_ROLLING]},
+  {"thrust_damage", 4, 1, 32,
+   &g_tuning.normal_damage[MMX_SABER_TUNING_DAMAGE_THRUST]},
 
   {"boss_slash1_damage", 1, 0, 32,
    &g_tuning.boss_damage[MMX_SABER_TUNING_DAMAGE_SLASH1]},
@@ -71,6 +73,8 @@ static MmxSaberTuningOption k_options[] = {
    &g_tuning.boss_damage[MMX_SABER_TUNING_DAMAGE_UPPERCUT]},
   {"boss_rolling_slash_damage", 2, 0, 32,
    &g_tuning.boss_damage[MMX_SABER_TUNING_DAMAGE_ROLLING]},
+  {"boss_thrust_damage", 2, 0, 32,
+   &g_tuning.boss_damage[MMX_SABER_TUNING_DAMAGE_THRUST]},
 
   {"slash1_priority", 2, 1, 9,
    &g_tuning.priority[MMX_SABER_TUNING_PRIORITY_SLASH1]},
@@ -100,6 +104,8 @@ static MmxSaberTuningOption k_options[] = {
    &g_tuning.priority[MMX_SABER_TUNING_PRIORITY_UPPERCUT]},
   {"rolling_slash_priority", 7, 1, 9,
    &g_tuning.priority[MMX_SABER_TUNING_PRIORITY_ROLLING]},
+  {"thrust_priority", 8, 1, 9,
+   &g_tuning.priority[MMX_SABER_TUNING_PRIORITY_THRUST]},
 
   {"priority_window_frames", 70, 30, 120,
    &g_tuning.priority_window_frames},

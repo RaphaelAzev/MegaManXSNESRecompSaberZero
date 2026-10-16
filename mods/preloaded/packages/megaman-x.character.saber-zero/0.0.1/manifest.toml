@@ -163,6 +163,17 @@ step = 1
 
 [[option]]
 feature = "saber-zero"
+id = "thrust_damage"
+label = "Downward thrust damage"
+description = "Normal damage dealt by the downward thrust."
+type = "integer"
+default = 4
+min = 1
+max = 32
+step = 1
+
+[[option]]
+feature = "saber-zero"
 id = "boss_slash1_damage"
 label = "Boss slash 1 damage"
 description = "0 = same as the normal value"
@@ -264,6 +275,17 @@ step = 1
 feature = "saber-zero"
 id = "boss_rolling_slash_damage"
 label = "Rolling slash boss damage"
+description = "0 = same as the normal value"
+type = "integer"
+default = 2
+min = 0
+max = 32
+step = 1
+
+[[option]]
+feature = "saber-zero"
+id = "boss_thrust_damage"
+label = "Downward thrust boss damage"
 description = "0 = same as the normal value"
 type = "integer"
 default = 2
@@ -427,6 +449,17 @@ step = 1
 
 [[option]]
 feature = "saber-zero"
+id = "thrust_priority"
+label = "Downward thrust priority"
+description = "Hit-priority ladder value for the downward thrust."
+type = "integer"
+default = 8
+min = 1
+max = 9
+step = 1
+
+[[option]]
+feature = "saber-zero"
 id = "priority_window_frames"
 label = "Hit priority window"
 description = "How long after a Saber hit a stronger hit may break enemy invincibility, in frames."
@@ -466,4 +499,15 @@ type = "integer"
 default = 130
 min = 100
 max = 200
+step = 5
+
+[[option]]
+feature = "saber-zero"
+id = "thrust_bounce_height"
+label = "Thrust bounce height"
+description = "How high Zero bounces off an enemy hit by the downward thrust, as a percentage of a normal jump; 0 turns the bounce off."
+type = "integer"
+default = 60
+min = 0
+max = 150
 step = 5
