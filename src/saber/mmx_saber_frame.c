@@ -8,6 +8,7 @@
 #include "mmx_saber_hitbox_debug.h"
 #include "mmx_saber_input.h"
 #include "mmx_saber_priority.h"
+#include "mmx_saber_projectile.h"
 #include "mmx_saber_wave_runtime.h"
 #include "mmx_saber_state.h"
 
@@ -57,6 +58,7 @@ static void reset_frame_state(uint8_t *ram, bool retire_attack_ram) {
   else
     MmxSaberAttackResetHostState();
   MmxSaberWaveRuntimeReset(ram);
+  MmxSaberProjectileReset(ram);
   MmxSaberPriorityReset();
   MmxSaberComboReset(ram);
   MmxSaberAttackResetCueCount();
@@ -217,6 +219,7 @@ static void player_end(uint8_t *ram) {
   if (zero_dead_or_reset(ram)) {
     MmxSaberComboCancel(ram);
     MmxSaberWaveRuntimeRetireAll(ram);
+    MmxSaberProjectileRetireAll(ram);
     MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_DEATH);
     return;
   }
@@ -251,6 +254,8 @@ static void pre_player(uint8_t *ram) {
       ram, MmxZeroGetState().shot_mask, MmxZeroGetState().burst);
   if (MmxSaberWaveRuntimeObserveStage(ram))
     MmxSaberComboCancel(ram);
+  /* Native weapon dispatch leaves the $5700 family alone. */
+  MmxSaberProjectileTick(ram);
   clear_frame_state();
   armor = MmxSaberArmorCurrent();
   MmxSaberBlackZeroNativeColorsUpdate(

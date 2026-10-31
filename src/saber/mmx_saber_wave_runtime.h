@@ -8,6 +8,7 @@
  * src/mmx_zero.h:101-135 and src/mmx_saber.c:1656-1723, 2383-2487. */
 enum {
   MMX_SABER_WAVE_TAG_FAMILY = 0x5600,
+  /* $5700 is reserved for MmxSaberProjectile; family masks keep runtimes separate. */
   MMX_SABER_WAVE_TAG_FAMILY_MASK = 0xff00,
   MMX_SABER_WAVE_COLLISION_POINTER = 0xffa0,
   MMX_SABER_WAVE_COLLISION_ROM_OFFSET = 0x37fa0,

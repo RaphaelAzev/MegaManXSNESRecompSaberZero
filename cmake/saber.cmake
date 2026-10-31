@@ -2,6 +2,7 @@ set(_saber_plugin_source "${CMAKE_CURRENT_SOURCE_DIR}/src/mods/mmx_saber_plugin.
 set(_saber_assets_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_assets.c")
 set(_saber_wave_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_wave.c")
 set(_saber_wave_runtime_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_wave_runtime.c")
+set(_saber_projectile_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_projectile.c")
 set(_saber_wave_assets_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_wave_assets.c")
 set(_saber_sfx_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_sfx.c")
 set(_saber_input_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_input.c")
@@ -118,6 +119,7 @@ if(TARGET MegaManXSNESRecomp)
         "${_saber_embedded_source}" "${_saber_plugin_source}" "${_saber_assets_source}"
         "${_saber_wave_source}" "${_saber_wave_assets_source}"
         "${_saber_wave_runtime_source}"
+        "${_saber_projectile_source}"
         "${_saber_sfx_source}" "${_saber_input_source}"
         "${_saber_combo_source}"
         "${_saber_attack_source}"
@@ -135,6 +137,7 @@ if(MMX_STATE_TESTS AND TARGET mmx_state_tests)
         "${_saber_embedded_source}" "${_saber_plugin_source}" "${_saber_assets_source}"
         "${_saber_wave_source}" "${_saber_wave_assets_source}"
         "${_saber_wave_runtime_source}"
+        "${_saber_projectile_source}"
         "${_saber_sfx_source}" "${_saber_input_source}"
         "${_saber_combo_source}"
         "${_saber_attack_source}"
@@ -157,6 +160,8 @@ if(MMX_STATE_TESTS AND TARGET mmx_state_tests)
         "${_saber_wave_source}"
         src/saber/mmx_saber_wave_runtime.c
         "${_saber_wave_runtime_source}"
+        src/saber/mmx_saber_projectile.c
+        "${_saber_projectile_source}"
         src/saber/mmx_saber_wave_assets.c
         "${_saber_wave_assets_source}"
         src/saber/mmx_saber_sfx.c
@@ -183,6 +188,7 @@ if(MMX_STATE_TESTS AND TARGET mmx_state_tests)
         "${_saber_plugin_source}" "${_saber_assets_source}"
         "${_saber_wave_source}" "${_saber_wave_assets_source}"
         "${_saber_wave_runtime_source}"
+        "${_saber_projectile_source}"
         "${_saber_sfx_source}" "${_saber_input_source}"
         "${_saber_combo_source}"
         "${_saber_attack_source}"
@@ -387,6 +393,13 @@ if(BUILD_TESTING)
     target_compile_definitions(mmx_saber_wave_test PRIVATE
         MMX_SABER_WAVE_TEST_CACHE_DIR="${_saber_wave_test_cache_dir}")
     add_test(NAME mmx_saber_wave COMMAND mmx_saber_wave_test)
+
+    add_executable(mmx_saber_projectile_test
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/saber/mmx_saber_projectile_test.c"
+        "${_saber_projectile_source}")
+    target_include_directories(mmx_saber_projectile_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/saber")
+    add_test(NAME mmx_saber_projectile COMMAND mmx_saber_projectile_test)
     set_tests_properties(mmx_saber_wave PROPERTIES
         SKIP_RETURN_CODE 77
         ENVIRONMENT "MMX_SABER_X3_ROM=${CMAKE_CURRENT_SOURCE_DIR}/Mega Man X3 (USA).sfc")
