@@ -135,6 +135,74 @@ static void check_defeated_mavericks(void) {
   }
 }
 
+static void check_special_boss_unlocks(void) {
+  static const unsigned boss_clear_offsets[SABER_SPECIAL_COUNT] = {
+    [SABER_SPECIAL_UPPERCUT] = 0x1f90,
+    [SABER_SPECIAL_ROLLING] = 0x1f8c,
+    [SABER_SPECIAL_THRUST] = 0x1f8e,
+    [SABER_SPECIAL_ICE_CLONE] = 0x1f96,
+    [SABER_SPECIAL_THUNDER_SLAM] = 0x1f92,
+    [SABER_SPECIAL_CUTTER_SLASH] = 0x1f94,
+  };
+  uint8_t ram[0x20000] = {0};
+
+  for (unsigned move = 0; move < SABER_SPECIAL_COUNT; ++move) {
+    const MmxSaberSpecialMove special = (MmxSaberSpecialMove)move;
+    if (MmxSaberSpecialBossDefeated(NULL, special)) {
+      printf("FAIL: special %u accepts NULL RAM\n", move);
+      ++failures;
+    }
+
+    memset(ram, 0, sizeof(ram));
+    ram[boss_clear_offsets[move]] = 0x40;
+    if (!MmxSaberSpecialBossDefeated(ram, special)) {
+      printf("FAIL: special %u own boss clear unlocks it\n", move);
+      ++failures;
+    }
+
+    for (unsigned other = 0; other < 8; ++other) {
+      const unsigned offset = 0x1f88 + 2 * other;
+      if (offset == boss_clear_offsets[move]) continue;
+      memset(ram, 0, sizeof(ram));
+      ram[offset] = 0x40;
+      if (MmxSaberSpecialBossDefeated(ram, special)) {
+        printf("FAIL: special %u accepts other boss %u alone\n", move, other);
+        ++failures;
+      }
+    }
+
+    memset(ram, 0, sizeof(ram));
+    for (unsigned other = 0; other < 8; ++other) {
+      const unsigned offset = 0x1f88 + 2 * other;
+      if (offset != boss_clear_offsets[move]) ram[offset] = 0x40;
+    }
+    if (MmxSaberSpecialBossDefeated(ram, special)) {
+      printf("FAIL: special %u accepts all seven other boss clears\n", move);
+      ++failures;
+    }
+
+    for (unsigned bit = 0; bit < 8; ++bit) {
+      if (bit == 6) continue;
+      memset(ram, 0, sizeof(ram));
+      ram[boss_clear_offsets[move]] = (uint8_t)(1u << bit);
+      if (MmxSaberSpecialBossDefeated(ram, special)) {
+        printf("FAIL: special %u accepts non-$40 bit $%02X\n", move,
+               1u << bit);
+        ++failures;
+      }
+    }
+  }
+
+  memset(ram, 0, sizeof(ram));
+  ram[0x1f90] = 0x40;
+  if (MmxSaberSpecialBossDefeated(
+          ram, (MmxSaberSpecialMove)-1) ||
+      MmxSaberSpecialBossDefeated(ram, SABER_SPECIAL_COUNT)) {
+    printf("FAIL: out-of-range special move is false\n");
+    ++failures;
+  }
+}
+
 static MmxSaberNativePad mapped_pad(void) {
   return (MmxSaberNativePad){0xd5, 0xc7, 0x44, 0x95, 0xc7};
 }
@@ -633,6 +701,7 @@ int main(void) {
   check_frame_pad();
   check_coop_frame_pad();
   check_defeated_mavericks();
+  check_special_boss_unlocks();
   check_table();
   check_special_charge_sequence();
   check_exhaustive_properties();

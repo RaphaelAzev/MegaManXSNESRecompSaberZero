@@ -1143,8 +1143,7 @@ static void uppercut_attack_checks(void) {
   const MmxSaberAttack *attack =
       MmxSaberAttackRecord(SABER_KIND_UPPERCUT, 0);
 
-  ram[0x1f88] = 0x40;
-  ram[0x1f8a] = 0x40;
+  ram[0x1f90] = 0x40; /* Storm Eagle unlocks the uppercut */
   ram[0x0bd3] = 4;
   check(attack && attack->visual_animation == 8 &&
             attack->startup_ticks == 4 && attack->active_ticks == 26 &&
@@ -1377,7 +1376,7 @@ static const MmxSaberBoundsSegment *render_test_saber_segment(
 
 static void special_live_bounds_checks_one(MmxSaberPadKind kind,
                                             bool grounded,
-                                            unsigned defeated,
+                                            unsigned boss_clear,
                                             uint8_t direction,
                                             const char *label) {
   static uint8_t ram[0x20000];
@@ -1390,8 +1389,7 @@ static void special_live_bounds_checks_one(MmxSaberPadKind kind,
   const bool down_held = kind == SABER_KIND_THRUST;
 
   memset(ram, 0, sizeof(ram));
-  for (unsigned i = 0; i < defeated; ++i)
-    ram[0x1f88 + i * 2] = 0x40;
+  ram[boss_clear] = 0x40;
   ram[0x0bd3] = grounded ? 4 : 0;
   check(attack && attack->bounds_pointer == MMX_SABER_AIR_BOUNDS_POINTER,
         "special uses the shared AIR collision-record window");
@@ -1480,19 +1478,19 @@ static void special_live_bounds_checks_one(MmxSaberPadKind kind,
 }
 
 static void special_live_bounds_checks(void) {
-  special_live_bounds_checks_one(SABER_KIND_UPPERCUT, true, 2, 1,
+  special_live_bounds_checks_one(SABER_KIND_UPPERCUT, true, 0x1f90, 1,
                                  "uppercut");
-  special_live_bounds_checks_one(SABER_KIND_UPPERCUT, true, 2, 2,
+  special_live_bounds_checks_one(SABER_KIND_UPPERCUT, true, 0x1f90, 2,
                                  "uppercut");
-  special_live_bounds_checks_one(SABER_KIND_ROLLING, false, 3, 1,
+  special_live_bounds_checks_one(SABER_KIND_ROLLING, false, 0x1f8c, 1,
                                  "rolling slash");
-  special_live_bounds_checks_one(SABER_KIND_ROLLING, false, 3, 2,
+  special_live_bounds_checks_one(SABER_KIND_ROLLING, false, 0x1f8c, 2,
                                  "rolling slash");
   /* Mutation red: point THRUST back to kAirSlashBounds in
    * src/saber/mmx_saber_attack.c. */
-  special_live_bounds_checks_one(SABER_KIND_THRUST, false, 4, 1,
+  special_live_bounds_checks_one(SABER_KIND_THRUST, false, 0x1f8e, 1,
                                  "thrust");
-  special_live_bounds_checks_one(SABER_KIND_THRUST, false, 4, 2,
+  special_live_bounds_checks_one(SABER_KIND_THRUST, false, 0x1f8e, 2,
                                  "thrust");
 }
 

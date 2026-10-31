@@ -2403,15 +2403,15 @@ static bool saber_special_moves_off_reader(const char *id, char *value,
 }
 
 static void saber_attack_selection_case(
-    unsigned defeated, bool grounded, bool wall_clinging, bool dash_active,
+    unsigned clear_mask, bool grounded, bool wall_clinging, bool dash_active,
     bool up_held, bool down_held, MmxSaberPadKind expected,
     const char *label) {
   MmxSaberAttackSnapshot snapshot;
 
   MmxSaberAttackResetRam(g_ram);
   memset(g_ram + 0x1f88, 0, 16);
-  for (unsigned i = 0; i < defeated && i < 8; ++i)
-    g_ram[0x1f88 + 2 * i] = 0x40;
+  for (unsigned i = 0; i < 8; ++i)
+    if (clear_mask & (1u << i)) g_ram[0x1f88 + 2 * i] = 0x40;
   MmxSaberAttackStepWithWallAndDash(
       true, grounded, wall_clinging, dash_active, up_held, down_held, true,
       false, true,
@@ -2474,102 +2474,102 @@ static void saber_special_moves_off_cancel_checks(void) {
 }
 
 static void saber_attack_selection_checks(void) {
-  static const unsigned locked_counts[] = {0, 1};
+  static const unsigned locked_masks[] = {0, 1};
 
   MmxSaberTuningLoad(NULL, NULL);
 
-  for (unsigned i = 0; i < sizeof(locked_counts) / sizeof(locked_counts[0]);
+  for (unsigned i = 0; i < sizeof(locked_masks) / sizeof(locked_masks[0]);
        ++i) {
-    const unsigned count = locked_counts[i];
+    const unsigned clear_mask = locked_masks[i];
     saber_attack_selection_case(
-        count, true, false, false, true, false, SABER_KIND_GROUND1,
+        clear_mask, true, false, false, true, false, SABER_KIND_GROUND1,
         "locked Up+slash ground selects ground-1");
     saber_attack_selection_case(
-        count, false, false, false, true, false, SABER_KIND_AIR,
+        clear_mask, false, false, false, true, false, SABER_KIND_AIR,
         "locked Up+slash air selects air slash");
   }
 
   saber_attack_selection_case(
-      3, false, false, false, false, true, SABER_KIND_AIR,
-      "three defeated Mavericks keep Down+slash locked to air slash");
+      0x07, false, false, false, false, true, SABER_KIND_AIR,
+      "three non-Mammoth clears keep Down+slash locked to air slash");
   saber_attack_selection_case(
-      4, false, false, false, false, true, SABER_KIND_THRUST,
-      "four defeated Mavericks unlock Down+slash thrust in air");
+      0x08, false, false, false, false, true, SABER_KIND_THRUST,
+      "Flame Mammoth clear unlocks Down+slash thrust in air");
   saber_attack_selection_case(
-      4, false, false, false, true, true, SABER_KIND_THRUST,
-      "four defeated Mavericks give Down+slash priority over Up+slash");
+      0x08, false, false, false, true, true, SABER_KIND_THRUST,
+      "Flame Mammoth clear gives Down+slash priority over Up+slash");
   saber_attack_selection_case(
-      3, false, false, false, true, true, SABER_KIND_ROLLING,
-      "three defeated Mavericks keep Up+slash rolling when thrust is locked");
+      0x04, false, false, false, true, true, SABER_KIND_ROLLING,
+      "Armadillo clear selects Up+slash rolling when thrust is locked");
 
   saber_attack_selection_case(
-      2, true, false, false, true, false, SABER_KIND_UPPERCUT,
-      "two defeated Mavericks unlock uppercut on ground");
+      0x10, true, false, false, true, false, SABER_KIND_UPPERCUT,
+      "Storm Eagle clear unlocks uppercut on ground");
   saber_attack_selection_case(
-      2, true, false, true, true, false, SABER_KIND_UPPERCUT,
-      "two defeated Mavericks keep uppercut priority over dash");
+      0x10, true, false, true, true, false, SABER_KIND_UPPERCUT,
+      "Storm Eagle clear keeps uppercut priority over dash");
   saber_attack_selection_case(
-      2, false, false, false, true, false, SABER_KIND_AIR,
-      "two defeated Mavericks keep air slash below rolling threshold");
+      0x03, false, false, false, true, false, SABER_KIND_AIR,
+      "two non-Armadillo clears keep air slash below rolling unlock");
   saber_attack_selection_case(
-      3, false, false, false, true, false, SABER_KIND_ROLLING,
-      "three defeated Mavericks unlock rolling slash in air");
+      0x04, false, false, false, true, false, SABER_KIND_ROLLING,
+      "Armored Armadillo clear unlocks rolling slash in air");
 
   MmxSaberTuningLoad(saber_unlock_special_moves_reader, NULL);
   saber_attack_selection_case(
       0, true, false, false, true, false, SABER_KIND_UPPERCUT,
-      "unlock_special_moves enables uppercut with zero defeated Mavericks");
+      "unlock_special_moves enables uppercut with zero boss clears");
   saber_attack_selection_case(
       0, false, false, false, true, false, SABER_KIND_ROLLING,
-      "unlock_special_moves enables rolling slash with zero defeated Mavericks");
+      "unlock_special_moves enables rolling slash with zero boss clears");
   saber_attack_selection_case(
       0, false, false, false, false, true, SABER_KIND_THRUST,
-      "unlock_special_moves enables thrust with zero defeated Mavericks");
+      "unlock_special_moves enables thrust with zero boss clears");
   MmxSaberTuningLoad(NULL, NULL);
 
   saber_attack_selection_case(
-      8, true, true, true, false, true, SABER_KIND_WALL,
+      0xff, true, true, true, false, true, SABER_KIND_WALL,
       "wall cling always selects wall slash");
 
   saber_attack_selection_case(
-      8, true, false, false, false, true, SABER_KIND_GROUND1,
+      0xff, true, false, false, false, true, SABER_KIND_GROUND1,
       "Down on ground keeps ground-1 selection");
   saber_attack_selection_case(
-      8, true, false, true, false, true, SABER_KIND_DASH,
+      0xff, true, false, true, false, true, SABER_KIND_DASH,
       "Down on ground keeps dash selection");
 
   MmxSaberTuningLoad(saber_special_moves_off_reader, NULL);
-  /* Mutation red: remove the special_moves gate from special_unlock_count()
+  /* Mutation red: remove the special_moves gate from special_unlocked()
    * in src/saber/mmx_saber_attack.c. */
   saber_attack_selection_case(
-      8, true, false, false, true, false, SABER_KIND_GROUND1,
+      0xff, true, false, false, true, false, SABER_KIND_GROUND1,
       "special_moves off with unlock on keeps ground-1 selection");
   saber_attack_selection_case(
-      8, false, false, false, true, false, SABER_KIND_AIR,
+      0xff, false, false, false, true, false, SABER_KIND_AIR,
       "special_moves off with unlock on keeps air selection for Up+slash");
   saber_attack_selection_case(
-      8, false, false, false, false, true, SABER_KIND_AIR,
+      0xff, false, false, false, false, true, SABER_KIND_AIR,
       "special_moves off with unlock on keeps air selection for Down+slash");
   saber_attack_selection_case(
-      8, true, false, true, true, false, SABER_KIND_DASH,
+      0xff, true, false, true, true, false, SABER_KIND_DASH,
       "special_moves off with unlock on keeps dash selection");
   saber_attack_selection_case(
-      8, true, true, true, true, true, SABER_KIND_WALL,
+      0xff, true, true, true, true, true, SABER_KIND_WALL,
       "special_moves off with unlock on keeps wall selection");
-  /* Mutation red: remove the same special_unlock_count() gate from the
+  /* Mutation red: remove the same special_unlocked() gate from the
    * GROUND3/DASH cancel branch in src/saber/mmx_saber_attack.c. */
   saber_special_moves_off_cancel_checks();
   MmxSaberTuningLoad(NULL, NULL);
 
-  for (unsigned count = 0; count <= 8; ++count) {
+  for (unsigned clear_mask = 0; clear_mask <= 8; ++clear_mask) {
     saber_attack_selection_case(
-        count, true, false, false, false, false, SABER_KIND_GROUND1,
+        clear_mask, true, false, false, false, false, SABER_KIND_GROUND1,
         "without Up ground slash selection stays ground-1");
     saber_attack_selection_case(
-        count, true, false, true, false, false, SABER_KIND_DASH,
+        clear_mask, true, false, true, false, false, SABER_KIND_DASH,
         "without Up dash selection stays dash slash");
     saber_attack_selection_case(
-        count, false, false, false, false, false, SABER_KIND_AIR,
+        clear_mask, false, false, false, false, false, SABER_KIND_AIR,
         "without Up air selection stays air slash");
   }
   puts("ok: saber-attack-selection");
@@ -10365,6 +10365,20 @@ static void saber_specials_unlock_load(const char *path,
   MmxSaberFrameReset();
 }
 
+static void saber_specials_set_clear_mask(unsigned clear_mask) {
+  for (unsigned i = 0; i < 8; ++i) {
+    const unsigned address = 0x1f88 + 2 * i;
+    g_ram[address] = (uint8_t)((g_ram[address] & 0xbf) |
+        ((clear_mask & (1u << i)) ? 0x40 : 0));
+  }
+}
+
+static void saber_specials_uppercut_load(const char *path,
+                                         unsigned expected_defeated) {
+  saber_specials_unlock_load(path, expected_defeated);
+  g_ram[0x1f90] |= 0x40;
+}
+
 static MmxSaberAttackSnapshot saber_specials_unlock_air(
     const char *path, unsigned expected_defeated) {
   saber_specials_unlock_load(path, expected_defeated);
@@ -10387,7 +10401,7 @@ static MmxSaberAttackSnapshot saber_specials_unlock_dash(
 
 static MmxSaberAttackSnapshot saber_specials_ground_up_y(
     const char *path, unsigned expected_defeated, unsigned target_index) {
-  saber_specials_unlock_load(path, expected_defeated);
+  saber_specials_uppercut_load(path, expected_defeated);
   if (target_index == 2) {
     /* Leave a NATURAL reason behind, so GROUND3 must use the central exit. */
     frame(SNES_PAD_Y);
@@ -10416,8 +10430,9 @@ static MmxSaberAttackSnapshot saber_specials_ground_up_y(
 }
 
 static MmxSaberAttackSnapshot saber_specials_dash_up_y(
-    const char *path, unsigned expected_defeated) {
+    const char *path, unsigned expected_defeated, bool uppercut_unlocked) {
   saber_specials_unlock_load(path, expected_defeated);
+  if (uppercut_unlocked) g_ram[0x1f90] |= 0x40;
   check(start_saber_dash_right(0) != 0,
         "saber-specials-unlock cancel route reaches native action $14");
   frame(SNES_PAD_A | SNES_PAD_RIGHT | SNES_PAD_Y);
@@ -10476,46 +10491,126 @@ static void saber_specials_unlock_checks(const char *x1_rom,
             snapshot.phase != SABER_PHASE_IDLE,
         "save0 (0 defeated) dash Up+Y keeps dash slash");
 
-  /* Mutation red: lower the uppercut threshold from defeated >=2 to >=1. */
-  saber_specials_unlock_load(mammoth_room, 1);
+  /* Mutation red: any non-theme clear must not unlock a special. */
+  saber_specials_unlock_load(fixture, 0);
+  saber_specials_set_clear_mask(0xffu ^ (1u << 4));
   frame(SNES_PAD_UP | SNES_PAD_Y);
   snapshot = MmxSaberAttackSnapshotGet();
   check(snapshot.kind == SABER_KIND_GROUND1 &&
             snapshot.phase != SABER_PHASE_IDLE,
-        "mammoth-fight (1 defeated) ground Up+Y stays locked to ground-1");
+        "seven non-Storm Eagle clears do not start ground uppercut");
 
-  /* Mutation red: change uppercut priority, or drop pad.up_held at the frame
-   * bridge. The dash route proves the special wins over dash. */
-  saber_specials_unlock_load(capsule, 2);
+  saber_specials_unlock_load(fixture, 0);
+  saber_specials_set_clear_mask(1u << 4);
   frame(SNES_PAD_UP | SNES_PAD_Y);
   snapshot = MmxSaberAttackSnapshotGet();
-  /* Mutation red: remove SABER_KIND_UPPERCUT from attack_cue() in
-   * src/saber/mmx_saber_attack.c. */
-  check(snapshot.kind == SABER_KIND_UPPERCUT &&
-            snapshot.phase != SABER_PHASE_IDLE &&
-            MmxSaberAttackCueCount() == 1 &&
-            MmxSaberSfxLastClip() == MMX_SABER_SFX_CLIP_UPPERCUT,
-        "capsule (2 defeated) ground Up+Y starts uppercut and emits exactly one uppercut cue");
-  snapshot = saber_specials_unlock_dash(capsule, 2);
   check(snapshot.kind == SABER_KIND_UPPERCUT &&
             snapshot.phase != SABER_PHASE_IDLE,
-        "capsule (2 defeated) dash Up+Y starts uppercut over dash slash");
+        "Storm Eagle-only clear starts ground uppercut");
 
-  /* Mutation red: lower rolling threshold from defeated >=3 to >=2. */
-  snapshot = saber_specials_unlock_air(capsule, 2);
+  saber_specials_unlock_load(fixture, 0);
+  saber_specials_set_clear_mask(0xffu ^ (1u << 2));
+  frame(SNES_PAD_B | SNES_PAD_UP);
+  frame(SNES_PAD_B | SNES_PAD_UP);
+  check(!saber_test_grounded(),
+        "seven non-Armadillo clears reach airborne rolling route");
+  frame(SNES_PAD_B | SNES_PAD_UP | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
   check(snapshot.kind == SABER_KIND_AIR &&
             snapshot.phase != SABER_PHASE_IDLE,
-        "capsule (2 defeated) air Up+Y stays below rolling threshold");
+        "seven non-Armadillo clears do not start rolling slash");
+
+  saber_specials_unlock_load(fixture, 0);
+  saber_specials_set_clear_mask(1u << 2);
+  frame(SNES_PAD_B | SNES_PAD_UP);
+  frame(SNES_PAD_B | SNES_PAD_UP);
+  check(!saber_test_grounded(),
+        "Armadillo-only clear reaches airborne rolling route");
+  frame(SNES_PAD_B | SNES_PAD_UP | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_ROLLING &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "Armadillo-only clear starts rolling slash");
+
+  saber_specials_unlock_load(fixture, 0);
+  saber_specials_set_clear_mask(0xffu ^ (1u << 3));
+  frame(SNES_PAD_B | SNES_PAD_DOWN);
+  frame(SNES_PAD_B | SNES_PAD_DOWN);
+  check(!saber_test_grounded(),
+        "seven non-Mammoth clears reach airborne thrust route");
+  frame(SNES_PAD_B | SNES_PAD_DOWN | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_AIR &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "seven non-Mammoth clears do not start thrust");
+
+  saber_specials_unlock_load(fixture, 0);
+  saber_specials_set_clear_mask(1u << 3);
+  frame(SNES_PAD_B | SNES_PAD_DOWN);
+  frame(SNES_PAD_B | SNES_PAD_DOWN);
+  check(!saber_test_grounded(),
+        "Mammoth-only clear reaches airborne thrust route");
+  frame(SNES_PAD_B | SNES_PAD_DOWN | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_THRUST &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "Mammoth-only clear starts thrust");
+
+  /* Mutation red: one non-Storm Eagle clear must not unlock uppercut. */
+  saber_specials_unlock_load(mammoth_room, 1);
+  saber_specials_set_clear_mask(1u << 0);
+  frame(SNES_PAD_UP | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_GROUND1 &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "one non-Storm Eagle clear keeps ground Up+Y on ground-1");
+
+  /* Capsule may have two clears, but only Storm Eagle owns uppercut. */
+  saber_specials_unlock_load(capsule, 2);
+  const bool capsule_has_storm =
+      MmxSaberSpecialBossDefeated(g_ram, SABER_SPECIAL_UPPERCUT);
+  const MmxSaberPadKind capsule_ground_kind = capsule_has_storm ?
+      SABER_KIND_UPPERCUT : SABER_KIND_GROUND1;
+  check(capsule_has_storm == ((g_ram[0x1f90] & 0x40) != 0),
+        "capsule.sav uppercut maps to Storm Eagle clear byte");
+  frame(SNES_PAD_UP | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  /* Mutation red: change uppercut priority, or drop pad.up_held at the frame
+   * bridge. The cue proves the special owner. */
+  /* Mutation red: remove SABER_KIND_UPPERCUT from attack_cue() in
+   * src/saber/mmx_saber_attack.c. */
+  check(snapshot.kind == capsule_ground_kind &&
+            snapshot.phase != SABER_PHASE_IDLE &&
+            (!capsule_has_storm ||
+             (MmxSaberAttackCueCount() == 1 &&
+              MmxSaberSfxLastClip() == MMX_SABER_SFX_CLIP_UPPERCUT)),
+        "capsule.sav ground Up+Y follows Storm Eagle, not clear count");
+  snapshot = saber_specials_dash_up_y(capsule, 2, true);
+  check(snapshot.kind == SABER_KIND_UPPERCUT &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "Storm Eagle clear makes dash Up+Y start uppercut over dash slash");
+
+  /* Mutation red: a second capsule clear must not unlock rolling without
+   * Armored Armadillo. */
+  saber_specials_unlock_load(capsule, 2);
+  const bool capsule_has_armadillo =
+      MmxSaberSpecialBossDefeated(g_ram, SABER_SPECIAL_ROLLING);
+  frame(SNES_PAD_B | SNES_PAD_UP);
+  frame(SNES_PAD_B | SNES_PAD_UP);
+  check(!saber_test_grounded(),
+        "capsule.sav rolling route is airborne before Up+Y");
+  frame(SNES_PAD_B | SNES_PAD_UP | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == (capsule_has_armadillo ? SABER_KIND_ROLLING : SABER_KIND_AIR) &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "capsule.sav air Up+Y follows Armadillo clear, not clear count");
 
   /* Mutation red: change MmxSaberFrameSampleNativePad()'s $A8 Down mask, or
    * drop pad.down_held before pre_player() calls the attack selector. */
   saber_specials_unlock_load(fixture, 0);
-  g_ram[0x1f88] |= 0x40;
-  g_ram[0x1f8a] |= 0x40;
-  g_ram[0x1f8c] |= 0x40;
-  g_ram[0x1f8e] |= 0x40;
-  check(MmxSaberDefeatedMavericks(g_ram) == 4,
-        "SYNTHETIC save0 has four selected clear bits");
+  saber_specials_set_clear_mask(1u << 3);
+  check(MmxSaberSpecialBossDefeated(g_ram, SABER_SPECIAL_THRUST),
+        "SYNTHETIC save0 has the Flame Mammoth clear bit");
   frame(SNES_PAD_B | SNES_PAD_DOWN);
   frame(SNES_PAD_B | SNES_PAD_DOWN);
   check(!saber_test_grounded(),
@@ -10528,7 +10623,7 @@ static void saber_specials_unlock_checks(const char *x1_rom,
             snapshot.phase != SABER_PHASE_IDLE &&
             MmxSaberAttackCueCount() == 1 &&
             MmxSaberSfxLastClip() == MMX_SABER_SFX_CLIP_SABER_2,
-        "SYNTHETIC save0 (4 defeated) air Down+Y starts thrust and emits exactly one THRUST cue");
+        "SYNTHETIC Flame Mammoth clear air Down+Y starts thrust and emits exactly one THRUST cue");
 
   /* Mutation red: remove the special_moves option from
    * mods/preloaded/packages/megaman-x.character.saber-zero/0.0.1/manifest.toml. */
@@ -10544,15 +10639,12 @@ static void saber_specials_unlock_checks(const char *x1_rom,
   check(!MmxSaberTuningSpecialMoves() && MmxSaberTuningUnlockSpecialMoves(),
         "special_moves off overrides unlock_special_moves after plugin activation");
 
-  /* Mutation red: remove the special_moves gate from special_unlock_count()
+  /* Mutation red: remove the special_moves gate from special_unlocked()
    * in src/saber/mmx_saber_attack.c. */
   saber_specials_unlock_load(fixture, 0);
-  g_ram[0x1f88] |= 0x40;
-  g_ram[0x1f8a] |= 0x40;
-  g_ram[0x1f8c] |= 0x40;
-  g_ram[0x1f8e] |= 0x40;
-  check(MmxSaberDefeatedMavericks(g_ram) == 4,
-        "special_moves off route has four synthetic clears");
+  saber_specials_set_clear_mask(0xff);
+  check(MmxSaberDefeatedMavericks(g_ram) == 8,
+        "special_moves off route has all eight synthetic clears");
   frame(SNES_PAD_B | SNES_PAD_DOWN);
   frame(SNES_PAD_B | SNES_PAD_DOWN);
   check(!saber_test_grounded(),
@@ -10561,13 +10653,10 @@ static void saber_specials_unlock_checks(const char *x1_rom,
   snapshot = MmxSaberAttackSnapshotGet();
   check(snapshot.kind == SABER_KIND_AIR &&
             snapshot.phase != SABER_PHASE_IDLE,
-        "special_moves off with four clears keeps air Down+Y as AIR");
+        "special_moves off with all clears keeps air Down+Y as AIR");
 
   saber_specials_unlock_load(fixture, 0);
-  g_ram[0x1f88] |= 0x40;
-  g_ram[0x1f8a] |= 0x40;
-  g_ram[0x1f8c] |= 0x40;
-  g_ram[0x1f8e] |= 0x40;
+  saber_specials_set_clear_mask(0xff);
   frame(SNES_PAD_B | SNES_PAD_UP);
   frame(SNES_PAD_B | SNES_PAD_UP);
   check(!saber_test_grounded(),
@@ -10576,7 +10665,7 @@ static void saber_specials_unlock_checks(const char *x1_rom,
   snapshot = MmxSaberAttackSnapshotGet();
   check(snapshot.kind == SABER_KIND_AIR &&
             snapshot.phase != SABER_PHASE_IDLE,
-        "special_moves off with four clears keeps air Up+Y as AIR");
+        "special_moves off with all clears keeps air Up+Y as AIR");
 
   check(g_mod_provider->feature_set_option(
             g_mod_provider->ctx, MMX_SABER_SETTINGS_PACKAGE,
@@ -10590,11 +10679,9 @@ static void saber_specials_unlock_checks(const char *x1_rom,
   check(MmxSaberTuningSpecialMoves() && !MmxSaberTuningUnlockSpecialMoves(),
         "saber-specials-unlock restores special-move tuning defaults");
 
-  /* Mutation red: lower IDLE thrust selection from defeated >=4. */
+  /* Mutation red: non-Mammoth clears keep IDLE thrust locked. */
   saber_specials_unlock_load(fixture, 0);
-  g_ram[0x1f88] |= 0x40;
-  g_ram[0x1f8a] |= 0x40;
-  g_ram[0x1f8c] |= 0x40;
+  saber_specials_set_clear_mask(0x07);
   check(MmxSaberDefeatedMavericks(g_ram) == 3,
         "SYNTHETIC save0 has three selected clear bits");
   frame(SNES_PAD_B | SNES_PAD_DOWN);
@@ -10605,7 +10692,7 @@ static void saber_specials_unlock_checks(const char *x1_rom,
   snapshot = MmxSaberAttackSnapshotGet();
   check(snapshot.kind == SABER_KIND_AIR &&
             snapshot.phase != SABER_PHASE_IDLE,
-        "SYNTHETIC save0 (3 defeated) air Down+Y starts AIR");
+        "SYNTHETIC save0 (no Mammoth clear) air Down+Y starts AIR");
 
   /* Mutation red: make Up sticky, or drop the no-Up path's held-state
    * distinction. */
@@ -10614,7 +10701,7 @@ static void saber_specials_unlock_checks(const char *x1_rom,
   snapshot = MmxSaberAttackSnapshotGet();
   check(snapshot.kind == SABER_KIND_GROUND1 &&
             snapshot.phase != SABER_PHASE_IDLE,
-        "capsule (2 defeated) ground Y without Up stays ground-1");
+        "capsule ground Y without Up stays ground-1");
 
   /* Mutation red: move wall below rolling/air/uppercut, or drop the real
    * wall-cling context. Wall priority must remain above every Up special.
@@ -10639,11 +10726,11 @@ static void saber_specials_unlock_checks(const char *x1_rom,
   snapshot = saber_specials_ground_up_y(capsule, 2, 0);
   check(snapshot.kind == SABER_KIND_GROUND1 &&
             snapshot.phase != SABER_PHASE_IDLE,
-        "capsule (2 defeated) Up+Y during GROUND1 keeps GROUND1");
+        "Storm Eagle synthetic Up+Y during GROUND1 keeps GROUND1");
   snapshot = saber_specials_ground_up_y(capsule, 2, 1);
   check(snapshot.kind == SABER_KIND_GROUND2 &&
             snapshot.phase != SABER_PHASE_IDLE,
-        "capsule (2 defeated) Up+Y during GROUND2 keeps GROUND2");
+        "Storm Eagle synthetic Up+Y during GROUND2 keeps GROUND2");
 
   /* Mutation red: remove GROUND3 from the live cancel branch, or skip the
    * central CONTEXT exit before starting the uppercut. */
@@ -10651,27 +10738,27 @@ static void saber_specials_unlock_checks(const char *x1_rom,
   check(snapshot.kind == SABER_KIND_UPPERCUT &&
             snapshot.phase != SABER_PHASE_IDLE &&
             MmxSaberAttackLastExitReason() == MMX_SABER_ATTACK_EXIT_CONTEXT,
-        "capsule (2 defeated) Up+Y during GROUND3 starts uppercut via CONTEXT");
+        "Storm Eagle synthetic Up+Y during GROUND3 starts uppercut via CONTEXT");
 
   /* Mutation red: remove DASH from the same cancel branch. */
-  snapshot = saber_specials_dash_up_y(capsule, 2);
+  snapshot = saber_specials_dash_up_y(capsule, 2, true);
   check(snapshot.kind == SABER_KIND_UPPERCUT &&
             snapshot.phase != SABER_PHASE_IDLE &&
             MmxSaberAttackLastExitReason() == MMX_SABER_ATTACK_EXIT_CONTEXT,
-        "capsule (2 defeated) dash Up+Y starts uppercut via CONTEXT");
+        "Storm Eagle synthetic dash Up+Y starts uppercut via CONTEXT");
 
   /* Mutation red: ignore the unlock threshold for live cancellation. */
-  snapshot = saber_specials_dash_up_y(fixture, 0);
+  snapshot = saber_specials_dash_up_y(fixture, 0, false);
   check(snapshot.kind == SABER_KIND_DASH &&
             snapshot.phase != SABER_PHASE_IDLE,
         "save0 (0 defeated) dash Up+Y does not cancel while locked");
 
-  /* SYNTHETIC: no real fixture with 3 clears exists yet. Add one measured
-   * Launch Octopus clear bit to the real two-clear capsule RAM only. */
+  /* SYNTHETIC: keep Launch Octopus, Sting Chameleon and Armored Armadillo
+   * clear bits, including Armadillo's theme bit for rolling. */
   saber_specials_unlock_load(capsule, 2);
-  g_ram[0x1f88] |= 0x40;
+  saber_specials_set_clear_mask((1u << 0) | (1u << 1) | (1u << 2));
   check(MmxSaberDefeatedMavericks(g_ram) == 3,
-        "SYNTHETIC capsule plus Launch Octopus bit has 3 defeated Mavericks");
+        "SYNTHETIC capsule has three selected clear bits including Armadillo");
   frame(SNES_PAD_B | SNES_PAD_UP);
   frame(SNES_PAD_B | SNES_PAD_UP);
   check(!saber_test_grounded(),
@@ -10680,21 +10767,21 @@ static void saber_specials_unlock_checks(const char *x1_rom,
   snapshot = MmxSaberAttackSnapshotGet();
   check(snapshot.kind == SABER_KIND_ROLLING &&
             snapshot.phase != SABER_PHASE_IDLE,
-        "SYNTHETIC capsule (3 defeated) air Up+Y starts rolling slash");
+        "SYNTHETIC Armadillo clear air Up+Y starts rolling slash");
 
   saber_specials_unlock_load(capsule, 2);
-  g_ram[0x1f88] |= 0x40;
-  check(MmxSaberDefeatedMavericks(g_ram) == 3,
-        "SYNTHETIC ground route keeps the added third clear bit");
+  saber_specials_set_clear_mask(1u << 4);
+  check(MmxSaberSpecialBossDefeated(g_ram, SABER_SPECIAL_UPPERCUT),
+        "SYNTHETIC ground route has the Storm Eagle clear bit");
   frame(SNES_PAD_UP | SNES_PAD_Y);
   snapshot = MmxSaberAttackSnapshotGet();
   check(snapshot.kind == SABER_KIND_UPPERCUT &&
             snapshot.phase != SABER_PHASE_IDLE,
-        "SYNTHETIC capsule (3 defeated) ground Up+Y starts uppercut");
+        "SYNTHETIC Storm Eagle clear ground Up+Y starts uppercut");
 
   /* Mutation red: omit Saber attack state from the save/load extension.
    * Save/restore must preserve selected special owner, not only native RAM. */
-  saber_specials_unlock_load(capsule, 2);
+  saber_specials_uppercut_load(capsule, 2);
   frame(SNES_PAD_UP | SNES_PAD_Y);
   const MmxSaberAttackSnapshot uppercut_before =
       MmxSaberAttackSnapshotGet();
@@ -10714,7 +10801,7 @@ static void saber_specials_unlock_checks(const char *x1_rom,
 
   /* Same save proof for the synthetic rolling owner. */
   saber_specials_unlock_load(capsule, 2);
-  g_ram[0x1f88] |= 0x40;
+  saber_specials_set_clear_mask(1u << 2);
   frame(SNES_PAD_B | SNES_PAD_UP);
   frame(SNES_PAD_B | SNES_PAD_UP);
   check(!saber_test_grounded(),
@@ -10724,7 +10811,7 @@ static void saber_specials_unlock_checks(const char *x1_rom,
       MmxSaberAttackSnapshotGet();
   check(rolling_before.kind == SABER_KIND_ROLLING &&
             rolling_before.phase != SABER_PHASE_IDLE,
-        "SYNTHETIC rolling save route starts mid-attack");
+        "SYNTHETIC Armadillo rolling save route starts mid-attack");
   snapshot_size = RtlSaveSnapshotToMemory(saved_snapshot, snapshot_capacity);
   check(snapshot_size != 0,
         "SYNTHETIC rolling save route captures state");
@@ -10734,7 +10821,7 @@ static void saber_specials_unlock_checks(const char *x1_rom,
   snapshot = MmxSaberAttackSnapshotGet();
   check(snapshot.kind == SABER_KIND_ROLLING &&
             snapshot.phase != SABER_PHASE_IDLE,
-        "SYNTHETIC rolling save/restore keeps ROLLING selected");
+        "SYNTHETIC Armadillo rolling save/restore keeps ROLLING selected");
 
   /* Mutation red: leave Saber enabled for behavior=x3, or route base Zero's
    * Up+Y into the Saber attack owner. Base Zero must stay untouched. */
@@ -10806,7 +10893,7 @@ static unsigned saber_uppercut_record_jump_arc(
   bool airborne = false;
   unsigned count = 0;
 
-  saber_specials_unlock_load(path, 2);
+  saber_specials_uppercut_load(path, 2);
   MmxSaberFrameReset();
   for (unsigned frame_number = 1;
        frame_number < SABER_UPPERCUT_ARC_CAPACITY; ++frame_number) {
@@ -10832,7 +10919,7 @@ static SaberUppercutArc saber_uppercut_arc(const char *path,
   arc.apex_exit = MMX_SABER_ATTACK_EXIT_CONTEXT;
   arc.release_exit = MMX_SABER_ATTACK_EXIT_CONTEXT;
   arc.no_restart_after_apex = true;
-  saber_specials_unlock_load(path, 2);
+  saber_specials_uppercut_load(path, 2);
   check(saber_test_grounded(),
         "saber-uppercut capsule route starts from standing ground");
   for (unsigned frame_number = 1;
@@ -10879,7 +10966,7 @@ static unsigned saber_uppercut_dash_trace(
     const char *path, bool uppercut, SaberDashSample samples[],
     unsigned *start_x, int *travel) {
   bool all_airborne = true;
-  saber_specials_unlock_load(path, 2);
+  saber_specials_uppercut_load(path, 2);
   check(start_saber_dash_right(0) != 0, uppercut ?
         "saber-uppercut dash route starts native action $14" :
         "saber-uppercut native dash-jump route starts native action $14");
@@ -10909,7 +10996,7 @@ static unsigned saber_uppercut_standing_trace(
     const char *path, SaberDashSample samples[], unsigned *start_x,
     int *travel) {
   bool all_airborne = true;
-  saber_specials_unlock_load(path, 2);
+  saber_specials_uppercut_load(path, 2);
   *start_x = read_ram_word(g_ram, 0x0bad);
   for (unsigned i = 0; i < SABER_UPPERCUT_DASH_FRAMES; ++i) {
     frame(SNES_PAD_B | SNES_PAD_RIGHT);
@@ -10959,7 +11046,7 @@ static void saber_uppercut_checks(const char *fixture_dir) {
   check(readable_file(capsule), "saber-uppercut capsule fixture exists");
 
   /* Mutation red: ignore uppercut_height or scale VY after native gravity. */
-  saber_specials_unlock_load(capsule, 2);
+  saber_specials_uppercut_load(capsule, 2);
   check(saber_test_grounded(),
         "saber-uppercut held comparison starts on capsule standing ground");
   const unsigned native_held_count =
@@ -12060,7 +12147,7 @@ static void saber_thrust_checks(const char *fixture_dir) {
 static unsigned saber_specials_uppercut_live_slot(const char *path) {
   MmxSaberAttackSnapshot snapshot;
 
-  saber_specials_unlock_load(path, 2);
+  saber_specials_uppercut_load(path, 2);
   check(saber_test_grounded(),
         "saber-specials-damage uppercut starts from capsule standing ground");
   frame(SNES_PAD_UP | SNES_PAD_Y);
@@ -12128,12 +12215,12 @@ static unsigned saber_specials_rolling_live_slot(const char *path) {
 
 static void saber_specials_boss_unlock_load(const char *path) {
   load_response_fixture(path);
-  g_ram[0x1f88] |= 0x40;
-  g_ram[0x1f8a] |= 0x40;
   g_ram[0x1f8c] |= 0x40;
+  g_ram[0x1f90] |= 0x40;
   MmxSaberFrameReset();
-  check(MmxSaberDefeatedMavericks(g_ram) >= 3,
-        "saber-specials-damage boss fixture unlocks both air specials");
+  check(MmxSaberSpecialBossDefeated(g_ram, SABER_SPECIAL_ROLLING) &&
+            MmxSaberSpecialBossDefeated(g_ram, SABER_SPECIAL_UPPERCUT),
+        "saber-specials-damage boss fixture has Armadillo and Storm Eagle clears");
 }
 
 static unsigned saber_specials_direct_live_slot(MmxSaberPadKind expected_kind,

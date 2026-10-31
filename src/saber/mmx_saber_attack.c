@@ -1027,10 +1027,10 @@ static void start_attack(const MmxSaberAttack *attack, uint8_t facing) {
   update_animation();
 }
 
-static unsigned special_unlock_count(const uint8_t *ram) {
-  if (!MmxSaberTuningSpecialMoves()) return 0;
-  return MmxSaberTuningUnlockSpecialMoves() ? 8 :
-      MmxSaberDefeatedMavericks(ram);
+static bool special_unlocked(const uint8_t *ram, MmxSaberSpecialMove move) {
+  if (!MmxSaberTuningSpecialMoves()) return false;
+  if (MmxSaberTuningUnlockSpecialMoves()) return true;
+  return MmxSaberSpecialBossDefeated(ram, move);
 }
 
 void MmxSaberAttackStep(bool saber_pressed, bool grounded, bool playable,
@@ -1075,12 +1075,14 @@ void MmxSaberAttackStepWithWallAndDash(bool saber_pressed, bool grounded,
 
   if (state.phase == SABER_PHASE_IDLE) {
     if (saber_pressed) {
-      const unsigned defeated = special_unlock_count(ram);
       const MmxSaberPadKind kind = wall_clinging ? SABER_KIND_WALL :
-          (!grounded && down_held && defeated >= 4 ? SABER_KIND_THRUST :
-           (!grounded && up_held && defeated >= 3 ? SABER_KIND_ROLLING :
+          (!grounded && down_held &&
+                   special_unlocked(ram, SABER_SPECIAL_THRUST) ? SABER_KIND_THRUST :
+           (!grounded && up_held &&
+                    special_unlocked(ram, SABER_SPECIAL_ROLLING) ? SABER_KIND_ROLLING :
            (!grounded ? SABER_KIND_AIR :
-            (grounded && up_held && defeated >= 2 ? SABER_KIND_UPPERCUT :
+            (grounded && up_held &&
+                     special_unlocked(ram, SABER_SPECIAL_UPPERCUT) ? SABER_KIND_UPPERCUT :
              (dash_active ? SABER_KIND_DASH : SABER_KIND_GROUND1)))));
       const uint8_t facing = wall_clinging || kind == SABER_KIND_DASH ?
           (native_facing & 0x40) :
@@ -1119,7 +1121,7 @@ void MmxSaberAttackStepWithWallAndDash(bool saber_pressed, bool grounded,
   if ((attack->kind == SABER_KIND_GROUND3 ||
        attack->kind == SABER_KIND_DASH) &&
       state.phase != SABER_PHASE_STARTUP && saber_pressed && up_held &&
-      special_unlock_count(ram) >= 2) {
+      special_unlocked(ram, SABER_SPECIAL_UPPERCUT)) {
     const uint8_t facing = state.facing;
     MmxSaberAttackExit(runtime_ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
     start_attack(MmxSaberAttackRecord(SABER_KIND_UPPERCUT, 0), facing);
