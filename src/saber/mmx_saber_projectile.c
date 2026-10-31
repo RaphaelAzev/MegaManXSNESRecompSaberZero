@@ -3,9 +3,24 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "../mmx_wide_policy.h"
+
 static MmxSaberProjectile projectiles[MMX_SABER_PROJECTILE_SLOT_COUNT];
 static uint8_t *runtime_ram;
 static bool table_initialized;
+
+typedef struct MmxSaberProjectileBounds {
+  uint8_t half_width;
+  uint8_t half_height;
+} MmxSaberProjectileBounds;
+
+static const MmxSaberProjectileBounds kProjectileHitboxes[
+    SABER_PROJECTILE_KIND_COUNT] = {
+  [SABER_PROJECTILE_TORNADO] = {12, 32},
+  [SABER_PROJECTILE_ICE_CLONE] = {16, 16},
+  [SABER_PROJECTILE_THUNDER_ORB] = {8, 8},
+  [SABER_PROJECTILE_CUTTER] = {12, 8},
+};
 
 static unsigned word(const uint8_t *p) {
   return p[0] | ((unsigned)p[1] << 8);
@@ -25,6 +40,12 @@ static bool slot_valid(unsigned slot) {
   return slot >= MMX_SABER_PROJECTILE_SLOT_FIRST &&
       slot < MMX_SABER_PROJECTILE_SLOT_END &&
       (slot & (MMX_SABER_PROJECTILE_SLOT_BYTES - 1)) == 0x28;
+}
+
+static unsigned index_for_slot(unsigned slot) {
+  if (!slot_valid(slot)) return MMX_SABER_PROJECTILE_SLOT_COUNT;
+  return (slot - MMX_SABER_PROJECTILE_SLOT_FIRST) /
+      MMX_SABER_PROJECTILE_SLOT_BYTES;
 }
 
 static bool tag_family(unsigned tag) {
@@ -51,6 +72,34 @@ static void initialize_table(void) {
   for (unsigned i = 0; i < MMX_SABER_PROJECTILE_SLOT_COUNT; ++i)
     projectiles[i].slot = (uint16_t)slot_for_index(i);
   table_initialized = true;
+}
+
+static MmxSaberProjectile *owned_entry(const uint8_t *ram, unsigned slot) {
+  const unsigned index = index_for_slot(slot);
+  if (index >= MMX_SABER_PROJECTILE_SLOT_COUNT) return NULL;
+  initialize_table();
+  if (!projectiles[index].active || projectiles[index].slot != slot ||
+      !owns_slot(ram, slot))
+    return NULL;
+  return &projectiles[index];
+}
+
+static bool enemy_slot_valid(unsigned enemy) {
+  return enemy >= 0xe68 && enemy < 0x1228 &&
+      (enemy & (MMX_SABER_PROJECTILE_SLOT_BYTES - 1)) == 0x28;
+}
+
+static unsigned enemy_bit(unsigned enemy) {
+  if (!enemy_slot_valid(enemy)) return 0;
+  return 1u << ((enemy - 0xe68) / MMX_SABER_PROJECTILE_SLOT_BYTES);
+}
+
+static const MmxSaberProjectileBounds *hitbox_for_kind(
+    MmxSaberProjectileKind kind) {
+  if (kind < SABER_PROJECTILE_TORNADO ||
+      kind >= SABER_PROJECTILE_KIND_COUNT)
+    return NULL;
+  return &kProjectileHitboxes[kind];
 }
 
 static void clear_entry(unsigned index) {
@@ -127,10 +176,12 @@ bool MmxSaberProjectileSpawn(uint8_t *ram,
       info->lifetime,
       info->facing,
       info->native_weapon_class,
+      info->priority,
       info->damage_normal,
       info->damage_boss,
       info->pass_through,
       info->hit_mask,
+      false,
       info->fade_level,
       info->animation_tick};
 
@@ -157,6 +208,10 @@ unsigned MmxSaberProjectileFreeCapacity(const uint8_t *ram) {
     if (!projectiles[i].active && free_slot(ram, slot_for_index(i)))
       ++free_count;
   return free_count >= 2 ? free_count - 1 : 0;
+}
+
+bool MmxSaberProjectileOwns(const uint8_t *ram, unsigned slot) {
+  return owned_entry(ram, slot) != NULL;
 }
 
 void MmxSaberProjectileTick(uint8_t *ram) {
@@ -186,6 +241,48 @@ void MmxSaberProjectileTick(uint8_t *ram) {
       clear_entry(i);
     }
   }
+}
+
+unsigned MmxSaberProjectileDamage(uint8_t *ram, unsigned enemy,
+                                  unsigned slot, unsigned value) {
+  MmxSaberProjectile *projectile = owned_entry(ram, slot);
+  const unsigned index = index_for_slot(slot);
+  unsigned bit;
+  unsigned damage;
+
+  if (!projectile) return value;
+  if (value & 128) {
+    /* Native reflection stays authoritative. Only a non-pass-through owner
+     * is retired by the reflected response, matching the wave owner. */
+    if (!projectile->pass_through)
+      MmxSaberProjectileRetire(ram, index);
+    return value;
+  }
+  if (!enemy_slot_valid(enemy) || !value) return value;
+  bit = enemy_bit(enemy);
+  if (projectile->hit_mask & bit) return 0;
+  projectile->hit_mask |= (uint16_t)bit;
+  projectile->hit_any = true;
+  damage = MmxWidePolicy_IsBossEncounter(ram[enemy + 0x0a]) ?
+      projectile->damage_boss : projectile->damage_normal;
+  if (!projectile->pass_through) MmxSaberProjectileRetire(ram, index);
+  return damage;
+}
+
+unsigned MmxSaberProjectileHitbox(const uint8_t *ram, unsigned enemy,
+                                  unsigned slot, unsigned value) {
+  const MmxSaberProjectile *projectile = owned_entry(ram, slot);
+  const MmxSaberProjectileBounds *hitbox;
+  const unsigned bit = enemy_bit(enemy);
+
+  if (!projectile || !enemy_slot_valid(enemy) || !value) return value;
+  hitbox = hitbox_for_kind(projectile->kind);
+  /* All four kinds use the one installed $FFA0 record. The table keeps
+   * per-kind extents owned by this runtime while native collision supplies
+   * the shared candidate; later art units can refine these values there. */
+  if (!hitbox || !hitbox->half_width || !hitbox->half_height) return 0;
+  if (projectile->hit_mask & bit) return 0;
+  return value;
 }
 
 void MmxSaberProjectileRetire(uint8_t *ram, unsigned index) {

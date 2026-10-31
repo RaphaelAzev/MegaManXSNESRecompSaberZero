@@ -10,6 +10,7 @@
 #include "mmx_saber_armor.h"
 #include "mmx_saber_hitbox_debug.h"
 #include "mmx_saber_priority.h"
+#include "mmx_saber_projectile.h"
 #include "mmx_saber_tuning.h"
 #include "mmx_saber_unlock.h"
 #include "mmx_saber_wave_runtime.h"
@@ -1465,6 +1466,7 @@ unsigned MmxSaberAttackWeaponTick(uint8_t *ram, unsigned projectile,
                                   unsigned value) {
   if (MmxSaberWaveRuntimeOwns(ram, projectile))
     return MmxSaberWaveRuntimeWeaponTick(ram, projectile, value);
+  if (MmxSaberProjectileOwns(ram, projectile)) return 0;
   if (!ram || !projectile_slot_valid(projectile) || !ram[projectile] ||
       !saber_tag_family(word(ram + projectile + 0x3e)))
     return value;
@@ -1483,6 +1485,8 @@ static unsigned saber_attack_damage_core(uint8_t *ram, unsigned enemy,
   const MmxSaberAttack *attack;
   if (MmxSaberWaveRuntimeOwns(ram, projectile))
     return MmxSaberWaveRuntimeDamage(ram, enemy, projectile, value);
+  if (MmxSaberProjectileOwns(ram, projectile))
+    return MmxSaberProjectileDamage(ram, enemy, projectile, value);
   /* The upstream X3 finisher owns the $5A53 tag and its hit mask.  The
    * extension is installed only for Saber, so this positive-path filter can
    * replace upstream's 16 without changing plain Zero. */
@@ -1559,6 +1563,8 @@ unsigned MmxSaberAttackHitbox(const uint8_t *ram, unsigned enemy,
                               unsigned projectile, unsigned value) {
   if (MmxSaberWaveRuntimeOwns(ram, projectile))
     return MmxSaberWaveRuntimeHitbox(ram, enemy, projectile, value);
+  if (MmxSaberProjectileOwns(ram, projectile))
+    return MmxSaberProjectileHitbox(ram, enemy, projectile, value);
   if (saber_projectile_owned(ram, projectile) && enemy_slot_valid(enemy) &&
       (state.hit_slots & (1u << ((enemy - 0xe68) / 64))))
     return 0;

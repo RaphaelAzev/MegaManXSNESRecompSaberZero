@@ -254,7 +254,8 @@ static void pre_player(uint8_t *ram) {
       ram, MmxZeroGetState().shot_mask, MmxZeroGetState().burst);
   if (MmxSaberWaveRuntimeObserveStage(ram))
     MmxSaberComboCancel(ram);
-  /* Native weapon dispatch leaves the $5700 family alone. */
+  /* Advance host-owned $5700 objects before native weapon dispatch; the
+   * Saber weapon callback claims them so native projectile movement cannot run. */
   MmxSaberProjectileTick(ram);
   clear_frame_state();
   armor = MmxSaberArmorCurrent();

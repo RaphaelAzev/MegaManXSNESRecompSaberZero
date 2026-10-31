@@ -50,6 +50,7 @@ static bool test_spawn_publishes_slot(void) {
   info.vy = -0x0080;
   info.facing = 0x40;
   info.native_weapon_class = 7;
+  info.priority = 6;
   info.damage_normal = 5;
   info.damage_boss = 9;
   info.pass_through = true;
@@ -80,13 +81,18 @@ static bool test_spawn_publishes_slot(void) {
     return false;
   if (!check(projectile->facing == info.facing &&
                  projectile->native_weapon_class == info.native_weapon_class &&
+                 projectile->priority == info.priority &&
                  projectile->damage_normal == info.damage_normal &&
                  projectile->damage_boss == info.damage_boss &&
                  projectile->pass_through == info.pass_through &&
                  projectile->hit_mask == info.hit_mask &&
+                 !projectile->hit_any &&
                  projectile->fade_level == info.fade_level &&
                  projectile->animation_tick == info.animation_tick,
              "spawn copies later collision and presentation fields"))
+    return false;
+  if (!check(MmxSaberProjectileOwns(ram, slot),
+             "active entry with matching $5700 tag owns its native slot"))
     return false;
   if (!check(ram[slot] == 1 && ram[slot + 0x0a] == 7 &&
                  ram[slot + 0x11] == 0x40 &&

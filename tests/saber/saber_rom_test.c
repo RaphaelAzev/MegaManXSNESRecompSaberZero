@@ -16,6 +16,7 @@
 #include "saber/mmx_saber_hitbox_debug.h"
 #include "saber/mmx_saber_plugin.h"
 #include "saber/mmx_saber_priority.h"
+#include "saber/mmx_saber_projectile.h"
 #include "saber/mmx_saber_render.h"
 #include "saber/mmx_saber_sfx.h"
 #include "saber/mmx_saber_tuning.h"
@@ -8569,6 +8570,169 @@ static void saber_wave_damage_checks(const char *fixture) {
   puts("ok: saber-wave-damage");
 }
 
+static MmxSaberProjectileSpawnInfo saber_projectile_contact_info(
+    int x, int y, int16_t vx, bool pass_through) {
+  MmxSaberProjectileSpawnInfo info = {0};
+  info.kind = SABER_PROJECTILE_TORNADO;
+  info.x = (int32_t)x * 256;
+  info.y = (int32_t)y * 256;
+  info.vx = vx;
+  info.lifetime = 120;
+  info.facing = 0x40;
+  info.native_weapon_class = 0x09;
+  info.damage_normal = 5;
+  info.damage_boss = 11;
+  info.pass_through = pass_through;
+  return info;
+}
+
+static unsigned saber_projectile_contact_target(const char *fixture) {
+  unsigned walk_frames = 0;
+  const unsigned target = walk_to_ground_enemy(fixture, &walk_frames);
+  check(target == 0xea8 && walk_frames == 213,
+        "saber-projectile-contact walk reaches Highway enemy $0EA8 in 213 frames");
+  MmxZeroCancel(g_ram);
+  retire_non_wave_projectiles(0);
+  MmxSaberFrameReset();
+  frame(0);
+  return target;
+}
+
+static unsigned saber_projectile_spawn_contact(
+    unsigned target, bool pass_through, unsigned *index_out) {
+  const int target_x = (int16_t)read_ram_word(g_ram, target + 5);
+  const int target_y = (int16_t)read_ram_word(g_ram, target + 8);
+  MmxSaberProjectileSpawnInfo info =
+      saber_projectile_contact_info(target_x - 24, target_y, 0x0100,
+                                    pass_through);
+  unsigned index = MMX_SABER_PROJECTILE_SLOT_COUNT;
+
+  check(MmxSaberProjectileSpawn(g_ram, &info, &index),
+        "saber-projectile-contact synthetic $5700 spawn succeeds");
+  if (index_out) *index_out = index;
+  return MmxSaberProjectileGet(index)->slot;
+}
+
+static void saber_projectile_dispatch_checks(const char *fixture) {
+  const unsigned target = saber_projectile_contact_target(fixture);
+  const int player_x = (int16_t)read_ram_word(g_ram, 0x0bad);
+  const int player_y = (int16_t)read_ram_word(g_ram, 0x0bb0);
+  MmxSaberProjectileSpawnInfo info =
+      saber_projectile_contact_info(player_x - 32, player_y + 96, 0x0200,
+                                    true);
+  unsigned index = MMX_SABER_PROJECTILE_SLOT_COUNT;
+  unsigned slot;
+
+  (void)target;
+  check(MmxSaberProjectileSpawn(g_ram, &info, &index),
+        "saber-projectile-contact dispatch probe spawns");
+  slot = MmxSaberProjectileGet(index)->slot;
+  check(MmxZeroWeaponTick(g_ram, slot, 1) == 0 &&
+            MmxSaberProjectileOwns(g_ram, slot),
+        "saber-projectile-contact extension claims $5700 before native weapon tick");
+  for (unsigned tick = 0; tick < 6; ++tick) {
+    const MmxSaberProjectile *projectile;
+    frame(0);
+    projectile = MmxSaberProjectileGet(index);
+    check(MmxSaberProjectileOwns(g_ram, slot) && projectile->active &&
+              g_ram[slot + 0x0a] == 0x09 &&
+              (int16_t)read_ram_word(g_ram, slot + 5) == projectile->x / 256 &&
+              (int16_t)read_ram_word(g_ram, slot + 8) == projectile->y / 256,
+          "saber-projectile-contact host Q8.8 position survives native weapon dispatch with Storm Tornado class $09");
+  }
+  puts("ok: saber-projectile-contact/native-dispatch");
+}
+
+static void saber_projectile_contact_checks(const char *fixture) {
+  unsigned target;
+  unsigned index;
+  unsigned slot;
+  unsigned initial_hp;
+  unsigned previous_hp;
+  unsigned hit_events;
+  const MmxSaberProjectile *projectile;
+
+  saber_projectile_dispatch_checks(fixture);
+
+  target = saber_projectile_contact_target(fixture);
+  initial_hp = g_ram[target + 0x27] & 127;
+  check(initial_hp == 16,
+        "saber-projectile-contact Highway enemy $0EA8 starts at 16 HP");
+  slot = saber_projectile_spawn_contact(target, false, &index);
+  projectile = MmxSaberProjectileGet(index);
+  previous_hp = initial_hp;
+  hit_events = 0;
+  for (unsigned frame_number = 0;
+       frame_number < 64 && projectile->active; ++frame_number) {
+    frame(0);
+    if ((g_ram[target + 0x27] & 127) < previous_hp) {
+      ++hit_events;
+      previous_hp = g_ram[target + 0x27] & 127;
+    }
+  }
+  printf("reference: projectile non-pass enemy=0x%X hp=%u->%u damage=%u "
+         "hits=%u active=%u\n", target, initial_hp,
+         g_ram[target + 0x27] & 127, 5, hit_events,
+         MmxSaberProjectileGet(index)->active);
+  check(hit_events == 1 &&
+            (g_ram[target + 0x27] & 127) == initial_hp - 5 &&
+            !MmxSaberProjectileGet(index)->active && !g_ram[slot],
+        "non-pass-through $5700 contact deals damage_normal 5 once and retires the slot");
+
+  target = saber_projectile_contact_target(fixture);
+  slot = saber_projectile_spawn_contact(target, false, &index);
+  check(MmxZeroDamage(g_ram, target, slot, 128) == 128 && !g_ram[slot] &&
+            !MmxSaberProjectileGet(index)->active,
+        "native reflection stays 0x80 and retires non-pass-through $5700 projectile");
+
+  target = saber_projectile_contact_target(fixture);
+  initial_hp = g_ram[target + 0x27] & 127;
+  slot = saber_projectile_spawn_contact(target, true, &index);
+  projectile = MmxSaberProjectileGet(index);
+  previous_hp = initial_hp;
+  hit_events = 0;
+  unsigned blocked_recontacts = 0;
+  for (unsigned frame_number = 0; frame_number < 64; ++frame_number) {
+    frame(0);
+    if ((g_ram[target + 0x27] & 127) < previous_hp) {
+      ++hit_events;
+      previous_hp = g_ram[target + 0x27] & 127;
+      if (projectile->active) {
+        for (unsigned contact = 0; contact < 3; ++contact)
+          if (MmxZeroHitbox(g_ram, target, slot, 1) == 0 &&
+              MmxZeroDamage(g_ram, target, slot, 1) == 0)
+            ++blocked_recontacts;
+      }
+    }
+  }
+  printf("reference: projectile pass-through enemy=0x%X hp=%u->%u "
+         "damage=%u hits=%u blocked_recontacts=%u x=%d enemy_x=%d "
+         "hit_any=%u active=%u\n", target, initial_hp,
+         g_ram[target + 0x27] & 127, 5, hit_events, blocked_recontacts,
+         (int16_t)read_ram_word(g_ram, slot + 5),
+         (int16_t)read_ram_word(g_ram, target + 5), projectile->hit_any,
+         projectile->active);
+  check(hit_events == 1 && blocked_recontacts == 3 &&
+            (g_ram[target + 0x27] & 127) == initial_hp - 5 &&
+            projectile->active && projectile->hit_any &&
+            (int16_t)read_ram_word(g_ram, slot + 5) >
+                (int16_t)read_ram_word(g_ram, target + 5),
+        "pass-through $5700 contact keeps flying past $0EA8 and hit_mask blocks repeated damage");
+  check(MmxZeroDamage(g_ram, target, slot, 0) == 0 && g_ram[slot],
+        "native immune response deals no projectile damage and keeps it flying");
+  check(MmxZeroDamage(g_ram, target, slot, 128) == 128 && g_ram[slot],
+        "native reflection response stays 0x80 and keeps pass-through projectile flying");
+
+  {
+    uint8_t saved_state[MMX_ZERO_EXTENSION_STATE_BYTES];
+    MmxZeroExtSaveState(saved_state);
+    check(MmxZeroExtLoadState(saved_state) && !g_ram[slot] &&
+              !MmxSaberProjectileGet(index)->active,
+          "save/load retires live $5700 projectiles without changing save layout");
+  }
+  puts("ok: saber-projectile-contact");
+}
+
 static void saber_damage_set_option(const char *option_id,
                                     const char *value) {
   check(g_mod_provider->feature_set_option(
@@ -12630,6 +12794,8 @@ int main(int argc, char **argv) {
   const bool saber_armadillo = only && !strcmp(only, "saber-armadillo");
   const bool saber_wave_travel = only && !strcmp(only, "saber-wave-travel");
   const bool saber_wave_damage = only && !strcmp(only, "saber-wave-damage");
+  const bool saber_projectile_contact =
+      only && !strcmp(only, "saber-projectile-contact");
   const bool saber_wave_lifecycle = only && !strcmp(only, "saber-wave-lifecycle");
   const bool saber_wave_render = only && !strcmp(only, "saber-wave-render");
   const bool saber_ground_hit = only && !strcmp(only, "saber-ground-hit");
@@ -12657,7 +12823,8 @@ int main(int argc, char **argv) {
       saber_head_ammo ||
       saber_armor || saber_arms_charge || saber_body_damage ||
       saber_wave_travel || saber_wave_damage || saber_wave_lifecycle ||
-      saber_wave_render || saber_ride_pilot || saber_boss_death;
+      saber_wave_render || saber_projectile_contact || saber_ride_pilot ||
+      saber_boss_death;
   SpecialCounts upstream_specials = {0};
   BurstHeight upstream_burst[2] = {{0}};
   BurstHeight upstream_airborne = {0};
@@ -12813,6 +12980,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-wave-damage runs with the Saber package enabled");
     saber_wave_damage_checks(fixture);
+  } else if (saber_projectile_contact) {
+    check(MmxSaberEnabled(),
+          "saber-projectile-contact runs with the Saber package enabled");
+    saber_projectile_contact_checks(fixture);
   } else if (saber_wave_lifecycle) {
     check(MmxSaberEnabled(),
           "saber-wave-lifecycle runs with the Saber package enabled");
@@ -12920,6 +13091,7 @@ int main(int argc, char **argv) {
         strcmp(only, "saber-burst-height") &&
         strcmp(only, "saber-wave-travel") &&
         strcmp(only, "saber-wave-damage") &&
+        strcmp(only, "saber-projectile-contact") &&
         strcmp(only, "saber-wave-lifecycle") &&
         strcmp(only, "saber-wave-render") &&
         strcmp(only, "saber-ground-hit") &&

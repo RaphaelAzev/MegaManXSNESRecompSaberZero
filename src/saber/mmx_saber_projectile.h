@@ -32,6 +32,7 @@ typedef struct MmxSaberProjectileSpawnInfo {
   uint16_t lifetime;
   uint8_t facing;
   uint8_t native_weapon_class;
+  uint8_t priority;
   uint8_t damage_normal, damage_boss;
   bool pass_through;
   uint16_t hit_mask;
@@ -48,9 +49,11 @@ typedef struct MmxSaberProjectile {
   uint16_t age, lifetime;
   uint8_t facing;
   uint8_t native_weapon_class;
+  uint8_t priority;
   uint8_t damage_normal, damage_boss;
   bool pass_through;
   uint16_t hit_mask;
+  bool hit_any;
   uint8_t fade_level;
   uint8_t animation_tick;
 } MmxSaberProjectile;
@@ -59,8 +62,13 @@ void MmxSaberProjectileReset(uint8_t *ram);
 bool MmxSaberProjectileSpawn(uint8_t *ram,
                              const MmxSaberProjectileSpawnInfo *info,
                              unsigned *index_out);
+bool MmxSaberProjectileOwns(const uint8_t *ram, unsigned slot);
 unsigned MmxSaberProjectileFreeCapacity(const uint8_t *ram);
 void MmxSaberProjectileTick(uint8_t *ram);
+unsigned MmxSaberProjectileDamage(uint8_t *ram, unsigned enemy,
+                                  unsigned slot, unsigned value);
+unsigned MmxSaberProjectileHitbox(const uint8_t *ram, unsigned enemy,
+                                  unsigned slot, unsigned value);
 void MmxSaberProjectileRetire(uint8_t *ram, unsigned index);
 void MmxSaberProjectileRetireAll(uint8_t *ram);
 const MmxSaberProjectile *MmxSaberProjectileGet(unsigned index);

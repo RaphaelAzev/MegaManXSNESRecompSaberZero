@@ -328,6 +328,7 @@ if(BUILD_TESTING)
         "${_saber_assets_source}"
         "${_saber_wave_source}"
         "${_saber_attack_source}" "${_saber_unlock_source}" "${_saber_wave_runtime_source}" "${_saber_sfx_source}"
+        "${_saber_projectile_source}"
         "${_saber_priority_source}" "${_saber_tuning_source}"
         "${_saber_hitbox_debug_source}"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/mmx_wide_policy.c"
@@ -396,8 +397,10 @@ if(BUILD_TESTING)
 
     add_executable(mmx_saber_projectile_test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/saber/mmx_saber_projectile_test.c"
-        "${_saber_projectile_source}")
+        "${_saber_projectile_source}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/mmx_wide_policy.c")
     target_include_directories(mmx_saber_projectile_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/saber")
     add_test(NAME mmx_saber_projectile COMMAND mmx_saber_projectile_test)
     set_tests_properties(mmx_saber_wave PROPERTIES
