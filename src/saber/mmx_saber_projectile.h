@@ -58,6 +58,15 @@ typedef struct MmxSaberProjectile {
   uint8_t animation_tick;
 } MmxSaberProjectile;
 
+typedef struct MmxSaberProjectileLiveInfo {
+  MmxSaberProjectileKind kind;
+  int32_t world_x, world_y;
+  bool facing_left;
+  uint16_t age;
+  uint8_t animation_tick;
+  uint8_t fade_level;
+} MmxSaberProjectileLiveInfo;
+
 void MmxSaberProjectileReset(uint8_t *ram);
 bool MmxSaberProjectileSpawn(uint8_t *ram,
                              const MmxSaberProjectileSpawnInfo *info,
@@ -65,6 +74,8 @@ bool MmxSaberProjectileSpawn(uint8_t *ram,
 bool MmxSaberProjectileOwns(const uint8_t *ram, unsigned slot);
 unsigned MmxSaberProjectileFreeCapacity(const uint8_t *ram);
 void MmxSaberProjectileTick(uint8_t *ram);
+unsigned MmxSaberProjectileLive(MmxSaberProjectileLiveInfo *out,
+                                unsigned max);
 unsigned MmxSaberProjectileDamage(uint8_t *ram, unsigned enemy,
                                   unsigned slot, unsigned value);
 unsigned MmxSaberProjectileHitbox(const uint8_t *ram, unsigned enemy,

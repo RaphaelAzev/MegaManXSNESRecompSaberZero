@@ -6,6 +6,7 @@
 #include "../mmx_zero.h"
 #include "mmx_saber_assets.h"
 #include "mmx_saber_attack.h"
+#include "mmx_saber_projectile.h"
 #include "mmx_saber_wave.h"
 
 #ifdef __cplusplus
@@ -39,6 +40,20 @@ bool MmxSaberRenderResolveWaveSnapshot(const MmxSaberWave *wave,
                                        uint8_t age, int16_t world_x,
                                        int16_t world_y, bool facing_left,
                                        MmxRenderWorldSprite *out);
+
+typedef struct MmxSaberProjectileFrame {
+  const uint8_t *pixels;
+  uint16_t width, height;
+  int16_t origin_x, origin_y;
+} MmxSaberProjectileFrame;
+
+void MmxSaberRenderSetProjectileStrip(MmxSaberProjectileKind kind,
+                                      const MmxSaberProjectileFrame *frames,
+                                      unsigned frame_count,
+                                      unsigned ticks_per_frame,
+                                      bool hold_last,
+                                      const uint16_t *palette,
+                                      unsigned palette_count);
 
 /* Number of nonzero blade palette indices shared with body pixels in the
  * currently indexed overlay asset. */

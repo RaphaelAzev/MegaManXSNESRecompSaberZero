@@ -53,8 +53,15 @@ static const uint8_t world_pixels[] = {
   1, 2, 0,
   3, 1, 2,
 };
+static uint8_t dither_pixels[16 * 16];
 static const uint16_t overlay_palette[] = {0, 31, 31 << 5, 31 << 10};
 static const uint16_t front_palette[] = {0, 31 | (31 << 5) | (31 << 10)};
+static const uint8_t dither_bayer[4][4] = {
+  {0, 8, 2, 10},
+  {12, 4, 14, 6},
+  {3, 11, 1, 9},
+  {15, 7, 13, 5},
+};
 
 static void check(bool okay, const char *message) {
   if (!okay) {
@@ -266,6 +273,48 @@ static MmxRenderWorldSprite synthetic_world(bool left, int32_t x, int32_t y,
     sizeof(overlay_palette) / sizeof(overlay_palette[0]), z};
 }
 
+static MmxRenderWorldSprite solid_world(bool left, int32_t x, int32_t y,
+                                        uint8_t dither_drop) {
+  MmxRenderWorldSprite sprite = {0};
+  sprite.pixels = dither_pixels;
+  sprite.width = 16;
+  sprite.height = 16;
+  sprite.world_x = x;
+  sprite.world_y = y;
+  sprite.facing_left = left;
+  sprite.palette = overlay_palette;
+  sprite.palette_count = sizeof(overlay_palette) / sizeof(overlay_palette[0]);
+  sprite.z = 0xb680;
+  sprite.dither_drop = dither_drop;
+  return sprite;
+}
+
+static unsigned count_red_box(int x, int y, int width, int height) {
+  unsigned count = 0;
+  for (int row = 0; row < height; ++row)
+    for (int col = 0; col < width; ++col)
+      if (output[(y + row) * 256 + x + col] == 0xff0000) ++count;
+  return count;
+}
+
+static bool dither_pixels_match(bool left, int world_x, int world_y,
+                                int camera_x, int camera_y,
+                                uint8_t dither_drop) {
+  for (int row = 0; row < 16; ++row) {
+    const int wy = world_y + row;
+    for (int col = 0; col < 16; ++col) {
+      const int wx = world_x + (left ? -1 - col : col);
+      const int sx = wx - camera_x;
+      const int sy = wy - camera_y;
+      const bool expected =
+          dither_bayer[(unsigned)wy & 3][(unsigned)wx & 3] >= dither_drop;
+      const bool drawn = output[sy * 256 + sx] == 0xff0000;
+      if (drawn != expected) return false;
+    }
+  }
+  return true;
+}
+
 static void world_sprite_geometry_and_snapshot(void) {
   MmxRenderWorldSprite snapshot[8];
   const MmxRenderView narrow = {256, 0, 4.0 / 3.0};
@@ -338,6 +387,56 @@ static void world_sprite_geometry_and_snapshot(void) {
   check(output[40 * 256 + 40] == 0xff0000 &&
             output[40 * 256 + 80] == 0,
         "world coordinates are snapshotted before mid-frame provider changes");
+}
+
+static void world_sprite_dither(void) {
+  memset(dither_pixels, 1, sizeof(dither_pixels));
+
+  scene();
+  provider_world[0] = solid_world(false, 80, 80, 0);
+  provider_world_count = 1;
+  MmxRendererSetWorldSpriteProvider(provide_world);
+  render();
+  check(count_red_box(80, 80, 16, 16) == 256 &&
+            dither_pixels_match(false, 80, 80, 0, 0, 0),
+        "dither level 0 draws every opaque pixel");
+
+  scene();
+  provider_world[0] = solid_world(false, 80, 80, 16);
+  provider_world_count = 1;
+  MmxRendererSetWorldSpriteProvider(provide_world);
+  render();
+  check(count_red_box(80, 80, 16, 16) == 0 &&
+            dither_pixels_match(false, 80, 80, 0, 0, 16),
+        "dither level 16 draws no pixel");
+
+  scene();
+  provider_world[0] = solid_world(false, 80, 80, 8);
+  provider_world_count = 1;
+  MmxRendererSetWorldSpriteProvider(provide_world);
+  render();
+  check(count_red_box(80, 80, 16, 16) == 128 &&
+            dither_pixels_match(false, 80, 80, 0, 0, 8),
+        "dither level 8 drops exactly half of a 16x16 solid sprite");
+
+  scene();
+  provider_world[0] = solid_world(false, 80, 80, 8);
+  provider_world_count = 1;
+  put_word(ram, 0x1e4d, 1);
+  put_word(ram, 0x1e50, 3);
+  MmxRendererSetWorldSpriteProvider(provide_world);
+  render();
+  check(dither_pixels_match(false, 80, 80, 1, 3, 8),
+        "world-anchored dither stays fixed when camera moves");
+
+  scene();
+  provider_world[0] = solid_world(true, 80, 80, 8);
+  provider_world_count = 1;
+  MmxRendererSetWorldSpriteProvider(provide_world);
+  render();
+  check(count_red_box(64, 80, 16, 16) == 128 &&
+            dither_pixels_match(true, 80, 80, 0, 0, 8),
+        "mirrored dither uses mirrored world coordinates");
 }
 
 static void debug_rect_geometry_and_snapshot(void) {
@@ -670,6 +769,7 @@ int main(void) {
   inactive_matches_baseline();
   debug_rect_geometry_and_snapshot();
   world_sprite_geometry_and_snapshot();
+  world_sprite_dither();
   world_sprite_composes_after_weapon_effect();
   body_geometry_and_mirror();
   pilot_overlay_owns_submission();

@@ -243,6 +243,31 @@ void MmxSaberProjectileTick(uint8_t *ram) {
   }
 }
 
+unsigned MmxSaberProjectileLive(MmxSaberProjectileLiveInfo *out,
+                                unsigned max) {
+  unsigned count = 0;
+  if (!runtime_ram || !max) return 0;
+  initialize_table();
+  for (unsigned i = 0; i < MMX_SABER_PROJECTILE_SLOT_COUNT && count < max;
+       ++i) {
+    const MmxSaberProjectile *projectile = &projectiles[i];
+    if (!projectile->active || !owns_slot(runtime_ram, projectile->slot) ||
+        !runtime_ram[projectile->slot])
+      continue;
+    if (out) {
+      out[count].kind = projectile->kind;
+      out[count].world_x = native_coordinate(projectile->x);
+      out[count].world_y = native_coordinate(projectile->y);
+      out[count].facing_left = (projectile->facing & 0x40) != 0;
+      out[count].age = projectile->age;
+      out[count].animation_tick = projectile->animation_tick;
+      out[count].fade_level = projectile->fade_level;
+    }
+    ++count;
+  }
+  return count;
+}
+
 unsigned MmxSaberProjectileDamage(uint8_t *ram, unsigned enemy,
                                   unsigned slot, unsigned value) {
   MmxSaberProjectile *projectile = owned_entry(ram, slot);

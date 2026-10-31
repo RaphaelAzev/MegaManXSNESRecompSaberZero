@@ -29,6 +29,15 @@ static const uint16_t *purple_wave_source;
 static uint16_t purple_wave_source_count;
 static bool purple_wave_palette_cached;
 static const MmxSaberWave *render_wave;
+typedef struct MmxSaberProjectileStrip {
+  const MmxSaberProjectileFrame *frames;
+  unsigned frame_count;
+  unsigned ticks_per_frame;
+  bool hold_last;
+  const uint16_t *palette;
+  unsigned palette_count;
+} MmxSaberProjectileStrip;
+static MmxSaberProjectileStrip projectile_strips[SABER_PROJECTILE_KIND_COUNT];
 static bool crescent_enabled = true;
 
 static void mark_palette_indices(const MmxSaberPlane *plane,
@@ -512,6 +521,59 @@ bool MmxSaberRenderResolveWaveSnapshot(const MmxSaberWave *wave,
   return out->palette && out->palette_count;
 }
 
+static bool resolve_projectile_snapshot(
+    const MmxSaberProjectileStrip *strip,
+    const MmxSaberProjectileLiveInfo *live, MmxRenderWorldSprite *out) {
+  const MmxSaberProjectileFrame *frame;
+  unsigned frame_index;
+
+  if (out) memset(out, 0, sizeof(*out));
+  if (!strip || !live || !out || !strip->frames || !strip->frame_count ||
+      !strip->ticks_per_frame || !strip->palette || !strip->palette_count)
+    return false;
+  frame_index = live->animation_tick / strip->ticks_per_frame;
+  if (strip->hold_last) {
+    if (frame_index >= strip->frame_count)
+      frame_index = strip->frame_count - 1;
+  } else {
+    frame_index %= strip->frame_count;
+  }
+  frame = &strip->frames[frame_index];
+  if (!frame->pixels || !frame->width || !frame->height) return false;
+
+  out->pixels = frame->pixels;
+  out->width = frame->width;
+  out->height = frame->height;
+  out->origin_x = frame->origin_x;
+  out->origin_y = frame->origin_y;
+  out->world_x = live->world_x;
+  out->world_y = live->world_y;
+  out->facing_left = live->facing_left;
+  out->palette = strip->palette;
+  out->palette_count = strip->palette_count;
+  out->z = 0xa680;
+  out->dither_drop = live->fade_level;
+  return true;
+}
+
+void MmxSaberRenderSetProjectileStrip(MmxSaberProjectileKind kind,
+                                      const MmxSaberProjectileFrame *frames,
+                                      unsigned frame_count,
+                                      unsigned ticks_per_frame,
+                                      bool hold_last,
+                                      const uint16_t *palette,
+                                      unsigned palette_count) {
+  if (kind < SABER_PROJECTILE_TORNADO ||
+      kind >= SABER_PROJECTILE_KIND_COUNT)
+    return;
+  projectile_strips[kind] = (MmxSaberProjectileStrip){0};
+  if (!frames || !frame_count || !ticks_per_frame || !palette ||
+      !palette_count)
+    return;
+  projectile_strips[kind] = (MmxSaberProjectileStrip){
+    frames, frame_count, ticks_per_frame, hold_last, palette, palette_count};
+}
+
 unsigned MmxSaberRenderSharedBladePaletteCount(void) {
   return shared_blade_palette_count;
 }
@@ -523,14 +585,28 @@ void MmxSaberRenderSetWave(const MmxSaberWave *wave) {
 unsigned MmxSaberRenderProvideWorldSprites(MmxRenderWorldSprite *out,
                                            unsigned max) {
   MmxSaberWaveRuntimeLiveWave live[8];
+  MmxSaberProjectileLiveInfo projectiles[MMX_SABER_PROJECTILE_SLOT_COUNT];
   unsigned live_count, count = 0;
-  if (!render_wave || !out || !max) return 0;
-  live_count = MmxSaberWaveRuntimeLiveWaves(live,
-                                             max < 8 ? max : 8);
-  for (unsigned i = 0; i < live_count; ++i) {
-    if (MmxSaberRenderResolveWaveSnapshot(render_wave, live[i].age,
-            live[i].world_x, live[i].world_y, live[i].facing_left,
-            &out[count]))
+  if (!out || !max) return 0;
+  if (render_wave) {
+    live_count = MmxSaberWaveRuntimeLiveWaves(live,
+                                               max < 8 ? max : 8);
+    for (unsigned i = 0; i < live_count && count < max; ++i) {
+      if (MmxSaberRenderResolveWaveSnapshot(render_wave, live[i].age,
+              live[i].world_x, live[i].world_y, live[i].facing_left,
+              &out[count]))
+        ++count;
+    }
+  }
+  live_count = MmxSaberProjectileLive(projectiles,
+                                      MMX_SABER_PROJECTILE_SLOT_COUNT);
+  for (unsigned i = 0; i < live_count && count < max; ++i) {
+    const MmxSaberProjectileKind kind = projectiles[i].kind;
+    if (kind < SABER_PROJECTILE_TORNADO ||
+        kind >= SABER_PROJECTILE_KIND_COUNT)
+      continue;
+    if (resolve_projectile_snapshot(&projectile_strips[kind], &projectiles[i],
+                                    &out[count]))
       ++count;
   }
   return count;

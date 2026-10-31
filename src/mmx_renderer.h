@@ -80,6 +80,8 @@ typedef struct MmxRenderWorldSprite {
   const uint16_t *palette;
   unsigned palette_count;
   uint16_t z;
+  /* Pixels dropped from the world-anchored 4x4 block: 0..16. */
+  uint8_t dither_drop;
 } MmxRenderWorldSprite;
 
 typedef unsigned (*MmxRendererWorldSpriteProvider)(MmxRenderWorldSprite *out,

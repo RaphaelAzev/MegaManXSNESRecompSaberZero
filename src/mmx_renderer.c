@@ -2230,18 +2230,28 @@ static void player_overlay_plane_row(
 static void world_sprite_row(const MmxRenderWorldSprite *sprite, int y,
                              MmxRenderView view, uint16_t *objects,
                              int *object_colors) {
-  int sx, sy, row;
+  static const uint8_t kBayer4x4[4][4] = {
+    {0, 8, 2, 10},
+    {12, 4, 14, 6},
+    {3, 11, 1, 9},
+    {15, 7, 13, 5},
+  };
+  int sy, row, camera_x;
   if (!sprite || !sprite->pixels || !sprite->width || !sprite->height ||
       !sprite->palette || !sprite->palette_count) return;
-  sx = (int)(sprite->world_x - (int32_t)view_camera(frame.ram, 0x1e4d));
   sy = (int)(sprite->world_y - (int32_t)view_camera(frame.ram, 0x1e50));
   row = y - sy - sprite->origin_y;
   if (row < 0 || row >= sprite->height) return;
+  camera_x = (int)view_camera(frame.ram, 0x1e4d);
   for (int col = 0; col < sprite->width; ++col) {
     unsigned pixel = sprite->pixels[row * sprite->width + col];
-    int dx = sx + (sprite->facing_left ?
-        -1 - sprite->origin_x - col : sprite->origin_x + col) + view.extra;
+    int world_x = sprite->world_x + (sprite->facing_left ?
+        -1 - sprite->origin_x - col : sprite->origin_x + col);
+    int world_y = sprite->world_y + sprite->origin_y + row;
+    int dx = world_x - camera_x + view.extra;
     if (!pixel || pixel >= sprite->palette_count ||
+        kBayer4x4[(unsigned)world_y & 3][(unsigned)world_x & 3] <
+            sprite->dither_drop ||
         dx < 0 || dx >= view.width) continue;
     objects[dx] = (uint16_t)(sprite->z | pixel);
     object_colors[dx] = sprite->palette[pixel];

@@ -129,7 +129,7 @@ static bool test_motion(void) {
   projectile = MmxSaberProjectileGet(index);
   slot = projectile->slot;
   if (!check(projectile->x == 103 * 256 && projectile->y == 50 * 256 &&
-                 projectile->age == 3,
+                 projectile->age == 3 && projectile->animation_tick == 3,
              "straight motion advances exact Q8.8 position and age"))
     return false;
   if (!check(read_word(ram + slot + 5) == 103 &&
@@ -159,6 +159,49 @@ static bool test_motion(void) {
                    read_word(ram + slot + 5) == 104 &&
                    read_word(ram + slot + 8) == 47,
                "diagonal motion writes converted native world position");
+}
+
+static bool test_live_snapshot(void) {
+  MmxSaberProjectileSpawnInfo info = default_info();
+  MmxSaberProjectileLiveInfo live[2];
+  unsigned first, second;
+
+  prepare_ram();
+  info.kind = SABER_PROJECTILE_ICE_CLONE;
+  info.x = 123 * 256 + 0x80;
+  info.y = 45 * 256 + 0x40;
+  info.facing = 0x40;
+  info.fade_level = 9;
+  info.animation_tick = 7;
+  if (!check(MmxSaberProjectileSpawn(ram, &info, &first),
+             "first projectile spawns for live snapshot"))
+    return false;
+
+  info.kind = SABER_PROJECTILE_CUTTER;
+  info.x = 201 * 256;
+  info.y = 77 * 256;
+  info.facing = 0;
+  info.fade_level = 2;
+  info.animation_tick = 11;
+  if (!check(MmxSaberProjectileSpawn(ram, &info, &second),
+             "second projectile spawns for live snapshot"))
+    return false;
+
+  if (!check(first == 0 && second == 1 &&
+                 MmxSaberProjectileLive(live, 2) == 2,
+             "live accessor returns active projectiles in table order"))
+    return false;
+  if (!check(live[0].kind == SABER_PROJECTILE_ICE_CLONE &&
+                 live[0].world_x == 123 && live[0].world_y == 45 &&
+                 live[0].facing_left && live[0].age == 0 &&
+                 live[0].animation_tick == 7 && live[0].fade_level == 9,
+             "live accessor converts first Q8.8 position and copies presentation state"))
+    return false;
+  return check(live[1].kind == SABER_PROJECTILE_CUTTER &&
+                   live[1].world_x == 201 && live[1].world_y == 77 &&
+                   !live[1].facing_left && live[1].age == 0 &&
+                   live[1].animation_tick == 11 && live[1].fade_level == 2,
+               "live accessor returns second projectile presentation state");
 }
 
 static bool test_lifetime_retire(void) {
@@ -322,6 +365,7 @@ static bool test_stage_and_view_retire(void) {
 int main(void) {
   if (!test_spawn_publishes_slot()) return 1;
   if (!test_motion()) return 1;
+  if (!test_live_snapshot()) return 1;
   if (!test_lifetime_retire()) return 1;
   if (!test_independent_projectiles()) return 1;
   if (!test_spawn_failure_is_clean()) return 1;

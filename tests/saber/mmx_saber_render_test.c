@@ -1,6 +1,7 @@
 #include "mmx_saber_render.h"
 #include "mmx_saber_armor.h"
 #include "mmx_saber_black_zero.h"
+#include "mmx_saber_wave_runtime.h"
 #include "mmx_saber_tuning.h"
 #include "mmx_zero.h"
 #include "sha256.h"
@@ -1137,6 +1138,92 @@ static void wave_sequence_checks(const MmxSaberWave *wave) {
         "wave resolver carries the slot facing into the mirror flag");
 }
 
+static void projectile_provider_checks(const MmxSaberWave *wave) {
+  static const uint8_t frame_zero_pixels[] = {1};
+  static const uint8_t frame_one_pixels[] = {2};
+  static const uint16_t palette[] = {0, 0x001f, 0x03e0};
+  const MmxSaberProjectileFrame frames[] = {
+    {frame_zero_pixels, 1, 1, 0, 0},
+    {frame_one_pixels, 1, 1, 2, -1},
+  };
+  uint8_t ram[0x20000] = {0};
+  MmxRenderWorldSprite actual[8];
+  MmxSaberProjectileSpawnInfo info = {0};
+  const unsigned wave_slot = MMX_SABER_PROJECTILE_SLOT_FIRST;
+  unsigned index;
+
+  MmxSaberWaveRuntimeReset(ram);
+  MmxSaberProjectileReset(ram);
+  ram[MMX_SABER_PROJECTILE_STAGE] = 4;
+  put_u16(ram, MMX_SABER_PROJECTILE_CAMERA, 0);
+  ram[wave_slot] = 1;
+  put_u16(ram, wave_slot + 5, 300);
+  put_u16(ram, wave_slot + 8, 120);
+  ram[wave_slot + 0x2a] = 0;
+  ram[wave_slot + 0x11] = 0x40;
+  put_u16(ram, wave_slot + 0x3e, MMX_SABER_WAVE_TAG_FAMILY | 1);
+
+  info.kind = SABER_PROJECTILE_CUTTER;
+  info.x = 321 * 256;
+  info.y = 123 * 256;
+  info.lifetime = 20;
+  info.facing = 0x40;
+  info.fade_level = 6;
+  check(MmxSaberProjectileSpawn(ram, &info, &index),
+        "synthetic cutter projectile spawns for render provider");
+  MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_CUTTER, frames, 2, 2,
+                                    false, palette, 3);
+  MmxSaberRenderSetWave(wave);
+  check(MmxSaberRenderProvideWorldSprites(actual, 8) == 2 &&
+            actual[0].world_x == 300 && actual[0].facing_left,
+        "live waves remain first in world-sprite provider output");
+  check(actual[1].pixels == frame_zero_pixels && actual[1].width == 1 &&
+            actual[1].height == 1 && actual[1].origin_x == 0 &&
+            actual[1].origin_y == 0 && actual[1].world_x == 321 &&
+            actual[1].world_y == 123 && actual[1].facing_left &&
+            actual[1].palette == palette && actual[1].palette_count == 3 &&
+            actual[1].z == 0xa680 && actual[1].dither_drop == 6,
+        "registered projectile outputs selected frame, position, facing and fade");
+
+  MmxSaberProjectileTick(ram);
+  MmxSaberProjectileTick(ram);
+  check(MmxSaberRenderProvideWorldSprites(actual, 8) == 2 &&
+            actual[1].pixels == frame_one_pixels,
+        "projectile frame advances after ticks_per_frame");
+
+  MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_CUTTER, frames, 2, 2,
+                                   true, palette, 3);
+  MmxSaberProjectileTick(ram);
+  MmxSaberProjectileTick(ram);
+  check(MmxSaberRenderProvideWorldSprites(actual, 8) == 2 &&
+            actual[1].pixels == frame_one_pixels,
+        "hold_last clamps projectile frame at strip end");
+
+  MmxSaberProjectileReset(ram);
+  MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_CUTTER, NULL, 0, 0,
+                                   false, NULL, 0);
+  info.kind = SABER_PROJECTILE_TORNADO;
+  check(MmxSaberProjectileSpawn(ram, &info, &index),
+        "unregistered projectile kind spawns for provider filter");
+  check(MmxSaberRenderProvideWorldSprites(actual, 8) == 1 &&
+            actual[0].world_x == 300,
+        "unregistered projectile kind outputs no sprite");
+
+  MmxSaberProjectileReset(ram);
+  MmxSaberRenderSetWave(NULL);
+  MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_TORNADO, frames, 2, 2,
+                                   false, palette, 3);
+  check(MmxSaberProjectileSpawn(ram, &info, &index) &&
+            MmxSaberRenderProvideWorldSprites(actual, 8) == 1 &&
+            actual[0].world_x == 321,
+        "projectiles draw when no wave asset is registered");
+
+  MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_TORNADO, NULL, 0, 0,
+                                   false, NULL, 0);
+  MmxSaberProjectileReset(ram);
+  MmxSaberWaveRuntimeReset(ram);
+}
+
 static void uppercut_attack_checks(void) {
   uint8_t ram[0x20000] = {0};
   MmxSaberAttackSnapshot snapshot;
@@ -1589,6 +1676,7 @@ int main(void) {
   check(!MmxSaberRenderResolve(NULL, NULL, &live) && !live.active,
         "missing sidecar resolves inactive");
   wave_sequence_checks(wave);
+  projectile_provider_checks(wave);
 
   MmxSaberAssets *flash_assets = make_flash_assets(false);
   check(flash_assets != NULL, "in-memory body-and-blade flash sidecar parses");
