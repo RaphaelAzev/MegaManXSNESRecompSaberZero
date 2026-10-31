@@ -1,6 +1,9 @@
 #include "mmx_renderer.h"
+#include "mmx_boss_rush.h"
+#include "mmx_coop_view.h"
 #include "mmx_render_assets.h"
 #include "mmx_zero.h"
+#include "mmx_armor.h"
 #include "mmx_knc_bugfix.h"
 #include <assert.h>
 #include <math.h>
@@ -91,6 +94,123 @@ static void raster_and_hud(void) {
   assert(!MmxRendererDraw(output, (MmxRenderView){2048,896,8}, true));
   MmxRendererReset(); assert(!MmxRendererDraw(output, v, true));
 }
+static void raster_test_enhancer(Ppu *p, uint y, bool sub, void *context) {
+  (void)p;(void)y;(void)sub;(void)context;
+}
+static void immutable_vram_raster(void) {
+  MmxRenderView views[] = {{256,0,4.0/3.0},
+      MmxRendererViewport(MMX_ASPECT_32_9,0,0,kSnesDisplayAspect_Crt4x3),
+      MmxRendererViewport(MMX_ASPECT_16_9,0,0,kSnesDisplayAspect_Crt4x3)};
+  const char *path = "raster-storage-test.cap";
+  for (unsigned test_case = 0; test_case < 6; ++test_case) {
+    unsigned pattern=test_case%3;bool hardware=test_case>=3;
+    memset(&ppu,0,sizeof(ppu));memset(ram,0,sizeof(ram));
+    MmxRendererReset();MmxRendererSetRom(NULL,0);MmxZeroDisable();MmxBossRushReset();
+    ram[0xd1]=2;ram[0xd2]=ram[0xd3]=4;
+    ppu.inidisp=15;ppu.bgmode=1;ppu.screenEnabled[0]=16;
+    ppu.cgram[129]=31;ppu.cgram[130]=31<<5;
+    for(unsigned slot=0;slot<128;++slot) ppu.oam[slot*2]=0xe000;
+    for(unsigned slot=0;slot<28;++slot) ppu.oam[slot*2]=(uint16_t)((slot*8)<<8|16);
+    MmxRendererBeginFrame(ram);
+    ppu.vramWriteCount=UINT32_MAX-3;unsigned previous_phase=2;
+    if(hardware) MmxRendererBeginHardwareRaster(&ppu);
+    for(unsigned line=1;line<=224;++line) {
+      unsigned phase=pattern ? ((line-1)/(pattern==1?1:3))&1 : 0;
+      for(unsigned row=0;row<8;++row) ppu.vram[row]=phase?0xff00:0xff;
+      if(hardware && phase!=previous_phase && line<80) {
+        if(line==21) MmxRendererHardwareVramChanged(); /* Raw IRQ/native edit. */
+        else ++ppu.vramWriteCount; /* Port writes, including counter wrap. */
+      }
+      if(hardware && line==80) ppu.widescreenLineEnhancer=raster_test_enhancer;
+      if(hardware && line==81) ppu.widescreenLineEnhancer=NULL;
+      /* After the callback appeared, direct uncounted writes must remain on
+       * the byte-comparison path for the rest of this raster. */
+      MmxRendererCaptureLine(&ppu,line);
+      previous_phase=phase;
+    }
+    MmxRendererEndHardwareRaster();
+    assert(MmxRendererEndFrame(stock));
+    MmxRasterStats storage=MmxRendererGetRasterStats();
+    assert(storage.vram_images>=1 && storage.vram_images<=224);
+    assert(storage.vram_copied_bytes==(uint64_t)storage.vram_images*65536);
+    assert(storage.frame_metadata_bytes<1024*1024);
+#if defined(MMX_RENDERER_TEST_FULLCOPY)
+    assert(storage.vram_images==224 && !storage.vram_compared_bytes);
+#elif defined(MMX_RENDERER_TEST_TRACE)
+    assert(storage.vram_compared_bytes==223u*65536);
+#endif
+    /* Live memory changes, width changes and repeated draws cannot edit the
+     * immutable images. Alternation also catches accidental ABA aliasing. */
+    memset(&ppu,0,sizeof(ppu));memset(ram,0,sizeof(ram));
+    for(unsigned pass=0;pass<2;++pass) {
+      for(unsigned view=0;view<3;++view) {
+        MmxRenderView v=views[(view+pass)%3];
+        assert(MmxRendererDraw(output,v,false));
+        for(unsigned y=0;y<224;++y) {
+          unsigned phase=pattern ? (y/(pattern==1?1:3))&1 : 0;
+          assert(output[y*v.width+v.extra+16]==(phase?0x00ff00u:0xff0000u));
+        }
+      }
+      if(!pass) {
+        assert(MmxRendererSaveCapture(path));MmxRendererReset();
+        assert(MmxRendererLoadCapture(path));
+      }
+    }
+    FILE *f=fopen(path,"r+b");assert(f);
+    assert(!fseek(f,(long)(12+storage.frame_metadata_bytes+sizeof(uint32_t)),SEEK_SET));
+    const uint16_t invalid=65535;assert(fwrite(&invalid,sizeof(invalid),1,f)==1);fclose(f);
+    assert(!MmxRendererLoadCapture(path));
+    assert(!MmxRendererDraw(output,views[0],false));
+  }
+  /* A truncated file must not make a partially read frame drawable. */
+  FILE *f=fopen(path,"wb");assert(f);
+  uint32_t header[]={0x4d4d5843,24,0};assert(fwrite(header,sizeof(header),1,f)==1);fclose(f);
+  assert(!MmxRendererLoadCapture(path));
+  assert(!MmxRendererDraw(output,views[0],false));
+  remove(path);MmxRendererReset();
+}
+static void stage_map_draw_lifetime(void) {
+  memset(&ppu,0,sizeof(ppu));memset(ram,0,sizeof(ram));memset(rom_bytes,0,sizeof(rom_bytes));
+  MmxRendererReset();MmxRendererSetRom(NULL,0);MmxZeroDisable();MmxBossRushReset();
+  g_mmx_render_asset_repairs=false;
+  ram[0xd1]=2;ram[0xd2]=ram[0xd3]=4;
+  ram[0xb96]=ram[0xb97]=0x80; /* BG1 metatile table at $80:8000. */
+  rom_bytes[2]=1;rom_bytes[4]=16;rom_bytes[6]=17;
+  ppu.inidisp=15;ppu.bgmode=1;ppu.screenEnabled[0]=1;
+  ppu.bgTileAdr=2;ppu.bgXsc[0]=0x40;
+  ppu.cgram[1]=31;ppu.cgram[2]=31<<5;ppu.cgram[3]=31<<10;ppu.cgram[4]=0x7fff;
+  for(unsigned slot=0;slot<128;++slot) ppu.oam[slot*2]=0xe000;
+  for(unsigned row=0;row<8;++row) {
+    ppu.vram[0x2000+row]=0xff;
+    ppu.vram[0x2010+row]=0xff00;
+    ppu.vram[0x2100+row]=0xffff;
+    ppu.vram[0x2118+row]=0xff;
+  }
+  MmxRendererSetRom(rom_bytes,sizeof(rom_bytes));capture();
+  const uint32_t colors[]={0xff0000,0x00ff00,0x0000ff,0xffffff};
+  const MmxRenderView views[]={{342,43,16.0/9.0},{682,213,32.0/9.0},{342,43,16.0/9.0}};
+  for(unsigned edit=0;edit<2;++edit) {
+    for(unsigned v=0;v<3;++v) {
+      MmxRenderView view=views[v];assert(MmxRendererDraw(output,view,false));
+      for(unsigned y=0;y<224;++y)for(int x=-view.extra;x<256+view.extra;++x) {
+        unsigned expected=0xff0000;
+        if(x<0 || x>=256) {
+          unsigned wx=x<0?(unsigned)(-x-1):(unsigned)x;
+          expected=edit?0x00ff00:colors[((wx>>3)&1)|((((y+1)>>3)&1)<<1)];
+        }
+        if(output[y*view.width+x+view.extra]!=expected)
+          fprintf(stderr,"stage-map edit=%u view=%u x=%d y=%u got=%08x expected=%08x\n",
+              edit,v,x,y,output[y*view.width+x+view.extra],expected);
+        assert(output[y*view.width+x+view.extra]==expected);
+      }
+    }
+    /* Editing the external ROM between draws must not reuse an earlier
+     * result, even with the same captured RAM and ROM pointer. */
+    for(unsigned q=0;q<4;++q)rom_bytes[q*2]=1;
+  }
+  memset(rom_bytes,0,sizeof(rom_bytes));
+  g_mmx_render_asset_repairs=true;MmxRendererReset();MmxRendererSetRom(NULL,0);
+}
 static void sprite_coordinates(void) {
   memset(&ppu, 0, sizeof(ppu)); memset(ram, 0, sizeof(ram));
   ram[0xd1] = 2; ram[0xd2] = 4; ram[0xd3] = 4;
@@ -122,6 +242,55 @@ static void sprite_coordinates(void) {
 static void put_word(unsigned a, unsigned v) { ram[a] = (uint8_t)v; ram[a + 1] = (uint8_t)(v >> 8); }
 static void rom_word(unsigned a, unsigned v) { rom_bytes[a] = (uint8_t)v; rom_bytes[a + 1] = (uint8_t)(v >> 8); }
 static void rom_long(unsigned a, unsigned v) { rom_word(a, v); rom_bytes[a + 2] = (uint8_t)(v >> 16); }
+static void independent_oam_visibility(void) {
+  /* Native OAM contains hidden slots and wraps sprites across y=255.
+   * Neither is a full world coordinate after selecting a distant peer view. */
+  MmxRendererSetRom(NULL,0);MmxZeroDisable();MmxRendererSetCompactCoopHud(false);
+  MmxCoopViewsSetOnline(true);g_mmx_custom_renderer=true;
+  const int separation[]={0,208,256,-256,512,-512};
+  for(unsigned anchor=0;anchor<2;++anchor) for(unsigned n=0;n<6;++n)
+      for(unsigned kind=0;kind<3;++kind) {
+    memset(&ppu,0,sizeof(ppu));memset(ram,0,sizeof(ram));memset(stock,0,sizeof(stock));
+    MmxRendererReset();
+    ram[0xd1]=2;ram[0xd2]=ram[0xd3]=4;ram[0x1f7a]=7;
+    put_word(0x1e4d,128);put_word(0x1e50,1024);
+    put_word(0x1e58,4096);put_word(0x1e5c,4096);
+    ppu.inidisp=15;ppu.bgmode=1;ppu.screenEnabled[0]=16;ppu.cgram[129]=31;
+    for(unsigned i=0;i<128;++i) ppu.oam[i*2]=0xe000;
+    for(unsigned y=0;y<8;++y) {ppu.vram[y]=255;ppu.vram[256+y]=255;}
+    /* Fixed HUD marker, plus a stale hidden slot, a visible object, or a
+     * 16px object whose bottom wraps onto the native view's top edge. */
+    ppu.oam[0]=0x1008;
+    int sy=kind==0?224:kind==1?40:252;
+    ppu.oam[32]=(uint16_t)(sy<<8|200);ppu.oam[33]=0x2000;
+    if(kind==2) ppu.highOam[4]=2;
+    MmxCoopState s={0};s.initialized=1;s.anchor=s.current=(uint8_t)anchor;
+    for(unsigned seat=0;seat<2;++seat) {
+      s.players[seat].status=MMX_COOP_ALIVE;s.players[seat].body[0x27]=32;
+      unsigned x=seat==anchor?256:384,y=seat==anchor?1184:1184+separation[n];
+      s.players[seat].body[5]=(uint8_t)x;s.players[seat].body[6]=(uint8_t)(x>>8);
+      s.players[seat].body[8]=(uint8_t)y;s.players[seat].body[9]=(uint8_t)(y>>8);
+    }
+    capture();MmxRendererCoopFrame(&s);
+    for(unsigned seat=0;seat<2;++seat) {
+      MmxRendererSetPeerView((int)seat);
+      assert(MmxRendererDraw(output,(MmxRenderView){256,0,4.0/3.0},true));
+      assert(output[16*256+8]==0xff0000); /* HUD remains screen-relative. */
+      int top=kind==2?-4:sy;
+      if(seat!=anchor) top-=separation[n];
+      int x=seat==anchor?200:72,size=kind==2?16:8;
+      for(int y=0;y<224;++y) {
+        bool visible=kind!=0 && y>=top && y<top+size;
+        if(output[y*256+x]!=(visible?0xff0000u:0u))
+          fprintf(stderr,"OAM reprojection: anchor=%u seat=%u dy=%d kind=%u x=%d y=%d pixel=%06x expected=%06x\n",
+              anchor,seat,separation[n],kind,x,y,output[y*256+x],visible?0xff0000:0);
+        assert(output[y*256+x]==(visible?0xff0000u:0u));
+      }
+    }
+  }
+  MmxRendererSetPeerView(-1);MmxCoopViewsSetOnline(false);
+  MmxRendererSetCompactCoopHud(true);g_mmx_custom_renderer=false;MmxRendererReset();
+}
 static void expanded_capacity(void) {
   memset(&ppu, 0, sizeof(ppu)); memset(ram, 0, sizeof(ram)); memset(rom_bytes, 0, sizeof(rom_bytes));
   ram[0xd1] = 2; ram[0xd2] = 4; ram[0xd3] = 4;
@@ -138,8 +307,13 @@ static void expanded_capacity(void) {
   MmxRendererSetRom(NULL, 0); MmxRendererSetRom(rom_bytes, sizeof(rom_bytes));
   g_mmx_custom_renderer = true;
   MmxRenderView v = MmxRendererViewport(MMX_ASPECT_16_9, 0, 0, kSnesDisplayAspect_Crt4x3);
-  for (int enabled = 0; enabled < 2; ++enabled) {
-    MmxRendererReset(); g_mmx_expanded_sprites = enabled != 0;
+  MmxBossRushReset();
+  for (int enabled = 0; enabled < 3; ++enabled) {
+    if(enabled==2) {
+      MmxBossRushState rush={0};rush.mode=MMX_RUSH_PLAYING;rush.random=1;
+      assert(MmxBossRushSetState(&rush));
+    }
+    MmxRendererReset(); g_mmx_expanded_sprites = enabled == 1;
     uint8_t before[0x20000]; memcpy(before, ram, sizeof(ram));
     MmxRendererObserveObject(ram, 0xe68);
     assert(!memcmp(before, ram, sizeof(ram)));
@@ -157,6 +331,7 @@ static void expanded_capacity(void) {
     MmxRendererReset(); assert(!MmxRendererDraw(output, v, false));
   }
   g_mmx_custom_renderer = g_mmx_expanded_sprites = false;
+  MmxBossRushReset();
 }
 static void background_resources(void) {
   memset(ram, 0, sizeof(ram)); memset(rom_bytes, 0, sizeof(rom_bytes));
@@ -628,6 +803,30 @@ static void spark_effects(void) {
   assert(output[90 * v.width + v.extra + 500] == 0xffffff);
   assert(output[103 * v.width + v.extra + 500] == 0);
   assert(output[90 * v.width + v.extra + 616] == 0);
+  /* The fading beam stores its top in the native camera's screen space
+   * ($87:A6ED/A7AE). It must follow the same world position in either view. */
+  put_word(0x1e50,256);ppu.vScroll[0]=256;
+  put_word(0x1e58,2048);put_word(0x1e5c,2048);
+  MmxCoopViewsSetOnline(true);
+  for(unsigned anchor=0;anchor<2;++anchor) for(int dy=-64;dy<=64;dy+=64) {
+    MmxCoopState s={0};s.initialized=1;s.current=s.anchor=(uint8_t)anchor;
+    for(unsigned seat=0;seat<2;++seat) {
+      s.players[seat].status=MMX_COOP_ALIVE;s.players[seat].body[0x27]=32;
+      unsigned y=416+(seat==anchor?0:dy);
+      s.players[seat].body[5]=128;
+      s.players[seat].body[8]=(uint8_t)y;s.players[seat].body[9]=(uint8_t)(y>>8);
+    }
+    memcpy(ram+0xba8,s.players[anchor].body,0x90);
+    capture();MmxRendererCoopFrame(&s);
+    for(unsigned seat=0;seat<2;++seat) {
+      MmxRendererSetPeerView((int)seat);assert(MmxRendererDraw(output,v,false));
+      int top=90-(seat==anchor?0:dy);
+      for(int y=0;y<224;++y) assert(output[y*v.width+v.extra+500]==
+          (y>=top && y<top+13?0xffffffu:0u));
+    }
+  }
+  MmxRendererSetPeerView(-1);MmxCoopViewsSetOnline(false);
+  memset(ram+0xba8,0,0x90);put_word(0x1e50,0);ppu.vScroll[0]=0;
   /* Thunder Slimer's BG2 surface reaches the margins from live VRAM, never
    * from the stage map's dormant staging tiles. */
   memset(ram + 0xe68, 0, 128); ram[0x1f0a] = 1;
@@ -672,6 +871,53 @@ static void airport_panorama_edge(void) {
   put_word(0x1e90, 256); /* Other airport/roof planes are not the panorama. */
   capture(); assert(MmxRendererDraw(output, v, false));
   assert(output[80 * v.width + v.extra + 560] == 0);
+}
+
+static void airport_upper_sky_repair(void) {
+  memset(&ppu,0,sizeof(ppu));memset(ram,0,sizeof(ram));memset(rom_bytes,0,sizeof(rom_bytes));
+  MmxRendererReset();MmxRendererSetRom(NULL,0);MmxRendererSetRom(rom_bytes,sizeof(rom_bytes));
+  ram[0xd1]=2;ram[0xd2]=ram[0xd3]=4;ram[0x1f7a]=5;ram[0x1e89]=6;
+  put_word(0x1e4d,777);put_word(0x1e50,194);
+  put_word(0x1e8d,1844);put_word(0x1e90,(unsigned)-1081);
+  put_word(0xb95,0x8000);ram[0xb97]=0x80;
+  put_word(0xb98,0x8000);ram[0xb9a]=0x80;ram[0xec03]=3;
+  for(unsigned i=0;i<256;++i)put_word(0xac00+i*2,1);
+  for(unsigned q=0;q<4;++q){rom_word(8+q*2,1);rom_word(16+q*2,3);}
+  /* Keep an authored foreground ledge over the cloud plane. */
+  put_word(0x21c4,2);
+  ppu.inidisp=15;ppu.bgmode=1;ppu.screenEnabled[0]=3;
+  ppu.bgXsc[0]=0x41;ppu.bgXsc[1]=0x49;
+  ppu.hScroll[0]=775;ppu.vScroll[0]=198;
+  ppu.hScroll[1]=817;ppu.vScroll[1]=968;
+  ppu.cgram[1]=31<<10;ppu.cgram[2]=31<<5;ppu.cgram[3]=31;
+  for(unsigned i=0x4000;i<0x5000;++i)ppu.vram[i]=2; /* Stale red runway. */
+  for(unsigned y=0;y<8;++y){ppu.vram[16+y]=255;ppu.vram[32+y]=65535;ppu.vram[48+y]=0xff00;}
+  assert(MmxRendererNeedsStormSkyRepair(ram));
+  assert(!MmxRendererNeedsStormSkyRepair(NULL));
+  capture();
+  static uint8_t before[sizeof(ram)];memcpy(before,ram,sizeof(ram));
+  const MmxRenderView views[]={{256,0,4.0/3.0},{342,43,16.0/9.0},
+      {682,213,32.0/9.0},{1024,384,16.0/3.0}};
+  for(unsigned i=0;i<sizeof(views)/sizeof(views[0]);++i){
+    MmxRenderView v=views[i];
+    g_mmx_render_asset_repairs=false;
+    assert(MmxRendererDraw(output,v,false));
+    assert(output[80*v.width+v.extra+128]==0xff0000);
+    g_mmx_render_asset_repairs=true;
+    assert(MmxRendererDraw(output,v,false));
+    for(int x=0;x<v.width;++x)assert(output[80*v.width+x]==0x0000ff);
+    assert(output[32*v.width+v.extra+32]==0x00ff00);
+    assert(!memcmp(before,ram,sizeof(ram)));
+  }
+  for(unsigned condition=0;condition<4;++condition){
+    ram[0x1f7a]=condition==0?0:5;ram[0x1e89]=condition==1?14:6;
+    put_word(0x1e50,condition==2?0x400:194);
+    ram[0x1f10]=condition==3?6:0;ram[0xc3]=condition==3?128:0;
+    assert(!MmxRendererNeedsStormSkyRepair(ram));
+    capture();assert(MmxRendererDraw(output,views[0],false));
+    if(condition!=3)assert(output[80*256+128]==0xff0000);
+  }
+  MmxRendererSetRom(NULL,0);
 }
 
 static void wide_water_plane(void) {
@@ -1094,6 +1340,104 @@ static void fortress_actor_presentation(void) {
   g_mmx_custom_renderer = false; MmxRendererReset();
 }
 
+static void storm_dormant_presentation(void) {
+  memset(&ppu, 0, sizeof(ppu)); memset(ram, 0, sizeof(ram));
+  memset(rom_bytes, 0, sizeof(rom_bytes)); memset(stock, 0, sizeof(stock));
+  MmxRendererReset(); g_mmx_custom_renderer = true;
+  ram[0xd1] = 2; ram[0xd2] = ram[0xd3] = 4; ram[0x1f7a] = 5; ram[0xbb9] = 0x20;
+  put_word(0x1e4d, 64); put_word(0x1e50, 1360);
+  ppu.inidisp = 15; ppu.bgmode = 1; ppu.screenEnabled[0] = 16;
+  for (unsigned i = 0; i < 128; ++i) ppu.oam[i * 2] = 0xe000;
+  /* Private resources: red heart, green platform, with live VRAM blank. */
+  rom_word(0x32cee + 10, 0x40); rom_word(0x32cee + 12, 0x42);
+  rom_word(0x32cee + 0x40, 0x50);
+  for (unsigned i = 0; i < 2; ++i) {
+    unsigned id = i ? 0x5a : 0x36, a = 0x32cee + 0x50 + i * 6;
+    rom_bytes[a] = (uint8_t)id; rom_word(a + 3, 2 + i * 2);
+    a = 0x376f7 + id * 5; rom_word(a, 32); rom_long(a + 2, 0x908000);
+    rom_word(0x371b7 + id * 2, 0x300); rom_bytes[0x374b7] = 2; rom_bytes[0x374b8] = 0xe0;
+    unsigned animation = i ? 0x5b : 0x38;
+    rom_long(0x68000 + animation * 3, 0x908100 + i * 3);
+    rom_long(0x80100 + i * 3, 0x908200); rom_bytes[0x80200] = 1;
+    rom_word(0x30135 + i * 2, 0x9000 + i * 8);
+    rom_bytes[0x31000 + i * 8] = 16;
+    rom_word(0x31001 + i * 8, 0x9000 + i * 32); rom_bytes[0x31003 + i * 8] = 128;
+    for (unsigned c = 1; c < 16; ++c) rom_word(0x29000 + i * 32 + c * 2, i ? 31 << 5 : 31);
+  }
+  rom_bytes[0x32cee + 0x50 + 12] = 255;
+  for (unsigned i = 0; i < 8; ++i) rom_bytes[0x80000 + i * 2 + 1] = 255;
+  rom_bytes[0x291a9 + 3] = 0x0b; rom_bytes[0x291a9 + 4] = 4;
+  rom_word(0x291aa, 1392); rom_word(0x291ae, 0x8020);
+  for (unsigned i = 0; i < 10; ++i) {
+    rom_word(0x35abf + i * 2, i == 0 ? 344 : i == 1 ? 316 : i == 2 ? 60 : 4000);
+    rom_word(0x35ad3 + i * 2, 1408);
+  }
+  MmxRendererSetRom(NULL, 0); MmxRendererSetRom(rom_bytes, sizeof(rom_bytes));
+  static uint8_t before[sizeof(ram)]; memcpy(before, ram, sizeof(ram));
+  const MmxRenderView views[] = {{256,0,4.0/3.0},{342,43,16.0/9.0},
+      {682,213,32.0/9.0},{MMX_RENDER_MAX_WIDTH,(MMX_RENDER_MAX_WIDTH-256)/2,8}};
+  capture(); assert(MmxRendererSaveCapture("storm-preview.cap"));
+  for (unsigned v = 0; v < sizeof(views)/sizeof(views[0]); ++v) {
+    MmxRenderView view = views[v];
+    assert(MmxRendererDraw(output, view, false));
+    for (int y = 0; y < 224; ++y) for (int x = 0; x < 256; ++x)
+      assert(output[y * view.width + view.extra + x] == 0); /* Never change native pixels. */
+    if (!view.extra) continue;
+    assert(output[32 * view.width + view.extra - 32] == 0xff0000);
+    assert(output[48 * view.width + view.extra + 280] == 0x00ff00);
+    assert(output[48 * view.width + view.extra + 256] == 0x00ff00);
+    assert(output[48 * view.width + view.extra - 1] == 0x00ff00);
+  }
+  assert(!memcmp(before, ram, sizeof(ram))); /* No guest allocations or clocks. */
+  MmxRenderView v = views[1]; unsigned heart = 32 * v.width + v.extra - 32;
+  unsigned platform = 48 * v.width + v.extra + 280;
+  /* Captures own the collected bit and survive repeated draws at any width. */
+  ram[0x1f9c] = 4; capture(); assert(MmxRendererDraw(output, v, false)); assert(!output[heart]);
+  assert(MmxRendererLoadCapture("storm-preview.cap"));
+  assert(MmxRendererDraw(output, v, false)); assert(output[heart] == 0xff0000);
+  remove("storm-preview.cap"); ram[0x1f9c] = 0;
+  /* Carrying a real tank suppresses its old home. Allocated but uninitialized
+   * platforms preview the new initial pose instead of stale slot contents. */
+  ram[0x1628] = 1; ram[0x1629] = 2; ram[0x1632] = 0x0b;
+  ram[0x163e] = 0x38;
+  capture(); assert(MmxRendererDraw(output, v, false)); assert(output[heart] == 0xff0000);
+  ram[0x162a] = 4;
+  capture(); assert(MmxRendererDraw(output, v, false)); assert(!output[heart]);
+  ram[0x1636] = 0x81; put_word(0x162d, 352); put_word(0x1630, 1392);
+  capture(); assert(MmxRendererDraw(output, v, false)); assert(!output[heart]);
+  assert(output[32 * v.width + v.extra + 288] == 0xff0000); /* The real carried pose. */
+  ram[0x1636] = 0;
+  ram[0x1629] = 0; ram[0x1632] = 0x0e; ram[0x1633] = 0;
+  put_word(0x162d, 900); put_word(0x1630, 900);
+  capture(); assert(MmxRendererDraw(output, v, false)); assert(output[platform] == 0x00ff00);
+  assert(!output[48 * v.width + v.extra + 256]); /* No invented missing allocations. */
+  ram[0x1629] = 2;
+  capture(); assert(MmxRendererDraw(output, v, false)); assert(!output[platform]);
+  ram[0x163e] = 0x5b; ram[0x163f] = 0x80; put_word(0x162d, 344); put_word(0x1630, 1408);
+  capture(); assert(MmxRendererDraw(output, v, false)); assert(output[platform] == 0x00ff00);
+  ram[0x1636] = 0x81; put_word(0x162d, 352);
+  capture(); assert(MmxRendererDraw(output, v, false)); assert(!output[platform]);
+  assert(output[platform + 8] == 0x00ff00); /* Live motion without native submission. */
+  /* A submitted real piece replaces the preview, including its removal epoch. */
+  ram[0x163e] = 0x5b; put_word(0x18, 0x8200); ram[0x1a] = 0x90;
+  put_word(0, 288); put_word(2, 48); ram[0xf] = 0x20;
+  MmxRendererObserveObject(ram, 0x1628); MmxRendererRecordPiece(ram, 0); MmxRendererLatchSprites();
+  ram[0x1628] = 0;
+  capture(); assert(MmxRendererDraw(output, v, false)); assert(!output[platform]);
+  MmxRendererReset();
+  capture(); g_mmx_render_asset_repairs = false;
+  assert(MmxRendererDraw(output, v, false)); assert(!output[platform] && !output[heart]);
+  g_mmx_render_asset_repairs = true;
+  MmxCoopState coop = {0}; coop.initialized = 1; MmxRendererCoopFrame(&coop);
+  assert(MmxRendererDraw(output, v, false)); assert(!output[platform] && !output[heart]);
+  coop.initialized = 0; MmxRendererCoopFrame(&coop);
+  ram[0x1f7a] = 4; capture(); assert(MmxRendererDraw(output, v, false));
+  assert(!output[platform] && !output[heart]);
+  ram[0x1f7a] = 5; ram[0xc3] = 128; ram[0x1f10] = 6;
+  capture(); assert(MmxRendererDraw(output, v, false)); assert(!output[platform] && !output[heart]);
+  g_mmx_custom_renderer = false; MmxRendererReset();
+}
+
 static void sprite_priority_and_cutscene_binding(void) {
   memset(rom_bytes, 0, sizeof(rom_bytes));
   memset(ram, 0, sizeof(ram)); memset(&ppu, 0, sizeof(ppu));
@@ -1162,6 +1506,7 @@ static void sprite_priority_and_cutscene_binding(void) {
   g_mmx_custom_renderer = false; MmxRendererReset();
 }
 
+#include "mmx_player_presentation_test.inc"
 static void zero_blink_submission(void) {
   /* A submitted body belongs to the OAM epoch even if the next player update
    * has already cleared its visibility flag. It must never turn back into X. */
@@ -1214,9 +1559,189 @@ static void zero_blink_submission(void) {
   /* An actual blink hides OAM; stale attribution must preserve that gap. */
   ppu.oam[32] = 0xe000; MmxRendererLatchSprites(); capture();
   assert(MmxRendererDraw(output,view,false) && output[40 * 256 + 40] == 0);
+
+  /* Native death at $81:8AAA disables the three armor objects without
+   * clearing their visibility bytes. Add Zero is enabled while playing X;
+   * expanded queues must not reconstruct the disabled armor in white. */
+  MmxZeroState z=MmxZeroGetState();z.active_x=1;MmxZeroSetState(z);
+  memset(ram,0,sizeof(ram));
+  ram[0xd1]=2;ram[0xd2]=ram[0xd3]=4;
+  g_mmx_render_asset_repairs=true;
+  MmxBossRushState rush={0};rush.mode=MMX_RUSH_PLAYING;rush.random=1;
+  assert(MmxBossRushSetState(&rush));
+  ppu.cgram[129]=0x7fff;
+  for(unsigned j=0;j<3;++j) {
+    unsigned d=0xc38+j*32,animation=0x5d+j;
+    rom_long(0x68000+animation*3,0x8d9000);rom_long(0x69000,0x8d9100);
+    rom_bytes[0x69100]=1;rom_bytes[0x69104]=0;
+    ram[d+14]=1;ram[d+17]=0x20;ram[d+22]=(uint8_t)animation;
+    put_word(d+5,j==2?300:40+j*8);put_word(d+8,40);
+  }
+  MmxRendererSetRom(rom_bytes,sizeof(rom_bytes));
+  view=MmxRendererViewport(MMX_ASPECT_32_9,0,0,kSnesDisplayAspect_Crt4x3);
+  for(unsigned active=0;active<2;++active) {
+    for(unsigned d=0xc38;d<=0xc78;d+=32) ram[d]=(uint8_t)active;
+    MmxRendererReset();MmxRendererObserveObject(ram,0xe68);
+    MmxRendererLatchSprites();capture();assert(MmxRendererDraw(output,view,false));
+    for(unsigned j=0;j<3;++j) {
+      unsigned x=j==2?300:40+j*8;
+      assert(output[40*view.width+view.extra+x]==(active?0xffffffu:0));
+    }
+  }
+  MmxBossRushReset();
+  coop_player_overlap();wide_penguin_blizzard();
   MmxZeroDisable(); g_mmx_custom_renderer = false; g_mmx_render_asset_repairs = true;
   MmxRendererReset();
 }
+static void rush_private_pose_graphics(void) {
+  memset(rom_bytes,0,sizeof(rom_bytes));memset(ram,0,sizeof(ram));
+  rom_word(0x32cee,0x20);rom_word(0x32cf0,0x22);rom_word(0x32cf2,0x24);
+  rom_word(0x32d0e,0x30);rom_word(0x32d10,0x40);
+  rom_bytes[0x32d1e]=rom_bytes[0x32d2e]=1;
+  rom_word(0x32d21,2);rom_word(0x32d31,4);
+  rom_bytes[0x32d23]=rom_bytes[0x32d33]=0x40;
+  rom_bytes[0x32d24]=rom_bytes[0x32d34]=255;
+  rom_bytes[0x325e4]=7;rom_bytes[0x325e5]=1;
+  rom_word(0x376fc,32);rom_long(0x376fe,0x809000);
+  for(unsigned group=0;group<4;++group) {
+    rom_bytes[0x1000+group*10]=255;
+    memset(rom_bytes+0x1002+group*10,group<2?0x11:0x77,8);
+  }
+  rom_word(0x371b9,0x200);rom_bytes[0x373b7]=2;rom_bytes[0x373b8]=0xe0;
+  rom_word(0x30135,0xb000);rom_word(0x30137,0xb020);
+  for(unsigned i=0;i<2;++i) {
+    unsigned p=0x33000+i*32;rom_bytes[p]=16;rom_word(p+1,0xa000+i*32);rom_bytes[p+3]=128;
+    for(unsigned c=0;c<16;++c) rom_word(0x2a000+i*32+c*2,i?0x7c00:31);
+  }
+  rom_word(0x2a100,0x20);rom_word(0x2a102,0x25);
+  for(unsigned i=0;i<2;++i) {
+    unsigned p=0x2a120+i*5;rom_bytes[p]=1;rom_word(p+1,i*16);
+    rom_bytes[p+3]=0x7f;rom_bytes[p+4]=0xe0;
+  }
+  /* Deliberately unrelated live staging memory must never supply boss CHR. */
+  memset(ram+0x18000,0xff,8192);
+  for(unsigned d=0xe68;d<=0xea8;d+=64) {ram[d+0x10]=1;put_word(d+0x31,0xa100);}
+  MmxRenderAssetsSetRom(NULL,0);MmxRenderAssetsSetRom(rom_bytes,sizeof(rom_bytes));
+  const MmxSpriteAsset *first=MmxRenderAssetsRushObjectSprite(ram,0xe68,0,7);
+  assert(first && first->tiles[0]==0x11 && first->colors[1]==31);
+  ram[0xebf]=1;
+  const MmxSpriteAsset *other=MmxRenderAssetsRushObjectSprite(ram,0xea8,1,7);
+  assert(other && other->tiles[0]==0x77 && other->colors[1]==0x7c00);
+  assert(first->tiles[0]==0x11 && first->colors[1]==31);
+  ram[0xe7f]=1;
+  first=MmxRenderAssetsRushObjectSprite(ram,0xe68,0,7);
+  assert(first && first->tiles[0]==0x77 && first->colors[1]==31);
+  assert(ram[0x18000]==255); /* The private cache never changes guest staging. */
+}
+static void rush_static_and_streamed_graphics(void) {
+  memset(rom_bytes,0,sizeof(rom_bytes));memset(ram,0,sizeof(ram));
+  for(unsigned i=0;i<14;++i) rom_word(0x32cee + i*2,i<2?0x30:i<6?0x32:i<7?0x34:i<9?0x36:0x38);
+  for(unsigned i=0;i<4;++i) rom_word(0x32d1e + i*2,0x60+i*0x20);
+  const unsigned ids[]={0x6b,0x82,0x83,0x8a,0x61,0x62};
+  const unsigned records[]={0x32d4e,0x32d6e,0x32d74,0x32d8e,0x32dae,0x32db4};
+  const unsigned palettes[]={2,4,4,6,8,10};
+  for(unsigned n=0;n<6;++n) {
+    unsigned id=ids[n],record=records[n];rom_bytes[record]=(uint8_t)id;
+    rom_word(record+1,n==0 || n==5?0x400:n==2?0:0x1000);rom_word(record+3,palettes[n]);
+    rom_bytes[record+5]=n==0?0x60:n==5?0x50:0x40;
+    rom_word(0x376f7+id*5,32);rom_long(0x376f9+id*5,0x809000+n*0x80);
+    for(unsigned g=0;g<4;++g) {
+      rom_bytes[0x1000+n*0x80+g*10]=255;
+      memset(rom_bytes+0x1002+n*0x80+g*10,n==0?0x11:n==1?0x55:n==2?0x77:0xaa+n,8);
+    }
+    rom_word(0x371b7+id*2,0x400+n*4);
+    if(n!=2) {rom_bytes[0x375b7+n*4]=2;rom_bytes[0x375b8+n*4]=0xe0;}
+  }
+  rom_bytes[0x32d54]=rom_bytes[0x32d7a]=rom_bytes[0x32d94]=rom_bytes[0x32dba]=255;
+  rom_bytes[0x325e4]=0x89;rom_bytes[0x325e5]=0x82;
+  rom_bytes[0x325e6]=0x91;rom_bytes[0x325e7]=0x8a;
+  rom_bytes[0x325e8]=0x67;rom_bytes[0x325e9]=0x61;
+  const unsigned counts[]={16,32,64,16,16},sources[]={0xa000,0xa020,0xa060,0xa0e0,0xa100};
+  for(unsigned n=0;n<5;++n) {
+    rom_word(0x30135+n*2,0xb000+n*32);unsigned p=0x33000+n*32;
+    rom_bytes[p]=(uint8_t)counts[n];rom_word(p+1,sources[n]);rom_bytes[p+3]=128;
+    for(unsigned i=0;i<counts[n];++i) {
+      unsigned color=n==1 && i>=16?0x7c00:n==2?
+          (i<16?31:i<32?0x3e0:i<48?0x7c00:0x7fff):n==4?0x7fe0:31;
+      rom_word(0x28000+(sources[n]&0x7fff)+i*2,color);
+    }
+  }
+  rom_word(0x2a100,0x20);rom_bytes[0x2a120]=1;rom_bytes[0x2a123]=0x7f;rom_bytes[0x2a124]=0xe0;
+  ram[0xe78]=0x83;put_word(0xe99,0xa100);ram[0xe72]=0x52;
+  MmxRenderAssetsSetRom(NULL,0);MmxRenderAssetsSetRom(rom_bytes,sizeof(rom_bytes));
+  const MmxSpriteAsset *a=MmxRenderAssetsRushObjectSprite(ram,0xe68,5,0x89);
+  assert(a && a->id==0x82 && a->tiles[0]==0x55); /* Static wings survive the dive's separate DMA metadata. */
+  a=MmxRenderAssetsRushObjectSprite(ram,0xe68,1,0x77);
+  assert(a && a->id==0x6b && a->tiles[0]==0x11); /* Stale stream metadata cannot replace the tornado. */
+  a=MmxRenderAssetsRushObjectSprite(ram,0xe68,5,0x8a);
+  assert(a && a->id==0x83 && a->tiles[0]==0x77 && a->tiles[16]==0 && a->colors[1]==31);
+  ram[0xe72]=0x24;a=MmxRenderAssetsRushObjectSprite(ram,0xe68,5,0x8a);
+  assert(a && a->colors[1]==0x7c00 && (a->attributes&14)==10);
+  ram[0xe72]=0x52;a=MmxRenderAssetsRushObjectSprite(ram,0xe68,5,0x8a);
+  assert(a && a->colors[1]==31); /* Slot reuse restores the body's palette. */
+  ram[0xe72]=0x31;ram[0xe79]=6;a=MmxRenderAssetsRushObjectSprite(ram,0xe68,6,0x91);
+  assert(a && a->colors[1]==0x7fff && (a->attributes&14)==14);
+  ram[0xe79]=10;a=MmxRenderAssetsRushObjectSprite(ram,0xe68,6,0x91);
+  assert(a && a->colors[1]==0x3e0 && (a->attributes&14)==10);
+  ram[0xe72]=0x28;a=MmxRenderAssetsRushObjectSprite(ram,0xe68,6,0x91);
+  assert(a && a->colors[1]==0x7c00 && (a->attributes&14)==12);
+  ram[0xe72]=0x31;ram[0xe79]=0;a=MmxRenderAssetsRushObjectSprite(ram,0xe68,6,0x91);
+  assert(a && a->colors[1]==31);
+  ram[0xe79]=14;a=MmxRenderAssetsRushObjectSprite(ram,0xe68,6,0x91);
+  assert(a && a->colors[1]==0x7fff); /* Correct native palette 4 OR $06. */
+  a=MmxRenderAssetsRushSprite(8,0x68);assert(a && a->id==0x62 && a->colors[1]==0x7fe0);
+  ram[0xe72]=6;a=MmxRenderAssetsRushObjectSprite(ram,0xe68,8,0x67);
+  assert(a && a->id==0x61 && a->colors[1]==0x7fe0 && (a->attributes&15)==11);
+  ram[0xe72]=0x1a;a=MmxRenderAssetsRushObjectSprite(ram,0xe68,8,0x67);
+  assert(a && a->colors[1]==0x7fe0);
+  ram[0xe72]=2;a=MmxRenderAssetsRushObjectSprite(ram,0xe68,8,0x67);
+  assert(a && a->colors[1]==31);
+  /* A private sheet must still show live native hit colors in either seat. */
+  rom_long(0x68000+0x89*3,0x8d9000);rom_long(0x69000,0x8d9100);
+  rom_bytes[0x69100]=1;memset(rom_bytes+0x69101,0,4);
+  memset(&ppu,0,sizeof(ppu));memset(ram,0,sizeof(ram));memset(stock,0,sizeof(stock));
+  ppu.inidisp=15;ppu.bgmode=1;ppu.screenEnabled[0]=16;
+  for(unsigned i=1;i<16;++i) ppu.cgram[128+i]=0x7fff;
+  for(unsigned i=0;i<128;++i) ppu.oam[i*2]=0xe000;
+  ram[0xd1]=2;ram[0xd2]=ram[0xd3]=4;
+  ram[0xe7]=1;put_word(0x920,0xe68);ram[0xe68]=1;ram[0xe76]=1;
+  ram[0xe7e]=0x89;put_word(0xe6d,60);put_word(0xe70,40);
+  MmxRendererSetRom(NULL,0);MmxRendererSetRom(rom_bytes,sizeof(rom_bytes));
+  g_mmx_custom_renderer=true;
+  for(unsigned seat=0;seat<2;++seat) {
+    MmxBossRushStart(false,1);assert(MmxBossRushAssign(seat,6,0xe68));
+    MmxBossRushState rush=MmxBossRushGetState();rush.mode=MMX_RUSH_PLAYING;
+    assert(MmxBossRushSetState(&rush));
+    for(unsigned flash=0;flash<2;++flash) {
+      ram[0xe79]=flash?0x21:0x29;
+      MmxRendererReset();MmxRendererObserveObject(ram,0xe68);MmxRendererLatchSprites();capture();
+      assert(MmxRendererDraw(output,(MmxRenderView){256,0,4.0/3.0},false));
+      assert(output[40*256+61]==(flash?0xffffffu:0xff0000u));
+    }
+    /* The PPU repeats the previous OAM while pause suspends sprite building.
+     * Its private boss tiles must survive both the stage fade and menu gate. */
+    ram[0xe79]=0x29;ram[0x1f10]=ram[0xc3]=0;
+    put_word(0,60);put_word(2,40);put_word(0x18,0x9100);ram[0x1a]=0x8d;ram[0xf]=0x29;
+    ppu.oam[32]=0x283c;ppu.oam[33]=0x2900;
+    MmxRendererReset();MmxRendererObserveObject(ram,0xe68);
+    MmxRendererRecordPiece(ram,0);MmxRendererLatchSprites();
+    capture();assert(MmxRendererDraw(output,(MmxRenderView){256,0,4.0/3.0},false));
+    assert(output[40*256+61]==0xff0000u);
+    for(unsigned menu=0;menu<2;++menu) for(unsigned fade=0;fade<3;++fade) {
+      ram[0x1f10]=menu?6:0;ram[0xc3]=menu?128:0;
+      MmxRendererLatchSprites();capture();
+      assert(MmxRendererDraw(output,(MmxRenderView){256,0,4.0/3.0},false));
+      if(output[40*256+61]!=0xff0000u)fprintf(stderr,"rush fade seat=%u menu=%u frame=%u pixel=%06x pieces=%u fallback=%u\n",seat,menu,fade,output[40*256+61],MmxRendererGetStats().pieces,MmxRendererGetStats().fallback_lines);
+      assert(output[40*256+61]==0xff0000u);
+    }
+    ppu.oam[32]=0xe000;MmxRendererLatchSprites();capture();
+    assert(MmxRendererDraw(output,(MmxRenderView){256,0,4.0/3.0},false));
+    assert(output[40*256+61]==0); /* Native removal/blinking must still hide it. */
+    ram[0x1f10]=ram[0xc3]=0;
+  }
+  MmxBossRushReset();g_mmx_custom_renderer=false;MmxRendererSetRom(NULL,0);
+}
+#include "mmx_coop_weapon_graphics_test.inc"
 static void weapons_menu_margins(void) {
   memset(&ppu, 0, sizeof(ppu)); memset(ram, 0, sizeof(ram));
   MmxRendererReset(); MmxRendererSetRom(NULL, 0);
@@ -1224,6 +1749,9 @@ static void weapons_menu_margins(void) {
   ppu.inidisp = 15; ppu.bgmode = 1; ppu.cgram[0] = 31;
   for (unsigned i = 0; i < 256 * 224; ++i) stock[i] = i + 1;
   MmxRenderView v = MmxRendererViewport(MMX_ASPECT_ADAPTIVE, 10000, 1, kSnesDisplayAspect_Crt4x3);
+  MmxBossRushStart(false,1);
+  MmxBossRushState rush=MmxBossRushGetState();rush.mode=MMX_RUSH_PLAYING;
+  assert(MmxBossRushSetState(&rush));
   for (unsigned hud = 6; hud <= 8; hud += 2) {
     ram[0x1f10] = (uint8_t)hud;
     capture(); assert(MmxRendererDraw(output, v, true));
@@ -1234,7 +1762,25 @@ static void weapons_menu_margins(void) {
   ram[0x1f10] = 0; ram[0xc3] = 0;
   capture(); assert(MmxRendererDraw(output, v, true));
   assert(MmxRendererGetStats().custom_lines == 224 && output[0] == 0xff0000);
-  memset(stock, 0, sizeof(stock));
+  memset(stock, 0, sizeof(stock));MmxBossRushReset();
 }
 
-int main(void) { geometry(); raster_and_hud(); sprite_coordinates(); expanded_capacity(); background_resources(); dialogue_and_password(); highway_arena_sky(); highway_airship_binding(); distant_doors(); storm_background_prefill(); resource_decode(); spark_effects(); airport_panorama_edge(); wide_water_plane(); buried_submarine(); background_continuations(); launch_background_palettes(); sting_background_palettes(); mammoth_background_palettes(); dialogue_backdrop(); fortress_actor_presentation(); sprite_priority_and_cutscene_binding(); weapons_menu_margins(); zero_blink_submission(); return 0; }
+#include "mmx_armor_graphics_test.inc"
+static void rush_results_page(void) {
+  memset(&ppu,0,sizeof(ppu));memset(ram,0,sizeof(ram));
+  ram[0xd1]=2;ram[0xd2]=ram[0xd3]=4;
+  ppu.inidisp=15;ppu.bgmode=1;ppu.cgram[0]=0x7fff;
+  ppu.screenEnabled[0]=16;ppu.oam[0]=0x4040;
+  for(int y=0;y<8;++y) ppu.vram[y]=255;
+  /* A faded white world and a live HUD sprite must both disappear. Retain
+   * the native font bitmap, with readable cyan independent of dead CGRAM. */
+  for(unsigned ch=32;ch<128;++ch) for(unsigned y=0;y<8;++y) ppu.vram[ch*8+y]=0xff00;
+  MmxBossRushStart(false,123);MmxBossRushFinish();capture();
+  MmxRenderView view={256,0,4.0/3.0};
+  assert(MmxRendererDraw(output,view,true));
+  for(unsigned y=0;y<224;++y) for(unsigned x=0;x<256;++x)
+    if(y<48 || y>=168 || x<32 || x>=224) assert((output[y*256+x]&0xffffff)==0);
+  assert((output[48*256+92]&0xffffff)==0x00ffff);
+  MmxBossRushReset();
+}
+int main(void) { geometry(); raster_and_hud(); immutable_vram_raster(); stage_map_draw_lifetime(); sprite_coordinates(); independent_oam_visibility(); expanded_capacity(); background_resources(); dialogue_and_password(); highway_arena_sky(); highway_airship_binding(); distant_doors(); storm_background_prefill(); resource_decode(); spark_effects(); airport_panorama_edge(); airport_upper_sky_repair(); wide_water_plane(); buried_submarine(); background_continuations(); launch_background_palettes(); sting_background_palettes(); mammoth_background_palettes(); dialogue_backdrop(); fortress_actor_presentation(); storm_dormant_presentation(); sprite_priority_and_cutscene_binding(); weapons_menu_margins(); zero_blink_submission(); rush_private_pose_graphics(); rush_static_and_streamed_graphics(); rush_results_page(); coop_special_graphics(); armor_menu_and_hud(); return 0; }

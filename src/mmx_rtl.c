@@ -2,6 +2,7 @@
 #include "mmx_wide_policy.h"
 #include "mmx_renderer.h"
 #include "mmx_zero.h"
+#include "mmx_armor.h"
 #include "mmx_weapons.h"
 #include "mmx_weapon_combat.h"
 #include "mmx_coop.h"
@@ -9,6 +10,8 @@
 #include "mmx_coop_trace.h"
 #include "mmx_replay.h"
 #include "mmx_coop_view.h"
+#include "mmx_boss_rush.h"
+#include "mmx_boss_rush_audio.h"
 #include "variables.h"
 #include "common_cpu_infra.h"
 #include "snes/snes.h"
@@ -365,7 +368,7 @@ void mmx_host_yield(uint8_t countdown) {
 #include "snes/saveload.h"
 
 #define MMX_SAV_CHUNK_MAGIC   0x4D4D5854u  /* "MMXT" */
-#define MMX_SAV_CHUNK_VERSION 18u /* Zero extension (Saber) state */
+#define MMX_SAV_CHUNK_VERSION 24u /* donor X armor and charged projectiles */
 
 typedef struct MmxSavChunk {
   uint32_t magic, version;
@@ -400,8 +403,13 @@ static MmxWeaponsState g_load_weapons;
 static MmxWeaponCombatState g_load_weapon_combat;
 static MmxCoopState g_load_coop;
 static MmxKncBugfixState g_load_knc_bugfix;
+static MmxArmorState g_load_armor;
 static MmxCoopViewWorldState g_load_views;
+static MmxCoopViewBoundsState g_load_view_bounds;
 static uint8_t g_load_zero_extension[MMX_ZERO_EXTENSION_STATE_BYTES];
+static MmxBossRushState g_load_rush;
+static MmxBossRushAudioState g_load_rush_audio;
+static MmxBossRushVisualState g_load_rush_visual;
 
 void MmxStateSaveExtra(struct SaveLoadInfo *sli) {
   MmxSavChunk c;
@@ -452,6 +460,16 @@ void MmxStateSaveExtra(struct SaveLoadInfo *sli) {
   uint8_t zero_extension[MMX_ZERO_EXTENSION_STATE_BYTES];
   MmxZeroExtSaveState(zero_extension);
   sli->func(sli,zero_extension,sizeof(zero_extension));
+  MmxBossRushState rush=MmxBossRushGetState();
+  sli->func(sli,&rush,sizeof(rush));
+  MmxBossRushAudioState audio=MmxBossRushAudioGetState();
+  sli->func(sli,&audio,sizeof(audio));
+  MmxBossRushVisualState visual=MmxBossRushVisualGetState();
+  sli->func(sli,&visual,sizeof(visual));
+  MmxCoopViewBoundsState bounds=MmxCoopViewsGetBoundsState();
+  sli->func(sli,&bounds,sizeof(bounds));
+  MmxArmorState armor=MmxArmorGetState();
+  sli->func(sli,&armor,sizeof(armor));
 }
 
 void MmxStateLoadExtra(struct SaveLoadInfo *sli, uint32_t version) {
@@ -463,12 +481,17 @@ void MmxStateLoadExtra(struct SaveLoadInfo *sli, uint32_t version) {
   memset(&g_load_weapon_combat, 0, sizeof(g_load_weapon_combat));
   memset(&g_load_coop, 0, sizeof(g_load_coop));
   memset(&g_load_knc_bugfix,0,sizeof(g_load_knc_bugfix));
+  memset(&g_load_armor,0,sizeof(g_load_armor));
   memset(&g_load_views,0,sizeof(g_load_views));
+  memset(&g_load_view_bounds,0,sizeof(g_load_view_bounds));
   memset(g_load_zero_extension,0,sizeof(g_load_zero_extension));
+  memset(&g_load_rush,0,sizeof(g_load_rush));
+  memset(&g_load_rush_audio,0,sizeof(g_load_rush_audio));
+  memset(&g_load_rush_visual,0,sizeof(g_load_rush_visual));
   memset(&g_load_chunk, 0, sizeof(g_load_chunk));
   sli->func(sli, &g_load_chunk, sizeof(g_load_chunk));
   if (g_load_chunk.magic == MMX_SAV_CHUNK_MAGIC &&
-      g_load_chunk.version >= 1 && g_load_chunk.version <= MMX_SAV_CHUNK_VERSION)
+      g_load_chunk.version >= 1 && g_load_chunk.version != 23 && g_load_chunk.version <= MMX_SAV_CHUNK_VERSION)
     g_load_chunk_ok = 1;
   /* The adaptive playtest wrote a 464-byte v2 chunk, while the shared-host
    * branch used v2 with appended execution/CHR data. Only the latter has a
@@ -537,12 +560,49 @@ void MmxStateLoadExtra(struct SaveLoadInfo *sli, uint32_t version) {
     } else g_load_chunk_ok=0;
   }
   if(g_load_complete && g_load_chunk.version>=18) {
-    if(RtlStateBytesRemaining(sli)>=sizeof(g_load_zero_extension))
+    /* Main shipped v18 with only the Zero extension; the original Rush
+     * previews used v18..20 for Rush/audio/fades without that extension.
+     * Their bounded tail lengths distinguish the two v18 formats. New v21
+     * always stores the extension first, followed by all three Rush states. */
+    size_t rush_bytes=sizeof(g_load_rush)+
+        (g_load_chunk.version>=19?sizeof(g_load_rush_audio):0)+
+        (g_load_chunk.version>=20?sizeof(g_load_rush_visual):0);
+    size_t remaining=RtlStateBytesRemaining(sli);
+    bool extension=g_load_chunk.version>=21 ||
+        (g_load_chunk.version==18 && remaining==sizeof(g_load_zero_extension));
+    bool rush=g_load_chunk.version>=21 || !extension;
+    size_t expected=(extension?sizeof(g_load_zero_extension):0)+(rush?rush_bytes:0)+
+        (g_load_chunk.version>=22?sizeof(g_load_view_bounds):0)+
+        (g_load_chunk.version>=24?sizeof(g_load_armor):0);
+    if(remaining!=expected) g_load_chunk_ok=0;
+    if(g_load_chunk_ok && extension)
       sli->func(sli,g_load_zero_extension,sizeof(g_load_zero_extension));
-    else g_load_chunk_ok=0;
+    if(g_load_chunk_ok && rush) {
+      sli->func(sli,&g_load_rush,sizeof(g_load_rush));
+      if(!MmxBossRushValidState(&g_load_rush)) g_load_chunk_ok=0;
+    }
+    if(g_load_chunk_ok && rush && g_load_chunk.version>=19) {
+      sli->func(sli,&g_load_rush_audio,sizeof(g_load_rush_audio));
+      if(!MmxBossRushAudioValidState(&g_load_rush_audio)) g_load_chunk_ok=0;
+    }
+    if(g_load_chunk_ok && rush && g_load_chunk.version>=20) {
+      sli->func(sli,&g_load_rush_visual,sizeof(g_load_rush_visual));
+      if(!MmxBossRushVisualValidState(&g_load_rush_visual)) g_load_chunk_ok=0;
+    }
+    if(g_load_chunk_ok && g_load_chunk.version>=22) {
+      sli->func(sli,&g_load_view_bounds,sizeof(g_load_view_bounds));
+      if(!MmxCoopViewsValidBoundsState(&g_load_view_bounds)) g_load_chunk_ok=0;
+    }
   }
   if(g_load_complete && g_load_chunk.version<16)
     g_load_views.contact_player=g_load_coop.anchor;
+  if(g_load_complete && g_load_chunk_ok && g_load_chunk.version>=23) {
+    if(RtlStateBytesRemaining(sli)<sizeof(g_load_armor))g_load_chunk_ok=0;
+    else {
+      sli->func(sli,&g_load_armor,sizeof(g_load_armor));
+      if(!MmxArmorValidState(&g_load_armor))g_load_chunk_ok=0;
+    }
+  }
   if (!g_load_chunk_ok)
     fprintf(stderr, "[mmx_state] load: bad game chunk (magic=%08x ver=%u)\n",
             g_load_chunk.magic, g_load_chunk.version);
@@ -553,6 +613,13 @@ static int MmxWsMargin(void);
 void MmxOnStateLoaded(uint32_t version) {
   MmxReplayStateLoaded();
   MmxRendererReset();
+  if(g_load_chunk_ok && g_load_complete) MmxBossRushSetState(&g_load_rush);
+  else MmxBossRushReset();
+  MmxBossRushVisualState empty_visual={0};
+  MmxBossRushVisualSetState(g_load_chunk_ok && g_load_complete?&g_load_rush_visual:&empty_visual);
+  MmxBossRushAudioReset();
+  if(g_load_chunk_ok && g_load_complete) MmxBossRushAudioSetState(&g_load_rush_audio);
+  if(!RtlIsRollbackLoad()) MmxBossRushAudioLoaded();
   MmxKncBugfixSetState(g_load_knc_bugfix);
   s_ws_recover_armor = g_mmx_custom_renderer && MmxWidePolicy_PrematureRideArmor(g_ram);
   if (g_mmx_custom_renderer && !g_load_native_streakers) {
@@ -573,16 +640,19 @@ void MmxOnStateLoaded(uint32_t version) {
   MmxWideStateApply(complete);
   if (complete) {
     MmxZeroSelectState(g_load_zero);
+    MmxArmorSetState(g_load_armor);
     if (!MmxZeroExtLoadState(g_load_zero_extension))
       MmxZeroSetState(g_load_zero);
   } else {
     MmxZeroSetState(g_load_zero);
+    MmxArmorSetState(g_load_armor);
   }
   MmxWeaponsSetState(g_load_weapons);
   MmxWeaponsSetCombatState(g_load_weapon_combat);
   if (complete && g_load_chunk.version >= 14) MmxCoopSetState(&g_load_coop);
   else MmxCoopReset();
   MmxCoopViewsSetWorldState(&g_load_views);
+  MmxCoopViewsSetBoundsState(&g_load_view_bounds);
   MmxCoopTraceStateLoaded();
   if (version < 5 || !g_load_chunk_ok) {
     /* Legacy v4 save: no chunk, no rebuild — preserve the historical
@@ -848,9 +918,15 @@ void MmxDrawPpuFrame(void) {
 
   int trigger = g_snes->vIrqEnabled ? g_snes->vTimer + 1 : -1;
 
+  if (g_mmx_custom_renderer) MmxRendererBeginHardwareRaster(g_ppu);
   for (int i = 0; i <= 224; i++) {
     if (g_mmx_custom_renderer) MmxRendererCaptureLine(g_ppu, i);
-    ppu_runLine(g_ppu, i);
+#if MMX_NATIVE_RASTER
+    if (g_mmx_custom_renderer && MmxRendererClaimNativeLine(g_ppu, (unsigned)i))
+      ppu_runLineState(g_ppu, i);
+    else
+#endif
+      ppu_runLine(g_ppu, i);
     SimpleHdma_DoLine(&hdma_chans[0]);
     SimpleHdma_DoLine(&hdma_chans[1]);
     SimpleHdma_DoLine(&hdma_chans[2]);
@@ -867,12 +943,17 @@ void MmxDrawPpuFrame(void) {
        * pop). Without it cpu->S drifts on every interrupt. */
       cpu_push_interrupt_frame(&g_cpu);
       I_IRQ(&g_cpu);
+      /* IRQs may run native mod hooks as well as ordinary PPU port writes.
+       * Recompare VRAM even when no observed port write incremented its count. */
+      MmxRendererHardwareVramChanged();
       trigger = g_snes->vIrqEnabled ? g_snes->vTimer + 1 : -1;
     }
   }
+  MmxRendererEndHardwareRaster();
 }
 
 void RunOneFrameOfGame(void) {
+  RtlSetPadState(0,MmxBossRushFilterInput(RtlGetPadState(0)));
   s_graphics_frame_start = g_cpu.master_cycles;
   s_graphics_frame_active = g_did_reset;
 #if !MMX_VARIANT_JP
@@ -999,6 +1080,19 @@ void RunOneFrameOfGame(void) {
     }
   }
   cpu_trace_px_breadcrumb(&g_cpu, 0x2002, "before_Internal");
+  if(MmxArmorEnabled()) {
+    uint16_t pad=RtlGetPadState(0);bool available=!MmxZeroActive();
+    if(MmxCoopEnabled()) {
+      MmxCoopState coop=MmxCoopGetState();
+      if(coop.initialized) {
+        unsigned seat=coop.players[0].character==MMX_COOP_X?0:1;
+        pad=RtlGetPadState(seat);available=coop.players[seat].status==MMX_COOP_ALIVE;
+      }
+    }
+    if(MmxArmorFrameTick(g_ram,pad,available))return;
+  }
+  MmxBossRushFrame(g_ram,RtlGetPadState(0));
+  if(MmxBossRushGetState().mode==MMX_RUSH_FINISHED) return;
   MmxKncBugfixTick(g_ram,RtlGetPadState(0),RtlGetPadState(1));
   if (MmxCoopEnabled()) MmxCoopPoll(RtlGetPadState(0), RtlGetPadState(1));
   else if (MmxZeroSwapTick(g_ram)) return;
@@ -1056,6 +1150,7 @@ void RunOneFrameOfGame(void) {
   MmxCoopLiftCarry(g_ram);
   MmxCoopSyncPriority(g_ram);
   MmxCoopCapture(g_ram);
+  MmxBossRushAfterFrame(g_ram);
   MmxCoopTraceFrame(g_ram);
   /* Out of play (death, level setup, arrival) the widened spawn cursor is
    * stale; drop it even when no scan runs before play resumes. */
@@ -1303,6 +1398,13 @@ int MmxWsSpawnRecordAllowed(uint16 dpage, uint8 type) {
   uint16 rec = MmxWsSpawnReadCursor(dpage);
   uint8 *descriptor = RomPtr(0x850000u | rec);
   const uint8 object_id = descriptor[3];
+  /* The Storm Eagle heart shares the chain platforms' allocator. Loading it
+   * into a wide margin while those ten slots are occupied changes its slot,
+   * even if the platform switches themselves keep native timing. Solo's
+   * phantom grab needs the heart's original scan as well; the native cursor
+   * and guest live/collected flags remain authoritative. */
+  if (!MmxCoopEnabled() && g_ram[0x1f7a] == 5 && kind == 0 && object_id == 0x0b)
+    return !s_ws_spawn_pass.visible_rescan && anchor == s_ws_spawn_pass.native_anchor;
   if (s_ws_spawn_pass.capsule_rescan) return kind == 3 && object_id == 0x4d;
   if (s_ws_spawn_pass.visible_rescan)
     return MmxWidePolicy_RescanSpawnRecord(g_ram[0x1f7a], kind, object_id);
@@ -1410,6 +1512,21 @@ void MmxWsCollectiblePass(CpuState *cpu) {
 }
 
 static bool s_view_spawn_pass;
+/* The widescreen spawn scan keeps Sigma 1's allocation-sensitive Vile room at
+ * native timing (MmxWsForceNativeSpawnTiming); the per-view scan must too, for
+ * every view: either player's camera can approach the room. Ordinary enemies
+ * reach 64px plus the render margin beyond the native spawn column. */
+static bool MmxViewNativeTiming(const MmxCoopState *coop) {
+  unsigned lookahead=64+(unsigned)g_mmx_custom_view.extra;
+  uint8_t stage=g_ram[0x1f7a];
+  if(MmxWidePolicy_ForceNativeSpawnTiming(stage,(uint16_t)(g_ram[0x1e4d]|g_ram[0x1e4e]<<8),lookahead))
+    return true;
+  for(unsigned seat=0;seat<2;++seat) {
+    MmxCoopView v=MmxCoopViewForPlayer(g_ram,coop,seat);
+    if(v.x>=0 && MmxWidePolicy_ForceNativeSpawnTiming(stage,(uint16_t)v.x,lookahead)) return true;
+  }
+  return false;
+}
 static bool MmxViewRecordWanted(unsigned flag,const MmxCoopState *coop) {
   if(flag<0xfa00 || flag>0xfffb) return false;
   unsigned rec=g_ram[flag+3]|g_ram[flag+4]<<8;
@@ -1420,7 +1537,7 @@ static bool MmxViewRecordWanted(unsigned flag,const MmxCoopState *coop) {
   if(kind>3) return false;
   /* Mechanisms, doors and encounter controllers retain their native entry
    * timing around a player. Ordinary enemies get the usual spawn hysteresis. */
-  bool scripted=kind!=3 || MmxWidePolicy_IsBossEncounter(desc[3]);
+  bool scripted=kind!=3 || MmxWidePolicy_IsScriptedEncounter(desc[3]) || MmxViewNativeTiming(coop);
   return MmxCoopViewContains(g_ram,coop,x,y,scripted?0:64,scripted?256:320,
       scripted?32:64,scripted?256:288,scripted?0:g_mmx_custom_view.extra);
 }
@@ -1493,6 +1610,12 @@ void MmxWsStreakerEntrance(uint16 object) {
 }
 
 uint16 MmxWsChainPlatformLine(CpuState *cpu, uint16 line) {
+  /* These switches allocate/free ten objects in the same pool as Heart
+   * Tanks. Early activation changes both the lift cycle and which slot is
+   * reused when a Boomerang delivers the heart (the Magic Carpet phantom
+   * grab). Keep the guest's activation points in solo play. Co-op retains
+   * its existing widened platform support for the two-player field. */
+  if (!MmxCoopEnabled()) return line;
   if (!g_mmx_custom_renderer || !MmxWsSpawnWide() || cpu->X != 5) return line;
   unsigned margin = MmxWsMargin();
   uint16 adjusted = MmxWidePolicy_ChainPlatformLine(g_ram, cpu->D, line, margin);
@@ -1955,6 +2078,8 @@ static void MmxWideStateApply(bool loaded) {
  * recovers (GitHub #45). Runs on the main fiber, never inside a slot fiber,
  * so every slot fiber can be deleted here. */
 void MmxOnHardwareReset(void) {
+  MmxArmorResetState();
+  MmxBossRushReset();MmxBossRushAudioReset();
   MmxCoopReset();
   for (int i = 0; i < MMX_NSLOTS; i++) {
     if (g_slot_fiber[i] != NULL) {

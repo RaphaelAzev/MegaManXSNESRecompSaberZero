@@ -1,5 +1,60 @@
 /* ROM-backed independent-view checks; local seat selection never owns WRAM. */
 #include "mmx_coop_view.h"
+/* The reporter's Armadillo replay leaves Zero on solid lower-path ground
+ * while X backtracks up the wall. Native shared limits then killed Zero. */
+static void coop_region_replay_checks(const char *assets,const char *fixture,
+    uint8_t *start,uint8_t *expected,uint8_t *actual,size_t cap) {
+  coop_replay_start(assets);RtlEnableExtendedFrameTiming();
+  g_config.no_sprite_limits=true;MmxCoopViewsSetIndependent(true);
+  bool wrap=getenv("MMX_COOP_WRAP_REPLAY_FIXTURE")!=NULL;
+  unsigned p1[600],p2[600],count=0,a,b;
+  const char *inputs=getenv("MMX_COOP_REGION_INPUTS");
+  FILE *f=inputs?fopen(inputs,"r"):NULL;check(f!=NULL,"private region input trace opens");
+  while(count<600 && fscanf(f,"%x %x",&a,&b)==2) {p1[count]=a;p2[count++]=b;}
+  fclose(f);check(count>=300,"region trace covers the recorded death");
+  for(unsigned driver=0;driver<2;++driver) {
+    check(RtlLoadSnapshot(fixture),"captured lower-path checkpoint loads");
+    MmxCoopState s=MmxCoopGetState();
+    check(g_ram[0x1f7a]==3 && s.players[1].status==MMX_COOP_ALIVE,
+        "Armadillo checkpoint precedes the false pit death");
+    if(driver) {
+      MmxCoopPlayer p=s.players[0];s.players[0]=s.players[1];s.players[1]=p;
+      s.current^=1;s.anchor^=1;MmxCoopSetState(&s);
+    }
+    bool wrapped=false;
+    for(unsigned t=0;t<count;++t) {
+      unsigned previous=coop_x(&s.players[driver]);
+      coop_frames(1,driver?p2[t]:p1[t],driver?p1[t]:p2[t]);s=MmxCoopGetState();
+      if(wrap && previous>7000 && coop_x(&s.players[driver])<1024) {
+        wrapped=true;
+        check(coop_x(&s.players[driver^1])<1024 && coop_y(&s.players[driver^1])>=2048 &&
+            abs((int)coop_y(&s.players[0])-(int)coop_y(&s.players[1]))<160,
+            "map wrap relocates the stored partner in the same frame as its driver");
+      }
+    }
+    s=MmxCoopGetState();unsigned lower=driver^1;
+    MmxCoopView v=MmxCoopViewForPlayer(g_ram,&s,lower);
+    fprintf(stderr,"issue110 region driver=%u lower=%u hp=%u y=%u camera=%d native=%u bottom=%u\n",
+        driver,lower,s.players[lower].body[0x27]&127,coop_y(&s.players[lower]),v.y,
+        eagle_word(g_ram+0x1e50),MmxCoopViewsGetBoundsState().limits[lower][3]);
+    check(s.players[lower].status==MMX_COOP_ALIVE && (s.players[lower].body[0x27]&127),
+        "either lower-path player survives the partner's uphill backtrack");
+    if(wrap) check(wrapped && v.y>=2048,
+        "either player keeps its view through Armadillo's map wrap");
+    else check(v.y>=1248 && eagle_word(g_ram+0x1e50)<=1056,
+        "lower path keeps its camera while the native view follows the upper path");
+    for(unsigned seat=0;seat<2;++seat) {
+      char name[64];snprintf(name,sizeof(name),"issue110-%s-driver%u-seat%u",wrap?"wrap":"region",driver,seat);
+      MmxRendererSetPeerView((int)seat);modern_image(name);
+    }
+    size_t n=RtlSaveSnapshotToMemory(start,cap);coop_frames(24,0,0);
+    size_t en=RtlSaveSnapshotToMemory(expected,cap);
+    check(RtlLoadSnapshotFromMemory(start,n),"independent camera history restores");
+    coop_frames(24,0,0);
+    same(expected,en,actual,RtlSaveSnapshotToMemory(actual,cap),"independent bounds replay byte-exactly");
+  }
+  puts(wrap?"MMX ISSUE110 WRAP REPLAY CHECKS PASSED":"MMX ISSUE110 REGION REPLAY CHECKS PASSED");
+}
 static void coop_view_boot_checks(const char *assets,uint8_t *start,uint8_t *expected,uint8_t *actual,size_t cap) {
   check(assets && MmxZeroLoad(assets),"online world test loads owned X3 source");
   MmxZeroRegisterHooks();MmxCoopRegisterHooks();check(MmxCoopEnable(0),"online world roster enables");
@@ -88,11 +143,24 @@ static void coop_view_checks(const char *fixture,uint8_t *start,uint8_t *expecte
   eagle_putword(shaft+0x1e56,0);eagle_putword(shaft+0x1e58,2048);
   eagle_putword(shaft+0x1e5a,0);eagle_putword(shaft+0x1e5c,2048);
   eagle_putword(separated.players[1].body+5,1000);eagle_putword(separated.players[1].body+8,1300);
-  b=MmxCoopViewForPlayer(shaft,&separated,1);
-  check(b.y>1000 && MmxCoopViewContains(shaft,&separated,1000,1300,64,320,64,288,0),
-      "vertical separation activates the remote player's shaft");
-  check(!MmxCoopViewContains(shaft,&separated,128,1300,64,320,64,288,0),
-      "activation does not combine one player's X with the other player's Y");
+  /* This artificial shaft is not Highway. The real per-player limit history
+   * still describes Highway's fixed Y=256 and correctly overrides WRAM when
+   * valid. Supply this fixture's own history, then restore the live world's.
+   * Cover the WRAM fallback and valid history without relaxing either check. */
+  MmxCoopViewBoundsState live_bounds=MmxCoopViewsGetBoundsState();
+  MmxCoopViewBoundsState shaft_bounds={0};shaft_bounds.stage=shaft[0x1f7a];
+  for(unsigned seat=0;seat<2;++seat) {
+    shaft_bounds.limits[seat][1]=shaft_bounds.limits[seat][3]=2048;
+  }
+  for(unsigned history=0;history<2;++history) {
+    shaft_bounds.valid=history?3:0;MmxCoopViewsSetBoundsState(&shaft_bounds);
+    b=MmxCoopViewForPlayer(shaft,&separated,1);
+    check(b.y>1000 && MmxCoopViewContains(shaft,&separated,1000,1300,64,320,64,288,0),
+        "vertical separation activates the remote player's shaft");
+    check(!MmxCoopViewContains(shaft,&separated,128,1300,64,320,64,288,0),
+        "activation does not combine one player's X with the other player's Y");
+  }
+  MmxCoopViewsSetBoundsState(&live_bounds);
   static uint32_t views[2][342*224];
   size_t n=RtlSaveSnapshotToMemory(start,cap);check(n,"independent-view snapshot saves");
   for(unsigned seat=0;seat<2;++seat) {
