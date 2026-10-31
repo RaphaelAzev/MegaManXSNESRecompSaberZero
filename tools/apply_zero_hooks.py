@@ -5,7 +5,9 @@ from pathlib import Path
 import re
 
 MARKER = '/*MMX-ZERO*/'
-PCS = {0x81971c, 0x819793, 0x8198fc}
+PCS = {0x81971c, 0x819793, 0x8198fc, 0x819ea1, 0x8499a4}
+# The head-crush block clears a body flag before loading the upgrade byte.
+UPGRADE_LOAD_PCS = {0x819ea1: 0x819ea5}
 MUZZLE_PCS = {0x81a566, 0x81a578, 0x838b6a, 0x838d82, 0x838eb4,
               0x839518, 0x83983c, 0x839974, 0x83a3a9}
 ORIGIN_PCS = {0x8283ed: 1, 0x83958c: 0, 0x839dc5: 1}
@@ -22,6 +24,7 @@ REQUIRED |= {0x049e15, 0x049e3a}  # Compiled low-bank mirror of native contact.
 # Dash exits that would stand Zero up, and the dash blocks that continue it.
 SLIDE_PCS = {0x81898e: '8991', 0x818999: '899C', 0x818965: '8971'}
 REQUIRED |= SLIDE_PCS.keys() | {0x81a062}
+REQUIRED |= {0x819eac, 0x819ef3, 0x819f36, 0x87d0d9, 0x849d50, 0x049d50}
 
 
 def apply(text):
@@ -51,7 +54,28 @@ def apply(text):
         if (pc & 0x7fffff) == 0x049d50 and 'uint8 ' in line and 'cpu_read8' in line and '0x0bcf' in line:
             output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern unsigned MmxZeroPlayerDamage(const uint8_t *, unsigned, unsigned); g_ram[0x0000] = (uint8)MmxZeroPlayerDamage(g_ram, g_ram[(uint16)(cpu->D + 0x0026)], g_ram[0x0000]); }}\n')
             found.add(pc)
+        if pc == 0x819ef3:
+            store = re.search(r'cpu_write16\(cpu, cpu->DB, \(uint16\)\(0x0002\), (_v\d+)\);', line)
+            if store:
+                output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern unsigned MmxZeroHeadBreakY(const uint8_t *, unsigned, unsigned); {store[1]} = (uint16)MmxZeroHeadBreakY(g_ram,cpu->D,{store[1]}); cpu_write_a_m(cpu,{store[1]}); }}\n')
+                found.add(pc)
         output.append(line)
+        if (pc&0x7fffff)==0x049d50 and 'cpu->coprocessor_master_cycles = cpu->master_cycles;' in line:
+            output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern void MmxArmorTakeDamage(uint8_t *, unsigned); MmxArmorTakeDamage(g_ram,cpu->D); }}\n')
+            found.add(pc)
+        if pc == 0x87d0d9 and 'cpu_write8' in line and '0x1f7e' in line:
+            output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern void MmxArmorHadoukenAward(const uint8_t *); MmxArmorHadoukenAward(g_ram); }}\n')
+            found.add(pc)
+        if pc == 0x819f36:
+            load = re.search(r'uint16 (_v\d+) = 0xffed;', line)
+            if load:
+                output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern unsigned MmxZeroHeadProbe(const uint8_t *, unsigned, unsigned); {load[1]} = (uint16)MmxZeroHeadProbe(g_ram,cpu->D,{load[1]}); }}\n')
+                found.add(pc)
+        if pc == 0x819eac:
+            load = re.search(r'uint8 (_v\d+) = 0xed;', line)
+            if load:
+                output.append(f'    {MARKER} {{ extern uint8_t g_ram[0x20000]; extern unsigned MmxZeroHeadProbe(const uint8_t *, unsigned, unsigned); {load[1]} = (uint8)MmxZeroHeadProbe(g_ram,cpu->D,{load[1]}); }}\n')
+                found.add(pc)
         if (pc & 0x7fffff) == 0x049e15:
             load = re.search(r'uint16 (_v\d+) = cpu_read16\(cpu,', line) if '0x000a' in line and 'cpu->X' in line else None
             if load:
@@ -131,7 +155,8 @@ def apply(text):
         if pc in PCS:
             load = re.search(r'uint8 (_v\d+) = cpu_read8\(cpu, cpu->DB, \(uint16\)\(0x1f99\)\);', line)
             if load:
-                output.append(f'    {MARKER} {{ extern unsigned MmxZeroUpgradeBits(unsigned, unsigned); {load[1]} = (uint8)MmxZeroUpgradeBits(0x{pc:06x}, {load[1]}); }}\n')
+                source = UPGRADE_LOAD_PCS.get(pc, pc)
+                output.append(f'    {MARKER} {{ extern unsigned MmxZeroUpgradeBits(unsigned, unsigned); {load[1]} = (uint8)MmxZeroUpgradeBits(0x{source:06x}, {load[1]}); }}\n')
                 found.add(pc)
     return ''.join(output), found
 

@@ -1,4 +1,5 @@
 #include "mmx_zero.h"
+#include "mmx_armor.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -59,10 +60,12 @@ static const MmxZeroExtension *live_extension(void) {
   return extension && (!extension_gate || extension_gate()) ? extension : NULL;
 }
 void MmxZeroExtPrePlayer(uint8_t *ram) {
+  MmxArmorPrePlayer(ram);
   const MmxZeroExtension *ext = live_extension();
   if (ext && ext->pre_player) ext->pre_player(ram);
 }
 void MmxZeroExtPlayerEnd(uint8_t *ram) {
+  MmxArmorPlayerEnd(ram);
   const MmxZeroExtension *ext = live_extension();
   if (ext && ext->player_end) ext->player_end(ram);
 }
@@ -276,10 +279,12 @@ static unsigned sequence_offset(unsigned sequence) {
   return sequence < sizeof(map) ? word(animation + map[sequence] * 2) : 0;
 }
 void MmxZeroAnimationStart(unsigned object, unsigned sequence) {
+  MmxArmorAnimationStart(object,sequence);
   if (!poses || object != 0xba8) return;
   animation_record(sequence_offset(sequence));
 }
 void MmxZeroAnimationAdvance(unsigned object) {
+  MmxArmorAnimationAdvance(object);
   if (!poses || object != 0xba8 || !state.anim_valid) return;
   if (--state.anim_timer) return;
   unsigned next = state.anim_offset + 3;
@@ -421,6 +426,7 @@ const uint8_t *MmxZeroBlade(const MmxZeroState *s) {
   return poses + (size_t)(138 + pose + (s->air ? 7 : 0)) * MMX_ZERO_WIDTH * MMX_ZERO_HEIGHT;
 }
 void MmxZeroSetCollisionRom(uint8_t *rom, size_t size) {
+  MmxArmorCollisionRom(rom,size);
   if (!rom || size < 0x37fd8) return;
   /* X3 $86:B40E / B422, translated -8px vertically into X1's player origin.
    * This preserves Zero's full body dimensions and aligns both games' feet.
@@ -497,9 +503,13 @@ void MmxZeroSlideTick(uint8_t r[0x20000]) {
   r[0xbaa] = 0x14; r[0xbab] = 0;
 }
 unsigned MmxZeroUpgradeBits(unsigned pc, unsigned original) {
+  original=MmxArmorUpgradeBits(pc,original);
   if (!MmxZeroActive()) return original;
   switch (pc & 0x7fffff) {
     case 0x01971c: case 0x019793: case 0x0198fc: return original | 8;
+    /* Let the native ceiling probe pass helmet blocks, then let the player
+     * update destroy them. Keep the shared inventory (and X) unchanged. */
+    case 0x019ea5: case 0x0499a4: return original | 1;
     default: return original;
   }
 }
@@ -513,6 +523,21 @@ unsigned MmxZeroPlayerDamage(const uint8_t ram[0x20000], unsigned incoming,
   if (!MmxZeroActive() || !extension || !extension->player_damage)
     return native;
   return extension->player_damage(ram, incoming, native);
+}
+unsigned MmxZeroHeadProbe(const uint8_t r[0x20000], unsigned object, unsigned original) {
+  /* $81:9EAC probes one pixel above X's standing terrain top (-18).
+   * Zero's standing top is -26, so the original -19 query misses a block
+   * that his real ceiling collision has already stopped against. Keep the
+   * native horizontal probes and destruction path, and keep X/dash boxes. */
+  return MmxZeroActive() && r && object == 0xba8 && (original == 0xed || original == 0xffed) &&
+      word(r + object + 0x20) == 0xa552
+      ? original - 8 : original;
+}
+unsigned MmxZeroHeadBreakY(const uint8_t r[0x20000], unsigned object, unsigned original) {
+  /* $81:9EF9 stores the independently calculated removal coordinate. Move
+   * that coordinate by the same amount as the collision query, preserving
+   * the guest ADC flags just as the original STA does. */
+  return (original + MmxZeroHeadProbe(r,object,0xed) - 0xed) & 65535;
 }
 
 static bool own_projectile(const uint8_t *r, unsigned d) {
@@ -766,6 +791,7 @@ void MmxZeroMovementTick(uint8_t r[0x20000]) {
   }
 }
 void MmxZeroPlayerMotion(uint8_t r[0x20000], unsigned object) {
+  MmxArmorPlayerMotion(r,object);
   if (!modern_movement() || !r || object != 0xba8 || !state.modern.dash_ticks) return;
   putword(r + 0xc04, 0x0375);
   putword(r + 0xbc2, state.modern.dash_facing ? 0x0375 : -0x0375);
@@ -1012,7 +1038,7 @@ void MmxZeroPlayerEnd(uint8_t r[0x20000]) {
   }
 }
 unsigned MmxZeroWeaponTick(uint8_t r[0x20000], unsigned d, unsigned active) {
-  unsigned value = active;
+  unsigned value = MmxArmorProjectileTick(r,d,active);
   if (own_projectile(r, d)) {
     if (!poses || d != state.projectile || !state.slash) {
       memset(r + d, 0, 64); if (r[0xbdd]) --r[0xbdd];
@@ -1025,12 +1051,13 @@ unsigned MmxZeroWeaponTick(uint8_t r[0x20000], unsigned d, unsigned active) {
 }
 unsigned MmxZeroResponse(uint8_t *r, unsigned enemy, unsigned projectile,
                          unsigned original) {
+  original=MmxArmorResponse(r,enemy,projectile,original);
   const MmxZeroExtension *ext = live_extension();
   return ext && ext->response ?
       ext->response(r, enemy, projectile, original) : original;
 }
 unsigned MmxZeroDamage(uint8_t r[0x20000], unsigned enemy, unsigned projectile, unsigned original) {
-  unsigned value = original;
+  unsigned value = MmxArmorDamage(r,enemy,projectile,original);
   if (poses && own_projectile(r, projectile) && projectile == state.projectile &&
       enemy >= 0xe68 && enemy < 0x1228 && (enemy & 63) == 0x28 && original && !(original & 128)) {
     unsigned bit = 1u << ((enemy - 0xe68) / 64);
@@ -1045,7 +1072,7 @@ unsigned MmxZeroDamage(uint8_t r[0x20000], unsigned enemy, unsigned projectile, 
       ext->damage(r, enemy, projectile, value) : value;
 }
 unsigned MmxZeroHitbox(const uint8_t r[0x20000], unsigned enemy, unsigned projectile, unsigned original) {
-  unsigned value = original;
+  unsigned value = MmxArmorHitbox(r,enemy,projectile,original);
   if (poses && own_projectile(r, projectile) && projectile == state.projectile &&
       enemy >= 0xe68 && enemy < 0x1228 && (enemy & 63) == 0x28 &&
       (state.hit_slots & (1u << ((enemy - 0xe68) / 64)))) value = 0;

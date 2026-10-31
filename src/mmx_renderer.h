@@ -8,6 +8,15 @@ int MmxRendererGetPeerView(void);
 #include "mmx_display.h"
 #include "mmx_coop.h"
 
+#ifndef MMX_NATIVE_RASTER
+#define MMX_NATIVE_RASTER 0
+#endif
+
+/* A native producer claims only fully captured lines it can compose itself.
+ * Required PPU state/status work and unsupported output stay load-bearing. */
+bool MmxRendererClaimNativeLine(const Ppu *ppu, unsigned line);
+unsigned MmxRendererNativeLines(void);
+
 enum { MMX_RENDER_HEIGHT = 224, MMX_RENDER_MAX_WIDTH = 1024 };
 typedef enum MmxRenderAspect {
   MMX_ASPECT_ADAPTIVE, MMX_ASPECT_16_9, MMX_ASPECT_21_9, MMX_ASPECT_32_9
@@ -16,6 +25,12 @@ typedef struct MmxRenderView { int width, extra; double aspect; } MmxRenderView;
 typedef struct MmxRenderStats {
   unsigned custom_lines, fallback_lines, margin_sprite_pixels, pieces;
 } MmxRenderStats;
+typedef struct MmxRasterStats {
+  uint64_t vram_copied_bytes;
+  size_t vram_allocated_bytes, frame_metadata_bytes;
+  unsigned vram_images;
+  uint64_t vram_compared_bytes;
+} MmxRasterStats;
 
 /* A presentation-only player plane. Origins are signed coordinates on the
  * player's 128x128 canvas; the renderer owns projection and composition. */
@@ -102,6 +117,10 @@ extern bool g_mmx_render_asset_repairs;
 extern MmxRenderAspect g_mmx_custom_aspect;
 extern MmxRenderView g_mmx_custom_view;
 void MmxRendererSetCompactCoopHud(bool compact);
+/* Learner Mode: P2 cannot lose health, so the mod hides its meter unless the
+ * player shows it. The weapon column keeps its place. */
+void MmxRendererSetHideLearnerHealth(bool hide);
+bool MmxRendererHidesLearnerHealth(void);
 /* The mod selects the output aspect; Display Aspect selects pixel proportions.
  * Clamp the view extent at those proportions before rounding to an even width. */
 MmxRenderView MmxRendererViewport(MmxRenderAspect aspect, int width, int height,
@@ -109,6 +128,8 @@ MmxRenderView MmxRendererViewport(MmxRenderAspect aspect, int width, int height,
 MmxDisplayViewport MmxRendererDestination(MmxRenderView view, int width, int height);
 void MmxRendererReset(void);
 void MmxRendererSetRom(const uint8_t *rom, size_t size);
+/* Use the compositor at native width too when Storm's upper sky needs repair. */
+bool MmxRendererNeedsStormSkyRepair(const uint8_t ram[0x20000]);
 /* Capture drawing data before native clipping; never modify guest state. */
 void MmxRendererRecordPiece(const uint8_t ram[0x20000], uint16_t scratch);
 void MmxRendererObserveObject(const uint8_t ram[0x20000], uint16_t object);
@@ -127,9 +148,16 @@ void MmxRendererBeginFrame(const uint8_t ram[0x20000]);
 void MmxRendererCoopFrame(const MmxCoopState *state);
 void MmxRendererHoldFrame(bool held);
 void MmxRendererCaptureLine(const Ppu *ppu, unsigned line);
+/* Scoped to MMX's raster loop: byte comparisons remain the generic fallback.
+ * Call Changed after arbitrary guest/host execution; end before leaving the
+ * loop. Never use this around unobserved direct VRAM writers. */
+void MmxRendererBeginHardwareRaster(const Ppu *ppu);
+void MmxRendererHardwareVramChanged(void);
+void MmxRendererEndHardwareRaster(void);
 bool MmxRendererEndFrame(const uint32_t stock[256 * 224]);
 bool MmxRendererDraw(uint32_t *output, MmxRenderView view, bool anchor_hud);
 MmxRenderStats MmxRendererGetStats(void);
+MmxRasterStats MmxRendererGetRasterStats(void);
 bool MmxRendererStageTile(const uint8_t ram[0x20000], unsigned layer,
                           int x, int y, uint16_t *word);
 bool MmxRendererSaveCapture(const char *path);

@@ -31,6 +31,14 @@ bool MmxWidePolicy_IsCollectible(uint8_t object_id) {
   return (object_id >= 1 && object_id <= 5) || object_id == 0x0b;
 }
 
+bool MmxWidePolicy_GunVoltUnbound(const uint8_t ram[0x20000], uint16_t object,
+                                 unsigned animation) {
+  return ram && ram[0x1f7a] == 0 && object >= 0xe68 && object < 0x1228 &&
+      (object & 63) == 0x28 && ram[object] && ram[object + 1] >= 2 &&
+      ram[object + 10] == 0x29 && ram[object + 22] == 0x32 && animation == 0x32 &&
+      !(ram[object + 17] & 0x3f);
+}
+
 bool MmxWidePolicy_RescanSpawnRecord(uint8_t stage, uint8_t kind, uint8_t object_id) {
   /* A vertical climb can bring an authored lift into view after its column
    * passed both horizontal cursors. Rescan Kuwanger's rideable lift ($16),
@@ -257,6 +265,25 @@ bool MmxWidePolicy_IsBossEncounter(uint8_t object_id) {
   }
 }
 
+bool MmxWidePolicy_IsScriptedEncounter(uint8_t object_id) {
+  if (MmxWidePolicy_IsBossEncounter(object_id)) return true;
+  switch (object_id) {
+    /* Sigma 1's armored Vile: $83:E83F..E845 locks $1E5E=$1E60=$0A80.
+     * Natively the stage trigger at x=$0A80 ($88:EBC1) first releases the
+     * door lock to $0F00; spawning Vile earlier lets that trigger reopen his
+     * arena, and his unarmored form ($88:DBF5) then waits forever. */
+    case 0x67:
+    case 0x69: /* Unarmored Vile, spawned by $88:D80F; same encounter */
+    /* Sigma 1's cage actor ($85:9E43, x=$0980) locks the player as it
+     * spawns ($88:D38C) and waits for x >= $0900 past the door. A wider
+     * co-op view reaches it while the door still pins the camera at $0800. */
+    case 0x66:
+      return true;
+    default:
+      return false;
+  }
+}
+
 uint16_t MmxWidePolicy_BarrierEnemyState(const uint8_t ram[0x20000], uint16_t controller,
                                        uint16_t object, uint16_t state, bool custom) {
   /* $87:F7C5 waits for an empty enemy pool before opening a fortress barrier.
@@ -291,7 +318,7 @@ bool MmxWidePolicy_SpawnRecordAllowed(uint8_t stage, uint8_t kind,
    * Dr. Light's capsule ($4D) does too: Storm Eagle's helmet capsule
    * (4040,720) lies below the corridor the early cursor crosses its column
    * from, so DCDB's height test rejected it and nothing rescanned it. */
-  if (kind == 3 && (MmxWidePolicy_IsBossEncounter(object_id) || object_id == 0x37 ||
+  if (kind == 3 && (MmxWidePolicy_IsScriptedEncounter(object_id) || object_id == 0x37 ||
                     object_id == 0x4d))
     return native_pass;
 
