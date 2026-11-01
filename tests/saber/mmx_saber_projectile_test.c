@@ -94,14 +94,14 @@ static bool test_spawn_publishes_slot(void) {
   if (!check(MmxSaberProjectileOwns(ram, slot),
              "active entry with matching $5700 tag owns its native slot"))
     return false;
-  if (!check(ram[slot] == 1 && ram[slot + 0x0a] == 7 &&
+  if (!check(ram[slot] == 1 && ram[slot + 0x0a] == 3 &&
                  ram[slot + 0x11] == 0x40 &&
                  read_word(ram + slot + 5) == 100 &&
                  read_word(ram + slot + 8) == 50 &&
                  read_word(ram + slot + 0x20) ==
                      MMX_SABER_PROJECTILE_COLLISION_POINTER &&
                  ram[slot + 0x32] == 4,
-             "spawn publishes native active, class, facing, position, collision and stage"))
+             "spawn publishes native active, Saber class 3, facing, position, collision and stage"))
     return false;
   return check((tag & MMX_SABER_PROJECTILE_RUNTIME_TAG_FAMILY_MASK) ==
                    MMX_SABER_PROJECTILE_RUNTIME_TAG_FAMILY &&

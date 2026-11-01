@@ -145,6 +145,11 @@ void MmxSaberAttackPlayerEnd(uint8_t *ram);
 void MmxSaberAttackCollisionRom(uint8_t *rom, size_t size);
 unsigned MmxSaberAttackWeaponTick(uint8_t *ram, unsigned projectile,
                                   unsigned value);
+unsigned MmxSaberAttackContactClass(const uint8_t *ram, unsigned enemy,
+                                    unsigned projectile, unsigned original,
+                                    bool reaction);
+bool MmxSaberAttackWeakContact(const uint8_t *ram, unsigned enemy,
+                               unsigned projectile);
 unsigned MmxSaberAttackDamage(uint8_t *ram, unsigned enemy,
                               unsigned projectile, unsigned value);
 unsigned MmxSaberAttackHitbox(const uint8_t *ram, unsigned enemy,

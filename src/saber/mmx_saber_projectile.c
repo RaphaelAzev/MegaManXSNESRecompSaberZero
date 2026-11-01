@@ -188,7 +188,7 @@ bool MmxSaberProjectileSpawn(uint8_t *ram,
   memset(ram + slot, 0, MMX_SABER_PROJECTILE_SLOT_BYTES);
   ram[slot] = 1;
   ram[slot + 1] = 2;
-  ram[slot + 0x0a] = projectile->native_weapon_class;
+  ram[slot + 0x0a] = 3;
   ram[slot + 0x11] = projectile->facing & 0x40;
   write_position(ram, projectile);
   ram[slot + 0x32] = ram[MMX_SABER_PROJECTILE_STAGE];
@@ -268,8 +268,9 @@ unsigned MmxSaberProjectileLive(MmxSaberProjectileLiveInfo *out,
   return count;
 }
 
-unsigned MmxSaberProjectileDamage(uint8_t *ram, unsigned enemy,
-                                  unsigned slot, unsigned value) {
+static unsigned projectile_damage(uint8_t *ram, unsigned enemy,
+                                  unsigned slot, unsigned value,
+                                  bool weak_contact) {
   MmxSaberProjectile *projectile = owned_entry(ram, slot);
   const unsigned index = index_for_slot(slot);
   unsigned bit;
@@ -290,8 +291,20 @@ unsigned MmxSaberProjectileDamage(uint8_t *ram, unsigned enemy,
   projectile->hit_any = true;
   damage = MmxWidePolicy_IsBossEncounter(ram[enemy + 0x0a]) ?
       projectile->damage_boss : projectile->damage_normal;
+  /* Theme weakness: native weakness damage, never below the tuned value. */
+  if (weak_contact && value > damage) damage = value;
   if (!projectile->pass_through) MmxSaberProjectileRetire(ram, index);
   return damage;
+}
+
+unsigned MmxSaberProjectileDamage(uint8_t *ram, unsigned enemy,
+                                  unsigned slot, unsigned value) {
+  return projectile_damage(ram, enemy, slot, value, false);
+}
+
+unsigned MmxSaberProjectileWeakDamage(uint8_t *ram, unsigned enemy,
+                                      unsigned slot, unsigned value) {
+  return projectile_damage(ram, enemy, slot, value, true);
 }
 
 unsigned MmxSaberProjectileHitbox(const uint8_t *ram, unsigned enemy,

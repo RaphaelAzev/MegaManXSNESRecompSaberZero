@@ -4,7 +4,9 @@
 #include <string.h>
 
 #include "mmx_saber_attack.h"
+#include "mmx_saber_projectile.h"
 #include "mmx_saber_tuning.h"
+#include "mmx_saber_weakness.h"
 
 enum {
   MMX_SABER_PRIORITY_STAGE = 0x1f7a,
@@ -306,6 +308,22 @@ static MmxSaberPriorityClass slash_class(void) {
   }
 }
 
+static bool weak_melee_contact(const uint8_t *ram, unsigned enemy_slot,
+                               unsigned projectile_slot) {
+  const MmxSaberAttackSnapshot snapshot = MmxSaberAttackSnapshotGet();
+  const MmxSaberWeaknessMove move =
+      MmxSaberWeaknessMoveForAttackKind(snapshot.kind);
+
+  if (!ram || enemy_index(enemy_slot) >= MMX_SABER_PRIORITY_ENEMY_SLOT_COUNT ||
+      !projectile_live(ram, projectile_slot) ||
+      !tag_family(projectile_tag(ram, projectile_slot),
+                  MMX_SABER_PRIORITY_SABER_TAG) ||
+      snapshot.phase != SABER_PHASE_ACTIVE ||
+      move == MMX_SABER_WEAKNESS_NONE)
+    return false;
+  return MmxSaberWeaknessContactClass(move, ram[enemy_slot + 0x0a], 3) != 3;
+}
+
 static bool buster_provenance_class(const uint8_t *ram, unsigned slot,
                                     MmxSaberPriorityClass *priority_class) {
   const unsigned index = projectile_index(slot);
@@ -341,6 +359,8 @@ bool MmxSaberPriorityClassify(const uint8_t *ram, unsigned projectile_slot,
     priority_class = MMX_SABER_PRIORITY_CLASS_X3_FINISHER;
   else if (tag_family(tag, MMX_SABER_PRIORITY_SABER_TAG))
     priority_class = slash_class();
+  else if (tag_family(tag, MMX_SABER_PROJECTILE_RUNTIME_TAG_FAMILY))
+    return false;
   else if (!buster_provenance_class(ram, projectile_slot, &priority_class))
     return false;
 
@@ -359,6 +379,7 @@ unsigned MmxSaberPriorityResponse(uint8_t *ram, unsigned enemy_slot,
    * never inherit a token from an earlier response, including a reflection or
    * another nonzero response. */
   memset(&state.pending, 0, sizeof(state.pending));
+  if (weak_melee_contact(ram, enemy_slot, projectile_slot)) return original;
   if (!ram || (original != 0 &&
                !armadillo_protected_positive(ram, enemy_slot, original)) ||
       !MmxSaberPriorityClassify(ram, projectile_slot, &candidate))
@@ -452,7 +473,8 @@ static void record_buster_birth(const uint8_t *ram, unsigned index,
 
   if (!projectile_live(ram, slot) || tag == MMX_SABER_PRIORITY_FINISHER_TAG ||
       tag_family(tag, MMX_SABER_PRIORITY_SABER_TAG) ||
-      tag_family(tag, MMX_SABER_PRIORITY_WAVE_TAG)) return;
+      tag_family(tag, MMX_SABER_PRIORITY_WAVE_TAG) ||
+      tag_family(tag, MMX_SABER_PROJECTILE_RUNTIME_TAG_FAMILY)) return;
   if (kind == 1) priority_class = MMX_SABER_PRIORITY_CLASS_CHARGE_SMALL;
   else if (kind == 3)
     priority_class = marked_burst ?

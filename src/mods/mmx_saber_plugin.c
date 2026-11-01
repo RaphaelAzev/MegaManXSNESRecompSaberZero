@@ -18,8 +18,10 @@
 #include "saber/mmx_saber_wave_runtime.h"
 #include "mmx_coop.h"
 #include "mmx_renderer.h"
+#include "mmx_weapon_combat.h"
 #include "mmx_zero.h"
 #include "saber/mmx_saber_plugin.h"
+#include "saber/mmx_saber_attack.h"
 #include "sdl_compat.h"
 
 #include <stdio.h>
@@ -56,6 +58,7 @@ static void coop_seat_pad(const uint8_t *ram, MmxSaberFramePad *pad) {
 }
 
 static void saber_activation_failed(void) {
+  MmxWeaponsSetContactClassOverride(NULL);
   MmxSaberFrameSetPadSource(NULL);
   MmxRendererSetPlayerOverlayProvider(NULL);
   MmxRendererSetWorldSpriteProvider(NULL);
@@ -331,6 +334,7 @@ bool MmxSaberActivate(const char *package, const char *feature, bool coop) {
   MmxSaberFrameReset();
   MmxSaberFrameSetPadSource(coop ? coop_seat_pad : NULL);
   MmxZeroSetExtension(MmxSaberFrameExtension());
+  MmxWeaponsSetContactClassOverride(MmxSaberAttackContactClass);
   g_mmx_saber_enabled = true;
   MmxRendererSetPlayerOverlayProvider(saber_overlay_provider);
   MmxSaberRenderSetWave(g_saber_wave);
@@ -346,6 +350,7 @@ bool MmxSaberActivate(const char *package, const char *feature, bool coop) {
 
 static void reset(void) {
   g_mmx_saber_enabled = false;
+  MmxWeaponsSetContactClassOverride(NULL);
   MmxSaberRenderSetCrescentEnabled(true);
   MmxSaberFrameSetPadSource(NULL);
   MmxRendererSetPlayerOverlayProvider(NULL);

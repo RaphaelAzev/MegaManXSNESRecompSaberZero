@@ -8,6 +8,7 @@ set(_saber_sfx_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_sfx.c")
 set(_saber_input_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_input.c")
 set(_saber_combo_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_combo.c")
 set(_saber_attack_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_attack.c")
+set(_saber_weakness_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_weakness.c")
 set(_saber_armor_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_armor.c")
 set(_saber_priority_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_priority.c")
 set(_saber_frame_source "${CMAKE_CURRENT_SOURCE_DIR}/src/saber/mmx_saber_frame.c")
@@ -123,6 +124,7 @@ if(TARGET MegaManXSNESRecomp)
         "${_saber_sfx_source}" "${_saber_input_source}"
         "${_saber_combo_source}"
         "${_saber_attack_source}"
+        "${_saber_weakness_source}"
         "${_saber_armor_source}"
         "${_saber_priority_source}"
         "${_saber_frame_source}" "${_saber_hitbox_debug_source}"
@@ -141,6 +143,7 @@ if(MMX_STATE_TESTS AND TARGET mmx_state_tests)
         "${_saber_sfx_source}" "${_saber_input_source}"
         "${_saber_combo_source}"
         "${_saber_attack_source}"
+        "${_saber_weakness_source}"
         "${_saber_armor_source}"
         "${_saber_priority_source}"
         "${_saber_frame_source}" "${_saber_hitbox_debug_source}"
@@ -168,6 +171,8 @@ if(MMX_STATE_TESTS AND TARGET mmx_state_tests)
         "${_saber_sfx_source}"
         src/saber/mmx_saber_attack.c
         "${_saber_attack_source}"
+        src/saber/mmx_saber_weakness.c
+        "${_saber_weakness_source}"
         src/saber/mmx_saber_armor.c
         "${_saber_armor_source}"
         src/saber/mmx_saber_priority.c
@@ -192,6 +197,7 @@ if(MMX_STATE_TESTS AND TARGET mmx_state_tests)
         "${_saber_sfx_source}" "${_saber_input_source}"
         "${_saber_combo_source}"
         "${_saber_attack_source}"
+        "${_saber_weakness_source}"
         "${_saber_armor_source}"
         "${_saber_priority_source}"
         "${_saber_frame_source}" "${_saber_hitbox_debug_source}"
@@ -242,10 +248,18 @@ if(BUILD_TESTING)
 
     add_executable(mmx_saber_priority_test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/saber/mmx_saber_priority_test.c"
-        "${_saber_priority_source}" "${_saber_tuning_source}")
+        "${_saber_priority_source}" "${_saber_tuning_source}"
+        "${_saber_weakness_source}")
     target_include_directories(mmx_saber_priority_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src/saber")
     add_test(NAME mmx_saber_priority COMMAND mmx_saber_priority_test)
+
+    add_executable(mmx_saber_weakness_test
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/saber/mmx_saber_weakness_test.c"
+        "${_saber_weakness_source}")
+    target_include_directories(mmx_saber_weakness_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/saber")
+    add_test(NAME mmx_saber_weakness COMMAND mmx_saber_weakness_test)
 
     add_executable(mmx_saber_sfx_test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/saber/mmx_saber_sfx_test.c"
@@ -327,7 +341,7 @@ if(BUILD_TESTING)
         "${_saber_render_source}" "${_saber_black_zero_source}"
         "${_saber_assets_source}"
         "${_saber_wave_source}"
-        "${_saber_attack_source}" "${_saber_unlock_source}" "${_saber_wave_runtime_source}" "${_saber_sfx_source}"
+        "${_saber_attack_source}" "${_saber_weakness_source}" "${_saber_unlock_source}" "${_saber_wave_runtime_source}" "${_saber_sfx_source}"
         "${_saber_projectile_source}"
         "${_saber_priority_source}" "${_saber_tuning_source}"
         "${_saber_hitbox_debug_source}"

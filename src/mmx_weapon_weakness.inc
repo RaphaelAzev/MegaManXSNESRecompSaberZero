@@ -1,6 +1,10 @@
 /* Explicit X1 targets and source attacks. Damage references the live native
  * row; reaction classes are separate so a weakness need not change element.
  * X1 normal classes $07..0E have charged counterparts nine entries later. */
+static MmxWeaponsContactClassOverride contact_class_override;
+void MmxWeaponsSetContactClassOverride(MmxWeaponsContactClassOverride fn) {
+  contact_class_override = fn;
+}
 enum {
   X1_ICE=0x07, X1_SHIELD=0x08, X1_TORNADO=0x09, X1_FIRE=0x0a,
   X1_STING=0x0b, X1_SPARK=0x0c, X1_CUTTER=0x0d, X1_TORPEDO=0x0e,
@@ -57,6 +61,10 @@ static const BossWeakness *boss_weakness(const uint8_t *r,unsigned enemy,unsigne
   return NULL;
 }
 unsigned MmxWeaponsContactClass(const uint8_t *r,unsigned enemy,unsigned d,unsigned original,bool reaction) {
+  if (contact_class_override) {
+    unsigned value=contact_class_override(r,enemy,d,original,reaction);
+    if (value!=original) return value;
+  }
   unsigned charged;
   const BossWeakness *w=boss_weakness(r,enemy,d,&charged);
   if(!w) return original;

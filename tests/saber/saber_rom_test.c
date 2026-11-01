@@ -8,6 +8,7 @@
 #include "mmx_renderer.h"
 #include "mmx_zero.h"
 #include "mmx_weapons.h"
+#include "mmx_weapon_combat.h"
 #include "saber/mmx_saber_assets.h"
 #include "saber/mmx_saber_attack.h"
 #include "saber/mmx_saber_combo.h"
@@ -8805,10 +8806,10 @@ static void saber_projectile_dispatch_checks(const char *fixture) {
     frame(0);
     projectile = MmxSaberProjectileGet(index);
     check(MmxSaberProjectileOwns(g_ram, slot) && projectile->active &&
-              g_ram[slot + 0x0a] == 0x09 &&
+              g_ram[slot + 0x0a] == 3 &&
               (int16_t)read_ram_word(g_ram, slot + 5) == projectile->x / 256 &&
               (int16_t)read_ram_word(g_ram, slot + 8) == projectile->y / 256,
-          "saber-projectile-contact host Q8.8 position survives native weapon dispatch with Storm Tornado class $09");
+          "saber-projectile-contact host Q8.8 position survives native weapon dispatch with Saber class 3");
   }
   puts("ok: saber-projectile-contact/native-dispatch");
 }
@@ -12136,10 +12137,16 @@ static void saber_thrust_boss_unlock_load(const char *path) {
         "saber-thrust boss fixture has four defeated Mavericks");
 }
 
+static unsigned saber_thrust_live_slot_preserving_history(void);
+
 static unsigned saber_thrust_boss_live_slot(const char *path) {
+  saber_thrust_boss_unlock_load(path);
+  return saber_thrust_live_slot_preserving_history();
+}
+
+static unsigned saber_thrust_live_slot_preserving_history(void) {
   MmxSaberAttackSnapshot snapshot;
 
-  saber_thrust_boss_unlock_load(path);
   MmxSaberAttackResetRam(g_ram);
   MmxSaberAttackStepWithWallAndDash(
       true, false, false, false, false, true, true, false, true, g_ram,
@@ -12830,6 +12837,147 @@ static void saber_specials_damage_checks(const char *fixture_dir) {
   puts("ok: saber-specials-damage");
 }
 
+static unsigned saber_weakness_boss_slot(unsigned actor) {
+  for (unsigned d = 0xe68; d < 0x1228; d += 64)
+    if (g_ram[d] && (g_ram[d + 0x27] & 127) &&
+        g_ram[d + 0x0a] == actor)
+      return d;
+  return 0;
+}
+
+static unsigned saber_weakness_native_contact(
+    unsigned enemy, unsigned projectile, unsigned expected_class,
+    unsigned expected_damage, bool expected_weak, bool expected_bounce,
+    const char *label) {
+  unsigned enemy_bit;
+  unsigned before;
+
+  check(enemy >= 0xe68 && enemy < 0x1228 && projectile && g_ram[enemy] &&
+            (g_ram[enemy + 0x27] & 127) && g_ram[projectile] &&
+            g_ram[projectile + 0x0a] == 3 &&
+            MmxSaberAttackWeakContact(g_ram, enemy, projectile) ==
+                expected_weak,
+        label);
+  enemy_bit = 1u << ((enemy - 0xe68) / 64);
+  g_ram[enemy + 0x27] = 0x20;
+  g_ram[enemy + 0x30] = 0;
+  g_ram[enemy + 0x35] = 0;
+  before = g_ram[enemy + 0x27] & 127;
+  armadillo_overlap_projectile(enemy, projectile);
+  g_ram[0x1f1d] = 0;
+  native_buster_contact(enemy, projectile);
+  const unsigned after = g_ram[enemy + 0x27] & 127;
+  const unsigned drop = before - after;
+  const unsigned second = MmxSaberAttackDamage(g_ram, enemy, projectile, 1);
+
+  printf("reference: saber-weakness %s enemy=0x%X actor=0x%02X "
+         "projectile=0x%X class=0x%02X HP=%u->%u drop=%u second=%u\n",
+         label, enemy, g_ram[enemy + 0x0a], projectile, g_ram[0x1f1d],
+         before, after, drop, second);
+  check(g_ram[0x1f1d] == expected_class && drop == expected_damage &&
+            after == before - expected_damage && second == 0 &&
+            (MmxSaberAttackHitSlots() & enemy_bit) &&
+            (!expected_bounce ||
+             read_ram_word(g_ram, 0x0bc4) == SABER_THRUST_BOUNCE_VY),
+        label);
+  return drop;
+}
+
+static void saber_weakness_response_check(const char *penguin) {
+  MmxSaberPriorityHistory history;
+  MmxSaberPriorityClassification pending;
+  unsigned enemy;
+  unsigned lower_slot;
+  unsigned lower_damage;
+  unsigned thrust_slot;
+  unsigned response;
+
+  saber_thrust_boss_unlock_load(penguin);
+  enemy = saber_weakness_boss_slot(0x02);
+  check(enemy != 0, "saber-weakness response finds exact Chill Penguin actor $02");
+  g_ram[enemy + 0x27] = 0x20;
+  lower_slot = priority_ground_attack_preserving_history(0);
+  lower_damage = MmxSaberAttackDamage(g_ram, enemy, lower_slot, 1);
+  apply_test_damage(enemy, lower_damage);
+  check(lower_slot != 0 && lower_damage != 0 &&
+            MmxSaberPriorityHistoryLookup(g_ram, enemy, &history) &&
+            history.priority == MmxSaberPriorityTuned(
+                MMX_SABER_PRIORITY_CLASS_SLASH1),
+        "saber-weakness response records lower-priority history first");
+
+  thrust_slot = saber_thrust_live_slot_preserving_history();
+  armadillo_overlap_projectile(enemy, thrust_slot);
+  g_ram[enemy + 0x28] = 0x05;
+  g_ram[enemy + 0x35] = 0x46;
+  response = MmxZeroResponse(g_ram, enemy, thrust_slot, 0);
+  const bool pending_found = MmxSaberPriorityConsumePending(
+      g_ram, enemy, thrust_slot, &pending);
+  check(thrust_slot != 0 && MmxSaberAttackWeakContact(
+            g_ram, enemy, thrust_slot) && response == 0 && !pending_found,
+        "saber-weakness thrust keeps native zero response and no bypass token");
+  printf("reference: saber-weakness response enemy=0x%X projectile=0x%X "
+         "native=0x00 extension=0x%02X pending=%u\n",
+         enemy, thrust_slot, response, pending_found);
+}
+
+static void saber_weakness_checks(const char *fixture_dir) {
+  char penguin[4096];
+  char mammoth[4096];
+  int written;
+  unsigned enemy;
+  unsigned projectile;
+  unsigned native_damage;
+  unsigned tuned_damage;
+
+  check(fixture_dir && fixture_dir[0],
+        "saber-weakness receives a fixture directory");
+  written = snprintf(penguin, sizeof(penguin), "%s/%s", fixture_dir,
+                     "penguin-fight.sav");
+  check(written >= 0 && written < (int)sizeof(penguin),
+        "saber-weakness Penguin path fits");
+  written = snprintf(mammoth, sizeof(mammoth), "%s/%s", fixture_dir,
+                     "mammoth-fight.sav");
+  check(written >= 0 && written < (int)sizeof(mammoth),
+        "saber-weakness Mammoth path fits");
+  check(readable_file(penguin) && readable_file(mammoth),
+        "saber-weakness Penguin and Mammoth fixtures exist");
+
+  projectile = saber_thrust_boss_live_slot(penguin);
+  enemy = saber_weakness_boss_slot(0x02);
+  check(enemy != 0 && g_ram[enemy + 0x0a] == 0x02,
+        "saber-weakness finds exact Chill Penguin actor $02");
+  native_damage = saber_weakness_native_contact(
+      enemy, projectile, 0x0a, 3, true, true, /* measured native Fire weakness */
+      "saber-weakness thrust vs Chill Penguin publishes $0A and native damage");
+  check(native_damage == 3,
+        "saber-weakness Chill Penguin native weakness damage is 3");
+
+  saber_weakness_response_check(penguin);
+
+  projectile = saber_specials_boss_uppercut_live_slot(mammoth);
+  enemy = saber_weakness_boss_slot(0x0c);
+  check(enemy != 0 && g_ram[enemy + 0x0a] == 0x0c,
+        "saber-weakness finds exact Flame Mammoth actor $0C");
+  native_damage = saber_weakness_native_contact(
+      enemy, projectile, 0x09, 2, true, false,
+      "saber-weakness uppercut vs Flame Mammoth publishes $09 and keeps at least tuned damage");
+  /* Native Tornado deals 1 per hit to Mammoth; the weak contact keeps the
+   * tuned boss damage 2 as its floor (Foreman decision W-2). */
+  check(native_damage == 2,
+        "saber-weakness Flame Mammoth weak contact deals max(native 1, tuned 2)");
+
+  projectile = saber_specials_boss_uppercut_live_slot(penguin);
+  enemy = saber_weakness_boss_slot(0x02);
+  tuned_damage = MmxSaberTuningBossDamage(
+      MMX_SABER_TUNING_DAMAGE_UPPERCUT);
+  check(tuned_damage == 2,
+        "saber-weakness non-theme uppercut tuning remains boss damage 2");
+  saber_weakness_native_contact(
+      enemy, projectile, 3, tuned_damage, false, false,
+      "saber-weakness uppercut vs Chill Penguin keeps class 3 and tuned damage");
+  puts("ok: saber-weakness");
+}
+
 int main(int argc, char **argv) {
   check(argc == 2, "X1 ROM supplied");
   const char *fixture = getenv("MMX_ZERO_TEST_FIXTURE");
@@ -12846,6 +12994,7 @@ int main(int argc, char **argv) {
       !strcmp(only, "saber-specials-unlock") ||
       !strcmp(only, "saber-specials-damage") ||
       !strcmp(only, "saber-thrust") ||
+      !strcmp(only, "saber-weakness") ||
       !strcmp(only, "saber-wall") ||
       !strcmp(only, "saber-cancel") || !strcmp(only, "saber-buster-rules") ||
       !strcmp(only, "saber-damage") || !strcmp(only, "saber-priority") ||
@@ -12956,6 +13105,7 @@ int main(int argc, char **argv) {
   const bool saber_uppercut = only && !strcmp(only, "saber-uppercut");
   const bool saber_rolling = only && !strcmp(only, "saber-rolling");
   const bool saber_thrust = only && !strcmp(only, "saber-thrust");
+  const bool saber_weakness = only && !strcmp(only, "saber-weakness");
   const bool saber_lifecycle_load = only && !strcmp(only, "saber-lifecycle-load");
   const bool saber_contexts = only && !strcmp(only, "saber-contexts");
   const bool saber_buster_rules = only && !strcmp(only, "saber-buster-rules");
@@ -12986,6 +13136,7 @@ int main(int argc, char **argv) {
       saber_uppercut ||
       saber_rolling ||
       saber_thrust ||
+      saber_weakness ||
       saber_ground_hit || saber_cancel || saber_lifecycle_load ||
       saber_contexts ||
       saber_render_snapshot || saber_buster_rules || saber_burst_height ||
@@ -13084,6 +13235,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-thrust runs with the Saber package enabled");
     saber_thrust_checks(fixture_dir);
+  } else if (saber_weakness) {
+    check(MmxSaberEnabled(),
+          "saber-weakness runs with the Saber package enabled");
+    saber_weakness_checks(fixture_dir);
   } else if (saber_lifecycle_load) {
     check(MmxSaberEnabled(),
           "saber-lifecycle-load runs with the Saber package enabled");
@@ -13263,6 +13418,7 @@ int main(int argc, char **argv) {
        strcmp(only, "saber-uppercut") &&
       strcmp(only, "saber-rolling") &&
       strcmp(only, "saber-thrust") &&
+      strcmp(only, "saber-weakness") &&
       strcmp(only, "saber-lifecycle-load") &&
       strcmp(only, "saber-contexts") &&
         strcmp(only, "saber-buster-rules") &&

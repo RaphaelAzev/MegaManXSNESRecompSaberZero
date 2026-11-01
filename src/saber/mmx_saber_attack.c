@@ -13,6 +13,7 @@
 #include "mmx_saber_projectile.h"
 #include "mmx_saber_tuning.h"
 #include "mmx_saber_unlock.h"
+#include "mmx_saber_weakness.h"
 #include "mmx_saber_wave_runtime.h"
 
 /* The native records are center offset, center offset, and half-extents.
@@ -616,6 +617,57 @@ static bool current_projectile_tagged(const uint8_t *ram, unsigned d) {
 
 static bool saber_projectile_owned(const uint8_t *ram, unsigned d) {
   return current_projectile_tagged(ram, d) && state.phase == SABER_PHASE_ACTIVE;
+}
+
+static MmxSaberWeaknessMove projectile_weakness_move(
+    const uint8_t *ram, unsigned projectile) {
+  const MmxSaberProjectile *entry;
+  unsigned index;
+
+  if (!MmxSaberProjectileOwns(ram, projectile) ||
+      projectile < MMX_SABER_PROJECTILE_SLOT_FIRST ||
+      projectile >= MMX_SABER_PROJECTILE_SLOT_END ||
+      (projectile - MMX_SABER_PROJECTILE_SLOT_FIRST) %
+          MMX_SABER_PROJECTILE_SLOT_BYTES)
+    return MMX_SABER_WEAKNESS_NONE;
+  index = (projectile - MMX_SABER_PROJECTILE_SLOT_FIRST) /
+      MMX_SABER_PROJECTILE_SLOT_BYTES;
+  entry = MmxSaberProjectileGet(index);
+  if (!entry || !entry->active || entry->slot != projectile)
+    return MMX_SABER_WEAKNESS_NONE;
+  switch (entry->kind) {
+    case SABER_PROJECTILE_TORNADO:
+      return MMX_SABER_WEAKNESS_TORNADO;
+    case SABER_PROJECTILE_ICE_CLONE:
+      return MMX_SABER_WEAKNESS_ICE_CLONE;
+    case SABER_PROJECTILE_THUNDER_ORB:
+      return MMX_SABER_WEAKNESS_THUNDER_ORB;
+    case SABER_PROJECTILE_CUTTER:
+      return MMX_SABER_WEAKNESS_CUTTER;
+    default:
+      return MMX_SABER_WEAKNESS_NONE;
+  }
+}
+
+static MmxSaberWeaknessMove contact_weakness_move(
+    const uint8_t *ram, unsigned projectile) {
+  if (saber_projectile_owned(ram, projectile))
+    return MmxSaberWeaknessMoveForAttackKind(state.kind);
+  return projectile_weakness_move(ram, projectile);
+}
+
+unsigned MmxSaberAttackContactClass(const uint8_t *ram, unsigned enemy,
+                                    unsigned projectile, unsigned original,
+                                    bool reaction) {
+  const MmxSaberWeaknessMove move = contact_weakness_move(ram, projectile);
+  (void)reaction;
+  if (!ram || !enemy_slot_valid(enemy)) return original;
+  return MmxSaberWeaknessContactClass(move, ram[enemy + 0x0a], original);
+}
+
+bool MmxSaberAttackWeakContact(const uint8_t *ram, unsigned enemy,
+                               unsigned projectile) {
+  return MmxSaberAttackContactClass(ram, enemy, projectile, 3, false) != 3;
 }
 
 static void bounce_thrust_on_hit(uint8_t *ram, unsigned projectile,
@@ -1500,8 +1552,11 @@ static unsigned saber_attack_damage_core(uint8_t *ram, unsigned enemy,
   const MmxSaberAttack *attack;
   if (MmxSaberWaveRuntimeOwns(ram, projectile))
     return MmxSaberWaveRuntimeDamage(ram, enemy, projectile, value);
-  if (MmxSaberProjectileOwns(ram, projectile))
+  if (MmxSaberProjectileOwns(ram, projectile)) {
+    if (MmxSaberAttackWeakContact(ram, enemy, projectile))
+      return MmxSaberProjectileWeakDamage(ram, enemy, projectile, value);
     return MmxSaberProjectileDamage(ram, enemy, projectile, value);
+  }
   /* The upstream X3 finisher owns the $5A53 tag and its hit mask.  The
    * extension is installed only for Saber, so this positive-path filter can
    * replace upstream's 16 without changing plain Zero. */
@@ -1513,11 +1568,16 @@ static unsigned saber_attack_damage_core(uint8_t *ram, unsigned enemy,
   if (!saber_projectile_owned(ram, projectile) || !enemy_slot_valid(enemy) ||
       !value || (value & 128))
     return value;
+  const bool weak = MmxSaberAttackWeakContact(ram, enemy, projectile);
   bit = 1u << ((enemy - 0xe68) / 64);
   if (state.hit_slots & bit) return 0;
   state.hit_slots |= (uint16_t)bit;
   attack = state_attack();
   damage = attack_tuned_damage(ram, enemy, attack_damage_kind(attack));
+  /* A theme weakness keeps the native weakness damage, but never deals less
+   * than the tuned Saber damage (native multi-hit weapons use small per-hit
+   * values). */
+  if (weak && value > damage) damage = value;
   bounce_thrust_on_hit(ram, projectile, damage);
   return damage;
 }
@@ -1526,6 +1586,9 @@ unsigned MmxSaberAttackDamage(uint8_t *ram, unsigned enemy,
                               unsigned projectile, unsigned value) {
   MmxSaberPriorityClassification classification;
   unsigned damage;
+
+  if (MmxSaberAttackWeakContact(ram, enemy, projectile))
+    return saber_attack_damage_core(ram, enemy, projectile, value);
 
   /* A response sentinel is the only route that supplies a zero table value
    * to this callback. Consume its exact identity once and replace the zero

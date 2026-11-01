@@ -78,6 +78,8 @@ unsigned MmxSaberProjectileLive(MmxSaberProjectileLiveInfo *out,
                                 unsigned max);
 unsigned MmxSaberProjectileDamage(uint8_t *ram, unsigned enemy,
                                   unsigned slot, unsigned value);
+unsigned MmxSaberProjectileWeakDamage(uint8_t *ram, unsigned enemy,
+                                      unsigned slot, unsigned value);
 unsigned MmxSaberProjectileHitbox(const uint8_t *ram, unsigned enemy,
                                   unsigned slot, unsigned value);
 void MmxSaberProjectileRetire(uint8_t *ram, unsigned index);
