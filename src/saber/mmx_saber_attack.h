@@ -118,6 +118,13 @@ void MmxSaberAttackStepWithWallAndDash(bool saber_pressed, bool grounded,
                                        bool playable, uint8_t *ram,
                                        uint8_t native_facing,
                                        uint8_t horizontal_direction);
+/* Frame-bridge form used when a weapon technique owns X.  A valid requested
+ * kind overrides idle selection; non-idle attacks still ignore the request. */
+void MmxSaberAttackStepWithWallAndDashRequested(
+    bool saber_pressed, MmxSaberPadKind requested_kind, bool grounded,
+    bool wall_clinging, bool dash_active, bool up_held, bool down_held,
+    bool y_held, bool jump_pressed, bool playable, uint8_t *ram,
+    uint8_t native_facing, uint8_t horizontal_direction);
 
 /* Snapshot the native movement publication immediately before the native
  * player routine.  PlayerEnd compares this snapshot with the settled native

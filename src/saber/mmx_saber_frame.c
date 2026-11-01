@@ -9,6 +9,7 @@
 #include "mmx_saber_input.h"
 #include "mmx_saber_priority.h"
 #include "mmx_saber_projectile.h"
+#include "mmx_saber_tuning.h"
 #include "mmx_saber_wave_runtime.h"
 #include "mmx_saber_state.h"
 
@@ -18,6 +19,8 @@ static bool release_pending;
 static bool release_pending_from_special;
 static bool previous_y;
 static bool previous_x;
+/* Host-only suppression for a claimed X hold; reset on X release or frame reset. */
+static bool weapon_technique_hold;
 static MmxSaberFramePadSource pad_source;
 static MmxZeroLegacyIntent frame_intent;
 static bool frame_computed;
@@ -41,6 +44,60 @@ static unsigned weapon_cost(unsigned weapon_id, unsigned cost, bool charged) {
   if (weapon_id == 0 || !cost || !MmxSaberArmorCurrent().head) return cost;
   half = cost >> 1;
   return half ? half : 1;
+}
+
+enum {
+  SABER_WEAPON_SPARK = 0x0c,
+  SABER_WEAPON_CUTTER = 0x0e,
+  SABER_WEAPON_ENERGY_BASE = 0x1f85,
+  SABER_WEAPON_ENERGY_MASK = 0x3fff,
+  SABER_WEAPON_OWNED_BIT = 0x40,
+  SABER_WEAPON_STATUS_BITS = 0xc000,
+};
+
+static bool weapon_technique_selected(unsigned weapon_id) {
+  return weapon_id == SABER_WEAPON_SPARK ||
+      weapon_id == SABER_WEAPON_CUTTER;
+}
+
+static unsigned weapon_energy_offset(unsigned weapon_id) {
+  return SABER_WEAPON_ENERGY_BASE + weapon_id;
+}
+
+static uint16_t weapon_energy_word(const uint8_t *ram, unsigned weapon_id) {
+  const unsigned offset = weapon_energy_offset(weapon_id);
+  return (uint16_t)(ram[offset] | (uint16_t)ram[offset + 1] << 8);
+}
+
+static bool weapon_owned(const uint8_t *ram, unsigned weapon_id) {
+  return (ram[weapon_energy_offset(weapon_id) + 1] &
+          SABER_WEAPON_OWNED_BIT) != 0;
+}
+
+static bool weapon_owned_with_energy(const uint8_t *ram, unsigned weapon_id) {
+  const unsigned offset = weapon_energy_offset(weapon_id);
+  const uint16_t word = weapon_energy_word(ram, weapon_id);
+  return weapon_owned(ram, weapon_id) &&
+      (word & SABER_WEAPON_ENERGY_MASK) != 0;
+}
+
+static void clear_special_weapon_latches(uint8_t *ram) {
+  ram[0x0bff] = 0;
+  ram[0x0c00] = 0;
+  ram[0x0c01] = 0;
+  ram[0x0c03] = 0;
+}
+
+static void debit_weapon_energy(uint8_t *ram, unsigned weapon_id,
+                                unsigned cost) {
+  const unsigned offset = weapon_energy_offset(weapon_id);
+  const unsigned usable = weapon_energy_word(ram, weapon_id) &
+      SABER_WEAPON_ENERGY_MASK;
+  const unsigned spend = weapon_cost(weapon_id, cost, false);
+  const unsigned remaining = usable >= spend ? usable - spend : 0;
+  const uint16_t stored = (uint16_t)(remaining | SABER_WEAPON_STATUS_BITS);
+  ram[offset] = (uint8_t)stored;
+  ram[offset + 1] = (uint8_t)(stored >> 8);
 }
 
 static bool modern_movement(void) {
@@ -67,6 +124,7 @@ static void reset_frame_state(uint8_t *ram, bool retire_attack_ram) {
   release_pending_from_special = false;
   previous_y = false;
   previous_x = false;
+  weapon_technique_hold = false;
   clear_frame_state();
 }
 
@@ -247,6 +305,7 @@ static void pre_player(uint8_t *ram) {
   MmxSaberPhysicalPad physical;
   MmxSaberArmorFlags armor;
   MmxSaberFramePad pad;
+  MmxSaberPadKind requested_kind = SABER_KIND_NONE;
 
   MmxSaberHitboxDebugSetRam(ram);
   frame_ram = ram;
@@ -293,6 +352,51 @@ static void pre_player(uint8_t *ram) {
   const bool finisher_claimed = MmxSaberComboPrePlayer(
       ram, !locked && (physical.buttons & MMX_SABER_PAD_Y) != 0 &&
           !(physical.prev_buttons & MMX_SABER_PAD_Y));
+  const unsigned selected_weapon = ram[0x0bdb];
+  const bool physical_x_held =
+      (physical.buttons & MMX_SABER_PAD_X) != 0;
+  const bool physical_x_pressed = physical_x_held &&
+      !(physical.prev_buttons & MMX_SABER_PAD_X);
+  const bool grounded = (ram[0x0bd3] & 4) || (ram[0x0bd4] & 4);
+  const bool hurt = ram[0x0baa] == 0x0e || locked;
+  const bool dead_or_reset = zero_dead_or_reset(ram);
+  bool suppress_technique_hold = false;
+
+  if (MmxSaberTuningWeaponTechniques() &&
+      weapon_technique_selected(selected_weapon)) {
+    suppress_technique_hold = weapon_technique_hold;
+    if (!physical_x_held) weapon_technique_hold = false;
+  } else {
+    weapon_technique_hold = false;
+  }
+
+  if (MmxSaberTuningWeaponTechniques() &&
+      weapon_technique_selected(selected_weapon) &&
+      !hurt && !dead_or_reset && !native_wall_clinging(ram) &&
+      physical_x_pressed) {
+    if (selected_weapon == SABER_WEAPON_CUTTER &&
+        weapon_owned_with_energy(ram, selected_weapon)) {
+      suppress_technique_hold = true;
+      weapon_technique_hold = true;
+      requested_kind = grounded ? SABER_KIND_GROUND2 : SABER_KIND_AIR;
+      if (!finisher_claimed && saber.phase == SABER_PHASE_IDLE)
+        debit_weapon_energy(ram, selected_weapon, 0x0100);
+      if (finisher_claimed) requested_kind = SABER_KIND_NONE;
+    } else if (selected_weapon == SABER_WEAPON_SPARK &&
+               !grounded && weapon_owned(ram, selected_weapon)) {
+      suppress_technique_hold = true;
+      weapon_technique_hold = true;
+    }
+  }
+
+  if (suppress_technique_hold) {
+    physical.buttons &= (uint16_t)~MMX_SABER_PAD_X;
+    physical.prev_buttons &= (uint16_t)~MMX_SABER_PAD_X;
+    clear_special_weapon_latches(ram);
+    release_pending = false;
+    release_pending_from_special = false;
+  }
+
   /* A Saber-only frame must not create a buster charge. Once X is held, its
    * release edge, or an existing latch, the buster path remains available so
    * charge can continue through the slash and CR1 can fire after recovery. */
@@ -301,9 +405,9 @@ static void pre_player(uint8_t *ram) {
       (physical.prev_buttons & MMX_SABER_PAD_X) != 0 || release_pending;
   zero = (MmxSaberPadZero){
       (ram[0x0bdb] == 0) && x_charge_owned,
-      ram[0x0baa] == 0x0e || locked,
-      zero_dead_or_reset(ram),
-      (ram[0x0bd3] & 4) || (ram[0x0bd4] & 4),
+      hurt,
+      dead_or_reset,
+      grounded,
       ram[0x0bdb] != 0 && ram[0x0c00] >= 2};
 
   /* Classify the physical edge first, advance the Saber owner second, and
@@ -316,8 +420,9 @@ static void pre_player(uint8_t *ram) {
     MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_HURT);
   else if (zero.dead_or_reset)
     MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_DEATH);
-  MmxSaberAttackStepWithWallAndDash(
-      out.saber_pressed, zero.grounded, native_wall_clinging(ram),
+  MmxSaberAttackStepWithWallAndDashRequested(
+      out.saber_pressed, requested_kind, zero.grounded,
+      native_wall_clinging(ram),
       native_dash_active(ram),
       pad.up_held,
       pad.down_held,

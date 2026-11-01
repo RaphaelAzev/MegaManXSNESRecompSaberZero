@@ -165,6 +165,7 @@ static void check_manifest_defaults(const char *program_path) {
     {"show_hitboxes", tuning->show_hitboxes ? 1 : 0, false},
     {"start_all_upgrades", tuning->start_all_upgrades ? 1 : 0, false},
     {"special_moves", tuning->special_moves ? 1 : 0, false},
+    {"weapon_techniques", tuning->weapon_techniques ? 1 : 0, false},
     {"unlock_special_moves", tuning->unlock_special_moves ? 1 : 0, false},
     {"crescent_effect", tuning->crescent_effect ? 1 : 0, false},
   };
@@ -286,6 +287,8 @@ static void check_defaults(void) {
    * src/saber/mmx_saber_tuning.c. */
   check(tuning->special_moves && MmxSaberTuningSpecialMoves(),
         "special_moves defaults on");
+  check(tuning->weapon_techniques && MmxSaberTuningWeaponTechniques(),
+        "weapon_techniques defaults on");
   check(!tuning->unlock_special_moves &&
             !MmxSaberTuningUnlockSpecialMoves(),
         "unlock_special_moves defaults off");
@@ -324,6 +327,7 @@ static void check_each_id_maps_to_field(void) {
     {"show_hitboxes", "true"},
     {"start_all_upgrades", "true"},
     {"special_moves", "false"},
+    {"weapon_techniques", "0"},
     {"unlock_special_moves", "true"},
     {"crescent_effect", "false"},
   };
@@ -386,12 +390,23 @@ static void check_each_id_maps_to_field(void) {
   check(!MmxSaberTuningGet()->special_moves &&
             !MmxSaberTuningSpecialMoves(),
         "boolean special_moves option maps to its field");
+  check(!MmxSaberTuningGet()->weapon_techniques &&
+            !MmxSaberTuningWeaponTechniques(),
+        "boolean weapon_techniques option maps to its field");
   check(MmxSaberTuningGet()->unlock_special_moves &&
             MmxSaberTuningUnlockSpecialMoves(),
         "boolean unlock_special_moves option maps to its field");
   check(!MmxSaberTuningGet()->crescent_effect &&
             !MmxSaberTuningCrescentEffect(),
         "boolean crescent_effect option maps to its field");
+
+  static const FakeOption numeric_one[] = {
+    {"weapon_techniques", "1"},
+  };
+  FakeOptions numeric_one_source = {numeric_one, 1};
+  MmxSaberTuningLoad(fake_reader, &numeric_one_source);
+  check(MmxSaberTuningWeaponTechniques(),
+        "boolean weapon_techniques option parses numeric 1");
 }
 
 static void check_clamping_and_invalid_fallback(void) {
@@ -420,6 +435,7 @@ static void check_clamping_and_invalid_fallback(void) {
     {"air_damage", "3x"},
     {"show_hitboxes", "not-a-boolean"},
     {"special_moves", "not-a-boolean"},
+    {"weapon_techniques", "not-a-boolean"},
   };
   FakeOptions source = {options, sizeof(options) / sizeof(options[0])};
 
@@ -473,6 +489,8 @@ static void check_clamping_and_invalid_fallback(void) {
    * src/saber/mmx_saber_tuning.c. */
   check(MmxSaberTuningSpecialMoves(),
         "invalid boolean falls back to special_moves on");
+  check(MmxSaberTuningWeaponTechniques(),
+        "invalid boolean falls back to weapon_techniques on");
   check(!MmxSaberTuningUnlockSpecialMoves(),
         "invalid boolean falls back to unlock_special_moves off");
   check(MmxSaberTuningCrescentEffect(),

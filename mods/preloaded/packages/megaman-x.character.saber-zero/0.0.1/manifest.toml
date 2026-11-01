@@ -45,6 +45,14 @@ default = true
 
 [[option]]
 feature = "saber-zero"
+id = "weapon_techniques"
+label = "Weapon techniques"
+description = "Uses Saber techniques for selected Boomerang Cutter and Electric Spark attacks."
+type = "boolean"
+default = true
+
+[[option]]
+feature = "saber-zero"
 id = "unlock_special_moves"
 label = "Unlock special moves"
 description = "Testing aid: the uppercut and rolling slash are available without defeating any Mavericks."

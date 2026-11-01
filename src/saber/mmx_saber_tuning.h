@@ -53,6 +53,7 @@ typedef struct MmxSaberTuning {
   bool show_hitboxes;
   bool start_all_upgrades;
   bool special_moves;
+  bool weapon_techniques;
   bool unlock_special_moves;
   bool crescent_effect;
 } MmxSaberTuning;
@@ -78,6 +79,7 @@ int MmxSaberTuningThrustBounceHeight(void);
 bool MmxSaberTuningShowHitboxes(void);
 bool MmxSaberTuningStartAllUpgrades(void);
 bool MmxSaberTuningSpecialMoves(void);
+bool MmxSaberTuningWeaponTechniques(void);
 bool MmxSaberTuningUnlockSpecialMoves(void);
 bool MmxSaberTuningCrescentEffect(void);
 

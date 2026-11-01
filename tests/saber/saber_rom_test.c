@@ -5907,6 +5907,176 @@ static void saber_arms_charge_checks(const char *fixture) {
   puts("ok: saber-arms-charge");
 }
 
+static void saber_weapon_techniques_set_option(bool enabled) {
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, "megaman-x.character.saber-zero",
+            "saber-zero", "weapon_techniques", enabled ? "true" : "false"),
+        enabled ? "test catalog enables weapon_techniques" :
+                  "test catalog disables weapon_techniques");
+  snes_mod_runtime_activate_plugins_c();
+  check(MmxSaberTuningWeaponTechniques() == enabled,
+        enabled ? "weapon_techniques reactivates on" :
+                  "weapon_techniques reactivates off");
+}
+
+static void saber_weapon_techniques_set_energy(unsigned weapon,
+                                               unsigned usable) {
+  write_ram_word(g_ram, 0x1f85 + weapon * 2,
+                 (usable & 0x3fff) | 0xc000);
+}
+
+static void saber_weapon_techniques_airborne(void) {
+  for (unsigned i = 0; i < 8 && saber_test_grounded(); ++i)
+    frame(SNES_PAD_B);
+  check(!saber_test_grounded(),
+        "weapon-technique fixture reaches airborne Zero with B held");
+}
+
+static void saber_weapon_techniques_checks(const char *fixture) {
+  const unsigned cutter = 7;
+  const unsigned spark = 6;
+  unsigned before;
+  unsigned after;
+  MmxSaberAttackSnapshot snapshot;
+
+  check(MmxSaberTuningWeaponTechniques(),
+        "weapon-technique group starts with weapon_techniques on");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  select_native_weapon(cutter);
+  g_ram[0x1f99] &= (uint8_t)~0x01;
+  saber_weapon_techniques_set_energy(cutter, 0x0400);
+  before = read_ram_word(g_ram, 0x1f93) & 0x3fff;
+  frame(SNES_PAD_X);
+  after = read_ram_word(g_ram, 0x1f93) & 0x3fff;
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_GROUND2 &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "Cutter ground X starts Saber GROUND2");
+  check(native_projectiles() == 0,
+        "Cutter ground X creates no native projectile with techniques on");
+  check(before == 0x0400 && after == before - 0x0100,
+        "Cutter ground X spends exactly 0x0100 energy without Head");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  select_native_weapon(cutter);
+  g_ram[0x1f99] = (uint8_t)((g_ram[0x1f99] & 0xf0) | 0x01);
+  saber_weapon_techniques_set_energy(cutter, 0x0400);
+  before = read_ram_word(g_ram, 0x1f93) & 0x3fff;
+  frame(SNES_PAD_X);
+  after = read_ram_word(g_ram, 0x1f93) & 0x3fff;
+  check(MmxSaberAttackSnapshotGet().kind == SABER_KIND_GROUND2,
+        "Cutter ground X with Head still starts GROUND2");
+  check(after == before - 0x0080,
+        "Cutter ground X spends exactly 0x0080 energy with Head");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  select_native_weapon(cutter);
+  saber_weapon_techniques_set_energy(cutter, 0x0400);
+  saber_weapon_techniques_airborne();
+  before = read_ram_word(g_ram, 0x1f93) & 0x3fff;
+  frame(SNES_PAD_X | SNES_PAD_B);
+  after = read_ram_word(g_ram, 0x1f93) & 0x3fff;
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_AIR &&
+            snapshot.phase != SABER_PHASE_IDLE,
+        "Cutter airborne X starts Saber AIR");
+  check(native_projectiles() == 0,
+        "Cutter airborne X creates no native projectile with techniques on");
+  check(after == before - 0x0100,
+        "Cutter airborne X spends exactly 0x0100 energy");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  select_native_weapon(cutter);
+  saber_weapon_techniques_set_energy(cutter, 0);
+  before = read_ram_word(g_ram, 0x1f93) & 0x3fff;
+  frame(SNES_PAD_X);
+  after = read_ram_word(g_ram, 0x1f93) & 0x3fff;
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind != SABER_KIND_GROUND2 && snapshot.kind != SABER_KIND_AIR,
+        "Cutter X at zero energy does not request a Saber technique");
+  check(after == before,
+        "Cutter X at zero energy leaves native energy unchanged");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  select_native_weapon(spark);
+  saber_weapon_techniques_set_energy(spark, 0x0400);
+  saber_weapon_techniques_airborne();
+  before = read_ram_word(g_ram, 0x1f91) & 0x3fff;
+  frame(SNES_PAD_X | SNES_PAD_B);
+  after = read_ram_word(g_ram, 0x1f91) & 0x3fff;
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.phase == SABER_PHASE_IDLE &&
+            snapshot.kind == SABER_KIND_NONE,
+        "Spark airborne X starts no Saber attack");
+  check(native_projectiles() == 0,
+        "Spark airborne X creates no native projectile with techniques on");
+  check(after == before,
+        "Spark airborne X spends no energy");
+
+  saber_weapon_techniques_set_option(false);
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  select_native_weapon(cutter);
+  saber_weapon_techniques_set_energy(cutter, 0x0400);
+  before = read_ram_word(g_ram, 0x1f93) & 0x3fff;
+  frame(SNES_PAD_X);
+  after = read_ram_word(g_ram, 0x1f93) & 0x3fff;
+  check(native_projectiles() != 0,
+        "weapon_techniques off keeps native Cutter projectile");
+  check(after < before,
+        "weapon_techniques off keeps native Cutter energy debit");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  select_native_weapon(cutter);
+  g_ram[0x1f99] |= 0x02;
+  saber_weapon_techniques_set_energy(cutter, 0x1c00); /* full bar */
+  unsigned off_charge_initial = g_ram[0x0c00];
+  unsigned off_charge_max = off_charge_initial;
+  bool off_full = false;
+  for (unsigned i = 0; i < SABER_ARMS_CHARGE_HOLD_FRAMES; ++i) {
+    frame(SNES_PAD_X);
+    if (g_ram[0x0c00] > off_charge_max) off_charge_max = g_ram[0x0c00];
+    if (g_ram[0x0c03] == 1) off_full = true;
+  }
+  check(off_charge_max > off_charge_initial && off_full,
+        "weapon_techniques off keeps Cutter Arms charge behavior");
+
+  saber_weapon_techniques_set_option(true);
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  select_native_weapon(cutter);
+  g_ram[0x1f99] |= 0x02;
+  saber_weapon_techniques_set_energy(cutter, 0x1c00); /* full bar */
+  before = read_ram_word(g_ram, 0x1f93) & 0x3fff;
+  bool on_full = false;
+  bool on_release = false;
+  bool on_native_projectile = false;
+  for (unsigned i = 0; i < SABER_ARMS_CHARGE_HOLD_FRAMES; ++i) {
+    frame(SNES_PAD_X);
+    if (g_ram[0x0c03] == 1) on_full = true;
+    if (g_ram[0x0c01] == 4) on_release = true;
+    if (native_projectiles() != 0) on_native_projectile = true;
+  }
+  frame(0);
+  if (g_ram[0x0c01] == 4) on_release = true;
+  if (native_projectiles() != 0) on_native_projectile = true;
+  after = read_ram_word(g_ram, 0x1f93) & 0x3fff;
+  check(!on_full && g_ram[0x0c03] != 1 && g_ram[0x0c00] == 0,
+        "weapon_techniques on keeps Cutter hold below full charge");
+  check(!on_release && !on_native_projectile,
+        "weapon_techniques on Cutter hold has no charged native release");
+  check(after == before - 0x0100,
+        "weapon_techniques on Cutter hold has only the technique debit");
+  puts("ok: saber-weapon-techniques");
+}
+
 
 static unsigned saber_weapon_ammo_word(unsigned weapon) {
   return read_ram_word(g_ram, 0x1f85 + weapon * 2) & 0x3fff;
@@ -12759,6 +12929,8 @@ int main(int argc, char **argv) {
   const bool saber_armor = only && !strcmp(only, "saber-armor");
   const bool saber_body_damage = only && !strcmp(only, "saber-body-damage");
   const bool saber_arms_charge = only && !strcmp(only, "saber-arms-charge");
+  const bool saber_weapon_techniques =
+      only && !strcmp(only, "saber-weapon-techniques");
   const bool saber_head_ammo = only && !strcmp(only, "saber-head-ammo");
   const bool saber_hitbox_debug = only && !strcmp(only, "saber-hitbox-debug");
   const bool saber_damage = only && !strcmp(only, "saber-damage");
@@ -12821,7 +12993,8 @@ int main(int argc, char **argv) {
       saber_priority || saber_armadillo ||
       saber_tuning || saber_hitbox_debug || saber_damage ||
       saber_head_ammo ||
-      saber_armor || saber_arms_charge || saber_body_damage ||
+      saber_armor || saber_arms_charge || saber_weapon_techniques ||
+      saber_body_damage ||
       saber_wave_travel || saber_wave_damage || saber_wave_lifecycle ||
       saber_wave_render || saber_projectile_contact || saber_ride_pilot ||
       saber_boss_death;
@@ -12955,6 +13128,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-arms-charge runs with the Saber package enabled");
     saber_arms_charge_checks(fixture);
+  } else if (saber_weapon_techniques) {
+    check(MmxSaberEnabled(),
+          "saber-weapon-techniques runs with the Saber package enabled");
+    saber_weapon_techniques_checks(fixture);
   } else if (saber_head_ammo) {
     check(MmxSaberEnabled(),
           "saber-head-ammo runs with the Saber package enabled");
@@ -13063,6 +13240,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-armor") &&
       strcmp(only, "saber-body-damage") &&
       strcmp(only, "saber-arms-charge") &&
+       strcmp(only, "saber-weapon-techniques") &&
       strcmp(only, "saber-finisher") &&
       strcmp(only, "saber-priority-classify") &&
       strcmp(only, "saber-priority") &&

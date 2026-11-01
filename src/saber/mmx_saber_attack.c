@@ -1037,23 +1037,20 @@ static bool special_unlocked(const uint8_t *ram, MmxSaberSpecialMove move) {
 void MmxSaberAttackStep(bool saber_pressed, bool grounded, bool playable,
                         uint8_t native_facing,
                         uint8_t horizontal_direction) {
-  MmxSaberAttackStepWithWallAndDash(saber_pressed, grounded, false, false,
-                                    false, false, false, false, playable,
-                                    runtime_ram,
-                                    native_facing,
-                                    horizontal_direction);
+  MmxSaberAttackStepWithWallAndDashRequested(
+      saber_pressed, SABER_KIND_NONE, grounded, false, false, false, false,
+      false, false, playable, runtime_ram, native_facing,
+      horizontal_direction);
 }
 
 void MmxSaberAttackStepWithWall(bool saber_pressed, bool grounded,
                                 bool wall_clinging, bool playable,
                                 uint8_t native_facing,
                                 uint8_t horizontal_direction) {
-  MmxSaberAttackStepWithWallAndDash(saber_pressed, grounded, wall_clinging,
-                                    false, false, false, false, false,
-                                    playable,
-                                    runtime_ram,
-                                    native_facing,
-                                    horizontal_direction);
+  MmxSaberAttackStepWithWallAndDashRequested(
+      saber_pressed, SABER_KIND_NONE, grounded, wall_clinging, false, false,
+      false, false, false, playable, runtime_ram, native_facing,
+      horizontal_direction);
 }
 
 void MmxSaberAttackStepWithWallAndDash(bool saber_pressed, bool grounded,
@@ -1064,6 +1061,17 @@ void MmxSaberAttackStepWithWallAndDash(bool saber_pressed, bool grounded,
                                        bool playable, uint8_t *ram,
                                        uint8_t native_facing,
                                        uint8_t horizontal_direction) {
+  MmxSaberAttackStepWithWallAndDashRequested(
+      saber_pressed, SABER_KIND_NONE, grounded, wall_clinging, dash_active,
+      up_held, down_held, y_held, jump_pressed, playable, ram, native_facing,
+      horizontal_direction);
+}
+
+void MmxSaberAttackStepWithWallAndDashRequested(
+    bool saber_pressed, MmxSaberPadKind requested_kind, bool grounded,
+    bool wall_clinging, bool dash_active, bool up_held, bool down_held,
+    bool y_held, bool jump_pressed, bool playable, uint8_t *ram,
+    uint8_t native_facing, uint8_t horizontal_direction) {
   const MmxSaberAttack *attack;
 
   if (ram) runtime_ram = ram;
@@ -1075,20 +1083,27 @@ void MmxSaberAttackStepWithWallAndDash(bool saber_pressed, bool grounded,
   }
 
   if (state.phase == SABER_PHASE_IDLE) {
-    if (saber_pressed) {
-      const MmxSaberPadKind kind = wall_clinging ? SABER_KIND_WALL :
-          (!grounded && down_held &&
-                   special_unlocked(ram, SABER_SPECIAL_THRUST) ? SABER_KIND_THRUST :
-           (!grounded && up_held &&
-                    special_unlocked(ram, SABER_SPECIAL_ROLLING) ? SABER_KIND_ROLLING :
-           (!grounded ? SABER_KIND_AIR :
-            (grounded && up_held &&
-                     special_unlocked(ram, SABER_SPECIAL_UPPERCUT) ? SABER_KIND_UPPERCUT :
-             (dash_active ? SABER_KIND_DASH : SABER_KIND_GROUND1)))));
+    const bool explicit_kind = requested_kind == SABER_KIND_GROUND2 ||
+        requested_kind == SABER_KIND_AIR;
+    if (saber_pressed || explicit_kind) {
+      const MmxSaberPadKind kind = explicit_kind ? requested_kind :
+          wall_clinging ? SABER_KIND_WALL :
+              (!grounded && down_held &&
+                       special_unlocked(ram, SABER_SPECIAL_THRUST) ? SABER_KIND_THRUST :
+               (!grounded && up_held &&
+                        special_unlocked(ram, SABER_SPECIAL_ROLLING) ? SABER_KIND_ROLLING :
+                (!grounded ? SABER_KIND_AIR :
+                 (grounded && up_held &&
+                          special_unlocked(ram, SABER_SPECIAL_UPPERCUT) ? SABER_KIND_UPPERCUT :
+                  (dash_active ? SABER_KIND_DASH : SABER_KIND_GROUND1)))));
       const uint8_t facing = wall_clinging || kind == SABER_KIND_DASH ?
           (native_facing & 0x40) :
           facing_for_direction(horizontal_direction, native_facing);
-      start_attack(MmxSaberAttackRecord(kind, 0), facing);
+      /* Slash 2 is the second combo record (index 1); a weapon technique
+       * requests it directly from idle. */
+      start_attack(MmxSaberAttackRecord(
+                       kind, kind == SABER_KIND_GROUND2 ? 1 : 0),
+                   facing);
     }
     return;
   }
