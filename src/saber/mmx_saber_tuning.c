@@ -15,8 +15,8 @@ typedef struct MmxSaberTuningOption {
 } MmxSaberTuningOption;
 
 static MmxSaberTuning g_tuning = {
-  {3, 3, 8, 16, 3, 3, 3, 6, 8, 8, 4},
-  {1, 1, 2, 6, 1, 1, 1, 4, 2, 2, 2},
+  {3, 3, 8, 16, 3, 3, 3, 6, 8, 8, 4, 4, 6, 8, 4},
+  {1, 1, 2, 6, 1, 1, 1, 4, 2, 2, 2, 2, 2, 2, 2},
   {2, 3, 4, 1, 1, 5, 1, 1, 2, 3, 4, 5, 6, 7, 8},
   70,
   27,
@@ -54,6 +54,14 @@ static MmxSaberTuningOption k_options[] = {
    &g_tuning.normal_damage[MMX_SABER_TUNING_DAMAGE_ROLLING]},
   {"thrust_damage", 4, 1, 32,
    &g_tuning.normal_damage[MMX_SABER_TUNING_DAMAGE_THRUST]},
+  {"tornado_damage", 4, 1, 32,
+   &g_tuning.normal_damage[MMX_SABER_TUNING_DAMAGE_TORNADO]},
+  {"ice_clone_damage", 6, 1, 32,
+   &g_tuning.normal_damage[MMX_SABER_TUNING_DAMAGE_ICE_CLONE]},
+  {"thunder_orb_damage", 8, 1, 32,
+   &g_tuning.normal_damage[MMX_SABER_TUNING_DAMAGE_THUNDER_ORB]},
+  {"cutter_damage", 4, 1, 32,
+   &g_tuning.normal_damage[MMX_SABER_TUNING_DAMAGE_CUTTER]},
 
   {"boss_slash1_damage", 1, 0, 32,
    &g_tuning.boss_damage[MMX_SABER_TUNING_DAMAGE_SLASH1]},
@@ -77,6 +85,14 @@ static MmxSaberTuningOption k_options[] = {
    &g_tuning.boss_damage[MMX_SABER_TUNING_DAMAGE_ROLLING]},
   {"boss_thrust_damage", 2, 0, 32,
    &g_tuning.boss_damage[MMX_SABER_TUNING_DAMAGE_THRUST]},
+  {"tornado_boss_damage", 2, 0, 32,
+   &g_tuning.boss_damage[MMX_SABER_TUNING_DAMAGE_TORNADO]},
+  {"ice_clone_boss_damage", 2, 0, 32,
+   &g_tuning.boss_damage[MMX_SABER_TUNING_DAMAGE_ICE_CLONE]},
+  {"thunder_orb_boss_damage", 2, 0, 32,
+   &g_tuning.boss_damage[MMX_SABER_TUNING_DAMAGE_THUNDER_ORB]},
+  {"cutter_boss_damage", 2, 0, 32,
+   &g_tuning.boss_damage[MMX_SABER_TUNING_DAMAGE_CUTTER]},
 
   {"slash1_priority", 2, 1, 9,
    &g_tuning.priority[MMX_SABER_TUNING_PRIORITY_SLASH1]},

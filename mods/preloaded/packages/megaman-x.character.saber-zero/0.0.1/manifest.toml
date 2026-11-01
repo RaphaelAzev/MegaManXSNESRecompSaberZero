@@ -190,6 +190,50 @@ step = 1
 
 [[option]]
 feature = "saber-zero"
+id = "tornado_damage"
+label = "Storm tornado damage"
+description = "Normal damage dealt by the Storm tornado. It hits an enemy at most once."
+type = "integer"
+default = 4
+min = 1
+max = 32
+step = 1
+
+[[option]]
+feature = "saber-zero"
+id = "ice_clone_damage"
+label = "Ice clone damage"
+description = "Normal damage dealt by the ice clone. It hits an enemy at most once."
+type = "integer"
+default = 6
+min = 1
+max = 32
+step = 1
+
+[[option]]
+feature = "saber-zero"
+id = "thunder_orb_damage"
+label = "Thunder orb damage"
+description = "Normal damage dealt by the thunder orb. It hits an enemy at most once."
+type = "integer"
+default = 8
+min = 1
+max = 32
+step = 1
+
+[[option]]
+feature = "saber-zero"
+id = "cutter_damage"
+label = "Boomerang cutter damage"
+description = "Normal damage dealt by the boomerang cutter. It hits an enemy at most once."
+type = "integer"
+default = 4
+min = 1
+max = 32
+step = 1
+
+[[option]]
+feature = "saber-zero"
 id = "boss_slash1_damage"
 label = "Boss slash 1 damage"
 description = "0 = same as the normal value"
@@ -303,6 +347,50 @@ feature = "saber-zero"
 id = "boss_thrust_damage"
 label = "Downward thrust boss damage"
 description = "0 = same as the normal value"
+type = "integer"
+default = 2
+min = 0
+max = 32
+step = 1
+
+[[option]]
+feature = "saber-zero"
+id = "tornado_boss_damage"
+label = "Storm tornado boss damage"
+description = "0 = same as the normal value. The Storm tornado hits an enemy at most once."
+type = "integer"
+default = 2
+min = 0
+max = 32
+step = 1
+
+[[option]]
+feature = "saber-zero"
+id = "ice_clone_boss_damage"
+label = "Ice clone boss damage"
+description = "0 = same as the normal value. The ice clone hits an enemy at most once."
+type = "integer"
+default = 2
+min = 0
+max = 32
+step = 1
+
+[[option]]
+feature = "saber-zero"
+id = "thunder_orb_boss_damage"
+label = "Thunder orb boss damage"
+description = "0 = same as the normal value. The thunder orb hits an enemy at most once."
+type = "integer"
+default = 2
+min = 0
+max = 32
+step = 1
+
+[[option]]
+feature = "saber-zero"
+id = "cutter_boss_damage"
+label = "Boomerang cutter boss damage"
+description = "0 = same as the normal value. The boomerang cutter hits an enemy at most once."
 type = "integer"
 default = 2
 min = 0

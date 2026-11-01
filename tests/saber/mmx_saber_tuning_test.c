@@ -131,6 +131,10 @@ static void check_manifest_defaults(const char *program_path) {
     {"uppercut_damage", tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_UPPERCUT], false},
     {"rolling_slash_damage", tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_ROLLING], false},
     {"thrust_damage", tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_THRUST], false},
+    {"tornado_damage", tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_TORNADO], false},
+    {"ice_clone_damage", tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_ICE_CLONE], false},
+    {"thunder_orb_damage", tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_THUNDER_ORB], false},
+    {"cutter_damage", tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_CUTTER], false},
     {"boss_slash1_damage", tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_SLASH1], false},
     {"boss_slash2_damage", tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_SLASH2], false},
     {"boss_slash3_damage", tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_SLASH3], false},
@@ -142,6 +146,10 @@ static void check_manifest_defaults(const char *program_path) {
     {"boss_uppercut_damage", tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_UPPERCUT], false},
     {"boss_rolling_slash_damage", tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_ROLLING], false},
     {"boss_thrust_damage", tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_THRUST], false},
+    {"tornado_boss_damage", tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_TORNADO], false},
+    {"ice_clone_boss_damage", tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_ICE_CLONE], false},
+    {"thunder_orb_boss_damage", tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_THUNDER_ORB], false},
+    {"cutter_boss_damage", tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_CUTTER], false},
     {"slash1_priority", tuning->priority[MMX_SABER_TUNING_PRIORITY_SLASH1], false},
     {"slash2_priority", tuning->priority[MMX_SABER_TUNING_PRIORITY_SLASH2], false},
     {"slash3_priority", tuning->priority[MMX_SABER_TUNING_PRIORITY_SLASH3], false},
@@ -237,8 +245,12 @@ static void check_defaults(void) {
         "normal damage defaults match the manifest");
   check(tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_UPPERCUT] == 8 &&
             tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_ROLLING] == 8 &&
-            tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_THRUST] == 4,
-        "special normal damage defaults stay at 8, 8, and 4");
+            tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_THRUST] == 4 &&
+            tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_TORNADO] == 4 &&
+            tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_ICE_CLONE] == 6 &&
+            tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_THUNDER_ORB] == 8 &&
+            tuning->normal_damage[MMX_SABER_TUNING_DAMAGE_CUTTER] == 4,
+        "special normal damage defaults stay at 8, 8, 4, 4, 6, 8, and 4");
   check(tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_SLASH1] == 1 &&
             tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_SLASH2] == 1 &&
             tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_SLASH3] == 2 &&
@@ -250,8 +262,12 @@ static void check_defaults(void) {
         "boss damage defaults match operator decision D-OP-60");
   check(tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_UPPERCUT] == 2 &&
             tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_ROLLING] == 2 &&
-            tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_THRUST] == 2,
-        "special boss damage defaults stay at 2, 2, and 2");
+            tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_THRUST] == 2 &&
+            tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_TORNADO] == 2 &&
+            tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_ICE_CLONE] == 2 &&
+            tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_THUNDER_ORB] == 2 &&
+            tuning->boss_damage[MMX_SABER_TUNING_DAMAGE_CUTTER] == 2,
+        "special boss damage defaults stay at 2, 2, 2, 2, 2, 2, and 2");
   check(tuning->priority[MMX_SABER_TUNING_PRIORITY_SLASH1] == 2 &&
             tuning->priority[MMX_SABER_TUNING_PRIORITY_SLASH2] == 3 &&
             tuning->priority[MMX_SABER_TUNING_PRIORITY_SLASH3] == 4 &&
@@ -306,12 +322,16 @@ static void check_each_id_maps_to_field(void) {
     {"dash_damage", "17"}, {"wave_damage", "18"},
     {"uppercut_damage", "19"}, {"rolling_slash_damage", "20"},
     {"thrust_damage", "21"},
+    {"tornado_damage", "22"}, {"ice_clone_damage", "23"},
+    {"thunder_orb_damage", "24"}, {"cutter_damage", "25"},
     {"boss_slash1_damage", "21"}, {"boss_slash2_damage", "22"},
     {"boss_slash3_damage", "23"}, {"boss_air_damage", "24"},
     {"boss_wall_damage", "25"}, {"boss_dash_damage", "26"},
     {"boss_x3_finisher_damage", "27"}, {"boss_wave_damage", "28"},
     {"boss_uppercut_damage", "31"}, {"boss_rolling_slash_damage", "32"},
     {"boss_thrust_damage", "30"},
+    {"tornado_boss_damage", "26"}, {"ice_clone_boss_damage", "27"},
+    {"thunder_orb_boss_damage", "28"}, {"cutter_boss_damage", "29"},
     {"slash1_priority", "1"}, {"slash2_priority", "2"},
     {"slash3_priority", "3"}, {"air_priority", "4"},
     {"wall_priority", "5"}, {"dash_priority", "6"},
@@ -366,6 +386,14 @@ static void check_each_id_maps_to_field(void) {
   /* Mutation red: remove or miswire the thrust_damage k_options entry. */
   check(MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_THRUST) == 21,
         "thrust normal damage option id maps to its field");
+  check(MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_TORNADO) == 22,
+        "storm tornado normal damage option id maps to its field");
+  check(MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_ICE_CLONE) == 23,
+        "ice clone normal damage option id maps to its field");
+  check(MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_THUNDER_ORB) == 24,
+        "thunder orb normal damage option id maps to its field");
+  check(MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_CUTTER) == 25,
+        "cutter normal damage option id maps to its field");
   check(MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_UPPERCUT) == 31,
         "uppercut boss damage option id maps to its field");
   check(MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_ROLLING) == 32,
@@ -373,6 +401,14 @@ static void check_each_id_maps_to_field(void) {
   /* Mutation red: remove or miswire the boss_thrust_damage k_options entry. */
   check(MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_THRUST) == 30,
         "thrust boss damage option id maps to its field");
+  check(MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_TORNADO) == 26,
+        "storm tornado boss damage option id maps to its field");
+  check(MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_ICE_CLONE) == 27,
+        "ice clone boss damage option id maps to its field");
+  check(MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_THUNDER_ORB) == 28,
+        "thunder orb boss damage option id maps to its field");
+  check(MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_CUTTER) == 29,
+        "cutter boss damage option id maps to its field");
   check(MmxSaberTuningPriority(MMX_SABER_TUNING_PRIORITY_UPPERCUT) == 4,
         "uppercut priority option id maps to its field");
   check(MmxSaberTuningPriority(MMX_SABER_TUNING_PRIORITY_ROLLING) == 5,
@@ -417,9 +453,17 @@ static void check_clamping_and_invalid_fallback(void) {
     {"uppercut_damage", "0"},
     {"rolling_slash_damage", "99"},
     {"thrust_damage", "0"},
+    {"tornado_damage", "0"},
+    {"ice_clone_damage", "99"},
+    {"thunder_orb_damage", "not-an-integer"},
+    {"cutter_damage", "0"},
     {"boss_uppercut_damage", "-1"},
     {"boss_rolling_slash_damage", "99"},
     {"boss_thrust_damage", "-1"},
+    {"tornado_boss_damage", "-1"},
+    {"ice_clone_boss_damage", "99"},
+    {"thunder_orb_boss_damage", "not-an-integer"},
+    {"cutter_boss_damage", "-1"},
     {"priority_window_frames", "29"},
     {"finisher_window_frames", "61"},
     {"uppercut_height", "99"},
@@ -467,6 +511,14 @@ static void check_clamping_and_invalid_fallback(void) {
   /* Mutation red: change thrust_damage min/max or remove its clamp path. */
   check(MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_THRUST) == 1,
         "thrust normal damage clamps to its manifest minimum");
+  check(MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_TORNADO) == 1,
+        "storm tornado normal damage clamps to its manifest minimum");
+  check(MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_ICE_CLONE) == 32,
+        "ice clone normal damage clamps to its manifest maximum");
+  check(MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_THUNDER_ORB) == 8,
+        "invalid thunder orb normal damage falls back to its default");
+  check(MmxSaberTuningNormalDamage(MMX_SABER_TUNING_DAMAGE_CUTTER) == 1,
+        "cutter normal damage clamps to its manifest minimum");
   check(MmxSaberTuningGet()->boss_damage[MMX_SABER_TUNING_DAMAGE_UPPERCUT] == 0,
         "uppercut boss damage clamps to its manifest minimum");
   check(MmxSaberTuningBossDamage(MMX_SABER_TUNING_DAMAGE_ROLLING) == 32,
@@ -474,6 +526,14 @@ static void check_clamping_and_invalid_fallback(void) {
   /* Mutation red: change boss_thrust_damage min/max or remove its clamp path. */
   check(MmxSaberTuningGet()->boss_damage[MMX_SABER_TUNING_DAMAGE_THRUST] == 0,
         "thrust boss damage clamps to its manifest minimum");
+  check(MmxSaberTuningGet()->boss_damage[MMX_SABER_TUNING_DAMAGE_TORNADO] == 0,
+        "storm tornado boss damage clamps to its manifest minimum");
+  check(MmxSaberTuningGet()->boss_damage[MMX_SABER_TUNING_DAMAGE_ICE_CLONE] == 32,
+        "ice clone boss damage clamps to its manifest maximum");
+  check(MmxSaberTuningGet()->boss_damage[MMX_SABER_TUNING_DAMAGE_THUNDER_ORB] == 2,
+        "invalid thunder orb boss damage falls back to its default");
+  check(MmxSaberTuningGet()->boss_damage[MMX_SABER_TUNING_DAMAGE_CUTTER] == 0,
+        "cutter boss damage clamps to its manifest minimum");
   check(MmxSaberTuningPriority(MMX_SABER_TUNING_PRIORITY_UPPERCUT) == 1,
         "uppercut priority clamps to its manifest minimum");
   check(MmxSaberTuningPriority(MMX_SABER_TUNING_PRIORITY_ROLLING) == 9,
