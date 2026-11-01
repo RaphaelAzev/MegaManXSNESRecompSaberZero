@@ -318,7 +318,7 @@ class SaberConverterTests(unittest.TestCase):
         sources_by_id = {source["id"]: source for source in manifest["sources"]}
         expected_special_sources = {
             8: "Special_Uppercut.png",
-            9: "Special_Uppercut_FX.png",
+            9: "Special_Uppercut_FX_Storm.png",
             10: "Special_RollingSlash.png",
             11: "Special_RollingSlash_FX.png",
             12: "Special_Crescent_FX.png",
@@ -564,7 +564,7 @@ class SaberConverterTests(unittest.TestCase):
             struct.unpack_from("<5H", data, 20)
         )
         self.assertEqual(source_count, len(manifest["sources"]))
-        self.assertEqual(palette_count, 37)
+        self.assertEqual(palette_count, 40)
         self.assertEqual(animation_count, 14)
         self.assertEqual(step_count, 140)
         self.assertEqual(frame_count, 140)

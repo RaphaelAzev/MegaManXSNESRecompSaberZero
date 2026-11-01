@@ -19,6 +19,7 @@ REQUIRED_ASSETS = (
     ASSET_ROOT / "sprites" / "Saber_Wall.png",
     ASSET_ROOT / "sprites" / "Special_Uppercut.png",
     ASSET_ROOT / "sprites" / "Special_Uppercut_FX.png",
+    ASSET_ROOT / "sprites" / "Special_Uppercut_FX_Storm.png",
     ASSET_ROOT / "sprites" / "Special_RollingSlash.png",
     ASSET_ROOT / "sprites" / "Special_RollingSlash_FX.png",
     ASSET_ROOT / "sprites" / "Special_Crescent_FX.png",
