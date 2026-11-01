@@ -14,10 +14,10 @@
 #endif
 
 static const uint8_t kSaberManifestSha[32] = {
-  0x7b, 0xd1, 0xad, 0xfc, 0xaa, 0x75, 0x84, 0xd4,
-  0x66, 0x32, 0x0d, 0xf1, 0xc1, 0x39, 0x12, 0xd8,
-  0xf2, 0xf8, 0x06, 0x50, 0x22, 0x9f, 0x72, 0x99,
-  0xe5, 0x30, 0x1a, 0x50, 0x13, 0xc9, 0xb0, 0xa2,
+  0x6d, 0xc8, 0x83, 0x46, 0x35, 0x5a, 0x0b, 0xec,
+  0x7f, 0xfe, 0xd3, 0x6e, 0x3c, 0x5c, 0x29, 0x6d,
+  0x35, 0xe7, 0x6e, 0xa1, 0x7c, 0x44, 0xfb, 0x1c,
+  0xdc, 0xe8, 0xe6, 0x13, 0xd2, 0x05, 0x5f, 0xbd,
 };
 
 static const uint8_t kRideManifestSha[32] = {
@@ -163,10 +163,10 @@ static int check_saber_assets(const MmxSaberAssets *assets) {
     1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
   };
   static const uint16_t step_counts[] = {
-    15, 15, 18, 9, 10, 15, 9, 7, 7, 9, 8, 9, 4, 5
+    15, 15, 18, 9, 10, 15, 9, 6, 6, 9, 8, 9, 4, 5
   };
   static const uint16_t total_ticks[] = {
-    30, 30, 39, 18, 20, 30, 18, 14, 14, 18, 16, 18, 8, 10
+    30, 30, 39, 18, 20, 30, 18, 12, 12, 18, 16, 18, 8, 10
   };
   static const uint16_t special_ids[] = {8, 9, 10, 11, 12, 13, 14};
   size_t i;
@@ -195,8 +195,8 @@ static int check_saber_assets(const MmxSaberAssets *assets) {
       return fail("Saber animation table changed");
   }
 
-  if (total_steps != 140)
-    return fail("Saber step count is not 140");
+  if (total_steps != 138)
+    return fail("Saber step count is not 138");
 
   if (!check_frame(assets, 1, 0, 46, 44, 37, 44,
                    "ground slash 1 anchor changed") ||

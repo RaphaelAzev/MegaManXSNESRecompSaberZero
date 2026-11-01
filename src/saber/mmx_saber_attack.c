@@ -379,11 +379,14 @@ static uint16_t uppercut_jump_velocity(void) {
 }
 
 static void scale_uppercut_jump(uint8_t *ram) {
-  if (!ram || state.kind != SABER_KIND_UPPERCUT || state.tick != 0 ||
+  enum { uppercut_takeoff_tick = 4 };
+  if (!ram || state.kind != SABER_KIND_UPPERCUT ||
+      state.tick != uppercut_takeoff_tick ||
       ram[0x0baa] != 0x06 || word(ram + 0x0bc4) != 0x0553)
     return;
-  /* Native jump initialization has completed.  This write persists in RAM
-   * through the next frame's native gravity update; tick makes it save-safe. */
+  /* Native jump initialization has completed. This write persists in RAM
+   * through the next frame's native gravity update; takeoff tick makes it
+   * save-safe. */
   putword(ram + 0x0bc4, uppercut_jump_velocity());
 }
 
@@ -744,8 +747,8 @@ static uint8_t animation_step_for_tick(uint8_t animation, uint8_t tick) {
     return MmxSaberThrustAnimationStepForTick(tick);
   if (animation == 3 && tick >= 30)
     return (uint8_t)(15 + (tick - 30) / 3);
-  if (animation == 8 && tick >= 14)
-    return 6;
+  if (animation == 8 && tick >= 10)
+    return 5;
   return (uint8_t)(tick / 2);
 }
 
@@ -1443,7 +1446,7 @@ void MmxSaberAttackPlayerEnd(uint8_t *ram) {
   movement_accepted = native_movement_accepted(ram);
   uppercut_jump_refused = native_observation_valid &&
       native_attack_kind == SABER_KIND_UPPERCUT && native_grounded &&
-      state.phase != SABER_PHASE_IDLE && state.tick == 1 &&
+      state.phase != SABER_PHASE_IDLE && state.tick == 4 &&
       ram[0x0baa] != 0x06;
   clear_native_observation();
   grounded = player_grounded(ram);
@@ -1469,6 +1472,7 @@ void MmxSaberAttackPlayerEnd(uint8_t *ram) {
                  state.kind == SABER_KIND_ROLLING ||
                  state.kind == SABER_KIND_UPPERCUT ||
                  state.kind == SABER_KIND_THRUST) &&
+      (state.kind != SABER_KIND_UPPERCUT || state.tick >= 4) &&
       state.phase != SABER_PHASE_IDLE) {
     MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_LANDING);
     return;

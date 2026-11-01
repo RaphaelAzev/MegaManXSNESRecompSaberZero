@@ -38,12 +38,15 @@ static bool slashing(const MmxSaberPadSaber *saber) {
 
 void MmxSaberApplyUppercutJump(MmxSaberNativePad *native,
                                MmxSaberPadSaber saber, bool y_held) {
+  enum { uppercut_takeoff_tick = 4 };
   if (saber.kind != SABER_KIND_UPPERCUT ||
       saber.phase == SABER_PHASE_IDLE || !y_held)
     return;
+  /* Animation 8 holds grounded steps 0 and 1. Step 2 starts at tick 4. */
+  if (saber.tick < uppercut_takeoff_tick) return;
   native->action_held =
       (uint8_t)(native->action_held | MMX_SABER_NATIVE_JUMP_BIT);
-  if (saber.tick == 0)
+  if (saber.tick == uppercut_takeoff_tick)
     native->action_pressed =
         (uint8_t)(native->action_pressed | MMX_SABER_NATIVE_JUMP_BIT);
 }

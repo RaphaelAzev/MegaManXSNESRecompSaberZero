@@ -333,8 +333,8 @@ class SaberConverterTests(unittest.TestCase):
 
         frames_by_id = {frame["id"]: frame for frame in manifest["frames"]}
         expected_special_animations = {
-            8: (8, list(range(1092, 1099))),
-            9: (9, list(range(1099, 1106))),
+            8: (8, list(range(1092, 1098))),
+            9: (9, list(range(1099, 1105))),
             10: (10, list(range(1106, 1115))),
             11: (11, list(range(1115, 1123))),
             12: (12, list(range(1123, 1132))),
@@ -566,7 +566,7 @@ class SaberConverterTests(unittest.TestCase):
         self.assertEqual(source_count, len(manifest["sources"]))
         self.assertEqual(palette_count, 40)
         self.assertEqual(animation_count, 14)
-        self.assertEqual(step_count, 140)
+        self.assertEqual(step_count, 138)  # uppercut step 6 dropped from animations 8 and 9
         self.assertEqual(frame_count, 140)
         section = 112 + source_count * 36
         section += palette_count * 2

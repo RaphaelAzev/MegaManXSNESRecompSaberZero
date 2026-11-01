@@ -47,10 +47,10 @@ const uint16_t *MmxZeroBodyColors(const MmxZeroState *s) {
 }
 
 static const uint8_t kSaberManifestSha[32] = {
-  0x7b, 0xd1, 0xad, 0xfc, 0xaa, 0x75, 0x84, 0xd4,
-  0x66, 0x32, 0x0d, 0xf1, 0xc1, 0x39, 0x12, 0xd8,
-  0xf2, 0xf8, 0x06, 0x50, 0x22, 0x9f, 0x72, 0x99,
-  0xe5, 0x30, 0x1a, 0x50, 0x13, 0xc9, 0xb0, 0xa2,
+  0x6d, 0xc8, 0x83, 0x46, 0x35, 0x5a, 0x0b, 0xec,
+  0x7f, 0xfe, 0xd3, 0x6e, 0x3c, 0x5c, 0x29, 0x6d,
+  0x35, 0xe7, 0x6e, 0xa1, 0x7c, 0x44, 0xfb, 0x1c,
+  0xdc, 0xe8, 0xe6, 0x13, 0xd2, 0x05, 0x5f, 0xbd,
 };
 
 static const uint8_t kRideManifestSha[32] = {
@@ -851,10 +851,10 @@ static void special_render_checks(const MmxSaberAssets *assets) {
   uint8_t rolling_step_one_tick = 0;
 
   check(upper && upper_arc && rolling && rolling_arc && crescent &&
-            upper->step_count == 7 && upper_arc->step_count == 7 &&
+            upper->step_count == 6 && upper_arc->step_count == 6 &&
             rolling->step_count == 9 && rolling_arc->step_count == 8 &&
             crescent->step_count == 9,
-        "production asset exposes complete uppercut and rolling pairing animations");
+        "production asset exposes six-step uppercut and rolling pairing animations");
   check(thrust && thrust_fx && thrust->step_count == 4 &&
             thrust_fx->step_count == 5,
         "production asset exposes shortened thrust body and streak pairing animations");
@@ -889,6 +889,22 @@ static void special_render_checks(const MmxSaberAssets *assets) {
               actual.palette_count == raw_palette_count && !actual.facing_left,
           "production edit resolve_snapshot pairs animation 8 body with animation 9 arc at layer 2");
     tick = (uint16_t)(tick + timing->duration_ticks);
+  }
+
+  {
+    const MmxSaberFrame *final_body =
+        MmxSaberAssetsFrameForStep(assets, 8, 5);
+    const MmxSaberFrame *final_arc =
+        MmxSaberAssetsFrameForStep(assets, 9, 5);
+    MmxSaberAttackSnapshot snapshot = {
+      SABER_KIND_UPPERCUT, 0, SABER_PHASE_ACTIVE, 29, 8, 5, 0x40};
+
+    check(final_body && final_arc &&
+              MmxSaberRenderResolveSnapshot(assets, snapshot, &actual) &&
+              check_plane(&actual.body, &final_body->body) &&
+              check_plane(&actual.blade, &final_arc->body) &&
+              actual.blade_layer == 2,
+          "uppercut render holds body and arc step 5 after step 6 is removed");
   }
 
   tick = 0;
@@ -1227,6 +1243,7 @@ static void projectile_provider_checks(const MmxSaberWave *wave) {
 static void uppercut_attack_checks(void) {
   uint8_t ram[0x20000] = {0};
   MmxSaberAttackSnapshot snapshot;
+  bool steps_ok = true;
   const MmxSaberAttack *attack =
       MmxSaberAttackRecord(SABER_KIND_UPPERCUT, 0);
 
@@ -1240,13 +1257,18 @@ static void uppercut_attack_checks(void) {
   MmxSaberAttackResetRam(ram);
   MmxSaberAttackStepWithWallAndDash(
       true, true, false, false, true, false, true, false, true, ram, 0, 0);
-  for (unsigned i = 0; i < 14; ++i)
+  for (unsigned i = 0; i < attack->total_ticks; ++i) {
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (snapshot.kind != SABER_KIND_UPPERCUT || snapshot.anim_step > 5)
+      steps_ok = false;
+    if (i + 1 == attack->total_ticks) break;
     MmxSaberAttackStepWithWallAndDash(
         false, true, false, false, true, false, true, false, true, ram, 0, 0);
-  snapshot = MmxSaberAttackSnapshotGet();
-  check(snapshot.kind == SABER_KIND_UPPERCUT && snapshot.tick == 14 &&
-            snapshot.phase == SABER_PHASE_ACTIVE && snapshot.anim_step == 6,
-        "uppercut holds animation 8 final frame after seven two-tick frames");
+  }
+  check(steps_ok && snapshot.kind == SABER_KIND_UPPERCUT &&
+            snapshot.tick == 29 && snapshot.phase == SABER_PHASE_ACTIVE &&
+            snapshot.anim_step == 5,
+        "uppercut never shows animation 8 step 6 and holds step 5 through tick 29");
 
   MmxSaberAttackResetRam(ram);
   MmxSaberAttackStepWithWallAndDash(
@@ -1286,6 +1308,17 @@ static void uppercut_attack_checks(void) {
   ram[0x0baa] = 0;
   MmxSaberAttackPlayerEnd(ram);
 
+  /* Steps 0-1 stay grounded; take-off is tick 4.  A native refusal of the
+   * jump is only judged on the take-off tick. */
+  for (unsigned t = 1; t < 4; ++t) {
+    MmxSaberAttackStepWithWallAndDash(
+        false, true, false, false, true, false, true, false, true, ram, 0, 0);
+    MmxSaberAttackObservePreNative(ram);
+    ram[0x0baa] = 0;
+    MmxSaberAttackPlayerEnd(ram);
+  }
+  check(MmxSaberAttackSnapshotGet().phase != SABER_PHASE_IDLE,
+        "uppercut stays live on the ground before take-off");
   MmxSaberAttackStepWithWallAndDash(
       false, true, false, false, true, false, true, false, true, ram, 0, 0);
   MmxSaberAttackObservePreNative(ram);
@@ -1293,7 +1326,7 @@ static void uppercut_attack_checks(void) {
   MmxSaberAttackPlayerEnd(ram);
   check(MmxSaberAttackSnapshotGet().phase == SABER_PHASE_IDLE &&
             MmxSaberAttackLastExitReason() == MMX_SABER_ATTACK_EXIT_CONTEXT,
-        "uppercut refused native action 6 exits with context after two frames");
+        "uppercut refused native action 6 exits with context on the take-off tick");
 }
 
 static unsigned render_test_saber_slot(const uint8_t *ram) {

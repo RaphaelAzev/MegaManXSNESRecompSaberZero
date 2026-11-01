@@ -112,10 +112,10 @@ static const char *const kMmxRomDigest =
     "b8f70a6e7fb93819f79693578887e2c11e196bdf1ac6ddc7cb924b1ad0be2d32";
 
 static const uint8_t kSaberManifestSha[32] = {
-  0x7b, 0xd1, 0xad, 0xfc, 0xaa, 0x75, 0x84, 0xd4,
-  0x66, 0x32, 0x0d, 0xf1, 0xc1, 0x39, 0x12, 0xd8,
-  0xf2, 0xf8, 0x06, 0x50, 0x22, 0x9f, 0x72, 0x99,
-  0xe5, 0x30, 0x1a, 0x50, 0x13, 0xc9, 0xb0, 0xa2,
+  0x6d, 0xc8, 0x83, 0x46, 0x35, 0x5a, 0x0b, 0xec,
+  0x7f, 0xfe, 0xd3, 0x6e, 0x3c, 0x5c, 0x29, 0x6d,
+  0x35, 0xe7, 0x6e, 0xa1, 0x7c, 0x44, 0xfb, 0x1c,
+  0xdc, 0xe8, 0xe6, 0x13, 0xd2, 0x05, 0x5f, 0xbd,
 };
 
 static const uint8_t kRideManifestSha[32] = {
@@ -11179,6 +11179,8 @@ static void saber_specials_unlock_checks(const char *x1_rom,
 
 enum {
   SABER_UPPERCUT_ARC_CAPACITY = 96,
+  SABER_UPPERCUT_TAKEOFF_TICK = 4,
+  SABER_UPPERCUT_SCALED_VY = 0x0612,
   SABER_UPPERCUT_DASH_FRAMES = 10,
 };
 
@@ -11297,6 +11299,66 @@ static SaberUppercutArc saber_uppercut_arc(const char *path,
   return arc;
 }
 
+typedef struct SaberUppercutTiming {
+  unsigned early_samples;
+  bool early_grounded;
+  bool early_y_unchanged;
+  bool takeoff_seen;
+  uint8_t takeoff_tick;
+  uint16_t takeoff_vy;
+} SaberUppercutTiming;
+
+static SaberUppercutTiming saber_uppercut_timing(const char *path) {
+  SaberUppercutTiming timing = {0, true, true, false, 0, 0};
+
+  saber_specials_uppercut_load(path, 2);
+  const unsigned initial_y = read_ram_word(g_ram, 0x0bb0);
+  for (unsigned frame_number = 1; frame_number < 16; ++frame_number) {
+    const unsigned input = SNES_PAD_Y |
+        (frame_number == 1 ? SNES_PAD_UP : 0);
+    MmxSaberAttackSnapshot snapshot;
+    unsigned y;
+    uint16_t vy;
+
+    frame(input);
+    snapshot = MmxSaberAttackSnapshotGet();
+    y = read_ram_word(g_ram, 0x0bb0);
+    vy = (uint16_t)read_ram_word(g_ram, 0x0bc4);
+    if (snapshot.kind != SABER_KIND_UPPERCUT) continue;
+    if (snapshot.tick < SABER_UPPERCUT_TAKEOFF_TICK) {
+      ++timing.early_samples;
+      timing.early_grounded &= saber_test_grounded();
+      timing.early_y_unchanged &= y == initial_y;
+    }
+    if (!timing.takeoff_seen && vy == SABER_UPPERCUT_SCALED_VY) {
+      timing.takeoff_seen = true;
+      timing.takeoff_tick = snapshot.tick;
+      timing.takeoff_vy = vy;
+    }
+    if (snapshot.tick >= SABER_UPPERCUT_TAKEOFF_TICK &&
+        timing.takeoff_seen)
+      break;
+  }
+  return timing;
+}
+
+static bool saber_uppercut_cancel_timing(MmxSaberAttackSnapshot snapshot) {
+  const unsigned initial_y = read_ram_word(g_ram, 0x0bb0);
+  bool ok = snapshot.kind == SABER_KIND_UPPERCUT && snapshot.tick == 0 &&
+      saber_test_grounded();
+
+  for (unsigned i = 0; i < SABER_UPPERCUT_TAKEOFF_TICK; ++i) {
+    frame(SNES_PAD_Y);
+    snapshot = MmxSaberAttackSnapshotGet();
+    if (snapshot.tick < SABER_UPPERCUT_TAKEOFF_TICK)
+      ok &= snapshot.kind == SABER_KIND_UPPERCUT &&
+          saber_test_grounded() && read_ram_word(g_ram, 0x0bb0) == initial_y;
+  }
+  return ok && snapshot.kind == SABER_KIND_UPPERCUT &&
+      snapshot.tick == SABER_UPPERCUT_TAKEOFF_TICK &&
+      read_ram_word(g_ram, 0x0bc4) == SABER_UPPERCUT_SCALED_VY;
+}
+
 static unsigned saber_uppercut_dash_trace(
     const char *path, bool uppercut, SaberDashSample samples[],
     unsigned *start_x, int *travel) {
@@ -11320,7 +11382,13 @@ static unsigned saber_uppercut_dash_trace(
                 snapshot.phase != SABER_PHASE_IDLE,
             "saber-uppercut dash frame selects the uppercut owner");
     }
-    if (saber_test_grounded()) all_airborne = false;
+    if (uppercut) {
+      /* The cancel owns four grounded ticks before the injected jump. */
+      if (i >= SABER_UPPERCUT_TAKEOFF_TICK && saber_test_grounded())
+        all_airborne = false;
+    } else if (saber_test_grounded()) {
+      all_airborne = false;
+    }
   }
   *travel = (int)samples[SABER_UPPERCUT_DASH_FRAMES - 1].x -
       (int)*start_x;
@@ -11380,6 +11448,38 @@ static void saber_uppercut_checks(const char *fixture_dir) {
         "saber-uppercut capsule fixture path fits");
   check(readable_file(capsule), "saber-uppercut capsule fixture exists");
 
+  /* Mutation red: restore tick-0 jump injection or tick-0 VY scaling. */
+  const SaberUppercutTiming timing = saber_uppercut_timing(capsule);
+  check(timing.early_samples == SABER_UPPERCUT_TAKEOFF_TICK &&
+            timing.early_grounded && timing.early_y_unchanged,
+        "uppercut steps 0 and 1 keep Zero grounded at the initial Y");
+  check(timing.takeoff_seen &&
+            timing.takeoff_tick == SABER_UPPERCUT_TAKEOFF_TICK &&
+            timing.takeoff_vy == SABER_UPPERCUT_SCALED_VY,
+        "uppercut first scaled VY starts on animation step 2 tick 4");
+
+  /* Mutation red: restore jump injection before step 2. */
+  saber_specials_uppercut_load(capsule, 2);
+  const unsigned release_y = read_ram_word(g_ram, 0x0bb0);
+  frame(SNES_PAD_UP | SNES_PAD_Y);
+  frame(SNES_PAD_Y);
+  frame(SNES_PAD_Y);
+  frame(0);
+  check(MmxSaberAttackSnapshotGet().phase == SABER_PHASE_IDLE &&
+            MmxSaberAttackLastExitReason() == MMX_SABER_ATTACK_EXIT_RELEASE &&
+            saber_test_grounded() && read_ram_word(g_ram, 0x0bb0) == release_y,
+        "releasing Y during uppercut step 1 ends uppercut while grounded");
+
+  /* Mutation red: restore immediate jump on the GROUND3 and dash cancel
+   * routes. */
+  MmxSaberAttackSnapshot snapshot =
+      saber_specials_ground_up_y(capsule, 2, 2);
+  check(saber_uppercut_cancel_timing(snapshot),
+        "GROUND3 cancel uppercut keeps step 0-1 grounded before tick 4 takeoff");
+  snapshot = saber_specials_dash_up_y(capsule, 2, true);
+  check(saber_uppercut_cancel_timing(snapshot),
+        "dash cancel uppercut keeps step 0-1 grounded before tick 4 takeoff");
+
   /* Mutation red: ignore uppercut_height or scale VY after native gravity. */
   saber_specials_uppercut_load(capsule, 2);
   check(saber_test_grounded(),
@@ -11408,18 +11508,23 @@ static void saber_uppercut_checks(const char *fixture_dir) {
       saber_uppercut_min_y_frame(height_100_held.y, height_100_held.count);
   saber_uppercut_print_y("uppercut-100-held", height_100_held.y,
                          height_100_held.count);
-  check(native_held_count != 0 && height_100_held.count == native_held_count &&
+  check(native_held_count != 0 &&
+            height_100_held.count ==
+                native_held_count + SABER_UPPERCUT_TAKEOFF_TICK &&
             native_held[0] == height_100_held.y[0] &&
-            saber_uppercut_y_match(native_held, height_100_held.y,
+            saber_uppercut_y_match(native_held,
+                                   height_100_held.y +
+                                       SABER_UPPERCUT_TAKEOFF_TICK,
                                    native_held_apex) &&
             native_held[native_held_apex] ==
                 height_100_held.y[height_100_apex],
-        "uppercut_height=100 keeps the native B-held arc byte-identical");
+        "uppercut_height=100 keeps native B-held motion after four grounded ticks");
 
   /* Mutation red: ignore uppercut Y release and keep the full jump hold. */
   const unsigned native_short_count =
       saber_uppercut_record_jump_arc(capsule, true, native_short);
-  height_100_short = saber_uppercut_arc(capsule, 6);
+  height_100_short = saber_uppercut_arc(
+      capsule, SABER_UPPERCUT_TAKEOFF_TICK + 6);
   const unsigned native_short_apex =
       saber_uppercut_min_y_frame(native_short, native_short_count);
   const unsigned height_100_short_apex =
@@ -11430,11 +11535,14 @@ static void saber_uppercut_checks(const char *fixture_dir) {
   const unsigned short_height =
       native_short[0] - native_short[native_short_apex];
   check(native_short_count != 0 &&
-            height_100_short.count == native_short_count &&
+            height_100_short.count ==
+                native_short_count + SABER_UPPERCUT_TAKEOFF_TICK &&
             native_short[0] == height_100_short.y[0] &&
-            saber_uppercut_y_match(native_short, height_100_short.y,
+            saber_uppercut_y_match(native_short,
+                                   height_100_short.y +
+                                       SABER_UPPERCUT_TAKEOFF_TICK,
                                    native_short_apex),
-        "uppercut_height=100 release at frame 6 matches native short-hop arc");
+        "uppercut_height=100 release after takeoff matches native short-hop arc");
   check(short_height < native_height &&
             height_100_short.y[height_100_short_apex] ==
                 native_short[native_short_apex],
@@ -11461,13 +11569,17 @@ static void saber_uppercut_checks(const char *fixture_dir) {
   const unsigned uppercut_dash_count = saber_uppercut_dash_trace(
       capsule, true, uppercut_dash, &uppercut_dash_start_x,
       &uppercut_dash_travel);
-  bool dash_motion_equal = true;
-  for (unsigned i = 0; i < SABER_UPPERCUT_DASH_FRAMES; ++i) {
-    const int native_x = (int)native_dash[i].x - (int)native_dash_start_x;
-    const int uppercut_x =
-        (int)uppercut_dash[i].x - (int)uppercut_dash_start_x;
-    if (native_dash[i].vx != uppercut_dash[i].vx || native_x != uppercut_x)
-      dash_motion_equal = false;
+  /* Delayed take-off: the uppercut keeps the native dash VX on its grounded
+   * steps (ticks 0-3), stalls on the take-off tick like a native dash-jump's
+   * first frame, keeps the dash VX in the air, and travels as far as the
+   * native dash-jump over the same frames. */
+  const unsigned native_dash_vx = native_dash[1].vx;
+  bool dash_motion_equal = native_dash_vx != 0 &&
+      uppercut_dash_travel == native_dash_travel &&
+      uppercut_dash[SABER_UPPERCUT_TAKEOFF_TICK].vx == native_dash[0].vx;
+  for (unsigned i = 0; i + 1 < SABER_UPPERCUT_DASH_FRAMES; ++i) {
+    if (i == SABER_UPPERCUT_TAKEOFF_TICK) continue;
+    if (uppercut_dash[i].vx != native_dash_vx) dash_motion_equal = false;
   }
   const unsigned standing_count = saber_uppercut_standing_trace(
       capsule, standing, &standing_start_x, &standing_travel);
@@ -11478,7 +11590,7 @@ static void saber_uppercut_checks(const char *fixture_dir) {
             uppercut_dash_count == SABER_UPPERCUT_DASH_FRAMES &&
             standing_count == SABER_UPPERCUT_DASH_FRAMES &&
             dash_motion_equal,
-        "dash uppercut preserves native dash VX and X for ten airborne frames");
+        "dash uppercut preserves native dash VX and X through delayed takeoff");
   check(native_dash_travel > standing_travel &&
             uppercut_dash_travel > standing_travel,
         "native and uppercut dash jumps travel farther than a standing Right jump");

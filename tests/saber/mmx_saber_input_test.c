@@ -637,21 +637,45 @@ static void check_uppercut_jump_mapping(void) {
   }
 
   MmxSaberApplyUppercutJump(&out.native, uppercut, true);
-  if ((out.native.action_held & MMX_SABER_NATIVE_JUMP_BIT) == 0 ||
-      (out.native.action_pressed & MMX_SABER_NATIVE_JUMP_BIT) == 0) {
-    printf("FAIL: uppercut start injects native jump held+pressed\n");
+  if ((out.native.action_held & MMX_SABER_NATIVE_JUMP_BIT) != 0 ||
+      (out.native.action_pressed & MMX_SABER_NATIVE_JUMP_BIT) != 0) {
+    printf("FAIL: uppercut steps 0-1 inject native jump\n");
     ++failures;
   } else {
-    printf("ok: uppercut start injects native jump held+pressed\n");
+    printf("ok: uppercut steps 0-1 leave native jump clear\n");
   }
 
-  uppercut.tick = 1;
+  uppercut.tick = 2;
+  out = MmxSaberComputePad(physical_pad(false, true, true, true), mapped,
+                           uppercut, zero);
+  MmxSaberApplyUppercutJump(&out.native, uppercut, true);
+  if ((out.native.action_held & MMX_SABER_NATIVE_JUMP_BIT) != 0 ||
+      (out.native.action_pressed & MMX_SABER_NATIVE_JUMP_BIT) != 0) {
+    printf("FAIL: uppercut step 1 injects native jump\n");
+    ++failures;
+  } else {
+    printf("ok: uppercut step 1 leaves native jump clear\n");
+  }
+
+  uppercut.tick = 4;
+  out = MmxSaberComputePad(physical_pad(false, true, true, true), mapped,
+                           uppercut, zero);
+  MmxSaberApplyUppercutJump(&out.native, uppercut, true);
+  if ((out.native.action_held & MMX_SABER_NATIVE_JUMP_BIT) == 0 ||
+      (out.native.action_pressed & MMX_SABER_NATIVE_JUMP_BIT) == 0) {
+    printf("FAIL: uppercut step 2 misses native jump held+pressed\n");
+    ++failures;
+  } else {
+    printf("ok: uppercut step 2 injects native jump held+pressed\n");
+  }
+
+  uppercut.tick = 5;
   out = MmxSaberComputePad(physical_pad(false, true, true, true), mapped,
                            uppercut, zero);
   MmxSaberApplyUppercutJump(&out.native, uppercut, true);
   if ((out.native.action_held & MMX_SABER_NATIVE_JUMP_BIT) == 0 ||
       (out.native.action_pressed & MMX_SABER_NATIVE_JUMP_BIT) != 0) {
-    printf("FAIL: uppercut held Y injects only native jump held\n");
+    printf("FAIL: uppercut held Y repeats native jump press\n");
     ++failures;
   } else {
     printf("ok: uppercut held Y injects only native jump held\n");
