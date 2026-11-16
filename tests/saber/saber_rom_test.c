@@ -5313,12 +5313,24 @@ static void saber_finisher_checks(const char *fixture) {
   saber_finisher_no_emission_checks(fixture);
   puts("ok: saber-finisher");
 }
+
+static void seed_start_weapon_words(void) {
+  for (unsigned weapon = 1; weapon <= 8; ++weapon)
+    write_ram_word(g_ram, 0x1f85 + 2 * weapon,
+                   0x8000u | weapon * 0x0200u | weapon * 3u);
+}
+
 static void saber_armor_checks(const char *fixture) {
   const char *package = "megaman-x.character.saber-zero";
   const char *feature = "saber-zero";
   MmxSaberArmorFlags flags;
   const uint16_t *native;
   const uint16_t *replacement;
+  uint8_t weapon_before[16];
+  bool all_weapon_owned;
+  bool all_weapon_full;
+  bool all_weapon_words;
+  bool all_specials;
 
   check(g_mod_provider->feature_set_option(
             g_mod_provider->ctx, package, feature,
@@ -5380,6 +5392,68 @@ static void saber_armor_checks(const char *fixture) {
   replacement = MmxSaberBlackZeroNativeColorsHook(native);
   check(replacement && replacement[23] == 0x2D6B,
         "not-playable Zero frame keeps Black Zero native colours");
+
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, package, feature,
+            "start_all_weapons", "false"),
+        "test catalog disables start_all_weapons");
+  snes_mod_runtime_activate_plugins_c();
+  check(MmxSaberEnabled() && !MmxSaberTuningStartAllWeapons(),
+        "start_all_weapons off reactivation keeps Saber enabled");
+
+  load_fixture(fixture);
+  seed_start_weapon_words();
+  check((g_ram[0x1f88] & 0x40) == 0,
+        "start_all_weapons fixture begins with an unowned weapon");
+  memcpy(weapon_before, g_ram + 0x1f87, sizeof weapon_before);
+  MmxZeroHealthRespawn(g_ram);
+  frame(0);
+  check(!memcmp(weapon_before, g_ram + 0x1f87, sizeof weapon_before),
+        "start_all_weapons off leaves all weapon words byte-identical");
+
+  check(g_mod_provider->feature_set_option(
+            g_mod_provider->ctx, package, feature,
+            "start_all_weapons", "true"),
+        "test catalog enables start_all_weapons");
+  snes_mod_runtime_activate_plugins_c();
+  check(MmxSaberEnabled() && MmxSaberTuningStartAllWeapons(),
+        "start_all_weapons on reactivation keeps Saber enabled");
+
+  load_fixture(fixture);
+  seed_start_weapon_words();
+  MmxZeroHealthRespawn(g_ram);
+  frame(0);
+  all_weapon_owned = true;
+  all_weapon_full = true;
+  all_weapon_words = true;
+  for (unsigned weapon = 1; weapon <= 8; ++weapon) {
+    const unsigned offset = 0x1f85 + 2 * weapon;
+    const unsigned word = read_ram_word(g_ram, offset);
+    all_weapon_owned &= (g_ram[offset + 1] & 0x40) != 0;
+    all_weapon_full &= (word & 0x3fff) == 0x1c00;
+    all_weapon_words &= word == 0xdc00;
+  }
+  check(all_weapon_owned,
+        "start_all_weapons on sets bit $40 in all eight high bytes");
+  check(all_weapon_full,
+        "start_all_weapons on fills all eight usable energies to $1C00");
+  check(all_weapon_words,
+        "start_all_weapons on preserves the existing non-energy weapon flag");
+  all_specials = true;
+  for (unsigned move = 0; move < SABER_SPECIAL_COUNT; ++move)
+    all_specials &= MmxSaberSpecialBossDefeated(
+        g_ram, (MmxSaberSpecialMove)move);
+  check(all_specials,
+        "start_all_weapons on marks every special boss defeated");
+
+  load_fixture(fixture);
+  switch_to_x();
+  seed_start_weapon_words();
+  memcpy(weapon_before, g_ram + 0x1f87, sizeof weapon_before);
+  MmxZeroHealthRespawn(g_ram);
+  frame(0);
+  check(!memcmp(weapon_before, g_ram + 0x1f87, sizeof weapon_before),
+        "start_all_weapons on leaves weapon words unchanged for active X");
   puts("ok: saber-armor");
 }
 

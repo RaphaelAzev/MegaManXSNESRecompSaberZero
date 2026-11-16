@@ -29,3 +29,27 @@ void MmxSaberArmorApplyStageStart(uint8_t *ram) {
     return;
   ram[MMX_SABER_ARMOR_RAM_OFFSET] |= MMX_SABER_ARMOR_MASK;
 }
+
+void MmxSaberWeaponsApplyStageStart(uint8_t *ram) {
+  enum {
+    WEAPON_FIRST = 1,
+    WEAPON_LAST = 8,
+    WEAPON_RAM_BASE = 0x1f85,
+    WEAPON_ENERGY_MASK = 0x3fff,
+    WEAPON_FULL_ENERGY = 0x1c00,
+    WEAPON_OWNED_WORD_BIT = 0x4000,
+  };
+
+  if (!ram || !MmxSaberEnabled() || !MmxZeroActive() ||
+      !MmxSaberTuningStartAllWeapons())
+    return;
+  for (unsigned weapon = WEAPON_FIRST; weapon <= WEAPON_LAST; ++weapon) {
+    const unsigned offset = WEAPON_RAM_BASE + 2 * weapon;
+    uint16_t word = (uint16_t)(ram[offset] |
+                               (uint16_t)ram[offset + 1] << 8);
+    word = (uint16_t)((word & (uint16_t)~WEAPON_ENERGY_MASK) |
+                      WEAPON_FULL_ENERGY | WEAPON_OWNED_WORD_BIT);
+    ram[offset] = (uint8_t)word;
+    ram[offset + 1] = (uint8_t)(word >> 8);
+  }
+}

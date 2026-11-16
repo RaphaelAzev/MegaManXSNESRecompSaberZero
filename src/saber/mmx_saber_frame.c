@@ -107,6 +107,7 @@ static bool modern_movement(void) {
 static void reset_frame_state(uint8_t *ram, bool retire_attack_ram) {
   if (ram) frame_ram = ram;
   MmxSaberArmorApplyStageStart(ram);
+  MmxSaberWeaponsApplyStageStart(ram);
   MmxSaberHitboxDebugSetRam(ram);
   if (ram)
     MmxSaberAttackResetRam(ram);

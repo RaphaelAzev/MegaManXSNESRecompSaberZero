@@ -23,6 +23,10 @@ bool MmxSaberTuningStartAllUpgrades(void) {
   return test_start_all_upgrades;
 }
 
+bool MmxSaberTuningStartAllWeapons(void) {
+  return false;
+}
+
 static int failures;
 
 static void check(bool condition, const char *message) {

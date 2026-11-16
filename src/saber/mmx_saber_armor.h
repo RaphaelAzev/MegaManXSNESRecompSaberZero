@@ -33,6 +33,7 @@ static inline unsigned MmxSaberArmorDamageBonus(bool arms, bool boss) {
   return boss ? 1 : 2;
 }
 void MmxSaberArmorApplyStageStart(uint8_t *ram);
+void MmxSaberWeaponsApplyStageStart(uint8_t *ram);
 
 #ifdef __cplusplus
 }

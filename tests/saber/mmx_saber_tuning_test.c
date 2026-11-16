@@ -172,6 +172,7 @@ static void check_manifest_defaults(const char *program_path) {
     {"saber_swing_volume", tuning->saber_swing_volume, false},
     {"show_hitboxes", tuning->show_hitboxes ? 1 : 0, false},
     {"start_all_upgrades", tuning->start_all_upgrades ? 1 : 0, false},
+    {"start_all_weapons", tuning->start_all_weapons ? 1 : 0, false},
     {"special_moves", tuning->special_moves ? 1 : 0, false},
     {"weapon_techniques", tuning->weapon_techniques ? 1 : 0, false},
     {"unlock_special_moves", tuning->unlock_special_moves ? 1 : 0, false},
@@ -299,6 +300,8 @@ static void check_defaults(void) {
         "show_hitboxes defaults off");
   check(!tuning->start_all_upgrades && !MmxSaberTuningStartAllUpgrades(),
         "start_all_upgrades defaults off");
+  check(!tuning->start_all_weapons && !MmxSaberTuningStartAllWeapons(),
+        "start_all_weapons defaults off");
   /* Mutation red: remove or miswire the special_moves k_options entry in
    * src/saber/mmx_saber_tuning.c. */
   check(tuning->special_moves && MmxSaberTuningSpecialMoves(),
@@ -346,6 +349,7 @@ static void check_each_id_maps_to_field(void) {
     {"saber_swing_volume", "90"},
     {"show_hitboxes", "true"},
     {"start_all_upgrades", "true"},
+    {"start_all_weapons", "true"},
     {"special_moves", "false"},
     {"weapon_techniques", "0"},
     {"unlock_special_moves", "true"},
@@ -421,6 +425,9 @@ static void check_each_id_maps_to_field(void) {
   check(MmxSaberTuningGet()->start_all_upgrades &&
             MmxSaberTuningStartAllUpgrades(),
         "boolean start_all_upgrades option maps to its field");
+  check(MmxSaberTuningGet()->start_all_weapons &&
+            MmxSaberTuningStartAllWeapons(),
+        "boolean start_all_weapons option maps to its field");
   /* Mutation red: remove or miswire the special_moves k_options entry in
    * src/saber/mmx_saber_tuning.c. */
   check(!MmxSaberTuningGet()->special_moves &&
@@ -474,6 +481,7 @@ static void check_clamping_and_invalid_fallback(void) {
     {"rolling_slash_priority", "10"},
     {"thrust_priority", "10"},
     {"start_all_upgrades", "not-a-boolean"},
+    {"start_all_weapons", "not-a-boolean"},
     {"unlock_special_moves", "not-a-boolean"},
     {"crescent_effect", "not-a-boolean"},
     {"air_damage", "3x"},
@@ -545,6 +553,8 @@ static void check_clamping_and_invalid_fallback(void) {
         "invalid boolean falls back to show_hitboxes off");
   check(!MmxSaberTuningStartAllUpgrades(),
         "invalid boolean falls back to start_all_upgrades off");
+  check(!MmxSaberTuningStartAllWeapons(),
+        "invalid boolean falls back to start_all_weapons off");
   /* Mutation red: change the special_moves default or invalid-boolean path in
    * src/saber/mmx_saber_tuning.c. */
   check(MmxSaberTuningSpecialMoves(),
