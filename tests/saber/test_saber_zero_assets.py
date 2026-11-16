@@ -24,6 +24,7 @@ REQUIRED_ASSETS = (
     ASSET_ROOT / "sprites" / "Special_RollingSlash.png",
     ASSET_ROOT / "sprites" / "Special_RollingSlash_FX.png",
     ASSET_ROOT / "sprites" / "Special_Crescent_FX.png",
+    ASSET_ROOT / "sprites" / "Special_Enkoujin.png",
     ASSET_ROOT / "sprites" / "Special_DownThrust.png",
     ASSET_ROOT / "sprites" / "Special_DownThrust_FX.png",
     ASSET_ROOT / "sprites" / "ride_zero.png",

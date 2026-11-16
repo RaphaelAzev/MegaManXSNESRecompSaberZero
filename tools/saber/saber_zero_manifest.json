@@ -1,6 +1,7 @@
 {
   "format": "mmx-saber-manifest",
   "version": 1,
+  "alpha_threshold": 128,
   "sources": [
     {
       "id": 1,
@@ -76,6 +77,11 @@
       "id": 15,
       "file": "Special_Tornado.png",
       "sha256": "ad4fee229d81a2cd400cd123a96f6739dc2f07401ddc011fcafed6b98875e1e7"
+    },
+    {
+      "id": 16,
+      "file": "Special_Enkoujin.png",
+      "sha256": "25b242ef71d423f61b050370cb7eff1938f7f450cdf0796c8c3b8f91258acb71"
     }
   ],
   "frames": [
@@ -2509,6 +2515,108 @@
         ]
       },
       "source_frame": 2
+    },
+    {
+      "id": 1147,
+      "source": 16,
+      "body": {
+        "rect": [
+          30,
+          39,
+          46,
+          42
+        ],
+        "origin": [
+          31,
+          42
+        ]
+      },
+      "source_frame": 0
+    },
+    {
+      "id": 1148,
+      "source": 16,
+      "body": {
+        "rect": [
+          163,
+          25,
+          56,
+          61
+        ],
+        "origin": [
+          36,
+          28
+        ]
+      },
+      "source_frame": 1
+    },
+    {
+      "id": 1149,
+      "source": 16,
+      "body": {
+        "rect": [
+          300,
+          22,
+          43,
+          87
+        ],
+        "origin": [
+          45,
+          25
+        ]
+      },
+      "source_frame": 2
+    },
+    {
+      "id": 1150,
+      "source": 16,
+      "body": {
+        "rect": [
+          428,
+          21,
+          43,
+          85
+        ],
+        "origin": [
+          45,
+          24
+        ]
+      },
+      "source_frame": 3
+    },
+    {
+      "id": 1151,
+      "source": 16,
+      "body": {
+        "rect": [
+          556,
+          22,
+          42,
+          84
+        ],
+        "origin": [
+          45,
+          25
+        ]
+      },
+      "source_frame": 4
+    },
+    {
+      "id": 1152,
+      "source": 16,
+      "body": {
+        "rect": [
+          684,
+          21,
+          42,
+          84
+        ],
+        "origin": [
+          45,
+          24
+        ]
+      },
+      "source_frame": 5
     }
   ],
   "animations": [
@@ -3105,19 +3213,27 @@
       "facing_xor": 1,
       "steps": [
         {
-          "frame": 1132,
+          "frame": 1147,
           "ticks": 2
         },
         {
-          "frame": 1133,
+          "frame": 1148,
           "ticks": 2
         },
         {
-          "frame": 1134,
+          "frame": 1149,
           "ticks": 2
         },
         {
-          "frame": 1135,
+          "frame": 1150,
+          "ticks": 2
+        },
+        {
+          "frame": 1151,
+          "ticks": 2
+        },
+        {
+          "frame": 1152,
           "ticks": 2
         }
       ]

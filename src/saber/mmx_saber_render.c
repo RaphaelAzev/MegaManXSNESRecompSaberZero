@@ -338,16 +338,6 @@ static bool resolve_snapshot(const MmxSaberAssets *assets,
       clear_overlay(out);
       return false;
     }
-  } else if (snapshot.anim_id == 13) {
-    if (step_index) {
-      blade_frame = MmxSaberAssetsFrameForStep(
-          assets, 14, (uint16_t)(step_index - 1));
-      if (!blade_frame || !blade_frame->body.pixels ||
-          !blade_frame->body.width || !blade_frame->body.height) {
-        clear_overlay(out);
-        return false;
-      }
-    }
   } else if (snapshot.anim_id == 10) {
     if (step_index) {
       blade_frame = MmxSaberAssetsFrameForStep(assets, 11,

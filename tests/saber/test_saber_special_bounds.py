@@ -86,22 +86,18 @@ class SaberSpecialBoundsTests(unittest.TestCase):
                 fx_count = len(config["moves"][move]["fx"])
                 actual = c_table(source, table_name)
                 if move == "DownThrust":
-                    # DownThrust_FX starts on Zero step 1. The shortened body
-                    # uses fx0, fx1, then held fx2; every segment is at least
-                    # eight pixels wide.
-                    schedule = (
-                        (0, 2, 3),
-                        (1, 4, 5),
-                        (2, 6, 255),
-                    )
+                    # Enkoujin cells 0-5 use the flame-coloured connected
+                    # component, not Zero's opaque body. Cell 0 is startup
+                    # and has no active native record. These native tuples
+                    # are the measured cell 1-5 boxes for the first pass of
+                    # the 2-tick loop; later ticks reuse them by cell.
+                    fx_path = SPRITES / "Special_Enkoujin.png"
                     expected = [
-                        transformed(
-                            fx_box(fx_path, cell, art_index),
-                            first,
-                            last,
-                            minimum_half_width=8,
-                        )
-                        for art_index, first, last in schedule
+                        (2, 3, 18, -10, 9, 14),
+                        (4, 5, 14, 14, 10, 25),
+                        (6, 7, 13, 11, 10, 25),
+                        (8, 9, 13, 8, 9, 29),
+                        (10, 11, 13, 10, 9, 26),
                     ]
                 else:
                     expected = []

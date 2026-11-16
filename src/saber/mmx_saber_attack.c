@@ -75,10 +75,29 @@ static const MmxSaberBoundsSegment kRollingSlashBounds[] = {
     {14, 15, -13, -14, 23, 27},
     {16, 17, -4, -28, 27, 16}};
 
+/* One native AIR record per active Enkoujin cell. The tick fields describe the
+ * first pass; bounds_segment() maps later loop ticks by the cell on screen. */
 static const MmxSaberBoundsSegment kThrustBounds[] = {
-    {2, 3, 26, -12, 11, 7},
-    {4, 5, 18, 20, 8, 17},
-    {6, 255, 18, 20, 8, 17}};
+    {2, 3, 18, -10, 9, 14},
+    {4, 5, 14, 14, 10, 25},
+    {6, 7, 13, 11, 10, 25},
+    {8, 9, 13, 8, 9, 29},
+    {10, 11, 13, 10, 9, 26}};
+
+/* Keep frame-zero inert because the thrust is still in startup for ticks 0-1. */
+static const MmxSaberBoundsSegment kThrustFrameBounds[] = {
+    {0, 1, 0, 0, 0, 0},
+    {2, 3, 18, -10, 9, 14},
+    {4, 5, 14, 14, 10, 25},
+    {6, 7, 13, 11, 10, 25},
+    {8, 9, 13, 8, 9, 29},
+    {10, 11, 13, 10, 9, 26}};
+
+static const MmxSaberBoundsSegment *thrust_frame_bounds(uint8_t tick) {
+  const uint8_t step = MmxSaberThrustAnimationStepForTick(tick);
+  return step < sizeof(kThrustFrameBounds) / sizeof(kThrustFrameBounds[0]) ?
+      kThrustFrameBounds + step : kThrustFrameBounds;
+}
 
 /* Ported from old src/mmx_saber.c:260-400.  In particular, keep the numeric
  * timing values here independent of the ROM test's old-table oracle. */
@@ -785,7 +804,7 @@ static const MmxSaberAttack *next_ground_attack(
 
 uint8_t MmxSaberThrustAnimationStepForTick(uint8_t tick) {
   if (tick < 4) return (uint8_t)(tick / 2);
-  return (uint8_t)(2 + ((tick - 4) / 4) % 2);
+  return (uint8_t)(2 + ((tick - 4) / 2) % 4);
 }
 
 static uint8_t animation_step_for_tick(uint8_t animation, uint8_t tick) {
@@ -859,6 +878,14 @@ static void clear_attack(void) {
 static const MmxSaberBoundsSegment *bounds_segment(
     const MmxSaberAttack *attack, uint8_t tick, unsigned *index) {
   if (!attack || !attack->bounds_segments) return NULL;
+  if (attack->kind == SABER_KIND_THRUST) {
+    const uint8_t step = MmxSaberThrustAnimationStepForTick(tick);
+    if (step < 1 || (unsigned)step > attack->bounds_segment_count ||
+        step > MMX_SABER_MAX_ACTIVE_SEGMENTS)
+      return NULL;
+    if (index) *index = step - 1;
+    return attack->bounds_segments + step - 1;
+  }
   for (unsigned i = 0; i < attack->bounds_segment_count &&
                        i < MMX_SABER_MAX_ACTIVE_SEGMENTS; ++i) {
     const MmxSaberBoundsSegment *segment = attack->bounds_segments + i;
@@ -894,6 +921,21 @@ static void bounds_records_for_window(uint8_t out[40], uint16_t window_pointer) 
     if (shared_air_special(attack) && attack != active_special) continue;
     if (attack->bounds_pointer < window_pointer ||
         attack->bounds_pointer >= window_pointer + 40) continue;
+    if (attack->kind == SABER_KIND_THRUST && attack == active_special) {
+      const MmxSaberBoundsSegment *segment = thrust_frame_bounds(state.tick);
+      const uint16_t pointer = bounds_pointer(attack, state.tick);
+      if (pointer >= window_pointer && pointer < window_pointer + 40) {
+        const unsigned record = (pointer - window_pointer) / 4;
+        const unsigned offset = record * 4;
+        if (record < 10) {
+          out[offset] = (uint8_t)segment->bounds_x;
+          out[offset + 1] = (uint8_t)segment->bounds_y;
+          out[offset + 2] = segment->bounds_half_width;
+          out[offset + 3] = segment->bounds_half_height;
+        }
+      }
+      continue;
+    }
     unsigned record = (attack->bounds_pointer - window_pointer) / 4;
     for (unsigned segment_index = 0;
          segment_index < attack->bounds_segment_count &&
