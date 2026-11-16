@@ -289,6 +289,12 @@ typedef struct MmxSaberAttackState {
   uint16_t hit_slots;
   uint8_t projectile_tag_generation;
   uint8_t projectile_swing_id;
+  uint8_t tornado_index;
+  uint16_t tornado_takeoff_x;
+  uint16_t tornado_takeoff_y;
+  bool tornado_takeoff_attempted;
+  bool tornado_spawn_pending;
+  bool tornado_spawned;
   uint8_t cue;
   bool cue_pending;
   bool previous_grounded;
@@ -709,6 +715,50 @@ static void release_current_projectile(uint8_t *ram) {
   state.hit_slots = 0;
 }
 
+static void release_tornado_growth(uint8_t *ram) {
+  if (!state.tornado_spawned) return;
+  MmxSaberProjectileSetTornadoUppercutLive(ram, state.tornado_index, false);
+}
+
+static void capture_tornado_takeoff(uint8_t *ram) {
+  enum { uppercut_takeoff_tick = 4 };
+  if (!ram || state.kind != SABER_KIND_UPPERCUT ||
+      state.tick != uppercut_takeoff_tick ||
+      state.tornado_takeoff_attempted)
+    return;
+  state.tornado_takeoff_attempted = true;
+  state.tornado_takeoff_x = (uint16_t)word(ram + 0x0bad);
+  state.tornado_takeoff_y = (uint16_t)word(ram + 0x0bb0);
+  state.tornado_spawn_pending = true;
+}
+
+static bool spawn_tornado(uint8_t *ram) {
+  MmxSaberProjectileSpawnInfo info = {0};
+  unsigned index = MMX_SABER_PROJECTILE_SLOT_COUNT;
+  const int takeoff_x = (int16_t)state.tornado_takeoff_x;
+  const int takeoff_y = (int16_t)state.tornado_takeoff_y;
+  const int tornado_x = takeoff_x +
+      (state.facing ? MMX_SABER_TORNADO_FRONT_X :
+                     -MMX_SABER_TORNADO_FRONT_X);
+
+  info.kind = SABER_PROJECTILE_TORNADO;
+  info.x = (int32_t)tornado_x * 256;
+  info.y = (int32_t)takeoff_y * 256;
+  info.lifetime = 90;
+  info.facing = state.facing;
+  info.native_weapon_class = 0x09;
+  info.damage_normal = (uint8_t)MmxSaberTuningNormalDamage(
+      MMX_SABER_TUNING_DAMAGE_TORNADO);
+  info.damage_boss = (uint8_t)MmxSaberTuningBossDamage(
+      MMX_SABER_TUNING_DAMAGE_TORNADO);
+  info.pass_through = true;
+  info.tornado_uppercut_live = true;
+  if (!MmxSaberProjectileSpawn(ram, &info, &index)) return false;
+  state.tornado_index = (uint8_t)index;
+  state.tornado_spawned = true;
+  return true;
+}
+
 static bool tick_in_window(uint8_t tick, uint8_t open, uint8_t close) {
   return open != MMX_SABER_NO_WINDOW && close != MMX_SABER_NO_WINDOW &&
       tick >= open && tick <= close;
@@ -795,6 +845,12 @@ static void clear_attack(void) {
   state.projectile = 0;
   state.projectile_tag_generation = 0;
   state.projectile_swing_id = 0;
+  state.tornado_index = 0;
+  state.tornado_takeoff_x = 0;
+  state.tornado_takeoff_y = 0;
+  state.tornado_takeoff_attempted = false;
+  state.tornado_spawn_pending = false;
+  state.tornado_spawned = false;
   state.hit_slots = 0;
   state.cue = MMX_SABER_SFX_ATTACK_COUNT;
   state.cue_pending = false;
@@ -967,6 +1023,7 @@ void MmxSaberAttackCollisionRom(uint8_t *rom, size_t size) {
   MmxSaberHitboxDebugSetRom(rom, size);
   collision_windows_refresh();
   MmxSaberWaveRuntimeCollisionRom(rom, size);
+  MmxSaberProjectileCollisionRom(rom, size);
 }
 
 static void collision_window_reset(MmxSaberCollisionWindow *window) {
@@ -1054,6 +1111,7 @@ void MmxSaberAttackExit(uint8_t *ram, MmxSaberAttackExitReason reason) {
   uint8_t *target = ram ? ram : runtime_ram;
   last_exit_reason = reason;
   if (target) runtime_ram = target;
+  release_tornado_growth(target);
   retire_all_tagged(target);
   clear_attack();
   clear_native_observation();
@@ -1078,6 +1136,12 @@ static void start_attack(const MmxSaberAttack *attack, uint8_t facing) {
   state.swing_id = swing_id;
   state.anim_id = attack->visual_animation;
   state.hit_slots = 0;
+  state.tornado_index = 0;
+  state.tornado_takeoff_x = 0;
+  state.tornado_takeoff_y = 0;
+  state.tornado_takeoff_attempted = false;
+  state.tornado_spawn_pending = false;
+  state.tornado_spawned = false;
   state.cue = attack_cue(attack);
   state.cue_pending = state.cue < MMX_SABER_SFX_ATTACK_COUNT;
   update_animation();
@@ -1201,6 +1265,7 @@ void MmxSaberAttackStepWithWallAndDashRequested(
   (void)jump_pressed;
 
   ++state.tick;
+  capture_tornado_takeoff(ram);
   if (state.tick >= attack->total_ticks) {
     MmxSaberAttackExit(runtime_ram, MMX_SABER_ATTACK_EXIT_NATURAL);
     return;
@@ -1306,6 +1371,9 @@ void MmxSaberAttackRuntimeTick(uint8_t *ram) {
   if (state.projectile && state.projectile_swing_id != state.swing_id)
     release_current_projectile(ram);
   if (!state.projectile && !allocate_projectile(ram, attack)) {
+    /* The uppercut's native jump must still be allowed when the eight-slot
+     * native pool is full. Its optional tornado simply cannot be allocated. */
+    if (attack->kind == SABER_KIND_UPPERCUT) return;
     MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_PROJECTILE);
     return;
   }
@@ -1436,6 +1504,7 @@ void MmxSaberAttackPlayerEnd(uint8_t *ram) {
   bool landed;
   bool movement_accepted;
   bool uppercut_jump_refused;
+  bool uppercut_takeoff_accepted;
   const MmxSaberAttack *attack;
 
   if (ram) runtime_ram = ram;
@@ -1448,7 +1517,11 @@ void MmxSaberAttackPlayerEnd(uint8_t *ram) {
       native_attack_kind == SABER_KIND_UPPERCUT && native_grounded &&
       state.phase != SABER_PHASE_IDLE && state.tick == 4 &&
       ram[0x0baa] != 0x06;
+  uppercut_takeoff_accepted = state.tornado_spawn_pending &&
+      native_observation_valid && native_attack_kind == SABER_KIND_UPPERCUT &&
+      native_grounded && state.tick == 4 && ram[0x0baa] == 0x06;
   clear_native_observation();
+  MmxSaberProjectileRefreshCollision(ram);
   grounded = player_grounded(ram);
   landed = state.previous_grounded_valid && !state.previous_grounded && grounded;
   state.previous_grounded = grounded;
@@ -1463,6 +1536,11 @@ void MmxSaberAttackPlayerEnd(uint8_t *ram) {
   if (uppercut_jump_refused) {
     MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
     return;
+  }
+
+  if (uppercut_takeoff_accepted) {
+    state.tornado_spawn_pending = false;
+    (void)spawn_tornado(ram);
   }
 
   /* Landing ends AIR, ROLLING, UPPERCUT, and THRUST owners immediately.  The

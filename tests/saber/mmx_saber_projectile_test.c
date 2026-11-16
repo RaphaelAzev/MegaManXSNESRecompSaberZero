@@ -8,6 +8,7 @@
 enum { TEST_RAM_BYTES = 0x20000 };
 
 static uint8_t ram[TEST_RAM_BYTES];
+static uint8_t collision_rom[0x40000];
 
 static unsigned read_word(const uint8_t *p) {
   return p[0] | ((unsigned)p[1] << 8);
@@ -362,6 +363,99 @@ static bool test_stage_and_view_retire(void) {
                "wave view margin retires offscreen projectile");
 }
 
+static bool test_tornado_growth_and_rise(void) {
+  MmxSaberProjectileSpawnInfo info = default_info();
+  const MmxSaberProjectile *projectile;
+  unsigned index;
+  unsigned slot;
+  unsigned height_at_birth;
+  unsigned height_after_rise;
+
+  prepare_ram();
+  memset(collision_rom, 0xff, sizeof(collision_rom));
+  MmxSaberProjectileCollisionRom(collision_rom, sizeof(collision_rom));
+  info.x = 140 * 256;
+  info.y = 100 * 256;
+  info.lifetime = 90;
+  info.native_weapon_class = 0x09;
+  info.damage_normal = 4;
+  info.damage_boss = 2;
+  info.pass_through = true;
+  info.tornado_uppercut_live = true;
+  ram[MMX_SABER_PROJECTILE_PLAYER_Y] = 80;
+  if (!check(MmxSaberProjectileSpawn(ram, &info, &index),
+             "uppercut tornado growth test spawns"))
+    return false;
+  slot = MmxSaberProjectileGet(index)->slot;
+  height_at_birth = MmxSaberProjectileVisibleHeight(ram, slot);
+  ram[MMX_SABER_PROJECTILE_PLAYER_Y] = 60;
+  MmxSaberProjectileRefreshCollision(ram);
+  if (!check(MmxSaberProjectileVisibleHeight(ram, slot) == 97 &&
+                 collision_rom[MmxSaberProjectileTornadoCollisionOffset(index) +
+                              3] == 49,
+             "tornado collision refresh follows Zero after native movement"))
+    return false;
+  MmxSaberProjectileTick(ram);
+  height_after_rise = MmxSaberProjectileVisibleHeight(ram, slot);
+  if (!check(height_at_birth == 77 && height_after_rise == 97,
+             "uppercut tornado grows from the fixed floor as Zero rises"))
+    return false;
+  if (!check(collision_rom[MmxSaberProjectileTornadoCollisionOffset(index) +
+                          1] == (uint8_t)-49 &&
+                 collision_rom[MmxSaberProjectileTornadoCollisionOffset(index) +
+                          2] == 10 &&
+                 collision_rom[MmxSaberProjectileTornadoCollisionOffset(index) +
+                          3] == 49,
+             "tornado collision record stays bottom-anchored with visible height"))
+    return false;
+  projectile = MmxSaberProjectileGet(index);
+  for (unsigned i = projectile->age; i < MMX_SABER_TORNADO_GROWTH_TICKS; ++i)
+    MmxSaberProjectileTick(ram);
+  projectile = MmxSaberProjectileGet(index);
+  if (!check(projectile->age == MMX_SABER_TORNADO_GROWTH_TICKS &&
+                 projectile->y == 100 * 256 &&
+                 MmxSaberProjectileVisibleHeight(ram, slot) ==
+                     MMX_SABER_TORNADO_HEIGHT,
+             "tornado reaches full height at growth age 10 before rising"))
+    return false;
+  MmxSaberProjectileTick(ram);
+  projectile = MmxSaberProjectileGet(index);
+  if (!check(projectile->age == MMX_SABER_TORNADO_GROWTH_TICKS + 1 &&
+                 projectile->y == 91 * 256,
+             "tornado bottom rises 9 pixels per tick after growth"))
+    return false;
+  MmxSaberProjectileSetTornadoUppercutLive(ram, index, false);
+  if (!check(MmxSaberProjectileVisibleHeight(ram, slot) ==
+                 MMX_SABER_TORNADO_HEIGHT,
+             "tornado keeps full height after uppercut ownership ends"))
+    return false;
+  MmxSaberProjectileCollisionRom(NULL, 0);
+  MmxSaberProjectileReset(ram);
+  return true;
+}
+
+static bool test_tornado_hit_mask(void) {
+  MmxSaberProjectileSpawnInfo info = default_info();
+  unsigned index;
+  unsigned slot;
+
+  prepare_ram();
+  info.damage_normal = 4;
+  info.damage_boss = 2;
+  info.pass_through = true;
+  info.native_weapon_class = 0x09;
+  if (!check(MmxSaberProjectileSpawn(ram, &info, &index),
+             "tornado hit-mask test spawns"))
+    return false;
+  slot = MmxSaberProjectileGet(index)->slot;
+  if (!check(MmxSaberProjectileDamage(ram, 0x0e68, slot, 1) == 4 &&
+                 MmxSaberProjectileDamage(ram, 0x0e68, slot, 1) == 0,
+             "pass-through tornado damages one enemy once"))
+    return false;
+  MmxSaberProjectileRetire(ram, index);
+  return true;
+}
+
 int main(void) {
   if (!test_spawn_publishes_slot()) return 1;
   if (!test_motion()) return 1;
@@ -371,5 +465,7 @@ int main(void) {
   if (!test_spawn_failure_is_clean()) return 1;
   if (!test_retire_all_isolated()) return 1;
   if (!test_stage_and_view_retire()) return 1;
+  if (!test_tornado_growth_and_rise()) return 1;
+  if (!test_tornado_hit_mask()) return 1;
   return 0;
 }

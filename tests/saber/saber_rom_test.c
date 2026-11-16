@@ -8806,10 +8806,10 @@ static void saber_projectile_dispatch_checks(const char *fixture) {
     frame(0);
     projectile = MmxSaberProjectileGet(index);
     check(MmxSaberProjectileOwns(g_ram, slot) && projectile->active &&
-              g_ram[slot + 0x0a] == 3 &&
+              g_ram[slot + 0x0a] == 0x09 &&
               (int16_t)read_ram_word(g_ram, slot + 5) == projectile->x / 256 &&
               (int16_t)read_ram_word(g_ram, slot + 8) == projectile->y / 256,
-          "saber-projectile-contact host Q8.8 position survives native weapon dispatch with Saber class 3");
+          "saber-projectile-contact host Q8.8 position survives native weapon dispatch with tornado class $09");
   }
   puts("ok: saber-projectile-contact/native-dispatch");
 }
@@ -11613,6 +11613,174 @@ static void saber_uppercut_checks(const char *fixture_dir) {
   puts("ok: saber-uppercut");
 }
 
+static unsigned saber_tornado_slot(void) {
+  for (unsigned d = MMX_SABER_PROJECTILE_SLOT_FIRST;
+       d < MMX_SABER_PROJECTILE_SLOT_END;
+       d += MMX_SABER_PROJECTILE_SLOT_BYTES) {
+    if (g_ram[d] && g_ram[d + 0x0a] == 0x09 &&
+        MmxSaberProjectileOwns(g_ram, d))
+      return d;
+  }
+  return 0;
+}
+
+static unsigned saber_tornado_start(const char *fixture, bool right,
+                                    unsigned *takeoff_x,
+                                    unsigned *takeoff_floor_y) {
+  saber_specials_uppercut_load(fixture, 0);
+  g_ram[0x0c11] = right ? 0x40 : 0;
+  g_ram[0x0bb9] = (uint8_t)((g_ram[0x0bb9] & (uint8_t)~0x40) |
+                            (right ? 0x40 : 0));
+  for (unsigned tick = 0; tick < SABER_UPPERCUT_TAKEOFF_TICK; ++tick) {
+    frame(tick == 0 ? SNES_PAD_UP | SNES_PAD_Y : SNES_PAD_Y);
+    check(MmxSaberAttackSnapshotGet().kind == SABER_KIND_UPPERCUT &&
+              !saber_tornado_slot(),
+          "tornado stays absent before uppercut take-off tick");
+  }
+  if (takeoff_x) *takeoff_x = read_ram_word(g_ram, 0x0bad);
+  if (takeoff_floor_y) *takeoff_floor_y = read_ram_word(g_ram, 0x0bb0);
+  frame(SNES_PAD_Y);
+  return saber_tornado_slot();
+}
+
+static void saber_tornado_checks(const char *fixture) {
+  unsigned takeoff_x, takeoff_floor_y, slot, index;
+  const MmxSaberProjectile *projectile;
+  unsigned height_at_birth, height_later;
+  bool rose_during_growth = false;
+  unsigned previous_height;
+  unsigned y_at_age10;
+  unsigned y_after_age10;
+
+  slot = saber_tornado_start(fixture, true, &takeoff_x, &takeoff_floor_y);
+  check(slot != 0 && projectiles(0x09) == 1,
+        "right uppercut spawns exactly one tornado on take-off");
+  index = (slot - MMX_SABER_PROJECTILE_SLOT_FIRST) /
+      MMX_SABER_PROJECTILE_SLOT_BYTES;
+  projectile = MmxSaberProjectileGet(index);
+  check(projectile && projectile->active && projectile->age == 0 &&
+            projectile->lifetime == 90 && projectile->pass_through &&
+            projectile->native_weapon_class == 0x09 &&
+            projectile->damage_normal == 4 && projectile->damage_boss == 2,
+        "tornado spawn publishes class $09, lifetime 90, pass-through, and 4/2 damage");
+  check((int16_t)read_ram_word(g_ram, slot + 5) ==
+            (int16_t)takeoff_x + MMX_SABER_TORNADO_FRONT_X &&
+            read_ram_word(g_ram, slot + 8) == takeoff_floor_y &&
+            (g_ram[slot + 0x11] & 0x40) == 0x40 &&
+            read_ram_word(g_ram, slot + 0x20) ==
+                MmxSaberProjectileTornadoCollisionPointer(index),
+        "right tornado uses Zero X plus 35 and take-off floor Y");
+  check(g_snes->cart->rom[MmxSaberProjectileTornadoCollisionOffset(index) +
+                          2] == 10,
+        "tornado collision record publishes 20-pixel centred width");
+
+  height_at_birth = MmxSaberProjectileVisibleHeight(g_ram, slot);
+  previous_height = height_at_birth;
+  for (unsigned age = 0; age < MMX_SABER_TORNADO_GROWTH_TICKS &&
+                           MmxSaberProjectileOwns(g_ram, slot); ++age) {
+    frame(SNES_PAD_Y);
+    height_later = MmxSaberProjectileVisibleHeight(g_ram, slot);
+    if (MmxSaberProjectileGet(index)->age < MMX_SABER_TORNADO_GROWTH_TICKS &&
+        height_later > previous_height)
+      rose_during_growth = true;
+    previous_height = height_later;
+    check(read_ram_word(g_ram, slot + 8) == takeoff_floor_y,
+          "tornado growth keeps its bottom on the take-off floor");
+  }
+  check(rose_during_growth && height_at_birth < MMX_SABER_TORNADO_HEIGHT,
+        "tornado visible height grows during ages 0 through 9");
+  projectile = MmxSaberProjectileGet(index);
+  y_at_age10 = read_ram_word(g_ram, slot + 8);
+  check(projectile->age == MMX_SABER_TORNADO_GROWTH_TICKS &&
+            MmxSaberProjectileVisibleHeight(g_ram, slot) ==
+                MMX_SABER_TORNADO_HEIGHT && y_at_age10 == takeoff_floor_y,
+        "age 10 switches tornado to full height before first rise step");
+  frame(SNES_PAD_Y);
+  y_after_age10 = read_ram_word(g_ram, slot + 8);
+  check(y_after_age10 == y_at_age10 - 9,
+        "tornado bottom rises 9 pixels after age 10");
+
+  for (unsigned wait = 0;
+       wait < SABER_UPPERCUT_ARC_CAPACITY &&
+           MmxSaberAttackSnapshotGet().phase != SABER_PHASE_IDLE;
+       ++wait)
+    frame(0);
+  check(MmxSaberAttackSnapshotGet().phase == SABER_PHASE_IDLE,
+        "uppercut reaches idle before tornado rise-after-end probe");
+  check(MmxSaberProjectileOwns(g_ram, slot),
+        "tornado survives uppercut end as a world projectile");
+  const unsigned y_after_uppercut = read_ram_word(g_ram, slot + 8);
+  frame(0);
+  check(MmxSaberProjectileOwns(g_ram, slot) &&
+            read_ram_word(g_ram, slot + 8) == y_after_uppercut - 9,
+        "tornado keeps rising after uppercut ends");
+
+  slot = saber_tornado_start(fixture, false, &takeoff_x, &takeoff_floor_y);
+  check(slot != 0 && projectiles(0x09) == 1 &&
+            (int16_t)read_ram_word(g_ram, slot + 5) ==
+                (int16_t)takeoff_x - MMX_SABER_TORNADO_FRONT_X &&
+            read_ram_word(g_ram, slot + 8) == takeoff_floor_y &&
+            !(g_ram[slot + 0x11] & 0x40),
+        "left uppercut spawns one tornado at Zero X minus 35 and floor Y");
+
+  saber_specials_uppercut_load(fixture, 0);
+  g_ram[0x0c11] = 0x40;
+  g_ram[0x0bb9] = (uint8_t)((g_ram[0x0bb9] & (uint8_t)~0x40) | 0x40);
+  frame(SNES_PAD_UP | SNES_PAD_Y);
+  frame(0);
+  check(!saber_tornado_slot() && saber_test_grounded(),
+        "releasing Y in uppercut step 1 spawns no tornado");
+
+  saber_specials_uppercut_load(fixture, 0);
+  /* The native object loop frees the filler slots, so refill them before
+   * every frame up to and including the take-off tick. */
+  saber_finisher_fill_free_slots();
+  frame(SNES_PAD_UP | SNES_PAD_Y);
+  for (unsigned tick = 1; tick <= SABER_UPPERCUT_TAKEOFF_TICK; ++tick) {
+    saber_finisher_fill_free_slots();
+    frame(SNES_PAD_Y);
+  }
+  check(!saber_tornado_slot() && !saber_test_grounded(),
+        "full projectile slots do not block the native uppercut jump or spawn tornado");
+
+  {
+    unsigned target;
+    unsigned initial_hp;
+    unsigned first_hit;
+    unsigned first_damage;
+    unsigned second_hit;
+    unsigned second_damage;
+
+    target = walk_to_ground_enemy(fixture, NULL);
+    check(target == 0xea8,
+          "tornado forced-overlap contact reaches Highway enemy $0EA8");
+    g_ram[0x1f90] |= 0x40;
+    MmxSaberFrameReset();
+    g_ram[0x0c11] = 0x40;
+    g_ram[0x0bb9] = (uint8_t)((g_ram[0x0bb9] & (uint8_t)~0x40) | 0x40);
+    frame(SNES_PAD_UP | SNES_PAD_Y);
+    for (unsigned tick = 1; tick <= SABER_UPPERCUT_TAKEOFF_TICK; ++tick)
+      frame(SNES_PAD_Y);
+    slot = saber_tornado_slot();
+    initial_hp = g_ram[target + 0x27] & 127;
+    g_ram[slot + 5] = g_ram[target + 5];
+    g_ram[slot + 6] = g_ram[target + 6];
+    g_ram[slot + 8] = g_ram[target + 8];
+    g_ram[slot + 9] = g_ram[target + 9];
+    first_hit = MmxZeroHitbox(g_ram, target, slot, 1);
+    first_damage = MmxZeroDamage(g_ram, target, slot, first_hit);
+    apply_test_damage(target, first_damage);
+    second_hit = MmxZeroHitbox(g_ram, target, slot, 1);
+    second_damage = MmxZeroDamage(g_ram, target, slot, second_hit);
+    check(first_hit == 1 && first_damage == 4 && second_hit == 0 &&
+              second_damage == 0 && (g_ram[target + 0x27] & 127) ==
+                  initial_hp - 4,
+          "forced tornado contact deals normal damage once and hit_mask blocks recontact");
+  }
+
+  puts("ok: saber-tornado");
+}
+
 enum {
   SABER_ROLLING_TICK_COUNT = 18,
   SABER_ROLLING_ACTIVE_FIRST = 2,
@@ -13107,6 +13275,7 @@ int main(int argc, char **argv) {
       !strcmp(only, "saber-specials-damage") ||
       !strcmp(only, "saber-thrust") ||
       !strcmp(only, "saber-weakness") ||
+      !strcmp(only, "saber-tornado") ||
       !strcmp(only, "saber-wall") ||
       !strcmp(only, "saber-cancel") || !strcmp(only, "saber-buster-rules") ||
       !strcmp(only, "saber-damage") || !strcmp(only, "saber-priority") ||
@@ -13215,6 +13384,7 @@ int main(int argc, char **argv) {
   const bool saber_specials_damage =
       only && !strcmp(only, "saber-specials-damage");
   const bool saber_uppercut = only && !strcmp(only, "saber-uppercut");
+  const bool saber_tornado = only && !strcmp(only, "saber-tornado");
   const bool saber_rolling = only && !strcmp(only, "saber-rolling");
   const bool saber_thrust = only && !strcmp(only, "saber-thrust");
   const bool saber_weakness = only && !strcmp(only, "saber-weakness");
@@ -13246,6 +13416,7 @@ int main(int argc, char **argv) {
       saber_specials_unlock ||
       saber_specials_damage ||
       saber_uppercut ||
+      saber_tornado ||
       saber_rolling ||
       saber_thrust ||
       saber_weakness ||
@@ -13339,6 +13510,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-uppercut runs with the Saber package enabled");
     saber_uppercut_checks(fixture_dir);
+  } else if (saber_tornado) {
+    check(MmxSaberEnabled(),
+          "saber-tornado runs with the Saber package enabled");
+    saber_tornado_checks(fixture);
   } else if (saber_rolling) {
     check(MmxSaberEnabled(),
           "saber-rolling runs with the Saber package enabled");
@@ -13528,6 +13703,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-specials-unlock") &&
       strcmp(only, "saber-specials-damage") &&
        strcmp(only, "saber-uppercut") &&
+      strcmp(only, "saber-tornado") &&
       strcmp(only, "saber-rolling") &&
       strcmp(only, "saber-thrust") &&
       strcmp(only, "saber-weakness") &&

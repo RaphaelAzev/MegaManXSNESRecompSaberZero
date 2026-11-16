@@ -1207,6 +1207,24 @@ static void tornado_asset_checks(const MmxSaberAssets *assets) {
   check(MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
             actual[0].pixels == frames[0].pixels,
         "loaded tornado strip loops after three frames");
+  MmxSaberProjectileReset(ram);
+  ram[MMX_SABER_PROJECTILE_PLAYER_Y] = 110;
+  info.tornado_uppercut_live = true;
+  check(MmxSaberProjectileSpawn(ram, &info, &index) &&
+            MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
+            actual[0].pixels == frames[0].pixels + (120 - 70) * 28 &&
+            actual[0].height == 70 && actual[0].origin_y == 120 &&
+            actual[0].world_y == 123 - 120 - 120 + (120 - 70) &&
+            actual[0].world_y + actual[0].origin_y + actual[0].height == 123,
+        "growing tornado crops its top rows and keeps the bottom at the floor");
+  ram[MMX_SABER_PROJECTILE_PLAYER_Y] = 90;
+  MmxSaberProjectileTick(ram);
+  check(MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
+            actual[0].pixels == frames[0].pixels + (120 - 90) * 28 &&
+            actual[0].height == 90 &&
+            actual[0].world_y == 123 - 120 - 120 + (120 - 90) &&
+            actual[0].world_y + actual[0].origin_y + actual[0].height == 123,
+        "tornado crop grows with Zero and remains bottom-anchored");
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_TORNADO, NULL, 0, 0,
                                    false, NULL, 0);
   MmxSaberProjectileReset(ram);

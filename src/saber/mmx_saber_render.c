@@ -526,6 +526,8 @@ static bool resolve_projectile_snapshot(
     const MmxSaberProjectileLiveInfo *live, MmxRenderWorldSprite *out) {
   const MmxSaberProjectileFrame *frame;
   unsigned frame_index;
+  unsigned visible_height;
+  unsigned crop_rows;
 
   if (out) memset(out, 0, sizeof(*out));
   if (!strip || !live || !out || !strip->frames || !strip->frame_count ||
@@ -541,13 +543,24 @@ static bool resolve_projectile_snapshot(
   frame = &strip->frames[frame_index];
   if (!frame->pixels || !frame->width || !frame->height) return false;
 
-  out->pixels = frame->pixels;
+  visible_height = frame->height;
+  crop_rows = 0;
+  if (live->kind == SABER_PROJECTILE_TORNADO) {
+    if (live->visible_height && live->visible_height < visible_height)
+      visible_height = live->visible_height;
+    crop_rows = frame->height - visible_height;
+  }
+
+  out->pixels = frame->pixels + crop_rows * frame->width;
   out->width = frame->width;
-  out->height = frame->height;
+  out->height = (uint16_t)visible_height;
   out->origin_x = frame->origin_x;
   out->origin_y = frame->origin_y;
   out->world_x = live->world_x;
-  out->world_y = live->world_y;
+  out->world_y = live->kind == SABER_PROJECTILE_TORNADO ?
+      live->world_y - (int32_t)frame->origin_y - (int32_t)frame->height +
+          (int32_t)crop_rows :
+      live->world_y;
   out->facing_left = live->facing_left;
   out->palette = strip->palette;
   out->palette_count = strip->palette_count;
