@@ -82,6 +82,11 @@
       "id": 16,
       "file": "Special_Enkoujin.png",
       "sha256": "25b242ef71d423f61b050370cb7eff1938f7f450cdf0796c8c3b8f91258acb71"
+    },
+    {
+      "id": 17,
+      "file": "Special_Cutter.png",
+      "sha256": "8d2d45a122f66e08c33fe7bdd262ec08c8ce45c8acc56e4d993b5ea474ec6169"
     }
   ],
   "frames": [
@@ -2617,6 +2622,142 @@
         ]
       },
       "source_frame": 5
+    },
+    {
+      "id": 1153,
+      "source": 17,
+      "body": {
+        "rect": [
+          0,
+          0,
+          32,
+          12
+        ],
+        "origin": [
+          16,
+          6
+        ]
+      },
+      "source_frame": 0
+    },
+    {
+      "id": 1154,
+      "source": 17,
+      "body": {
+        "rect": [
+          32,
+          0,
+          32,
+          12
+        ],
+        "origin": [
+          16,
+          6
+        ]
+      },
+      "source_frame": 1
+    },
+    {
+      "id": 1155,
+      "source": 17,
+      "body": {
+        "rect": [
+          64,
+          0,
+          32,
+          12
+        ],
+        "origin": [
+          16,
+          6
+        ]
+      },
+      "source_frame": 2
+    },
+    {
+      "id": 1156,
+      "source": 17,
+      "body": {
+        "rect": [
+          96,
+          0,
+          32,
+          12
+        ],
+        "origin": [
+          16,
+          6
+        ]
+      },
+      "source_frame": 3
+    },
+    {
+      "id": 1157,
+      "source": 17,
+      "body": {
+        "rect": [
+          0,
+          12,
+          26,
+          24
+        ],
+        "origin": [
+          13,
+          12
+        ]
+      },
+      "source_frame": 4
+    },
+    {
+      "id": 1158,
+      "source": 17,
+      "body": {
+        "rect": [
+          26,
+          12,
+          26,
+          24
+        ],
+        "origin": [
+          13,
+          12
+        ]
+      },
+      "source_frame": 5
+    },
+    {
+      "id": 1159,
+      "source": 17,
+      "body": {
+        "rect": [
+          52,
+          12,
+          26,
+          24
+        ],
+        "origin": [
+          13,
+          12
+        ]
+      },
+      "source_frame": 6
+    },
+    {
+      "id": 1160,
+      "source": 17,
+      "body": {
+        "rect": [
+          78,
+          12,
+          26,
+          24
+        ],
+        "origin": [
+          13,
+          12
+        ]
+      },
+      "source_frame": 7
     }
   ],
   "animations": [
@@ -3279,6 +3420,50 @@
         {
           "frame": 1146,
           "ticks": 4
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "facing_xor": 1,
+      "steps": [
+        {
+          "frame": 1153,
+          "ticks": 3
+        },
+        {
+          "frame": 1154,
+          "ticks": 3
+        },
+        {
+          "frame": 1155,
+          "ticks": 3
+        },
+        {
+          "frame": 1156,
+          "ticks": 3
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "facing_xor": 1,
+      "steps": [
+        {
+          "frame": 1157,
+          "ticks": 3
+        },
+        {
+          "frame": 1158,
+          "ticks": 3
+        },
+        {
+          "frame": 1159,
+          "ticks": 3
+        },
+        {
+          "frame": 1160,
+          "ticks": 3
         }
       ]
     }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mmx_saber_input.h"
+#include "mmx_saber_projectile.h"
 
 typedef enum MmxSaberWeaknessMove {
   MMX_SABER_WEAKNESS_NONE,
@@ -17,6 +18,10 @@ typedef enum MmxSaberWeaknessMove {
 /* Pure mapping from a Saber attack kind to its theme weakness row. */
 MmxSaberWeaknessMove MmxSaberWeaknessMoveForAttackKind(
     MmxSaberPadKind kind);
+
+/* Ground and air cutter projectiles share the same theme weakness row. */
+MmxSaberWeaknessMove MmxSaberWeaknessMoveForProjectileKind(
+    MmxSaberProjectileKind kind);
 
 /* Returns original for every non-matching actor or invalid move. A match
  * changes only the low contact-class byte. */

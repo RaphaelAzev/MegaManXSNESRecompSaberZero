@@ -31,7 +31,8 @@ converter as the other Saber sounds (`tools/saber/mmx_saber_sfx_convert`).
 
 `sprites/Special_Tornado.png` (the Storm tornado, `tools/saber/build_storm_tornado.py`)
 and `sprites/Special_Enkoujin.png` (the downward thrust's flame dive,
-`tools/saber/build_enkoujin_thrust.py`) are cut from AI-generated concept sheets made by a member of the project's Discord
+`tools/saber/build_enkoujin_thrust.py`) and `sprites/Special_Cutter.png` (the Boomerang cutter
+projectiles, `tools/saber/build_boomer_cutter.py`) are cut from AI-generated concept sheets made by a member of the project's Discord
 community. The later boss-themed special strips come from the same set of sheets
 (StormEagleSpecial, ChillPenguinSpecialProjectile1, SparkMandrillSpecial,
 BoomerKuwangerSpecial, Enkoujin). The full credit line will be added by the project

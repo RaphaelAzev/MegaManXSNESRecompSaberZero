@@ -55,5 +55,10 @@ int main(void) {
         MmxSaberWeaknessMoveForAttackKind(SABER_KIND_THRUST) ==
             MMX_SABER_WEAKNESS_DOWNWARD_THRUST,
         "melee specials map to their theme rows");
+  check(MmxSaberWeaknessMoveForProjectileKind(SABER_PROJECTILE_CUTTER) ==
+            MMX_SABER_WEAKNESS_CUTTER &&
+        MmxSaberWeaknessMoveForProjectileKind(SABER_PROJECTILE_CUTTER_AIR) ==
+            MMX_SABER_WEAKNESS_CUTTER,
+        "ground and air cutters share the cutter weakness row");
   return failures != 0;
 }

@@ -33,6 +33,8 @@ static MmxSaberAssets *g_saber_assets;
 static MmxSaberAssets *g_ride_assets;
 static MmxSaberWave *g_saber_wave;
 static MmxSaberProjectileFrame g_saber_tornado_frames[3];
+static MmxSaberProjectileFrame g_saber_cutter_forward_frames[4];
+static MmxSaberProjectileFrame g_saber_cutter_diagonal_frames[4];
 static bool g_saber_sfx_warning;
 
 /* Saber owns Zero's body, whichever seat the renderer is drawing. An X body
@@ -58,6 +60,17 @@ static void coop_seat_pad(const uint8_t *ram, MmxSaberFramePad *pad) {
       pad, live, state.players[state.current].input);
 }
 
+static void clear_saber_cutter_strips(void) {
+  MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_CUTTER, NULL, 0, 0,
+                                   false, NULL, 0);
+  MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_CUTTER_AIR, NULL, 0, 0,
+                                   false, NULL, 0);
+  memset(g_saber_cutter_forward_frames, 0,
+         sizeof(g_saber_cutter_forward_frames));
+  memset(g_saber_cutter_diagonal_frames, 0,
+         sizeof(g_saber_cutter_diagonal_frames));
+}
+
 static void saber_activation_failed(void) {
   MmxWeaponsSetContactClassOverride(NULL);
   MmxSaberFrameSetPadSource(NULL);
@@ -67,6 +80,7 @@ static void saber_activation_failed(void) {
   MmxSaberRenderSetWave(NULL);
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_TORNADO, NULL, 0, 0,
                                    false, NULL, 0);
+  clear_saber_cutter_strips();
   MmxZeroSetExtension(NULL);
   MmxSaberFrameReset();
 }
@@ -124,10 +138,10 @@ static bool saber_tuning_option_reader(const char *option_id, char *value,
 }
 
 static const uint8_t kSaberManifestSha[32] = {
-  0x3a, 0x6b, 0x8a, 0xeb, 0x7b, 0x7a, 0xe9, 0xde,
-  0x8f, 0x71, 0x4e, 0x4f, 0x2f, 0x54, 0xfd, 0x9a,
-  0xcd, 0xc9, 0xa9, 0x40, 0x61, 0x18, 0x0d, 0x45,
-  0x91, 0xa7, 0xac, 0x96, 0x78, 0xeb, 0x59, 0x99,
+  0x7a, 0x89, 0x39, 0x3c, 0xae, 0xed, 0x11, 0xc6,
+  0xfc, 0x49, 0x14, 0xb8, 0x48, 0xac, 0x6f, 0xb0,
+  0x46, 0x1c, 0x06, 0xfc, 0xd7, 0x8d, 0xd2, 0x9a,
+  0x6b, 0xe7, 0x51, 0x38, 0xdd, 0xa6, 0xae, 0xf3,
 };
 
 static const uint8_t kRideManifestSha[32] = {
@@ -258,6 +272,61 @@ static int configure_saber_tornado_strip(const MmxSaberAssets *assets) {
   return 1;
 }
 
+static int configure_saber_cutter_strip(
+    const MmxSaberAssets *assets, MmxSaberProjectileKind kind,
+    uint16_t animation_id, unsigned frame_count, uint16_t width,
+    uint16_t height, int16_t origin_x, int16_t origin_y,
+    MmxSaberProjectileFrame *frames) {
+  const MmxSaberAnimation *animation =
+      MmxSaberAssetsAnimationById(assets, animation_id);
+
+  MmxSaberRenderSetProjectileStrip(kind, NULL, 0, 0, false, NULL, 0);
+  memset(frames, 0, sizeof(*frames) * frame_count);
+  if (!animation || animation->step_count != frame_count ||
+      animation->total_ticks != frame_count * 3)
+    return 0;
+  for (unsigned i = 0; i < frame_count; ++i) {
+    const MmxSaberStep *step =
+        MmxSaberAssetsAnimationStep(assets, animation_id, (uint16_t)i);
+    const MmxSaberFrame *frame =
+        MmxSaberAssetsFrameForStep(assets, animation_id, (uint16_t)i);
+    if (!step || step->duration_ticks != 3 || !frame ||
+        !frame->body.pixels || frame->body.width != width ||
+        frame->body.height != height || frame->body.origin_x != origin_x ||
+        frame->body.origin_y != origin_y || frame->blade.pixels ||
+        frame->blade.width || frame->blade.height || frame->blade_layer)
+      return 0;
+    frames[i] = (MmxSaberProjectileFrame){
+      frame->body.pixels,
+      frame->body.width,
+      frame->body.height,
+      frame->body.origin_x,
+      frame->body.origin_y,
+    };
+  }
+  MmxSaberRenderSetProjectileStrip(
+      kind, frames, frame_count, 3, false, MmxSaberAssetsPalette(assets),
+      MmxSaberAssetsPaletteCount(assets));
+  return 1;
+}
+
+static int configure_saber_cutter_strips(const MmxSaberAssets *assets) {
+  clear_saber_cutter_strips();
+  if (!configure_saber_cutter_strip(
+          assets, SABER_PROJECTILE_CUTTER, 16, 4, 32, 12, 16, 6,
+          g_saber_cutter_forward_frames)) {
+    clear_saber_cutter_strips();
+    return 0;
+  }
+  if (!configure_saber_cutter_strip(
+          assets, SABER_PROJECTILE_CUTTER_AIR, 17, 4, 26, 24, 13, 12,
+          g_saber_cutter_diagonal_frames)) {
+    clear_saber_cutter_strips();
+    return 0;
+  }
+  return 1;
+}
+
 static void release_saber_assets(void) {
   MmxRendererSetPlayerOverlayProvider(NULL);
   MmxRendererSetWorldSpriteProvider(NULL);
@@ -266,6 +335,7 @@ static void release_saber_assets(void) {
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_TORNADO, NULL, 0, 0,
                                    false, NULL, 0);
   memset(g_saber_tornado_frames, 0, sizeof(g_saber_tornado_frames));
+  clear_saber_cutter_strips();
   MmxSaberWaveRuntimeSetCollisionRecord(NULL, 0);
   MmxSaberWaveFree(g_saber_wave);
   MmxSaberAssetsFree(g_saber_assets);
@@ -320,6 +390,12 @@ static int load_saber_assets(char reason[256]) {
     MmxSaberAssetsFree(ride);
     MmxSaberAssetsFree(saber);
     snprintf(reason, 256, "saber-v1.bin: invalid tornado projectile strip");
+    return 0;
+  }
+  if (!configure_saber_cutter_strips(saber)) {
+    MmxSaberAssetsFree(ride);
+    MmxSaberAssetsFree(saber);
+    snprintf(reason, 256, "saber-v1.bin: invalid cutter projectile strips");
     return 0;
   }
   g_saber_assets = saber;

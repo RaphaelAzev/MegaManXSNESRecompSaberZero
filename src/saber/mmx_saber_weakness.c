@@ -30,6 +30,23 @@ MmxSaberWeaknessMove MmxSaberWeaknessMoveForAttackKind(
   }
 }
 
+MmxSaberWeaknessMove MmxSaberWeaknessMoveForProjectileKind(
+    MmxSaberProjectileKind kind) {
+  switch (kind) {
+    case SABER_PROJECTILE_TORNADO:
+      return MMX_SABER_WEAKNESS_TORNADO;
+    case SABER_PROJECTILE_ICE_CLONE:
+      return MMX_SABER_WEAKNESS_ICE_CLONE;
+    case SABER_PROJECTILE_THUNDER_ORB:
+      return MMX_SABER_WEAKNESS_THUNDER_ORB;
+    case SABER_PROJECTILE_CUTTER:
+    case SABER_PROJECTILE_CUTTER_AIR:
+      return MMX_SABER_WEAKNESS_CUTTER;
+    default:
+      return MMX_SABER_WEAKNESS_NONE;
+  }
+}
+
 unsigned MmxSaberWeaknessContactClass(MmxSaberWeaknessMove move,
                                       unsigned enemy_actor,
                                       unsigned original) {

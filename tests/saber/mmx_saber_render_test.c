@@ -47,10 +47,10 @@ const uint16_t *MmxZeroBodyColors(const MmxZeroState *s) {
 }
 
 static const uint8_t kSaberManifestSha[32] = {
-  0x3a, 0x6b, 0x8a, 0xeb, 0x7b, 0x7a, 0xe9, 0xde,
-  0x8f, 0x71, 0x4e, 0x4f, 0x2f, 0x54, 0xfd, 0x9a,
-  0xcd, 0xc9, 0xa9, 0x40, 0x61, 0x18, 0x0d, 0x45,
-  0x91, 0xa7, 0xac, 0x96, 0x78, 0xeb, 0x59, 0x99,
+  0x7a, 0x89, 0x39, 0x3c, 0xae, 0xed, 0x11, 0xc6,
+  0xfc, 0x49, 0x14, 0xb8, 0x48, 0xac, 0x6f, 0xb0,
+  0x46, 0x1c, 0x06, 0xfc, 0xd7, 0x8d, 0xd2, 0x9a,
+  0x6b, 0xe7, 0x51, 0x38, 0xdd, 0xa6, 0xae, 0xf3,
 };
 
 static const uint8_t kRideManifestSha[32] = {
@@ -1237,6 +1237,119 @@ static void tornado_asset_checks(const MmxSaberAssets *assets) {
   MmxSaberProjectileReset(ram);
 }
 
+static void cutter_asset_checks(const MmxSaberAssets *assets) {
+  enum {
+    FORWARD_ANIMATION_ID = 16,
+    DIAGONAL_ANIMATION_ID = 17,
+    CUTTER_FRAME_COUNT = 4,
+    CUTTER_TICKS_PER_FRAME = 3,
+  };
+  const MmxSaberAnimation *forward =
+      MmxSaberAssetsAnimationById(assets, FORWARD_ANIMATION_ID);
+  const MmxSaberAnimation *diagonal =
+      MmxSaberAssetsAnimationById(assets, DIAGONAL_ANIMATION_ID);
+  MmxSaberProjectileFrame forward_frames[CUTTER_FRAME_COUNT];
+  MmxSaberProjectileFrame diagonal_frames[CUTTER_FRAME_COUNT];
+  MmxRenderWorldSprite actual[2];
+  const uint16_t *palette = MmxSaberAssetsPalette(assets);
+  const uint16_t palette_count = MmxSaberAssetsPaletteCount(assets);
+  uint8_t ram[0x20000] = {0};
+  MmxSaberProjectileSpawnInfo info = {0};
+  unsigned index;
+
+  check(forward && forward->step_count == CUTTER_FRAME_COUNT &&
+            forward->total_ticks == CUTTER_FRAME_COUNT * CUTTER_TICKS_PER_FRAME &&
+            diagonal && diagonal->step_count == CUTTER_FRAME_COUNT &&
+            diagonal->total_ticks == CUTTER_FRAME_COUNT * CUTTER_TICKS_PER_FRAME,
+        "loaded asset exposes four three-tick forward and diagonal cutter frames");
+  for (unsigned i = 0; i < CUTTER_FRAME_COUNT; ++i) {
+    const MmxSaberStep *forward_step = MmxSaberAssetsAnimationStep(
+        assets, FORWARD_ANIMATION_ID, i);
+    const MmxSaberFrame *forward_frame = MmxSaberAssetsFrameForStep(
+        assets, FORWARD_ANIMATION_ID, i);
+    const MmxSaberStep *diagonal_step = MmxSaberAssetsAnimationStep(
+        assets, DIAGONAL_ANIMATION_ID, i);
+    const MmxSaberFrame *diagonal_frame = MmxSaberAssetsFrameForStep(
+        assets, DIAGONAL_ANIMATION_ID, i);
+    check(forward_step && forward_step->duration_ticks == CUTTER_TICKS_PER_FRAME &&
+              forward_frame && forward_frame->body.pixels &&
+              forward_frame->body.width == 32 && forward_frame->body.height == 12 &&
+              forward_frame->body.origin_x == 16 &&
+              forward_frame->body.origin_y == 6 &&
+              forward_frame->source_id == 17 &&
+              forward_frame->source_frame_id == i,
+          "forward cutter frame keeps 32x12 centre-origin geometry");
+    check(diagonal_step && diagonal_step->duration_ticks == CUTTER_TICKS_PER_FRAME &&
+              diagonal_frame && diagonal_frame->body.pixels &&
+              diagonal_frame->body.width == 26 && diagonal_frame->body.height == 24 &&
+              diagonal_frame->body.origin_x == 13 &&
+              diagonal_frame->body.origin_y == 12 &&
+              diagonal_frame->source_id == 17 &&
+              diagonal_frame->source_frame_id == i + CUTTER_FRAME_COUNT,
+          "diagonal cutter frame keeps 26x24 centre-origin geometry");
+    forward_frames[i] = (MmxSaberProjectileFrame){
+      forward_frame->body.pixels,
+      forward_frame->body.width,
+      forward_frame->body.height,
+      forward_frame->body.origin_x,
+      forward_frame->body.origin_y,
+    };
+    diagonal_frames[i] = (MmxSaberProjectileFrame){
+      diagonal_frame->body.pixels,
+      diagonal_frame->body.width,
+      diagonal_frame->body.height,
+      diagonal_frame->body.origin_x,
+      diagonal_frame->body.origin_y,
+    };
+  }
+
+  MmxSaberProjectileReset(ram);
+  MmxSaberRenderSetWave(NULL);
+  MmxSaberRenderSetProjectileStrip(
+      SABER_PROJECTILE_CUTTER, forward_frames, CUTTER_FRAME_COUNT,
+      CUTTER_TICKS_PER_FRAME, false, palette, palette_count);
+  MmxSaberRenderSetProjectileStrip(
+      SABER_PROJECTILE_CUTTER_AIR, diagonal_frames, CUTTER_FRAME_COUNT,
+      CUTTER_TICKS_PER_FRAME, false, palette, palette_count);
+  info.kind = SABER_PROJECTILE_CUTTER;
+  info.x = 321 * 256;
+  info.y = 123 * 256;
+  info.lifetime = 20;
+  check(MmxSaberProjectileSpawn(ram, &info, &index),
+        "forward cutter projectile spawns for loaded strip");
+  info.kind = SABER_PROJECTILE_CUTTER_AIR;
+  info.x = 333 * 256;
+  check(MmxSaberProjectileSpawn(ram, &info, &index),
+        "air cutter projectile spawns for loaded strip");
+  check(MmxSaberRenderProvideWorldSprites(actual, 2) == 2 &&
+            actual[0].pixels == forward_frames[0].pixels &&
+            actual[0].width == 32 && actual[0].height == 12 &&
+            actual[0].origin_x == 16 && actual[0].origin_y == 6 &&
+            actual[0].palette == palette && actual[0].palette_count == palette_count &&
+            actual[1].pixels == diagonal_frames[0].pixels &&
+            actual[1].width == 26 && actual[1].height == 24 &&
+            actual[1].origin_x == 13 && actual[1].origin_y == 12 &&
+            actual[1].palette == palette && actual[1].palette_count == palette_count,
+        "loaded cutter strips register forward and diagonal frame zero");
+  for (unsigned i = 0; i < CUTTER_TICKS_PER_FRAME; ++i)
+    MmxSaberProjectileTick(ram);
+  check(MmxSaberRenderProvideWorldSprites(actual, 2) == 2 &&
+            actual[0].pixels == forward_frames[1].pixels &&
+            actual[1].pixels == diagonal_frames[1].pixels,
+        "loaded cutter strips advance after three ticks");
+  for (unsigned i = 0; i < CUTTER_TICKS_PER_FRAME * 3; ++i)
+    MmxSaberProjectileTick(ram);
+  check(MmxSaberRenderProvideWorldSprites(actual, 2) == 2 &&
+            actual[0].pixels == forward_frames[0].pixels &&
+            actual[1].pixels == diagonal_frames[0].pixels,
+        "loaded cutter strips loop after four frames");
+  MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_CUTTER, NULL, 0, 0,
+                                   false, NULL, 0);
+  MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_CUTTER_AIR, NULL, 0, 0,
+                                   false, NULL, 0);
+  MmxSaberProjectileReset(ram);
+}
+
 static void projectile_provider_checks(const MmxSaberWave *wave) {
   static const uint8_t frame_zero_pixels[] = {1};
   static const uint8_t frame_one_pixels[] = {2};
@@ -1807,6 +1920,7 @@ int main(void) {
       check_tuple(assets, animation, &kOldTuples[animation][tuple]);
   special_render_checks(assets);
   tornado_asset_checks(assets);
+  cutter_asset_checks(assets);
   ride_matrix_checks(ride);
   uppercut_attack_checks();
   thrust_attack_checks();

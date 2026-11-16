@@ -663,18 +663,7 @@ static MmxSaberWeaknessMove projectile_weakness_move(
   entry = MmxSaberProjectileGet(index);
   if (!entry || !entry->active || entry->slot != projectile)
     return MMX_SABER_WEAKNESS_NONE;
-  switch (entry->kind) {
-    case SABER_PROJECTILE_TORNADO:
-      return MMX_SABER_WEAKNESS_TORNADO;
-    case SABER_PROJECTILE_ICE_CLONE:
-      return MMX_SABER_WEAKNESS_ICE_CLONE;
-    case SABER_PROJECTILE_THUNDER_ORB:
-      return MMX_SABER_WEAKNESS_THUNDER_ORB;
-    case SABER_PROJECTILE_CUTTER:
-      return MMX_SABER_WEAKNESS_CUTTER;
-    default:
-      return MMX_SABER_WEAKNESS_NONE;
-  }
+  return MmxSaberWeaknessMoveForProjectileKind(entry->kind);
 }
 
 static MmxSaberWeaknessMove contact_weakness_move(
