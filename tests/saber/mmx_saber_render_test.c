@@ -47,10 +47,10 @@ const uint16_t *MmxZeroBodyColors(const MmxZeroState *s) {
 }
 
 static const uint8_t kSaberManifestSha[32] = {
-  0x6d, 0xc8, 0x83, 0x46, 0x35, 0x5a, 0x0b, 0xec,
-  0x7f, 0xfe, 0xd3, 0x6e, 0x3c, 0x5c, 0x29, 0x6d,
-  0x35, 0xe7, 0x6e, 0xa1, 0x7c, 0x44, 0xfb, 0x1c,
-  0xdc, 0xe8, 0xe6, 0x13, 0xd2, 0x05, 0x5f, 0xbd,
+  0xbc, 0xec, 0x3d, 0xf2, 0x74, 0xa5, 0xec, 0x0c,
+  0xc1, 0x6d, 0x11, 0xb6, 0x50, 0xc6, 0x96, 0xbc,
+  0xee, 0x8e, 0x19, 0xda, 0x6a, 0x3b, 0x2c, 0x9b,
+  0xb8, 0xfb, 0xdc, 0x72, 0x4b, 0x46, 0xbf, 0x62,
 };
 
 static const uint8_t kRideManifestSha[32] = {
@@ -1154,6 +1154,64 @@ static void wave_sequence_checks(const MmxSaberWave *wave) {
         "wave resolver carries the slot facing into the mirror flag");
 }
 
+static void tornado_asset_checks(const MmxSaberAssets *assets) {
+  const MmxSaberAnimation *animation =
+      MmxSaberAssetsAnimationById(assets, 15);
+  MmxSaberProjectileFrame frames[3];
+  MmxRenderWorldSprite actual[1];
+  const uint16_t *palette = MmxSaberAssetsPalette(assets);
+  const uint16_t palette_count = MmxSaberAssetsPaletteCount(assets);
+  uint8_t ram[0x20000] = {0};
+  MmxSaberProjectileSpawnInfo info = {0};
+  unsigned index;
+
+  check(animation && animation->step_count == 3 &&
+            animation->total_ticks == 12,
+        "loaded asset exposes three four-tick tornado frames");
+  for (unsigned i = 0; i < 3; ++i) {
+    const MmxSaberStep *step = MmxSaberAssetsAnimationStep(assets, 15, i);
+    const MmxSaberFrame *frame = MmxSaberAssetsFrameForStep(assets, 15, i);
+    check(step && step->duration_ticks == 4 && frame && frame->body.pixels &&
+              frame->body.width == 28 && frame->body.height == 120 &&
+              frame->body.origin_x == 14 && frame->body.origin_y == 120,
+          "loaded tornado frame keeps 28x120 bottom-centre geometry");
+    frames[i] = (MmxSaberProjectileFrame){
+      frame->body.pixels,
+      frame->body.width,
+      frame->body.height,
+      frame->body.origin_x,
+      frame->body.origin_y,
+    };
+  }
+
+  MmxSaberProjectileReset(ram);
+  MmxSaberRenderSetWave(NULL);
+  MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_TORNADO, frames, 3, 4,
+                                   false, palette, palette_count);
+  info.kind = SABER_PROJECTILE_TORNADO;
+  info.x = 321 * 256;
+  info.y = 123 * 256;
+  info.lifetime = 20;
+  check(MmxSaberProjectileSpawn(ram, &info, &index) &&
+            MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
+            actual[0].pixels == frames[0].pixels && actual[0].width == 28 &&
+            actual[0].height == 120 && actual[0].origin_x == 14 &&
+            actual[0].origin_y == 120 && actual[0].palette == palette &&
+            actual[0].palette_count == palette_count,
+        "loaded tornado strip registers frame zero with palette and origin");
+  for (unsigned i = 0; i < 4; ++i) MmxSaberProjectileTick(ram);
+  check(MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
+            actual[0].pixels == frames[1].pixels,
+        "loaded tornado strip advances after four ticks");
+  for (unsigned i = 0; i < 8; ++i) MmxSaberProjectileTick(ram);
+  check(MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
+            actual[0].pixels == frames[0].pixels,
+        "loaded tornado strip loops after three frames");
+  MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_TORNADO, NULL, 0, 0,
+                                   false, NULL, 0);
+  MmxSaberProjectileReset(ram);
+}
+
 static void projectile_provider_checks(const MmxSaberWave *wave) {
   static const uint8_t frame_zero_pixels[] = {1};
   static const uint8_t frame_one_pixels[] = {2};
@@ -1692,6 +1750,7 @@ int main(void) {
     for (unsigned tuple = 0; tuple < 4; ++tuple)
       check_tuple(assets, animation, &kOldTuples[animation][tuple]);
   special_render_checks(assets);
+  tornado_asset_checks(assets);
   ride_matrix_checks(ride);
   uppercut_attack_checks();
   thrust_attack_checks();

@@ -71,6 +71,11 @@
       "id": 14,
       "file": "Special_DownThrust_FX.png",
       "sha256": "f11ed2f771dd443e66098c53f5f2c8b990c30a46b3f32f88f07e357ce6459d35"
+    },
+    {
+      "id": 15,
+      "file": "Special_Tornado.png",
+      "sha256": "ad4fee229d81a2cd400cd123a96f6739dc2f07401ddc011fcafed6b98875e1e7"
     }
   ],
   "frames": [
@@ -2453,6 +2458,57 @@
         ]
       },
       "source_frame": 4
+    },
+    {
+      "id": 1144,
+      "source": 15,
+      "body": {
+        "rect": [
+          0,
+          0,
+          28,
+          120
+        ],
+        "origin": [
+          14,
+          120
+        ]
+      },
+      "source_frame": 0
+    },
+    {
+      "id": 1145,
+      "source": 15,
+      "body": {
+        "rect": [
+          28,
+          0,
+          28,
+          120
+        ],
+        "origin": [
+          14,
+          120
+        ]
+      },
+      "source_frame": 1
+    },
+    {
+      "id": 1146,
+      "source": 15,
+      "body": {
+        "rect": [
+          56,
+          0,
+          28,
+          120
+        ],
+        "origin": [
+          14,
+          120
+        ]
+      },
+      "source_frame": 2
     }
   ],
   "animations": [
@@ -3089,6 +3145,24 @@
         {
           "frame": 1143,
           "ticks": 2
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "facing_xor": 1,
+      "steps": [
+        {
+          "frame": 1144,
+          "ticks": 4
+        },
+        {
+          "frame": 1145,
+          "ticks": 4
+        },
+        {
+          "frame": 1146,
+          "ticks": 4
         }
       ]
     }

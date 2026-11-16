@@ -324,6 +324,7 @@ class SaberConverterTests(unittest.TestCase):
             12: "Special_Crescent_FX.png",
             13: "Special_DownThrust.png",
             14: "Special_DownThrust_FX.png",
+            15: "Special_Tornado.png",
         }
         for source_id, expected_file in expected_special_sources.items():
             with self.subTest(source=source_id):
@@ -340,6 +341,7 @@ class SaberConverterTests(unittest.TestCase):
             12: (12, list(range(1123, 1132))),
             13: (13, list(range(1132, 1136))),
             14: (14, list(range(1139, 1144))),
+            15: (15, list(range(1144, 1147))),
         }
         animations_by_id = {
             animation["id"]: animation for animation in manifest["animations"]
@@ -358,7 +360,7 @@ class SaberConverterTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     [step["ticks"] for step in animation["steps"]],
-                    [2] * len(expected_frame_ids),
+                    [4 if animation_id == 15 else 2] * len(expected_frame_ids),
                 )
                 for source_frame, frame_id in enumerate(expected_frame_ids):
                     frame = frames_by_id.get(frame_id)
@@ -369,6 +371,13 @@ class SaberConverterTests(unittest.TestCase):
                     self.assertEqual(frame["source_frame"], source_frame)
                     self.assertNotIn("blade", frame)
                     x, y, width, height = frame["body"]["rect"]
+                    if animation_id == 15:
+                        self.assertEqual(
+                            [x, y, width, height],
+                            [28 * source_frame, 0, 28, 120],
+                        )
+                        self.assertEqual(frame["body"]["origin"], [14, 120])
+                        continue
                     cell_x = 128 * source_frame
                     self.assertGreaterEqual(x, cell_x)
                     self.assertGreaterEqual(y, 0)
@@ -379,8 +388,8 @@ class SaberConverterTests(unittest.TestCase):
                     )
 
         self.assertEqual(
-            sorted(frame_id for frame_id in frames_by_id if 1092 <= frame_id <= 1143),
-            list(range(1092, 1136)) + list(range(1139, 1144)),
+            sorted(frame_id for frame_id in frames_by_id if 1092 <= frame_id <= 1146),
+            list(range(1092, 1136)) + list(range(1139, 1147)),
         )
         saber2_origins = [
             (frame["source_frame"], tuple(frame["body"]["origin"]))
@@ -564,10 +573,10 @@ class SaberConverterTests(unittest.TestCase):
             struct.unpack_from("<5H", data, 20)
         )
         self.assertEqual(source_count, len(manifest["sources"]))
-        self.assertEqual(palette_count, 40)
-        self.assertEqual(animation_count, 14)
-        self.assertEqual(step_count, 138)  # uppercut step 6 dropped from animations 8 and 9
-        self.assertEqual(frame_count, 140)
+        self.assertEqual(palette_count, 44)
+        self.assertEqual(animation_count, 15)
+        self.assertEqual(step_count, 141)  # uppercut step 6 dropped from animations 8 and 9
+        self.assertEqual(frame_count, 143)
         section = 112 + source_count * 36
         section += palette_count * 2
         section = (section + 3) & ~3

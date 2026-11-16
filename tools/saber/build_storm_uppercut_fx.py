@@ -171,7 +171,10 @@ def compose_manifest_frame(
 
 def _load_body_frames(manifest: dict[str, Any]) -> list[Image.Image]:
     frames_by_id = {frame["id"]: frame for frame in manifest["frames"]}
-    animation = next(animation for animation in manifest["animations"] if animation["id"] == 8)
+    # The seven uppercut body frames of the source strip. Animation 8 no longer
+    # shows the last (falling) frame, but the FX strip keeps all seven cells,
+    # so the body frames are named here instead of read from the step list.
+    body_frame_ids = range(1092, 1099)
     body_source_id = 8
     body_source_name = next(
         source["file"]
@@ -183,8 +186,8 @@ def _load_body_frames(manifest: dict[str, Any]) -> list[Image.Image]:
         decoded.load()
         body_source = decoded.convert("RGBA")
     return [
-        compose_manifest_frame(body_source, frames_by_id[step["frame"]])
-        for step in animation["steps"]
+        compose_manifest_frame(body_source, frames_by_id[frame_id])
+        for frame_id in body_frame_ids
     ]
 
 

@@ -26,3 +26,12 @@ Original art © Capcom.
 `sfx/crescent_slash.wav` (the rolling slash) was supplied by the project author. The
 uppercut reuses `sfx/saber_1.ogg`, pitched up offline. Both go through the same
 converter as the other Saber sounds (`tools/saber/mmx_saber_sfx_convert`).
+
+## Boss-themed special art (credit pending)
+
+`sprites/Special_Tornado.png` (the Storm tornado, `tools/saber/build_storm_tornado.py`)
+is cut from AI-generated concept sheets made by a member of the project's Discord
+community. The later boss-themed special strips come from the same set of sheets
+(StormEagleSpecial, ChillPenguinSpecialProjectile1, SparkMandrillSpecial,
+BoomerKuwangerSpecial, Enkoujin). The full credit line will be added by the project
+author.

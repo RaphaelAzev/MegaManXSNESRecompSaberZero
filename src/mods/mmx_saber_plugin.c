@@ -32,6 +32,7 @@ static bool g_mmx_saber_enabled;
 static MmxSaberAssets *g_saber_assets;
 static MmxSaberAssets *g_ride_assets;
 static MmxSaberWave *g_saber_wave;
+static MmxSaberProjectileFrame g_saber_tornado_frames[3];
 static bool g_saber_sfx_warning;
 
 /* Saber owns Zero's body, whichever seat the renderer is drawing. An X body
@@ -64,6 +65,8 @@ static void saber_activation_failed(void) {
   MmxRendererSetWorldSpriteProvider(NULL);
   MmxRendererSetDebugRectProvider(NULL);
   MmxSaberRenderSetWave(NULL);
+  MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_TORNADO, NULL, 0, 0,
+                                   false, NULL, 0);
   MmxZeroSetExtension(NULL);
   MmxSaberFrameReset();
 }
@@ -121,10 +124,10 @@ static bool saber_tuning_option_reader(const char *option_id, char *value,
 }
 
 static const uint8_t kSaberManifestSha[32] = {
-  0x6d, 0xc8, 0x83, 0x46, 0x35, 0x5a, 0x0b, 0xec,
-  0x7f, 0xfe, 0xd3, 0x6e, 0x3c, 0x5c, 0x29, 0x6d,
-  0x35, 0xe7, 0x6e, 0xa1, 0x7c, 0x44, 0xfb, 0x1c,
-  0xdc, 0xe8, 0xe6, 0x13, 0xd2, 0x05, 0x5f, 0xbd,
+  0xbc, 0xec, 0x3d, 0xf2, 0x74, 0xa5, 0xec, 0x0c,
+  0xc1, 0x6d, 0x11, 0xb6, 0x50, 0xc6, 0x96, 0xbc,
+  0xee, 0x8e, 0x19, 0xda, 0x6a, 0x3b, 0x2c, 0x9b,
+  0xb8, 0xfb, 0xdc, 0x72, 0x4b, 0x46, 0xbf, 0x62,
 };
 
 static const uint8_t kRideManifestSha[32] = {
@@ -206,11 +209,63 @@ static int prepare_wave(const char rom[4096], char wave_path[4096]) {
   return 0;
 }
 
+static int configure_saber_tornado_strip(const MmxSaberAssets *assets) {
+  enum {
+    TORNADO_ANIMATION_ID = 15,
+    TORNADO_FRAME_COUNT = 3,
+    TORNADO_WIDTH = 28,
+    TORNADO_HEIGHT = 120,
+    TORNADO_ORIGIN_X = 14,
+    TORNADO_ORIGIN_Y = 120,
+    TORNADO_TICKS_PER_FRAME = 4,
+  };
+  const MmxSaberAnimation *animation =
+      MmxSaberAssetsAnimationById(assets, TORNADO_ANIMATION_ID);
+
+  MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_TORNADO, NULL, 0, 0,
+                                   false, NULL, 0);
+  memset(g_saber_tornado_frames, 0, sizeof(g_saber_tornado_frames));
+  if (!animation) return 1;
+  if (animation->step_count != TORNADO_FRAME_COUNT ||
+      animation->total_ticks != TORNADO_FRAME_COUNT * TORNADO_TICKS_PER_FRAME)
+    return 0;
+  for (unsigned i = 0; i < TORNADO_FRAME_COUNT; ++i) {
+    const MmxSaberStep *step =
+        MmxSaberAssetsAnimationStep(assets, TORNADO_ANIMATION_ID,
+                                     (uint16_t)i);
+    const MmxSaberFrame *frame =
+        MmxSaberAssetsFrameForStep(assets, TORNADO_ANIMATION_ID,
+                                   (uint16_t)i);
+    if (!step || step->duration_ticks != TORNADO_TICKS_PER_FRAME || !frame ||
+        !frame->body.pixels || frame->body.width != TORNADO_WIDTH ||
+        frame->body.height != TORNADO_HEIGHT ||
+        frame->body.origin_x != TORNADO_ORIGIN_X ||
+        frame->body.origin_y != TORNADO_ORIGIN_Y || frame->blade.pixels ||
+        frame->blade.width || frame->blade.height || frame->blade_layer)
+      return 0;
+    g_saber_tornado_frames[i] = (MmxSaberProjectileFrame){
+      frame->body.pixels,
+      frame->body.width,
+      frame->body.height,
+      frame->body.origin_x,
+      frame->body.origin_y,
+    };
+  }
+  MmxSaberRenderSetProjectileStrip(
+      SABER_PROJECTILE_TORNADO, g_saber_tornado_frames, TORNADO_FRAME_COUNT,
+      TORNADO_TICKS_PER_FRAME, false, MmxSaberAssetsPalette(assets),
+      MmxSaberAssetsPaletteCount(assets));
+  return 1;
+}
+
 static void release_saber_assets(void) {
   MmxRendererSetPlayerOverlayProvider(NULL);
   MmxRendererSetWorldSpriteProvider(NULL);
   MmxRendererSetDebugRectProvider(NULL);
   MmxSaberRenderSetWave(NULL);
+  MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_TORNADO, NULL, 0, 0,
+                                   false, NULL, 0);
+  memset(g_saber_tornado_frames, 0, sizeof(g_saber_tornado_frames));
   MmxSaberWaveRuntimeSetCollisionRecord(NULL, 0);
   MmxSaberWaveFree(g_saber_wave);
   MmxSaberAssetsFree(g_saber_assets);
@@ -259,6 +314,12 @@ static int load_saber_assets(char reason[256]) {
     MmxSaberAssetsFree(saber);
     snprintf(reason, 256, "ride-zero-v1.bin: %s",
              local_reason[0] ? local_reason : "parse failed");
+    return 0;
+  }
+  if (!configure_saber_tornado_strip(saber)) {
+    MmxSaberAssetsFree(ride);
+    MmxSaberAssetsFree(saber);
+    snprintf(reason, 256, "saber-v1.bin: invalid tornado projectile strip");
     return 0;
   }
   g_saber_assets = saber;
