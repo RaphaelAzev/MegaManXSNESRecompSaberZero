@@ -47,10 +47,10 @@ const uint16_t *MmxZeroBodyColors(const MmxZeroState *s) {
 }
 
 static const uint8_t kSaberManifestSha[32] = {
-  0x7a, 0x89, 0x39, 0x3c, 0xae, 0xed, 0x11, 0xc6,
-  0xfc, 0x49, 0x14, 0xb8, 0x48, 0xac, 0x6f, 0xb0,
-  0x46, 0x1c, 0x06, 0xfc, 0xd7, 0x8d, 0xd2, 0x9a,
-  0x6b, 0xe7, 0x51, 0x38, 0xdd, 0xa6, 0xae, 0xf3,
+  0x49, 0x2a, 0xac, 0xeb, 0x77, 0x94, 0x4c, 0x37,
+  0x90, 0xb6, 0x47, 0xb8, 0xba, 0xa6, 0x06, 0xce,
+  0x74, 0x11, 0x95, 0x19, 0x7c, 0xe2, 0x39, 0x3d,
+  0xb5, 0x08, 0xd3, 0x31, 0x63, 0xc1, 0xcb, 0xe1
 };
 
 static const uint8_t kRideManifestSha[32] = {
@@ -1350,6 +1350,93 @@ static void cutter_asset_checks(const MmxSaberAssets *assets) {
   MmxSaberProjectileReset(ram);
 }
 
+static void ice_clone_asset_checks(const MmxSaberAssets *assets) {
+  enum {
+    ICE_CLONE_ANIMATION_ID = 18,
+    ICE_CLONE_FRAME_COUNT = 3,
+    ICE_CLONE_TICKS_PER_FRAME = 3,
+    ICE_CLONE_WIDTH = 94,
+    ICE_CLONE_HEIGHT = 38,
+    ICE_CLONE_ORIGIN_X = 94,
+    ICE_CLONE_ORIGIN_Y = 38,
+  };
+  const MmxSaberAnimation *animation =
+      MmxSaberAssetsAnimationById(assets, ICE_CLONE_ANIMATION_ID);
+  MmxSaberProjectileFrame frames[ICE_CLONE_FRAME_COUNT];
+  MmxRenderWorldSprite actual[1];
+  const uint16_t *palette = MmxSaberAssetsPalette(assets);
+  const uint16_t palette_count = MmxSaberAssetsPaletteCount(assets);
+  uint8_t ram[0x20000] = {0};
+  MmxSaberProjectileSpawnInfo info = {0};
+  unsigned index;
+
+  check(animation && animation->step_count == ICE_CLONE_FRAME_COUNT &&
+            animation->total_ticks ==
+                ICE_CLONE_FRAME_COUNT * ICE_CLONE_TICKS_PER_FRAME,
+        "loaded asset exposes three three-tick ice clone frames");
+  for (unsigned i = 0; i < ICE_CLONE_FRAME_COUNT; ++i) {
+    const MmxSaberStep *step = MmxSaberAssetsAnimationStep(
+        assets, ICE_CLONE_ANIMATION_ID, i);
+    const MmxSaberFrame *frame = MmxSaberAssetsFrameForStep(
+        assets, ICE_CLONE_ANIMATION_ID, i);
+    check(step && step->duration_ticks == ICE_CLONE_TICKS_PER_FRAME &&
+              frame && frame->body.pixels &&
+              frame->body.width == ICE_CLONE_WIDTH &&
+              frame->body.height == ICE_CLONE_HEIGHT &&
+              frame->body.origin_x == ICE_CLONE_ORIGIN_X &&
+              frame->body.origin_y == ICE_CLONE_ORIGIN_Y &&
+              frame->source_id == 18 && frame->source_frame_id == i &&
+              frame->blade.pixels == NULL && frame->blade.width == 0 &&
+              frame->blade.height == 0 && frame->blade_layer == 0,
+          "ice clone frame keeps 94x38 bottom-right origin geometry");
+    frames[i] = (MmxSaberProjectileFrame){
+      frame->body.pixels,
+      frame->body.width,
+      frame->body.height,
+      frame->body.origin_x,
+      frame->body.origin_y,
+    };
+  }
+
+  MmxSaberProjectileReset(ram);
+  MmxSaberRenderSetWave(NULL);
+  MmxSaberRenderSetProjectileStrip(
+      SABER_PROJECTILE_ICE_CLONE, frames, ICE_CLONE_FRAME_COUNT,
+      ICE_CLONE_TICKS_PER_FRAME, true, palette, palette_count);
+  info.kind = SABER_PROJECTILE_ICE_CLONE;
+  info.x = 142 * 256;
+  info.y = 160 * 256;
+  info.lifetime = 20;
+  check(MmxSaberProjectileSpawn(ram, &info, &index) &&
+            MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
+            actual[0].pixels == frames[0].pixels &&
+            actual[0].width == ICE_CLONE_WIDTH &&
+            actual[0].height == ICE_CLONE_HEIGHT &&
+            actual[0].origin_x == ICE_CLONE_ORIGIN_X &&
+            actual[0].origin_y == ICE_CLONE_ORIGIN_Y &&
+            actual[0].palette == palette &&
+            actual[0].palette_count == palette_count,
+        "loaded ice clone strip registers frame zero with palette and origin");
+  for (unsigned i = 0; i < ICE_CLONE_TICKS_PER_FRAME; ++i)
+    MmxSaberProjectileTick(ram);
+  check(MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
+            actual[0].pixels == frames[1].pixels,
+        "loaded ice clone strip advances after three ticks");
+  for (unsigned i = 0; i < ICE_CLONE_TICKS_PER_FRAME; ++i)
+    MmxSaberProjectileTick(ram);
+  check(MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
+            actual[0].pixels == frames[2].pixels,
+        "loaded ice clone strip selects frame three after six ticks");
+  for (unsigned i = 0; i < ICE_CLONE_TICKS_PER_FRAME; ++i)
+    MmxSaberProjectileTick(ram);
+  check(MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
+            actual[0].pixels == frames[2].pixels,
+        "loaded ice clone strip holds frame three after nine ticks");
+  MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_ICE_CLONE, NULL, 0, 0,
+                                   false, NULL, 0);
+  MmxSaberProjectileReset(ram);
+}
+
 static void projectile_provider_checks(const MmxSaberWave *wave) {
   static const uint8_t frame_zero_pixels[] = {1};
   static const uint8_t frame_one_pixels[] = {2};
@@ -1921,6 +2008,7 @@ int main(void) {
   special_render_checks(assets);
   tornado_asset_checks(assets);
   cutter_asset_checks(assets);
+  ice_clone_asset_checks(assets);
   ride_matrix_checks(ride);
   uppercut_attack_checks();
   thrust_attack_checks();

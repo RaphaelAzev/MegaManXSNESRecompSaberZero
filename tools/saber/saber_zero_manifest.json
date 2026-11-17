@@ -87,6 +87,11 @@
       "id": 17,
       "file": "Special_Cutter.png",
       "sha256": "8d2d45a122f66e08c33fe7bdd262ec08c8ce45c8acc56e4d993b5ea474ec6169"
+    },
+    {
+      "id": 18,
+      "file": "Special_IceClone.png",
+      "sha256": "0e9980bcdc3112c4b8b07cce706afa4a96bbf9e7158bf93da8c3e5fa793096d5"
     }
   ],
   "frames": [
@@ -2758,6 +2763,57 @@
         ]
       },
       "source_frame": 7
+    },
+    {
+      "id": 1161,
+      "source": 18,
+      "body": {
+        "rect": [
+          0,
+          0,
+          94,
+          38
+        ],
+        "origin": [
+          94,
+          38
+        ]
+      },
+      "source_frame": 0
+    },
+    {
+      "id": 1162,
+      "source": 18,
+      "body": {
+        "rect": [
+          94,
+          0,
+          94,
+          38
+        ],
+        "origin": [
+          94,
+          38
+        ]
+      },
+      "source_frame": 1
+    },
+    {
+      "id": 1163,
+      "source": 18,
+      "body": {
+        "rect": [
+          188,
+          0,
+          94,
+          38
+        ],
+        "origin": [
+          94,
+          38
+        ]
+      },
+      "source_frame": 2
     }
   ],
   "animations": [
@@ -3463,6 +3519,24 @@
         },
         {
           "frame": 1160,
+          "ticks": 3
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "facing_xor": 1,
+      "steps": [
+        {
+          "frame": 1161,
+          "ticks": 3
+        },
+        {
+          "frame": 1162,
+          "ticks": 3
+        },
+        {
+          "frame": 1163,
           "ticks": 3
         }
       ]

@@ -14,10 +14,10 @@
 #endif
 
 static const uint8_t kSaberManifestSha[32] = {
-  0x7a, 0x89, 0x39, 0x3c, 0xae, 0xed, 0x11, 0xc6,
-  0xfc, 0x49, 0x14, 0xb8, 0x48, 0xac, 0x6f, 0xb0,
-  0x46, 0x1c, 0x06, 0xfc, 0xd7, 0x8d, 0xd2, 0x9a,
-  0x6b, 0xe7, 0x51, 0x38, 0xdd, 0xa6, 0xae, 0xf3,
+  0x49, 0x2a, 0xac, 0xeb, 0x77, 0x94, 0x4c, 0x37,
+  0x90, 0xb6, 0x47, 0xb8, 0xba, 0xa6, 0x06, 0xce,
+  0x74, 0x11, 0x95, 0x19, 0x7c, 0xe2, 0x39, 0x3d,
+  0xb5, 0x08, 0xd3, 0x31, 0x63, 0xc1, 0xcb, 0xe1
 };
 
 static const uint8_t kRideManifestSha[32] = {
@@ -161,29 +161,29 @@ static int check_down_thrust_frames(const MmxSaberAssets *assets) {
 
 static int check_saber_assets(const MmxSaberAssets *assets) {
   static const uint16_t ids[] = {
-    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18
   };
   static const uint16_t step_counts[] = {
-    15, 15, 18, 9, 10, 15, 9, 6, 6, 9, 8, 9, 6, 5, 3, 4, 4
+    15, 15, 18, 9, 10, 15, 9, 6, 6, 9, 8, 9, 6, 5, 3, 4, 4, 3
   };
   static const uint16_t total_ticks[] = {
-    30, 30, 39, 18, 20, 30, 18, 12, 12, 18, 16, 18, 12, 10, 12, 12, 12
+    30, 30, 39, 18, 20, 30, 18, 12, 12, 18, 16, 18, 12, 10, 12, 12, 12, 9
   };
   static const uint16_t special_ids[] = {
-    8, 9, 10, 11, 12, 13, 14, 15, 16, 17
+    8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18
   };
   size_t i;
   size_t total_steps = 0;
 
-  if (MmxSaberAssetsFrameCount(assets) != 157)
-    return fail("Saber frame count is not 157");
+  if (MmxSaberAssetsFrameCount(assets) != 160)
+    return fail("Saber frame count is not 160");
   if (!MmxSaberAssetsAnimationById(assets, 14) ||
-      !MmxSaberAssetsAnimationById(assets, 17) ||
-      MmxSaberAssetsAnimationById(assets, 18))
-    return fail("Saber animation count is not 17");
+      !MmxSaberAssetsAnimationById(assets, 18) ||
+      MmxSaberAssetsAnimationById(assets, 19))
+    return fail("Saber animation count is not 18");
 
-  if (MmxSaberAssetsPaletteCount(assets) != 88)
-    return fail("Saber palette count is not 88");
+  if (MmxSaberAssetsPaletteCount(assets) != 97)
+    return fail("Saber palette count is not 97");
   if (!MmxSaberAssetsPalette(assets) || MmxSaberAssetsPalette(assets)[0] != 0)
     return fail("Saber palette does not reserve index zero");
   if (memcmp(MmxSaberAssetsManifestSha256(assets), kSaberManifestSha,
@@ -199,8 +199,8 @@ static int check_saber_assets(const MmxSaberAssets *assets) {
       return fail("Saber animation table changed");
   }
 
-  if (total_steps != 151)
-    return fail("Saber step count is not 151");
+  if (total_steps != 154)
+    return fail("Saber step count is not 154");
 
   if (!check_frame(assets, 1, 0, 46, 44, 37, 44,
                    "ground slash 1 anchor changed") ||

@@ -35,6 +35,7 @@ static MmxSaberWave *g_saber_wave;
 static MmxSaberProjectileFrame g_saber_tornado_frames[3];
 static MmxSaberProjectileFrame g_saber_cutter_forward_frames[4];
 static MmxSaberProjectileFrame g_saber_cutter_diagonal_frames[4];
+static MmxSaberProjectileFrame g_saber_ice_clone_frames[3];
 static bool g_saber_sfx_warning;
 
 /* Saber owns Zero's body, whichever seat the renderer is drawing. An X body
@@ -71,6 +72,12 @@ static void clear_saber_cutter_strips(void) {
          sizeof(g_saber_cutter_diagonal_frames));
 }
 
+static void clear_saber_ice_clone_strip(void) {
+  MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_ICE_CLONE, NULL, 0, 0,
+                                   false, NULL, 0);
+  memset(g_saber_ice_clone_frames, 0, sizeof(g_saber_ice_clone_frames));
+}
+
 static void saber_activation_failed(void) {
   MmxWeaponsSetContactClassOverride(NULL);
   MmxSaberFrameSetPadSource(NULL);
@@ -81,6 +88,7 @@ static void saber_activation_failed(void) {
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_TORNADO, NULL, 0, 0,
                                    false, NULL, 0);
   clear_saber_cutter_strips();
+  clear_saber_ice_clone_strip();
   MmxZeroSetExtension(NULL);
   MmxSaberFrameReset();
 }
@@ -138,10 +146,10 @@ static bool saber_tuning_option_reader(const char *option_id, char *value,
 }
 
 static const uint8_t kSaberManifestSha[32] = {
-  0x7a, 0x89, 0x39, 0x3c, 0xae, 0xed, 0x11, 0xc6,
-  0xfc, 0x49, 0x14, 0xb8, 0x48, 0xac, 0x6f, 0xb0,
-  0x46, 0x1c, 0x06, 0xfc, 0xd7, 0x8d, 0xd2, 0x9a,
-  0x6b, 0xe7, 0x51, 0x38, 0xdd, 0xa6, 0xae, 0xf3,
+  0x49, 0x2a, 0xac, 0xeb, 0x77, 0x94, 0x4c, 0x37,
+  0x90, 0xb6, 0x47, 0xb8, 0xba, 0xa6, 0x06, 0xce,
+  0x74, 0x11, 0x95, 0x19, 0x7c, 0xe2, 0x39, 0x3d,
+  0xb5, 0x08, 0xd3, 0x31, 0x63, 0xc1, 0xcb, 0xe1
 };
 
 static const uint8_t kRideManifestSha[32] = {
@@ -272,10 +280,10 @@ static int configure_saber_tornado_strip(const MmxSaberAssets *assets) {
   return 1;
 }
 
-static int configure_saber_cutter_strip(
+static int configure_saber_projectile_strip(
     const MmxSaberAssets *assets, MmxSaberProjectileKind kind,
     uint16_t animation_id, unsigned frame_count, uint16_t width,
-    uint16_t height, int16_t origin_x, int16_t origin_y,
+    uint16_t height, int16_t origin_x, int16_t origin_y, bool hold_last,
     MmxSaberProjectileFrame *frames) {
   const MmxSaberAnimation *animation =
       MmxSaberAssetsAnimationById(assets, animation_id);
@@ -305,23 +313,34 @@ static int configure_saber_cutter_strip(
     };
   }
   MmxSaberRenderSetProjectileStrip(
-      kind, frames, frame_count, 3, false, MmxSaberAssetsPalette(assets),
+      kind, frames, frame_count, 3, hold_last, MmxSaberAssetsPalette(assets),
       MmxSaberAssetsPaletteCount(assets));
   return 1;
 }
 
 static int configure_saber_cutter_strips(const MmxSaberAssets *assets) {
   clear_saber_cutter_strips();
-  if (!configure_saber_cutter_strip(
+  if (!configure_saber_projectile_strip(
           assets, SABER_PROJECTILE_CUTTER, 16, 4, 32, 12, 16, 6,
-          g_saber_cutter_forward_frames)) {
+          false, g_saber_cutter_forward_frames)) {
     clear_saber_cutter_strips();
     return 0;
   }
-  if (!configure_saber_cutter_strip(
+  if (!configure_saber_projectile_strip(
           assets, SABER_PROJECTILE_CUTTER_AIR, 17, 4, 26, 24, 13, 12,
-          g_saber_cutter_diagonal_frames)) {
+          false, g_saber_cutter_diagonal_frames)) {
     clear_saber_cutter_strips();
+    return 0;
+  }
+  return 1;
+}
+
+static int configure_saber_ice_clone_strip(const MmxSaberAssets *assets) {
+  clear_saber_ice_clone_strip();
+  if (!configure_saber_projectile_strip(
+          assets, SABER_PROJECTILE_ICE_CLONE, 18, 3, 94, 38, 94, 38,
+          true, g_saber_ice_clone_frames)) {
+    clear_saber_ice_clone_strip();
     return 0;
   }
   return 1;
@@ -336,6 +355,7 @@ static void release_saber_assets(void) {
                                    false, NULL, 0);
   memset(g_saber_tornado_frames, 0, sizeof(g_saber_tornado_frames));
   clear_saber_cutter_strips();
+  clear_saber_ice_clone_strip();
   MmxSaberWaveRuntimeSetCollisionRecord(NULL, 0);
   MmxSaberWaveFree(g_saber_wave);
   MmxSaberAssetsFree(g_saber_assets);
@@ -396,6 +416,12 @@ static int load_saber_assets(char reason[256]) {
     MmxSaberAssetsFree(ride);
     MmxSaberAssetsFree(saber);
     snprintf(reason, 256, "saber-v1.bin: invalid cutter projectile strips");
+    return 0;
+  }
+  if (!configure_saber_ice_clone_strip(saber)) {
+    MmxSaberAssetsFree(ride);
+    MmxSaberAssetsFree(saber);
+    snprintf(reason, 256, "saber-v1.bin: invalid ice clone projectile strip");
     return 0;
   }
   g_saber_assets = saber;
