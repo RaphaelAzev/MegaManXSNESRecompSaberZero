@@ -35,7 +35,13 @@ enum {
   MMX_SABER_TORNADO_TOP_ABOVE_ZERO = 57,
   MMX_SABER_TORNADO_HEIGHT = 120,
   MMX_SABER_TORNADO_GROWTH_TICKS = 10,
-  MMX_SABER_TORNADO_RISE_VY = -9 * 256
+  MMX_SABER_TORNADO_RISE_VY = -9 * 256,
+  MMX_SABER_ICE_CLONE_FRONT_X = 58,
+  MMX_SABER_ICE_CLONE_FADE_START_AGE = 12,
+  MMX_SABER_ICE_CLONE_FADE_STEP_TICKS = 3,
+  MMX_SABER_ICE_CLONE_FADE_ACTIVE_LEVEL = 12,
+  MMX_SABER_ICE_CLONE_FADE_DONE_LEVEL = 16,
+  MMX_SABER_ICE_CLONE_LIFETIME = 21
 };
 
 unsigned MmxSaberProjectileTornadoCollisionPointer(unsigned index);
@@ -72,6 +78,7 @@ typedef struct MmxSaberProjectile {
   uint16_t slot;
   MmxSaberProjectileKind kind;
   int32_t x, y;
+  int32_t ice_clone_origin_x;
   int32_t tornado_floor_y;
   int16_t vx, vy;
   uint16_t age, lifetime;
@@ -86,6 +93,7 @@ typedef struct MmxSaberProjectile {
   uint16_t hit_mask;
   bool hit_any;
   uint8_t fade_level;
+  uint8_t fade_start_age;
   uint8_t animation_tick;
 } MmxSaberProjectile;
 

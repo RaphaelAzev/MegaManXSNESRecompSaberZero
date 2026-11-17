@@ -292,7 +292,25 @@ static const MmxSaberAttack kSaberAttacks[] = {
         .bounds_segment_count = sizeof(kThrustBounds) /
             sizeof(kThrustBounds[0]),
         .damage = 8,
-        .bounds_pointer = MMX_SABER_AIR_BOUNDS_POINTER}};
+        .bounds_pointer = MMX_SABER_AIR_BOUNDS_POINTER},
+    {
+        .kind = SABER_KIND_ICE_CLONE,
+        .index = 0,
+        .visual_animation = 6,
+        .facing_xor = 1,
+        .startup_ticks = 0,
+        .active_ticks = 16,
+        .recovery_ticks = 0,
+        .total_ticks = 16,
+        .chain_open_tick = MMX_SABER_NO_WINDOW,
+        .chain_close_tick = MMX_SABER_NO_WINDOW,
+        .buffer_open_tick = MMX_SABER_NO_WINDOW,
+        .buffer_close_tick = MMX_SABER_NO_WINDOW,
+        .next_index = MMX_SABER_NO_WINDOW,
+        .bounds_segments = NULL,
+        .bounds_segment_count = 0,
+        .damage = 0,
+        .bounds_pointer = 0}};
 
 typedef struct MmxSaberAttackState {
   MmxSaberPadKind kind;
@@ -316,6 +334,7 @@ typedef struct MmxSaberAttackState {
   bool tornado_spawned;
   bool cutter_technique;
   bool cutter_spawn_attempted;
+  bool ice_clone_spawn_attempted;
   uint8_t cue;
   bool cue_pending;
   bool previous_grounded;
@@ -441,6 +460,8 @@ static MmxSaberTuningDamageKind attack_damage_kind(
       return MMX_SABER_TUNING_DAMAGE_ROLLING;
     case SABER_KIND_THRUST:
       return MMX_SABER_TUNING_DAMAGE_THRUST;
+    case SABER_KIND_ICE_CLONE:
+      return MMX_SABER_TUNING_DAMAGE_ICE_CLONE;
     case SABER_KIND_AIR:
       return MMX_SABER_TUNING_DAMAGE_AIR;
     case SABER_KIND_WALL:
@@ -842,6 +863,11 @@ static uint8_t animation_step_for_tick(uint8_t animation, uint8_t tick) {
 }
 
 static void update_animation(void) {
+  if (state.kind == SABER_KIND_ICE_CLONE) {
+    state.anim_id = state.tick < 4 ? 6 : 1;
+    state.anim_step = 0;
+    return;
+  }
   state.anim_step = state.anim_id ?
       animation_step_for_tick(state.anim_id, state.tick) : 0;
 }
@@ -867,6 +893,8 @@ static MmxSaberSfxAttackCue attack_cue(const MmxSaberAttack *attack) {
       return MMX_SABER_SFX_ATTACK_ROLLING;
     case SABER_KIND_THRUST:
       return MMX_SABER_SFX_ATTACK_THRUST;
+    case SABER_KIND_ICE_CLONE:
+      return MMX_SABER_SFX_ATTACK_DASH;
     default:
       return MMX_SABER_SFX_ATTACK_COUNT;
   }
@@ -892,6 +920,7 @@ static void clear_attack(void) {
   state.tornado_spawned = false;
   state.cutter_technique = false;
   state.cutter_spawn_attempted = false;
+  state.ice_clone_spawn_attempted = false;
   state.hit_slots = 0;
   state.cue = MMX_SABER_SFX_ATTACK_COUNT;
   state.cue_pending = false;
@@ -1209,6 +1238,7 @@ static void start_attack(const MmxSaberAttack *attack, uint8_t facing,
   state.tornado_spawned = false;
   state.cutter_technique = cutter_technique;
   state.cutter_spawn_attempted = false;
+  state.ice_clone_spawn_attempted = false;
   state.cue = attack_cue(attack);
   state.cue_pending = state.cue < MMX_SABER_SFX_ATTACK_COUNT;
   update_animation();
@@ -1281,8 +1311,12 @@ void MmxSaberAttackStepWithWallAndDashRequested(
                 (!grounded ? SABER_KIND_AIR :
                  (grounded && up_held &&
                           special_unlocked(ram, SABER_SPECIAL_UPPERCUT) ? SABER_KIND_UPPERCUT :
-                  (dash_active ? SABER_KIND_DASH : SABER_KIND_GROUND1)))));
-      const uint8_t facing = wall_clinging || kind == SABER_KIND_DASH ?
+                  (dash_active && down_held &&
+                           special_unlocked(ram, SABER_SPECIAL_ICE_CLONE) ?
+                       SABER_KIND_ICE_CLONE :
+                   (dash_active ? SABER_KIND_DASH : SABER_KIND_GROUND1))))));
+      const uint8_t facing = wall_clinging ||
+          kind == SABER_KIND_DASH || kind == SABER_KIND_ICE_CLONE ?
           (native_facing & 0x40) :
           facing_for_direction(horizontal_direction, native_facing);
       /* Slash 2 is the second combo record (index 1); a weapon technique
@@ -1311,7 +1345,8 @@ void MmxSaberAttackStepWithWallAndDashRequested(
    * dash slash; its acceptance is observed in PlayerEnd after native movement.
    * Startup input is masked by the pure pad before it reaches the native
    * routine. */
-  if (attack->kind == SABER_KIND_DASH) {
+  if (attack->kind == SABER_KIND_DASH ||
+      attack->kind == SABER_KIND_ICE_CLONE) {
     if (!grounded) {
       MmxSaberAttackExit(runtime_ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
       return;
@@ -1427,12 +1462,39 @@ static bool allocate_projectile(uint8_t *ram, const MmxSaberAttack *attack) {
   return true;
 }
 
+static void spawn_ice_clone_if_ready(uint8_t *ram) {
+  MmxSaberProjectileSpawnInfo info = {0};
+  const int direction = state.facing ? 1 : -1;
+  const int zero_x = (int16_t)word(ram + 0x0bad);
+  const int zero_y = (int16_t)word(ram + 0x0bb0);
+
+  if (state.kind != SABER_KIND_ICE_CLONE || state.tick != 0 ||
+      state.ice_clone_spawn_attempted)
+    return;
+  state.ice_clone_spawn_attempted = true;
+  info.kind = SABER_PROJECTILE_ICE_CLONE;
+  info.x = (int32_t)(zero_x + direction * MMX_SABER_ICE_CLONE_FRONT_X) * 256;
+  info.y = (int32_t)zero_y * 256;
+  info.lifetime = MMX_SABER_ICE_CLONE_LIFETIME;
+  info.facing = state.facing;
+  info.damage_normal = (uint8_t)MmxSaberTuningNormalDamage(
+      MMX_SABER_TUNING_DAMAGE_ICE_CLONE);
+  info.damage_boss = (uint8_t)MmxSaberTuningBossDamage(
+      MMX_SABER_TUNING_DAMAGE_ICE_CLONE);
+  info.pass_through = true;
+  (void)MmxSaberProjectileSpawn(ram, &info, NULL);
+}
+
 void MmxSaberAttackRuntimeTick(uint8_t *ram) {
   const MmxSaberAttack *attack;
   runtime_ram = ram;
   if (!ram) return;
   collision_windows_refresh();
   attack = state_attack();
+  if (attack && attack->kind == SABER_KIND_ICE_CLONE) {
+    spawn_ice_clone_if_ready(ram);
+    return;
+  }
   if (state.phase != SABER_PHASE_ACTIVE || !attack ||
       !attack->bounds_segments) {
     if (state.projectile) release_current_projectile(ram);
@@ -1537,6 +1599,7 @@ static bool native_movement_accepted(const uint8_t *ram) {
     case SABER_KIND_GROUND1:
     case SABER_KIND_GROUND2:
     case SABER_KIND_GROUND3:
+    case SABER_KIND_ICE_CLONE:
       /* Native jump acceptance is the grounded -> airborne publication. */
       if (native_jump_accepted(ram)) return true;
       /* Native dash acceptance is the transition into action $14. */

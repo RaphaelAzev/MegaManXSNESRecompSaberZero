@@ -27,11 +27,17 @@ typedef struct MmxSaberProjectileBounds {
 static const MmxSaberProjectileBounds kProjectileHitboxes[
     SABER_PROJECTILE_KIND_COUNT] = {
   [SABER_PROJECTILE_TORNADO] = {10, 60},
-  [SABER_PROJECTILE_ICE_CLONE] = {16, 16},
+  [SABER_PROJECTILE_ICE_CLONE] = {47, 19},
   [SABER_PROJECTILE_THUNDER_ORB] = {8, 8},
   [SABER_PROJECTILE_CUTTER] = {16, 6},
   [SABER_PROJECTILE_CUTTER_AIR] = {13, 12},
 };
+
+/* Leading-edge displacement for the authored ice clone path.  Keep this a
+ * table: the board trace is not a velocity simulation. */
+static const uint8_t kIceCloneDisplacement[] = {
+  0, 10, 21, 31, 40, 49, 58, 65, 71, 78,
+  82, 85, 89, 91, 93, 95, 96, 98, 99};
 
 static unsigned word(const uint8_t *p) {
   return p[0] | ((unsigned)p[1] << 8);
@@ -119,6 +125,28 @@ static void clear_entry(unsigned index) {
   clear_tornado_collision(index);
   memset(&projectiles[index], 0, sizeof(projectiles[index]));
   projectiles[index].slot = (uint16_t)slot_for_index(index);
+}
+
+static unsigned ice_clone_displacement(unsigned age) {
+  const unsigned last = sizeof(kIceCloneDisplacement) - 1;
+  return kIceCloneDisplacement[age < last ? age : last];
+}
+
+static void tick_ice_clone(MmxSaberProjectile *projectile) {
+  unsigned fade_step;
+  const int direction = projectile->facing & 0x40 ? 1 : -1;
+
+  projectile->x = projectile->ice_clone_origin_x +
+      direction * (int32_t)ice_clone_displacement(projectile->age) * 256;
+  if (projectile->fade_start_age == 0xff &&
+      (projectile->age >= MMX_SABER_ICE_CLONE_FADE_START_AGE ||
+       projectile->hit_any))
+    projectile->fade_start_age = (uint8_t)projectile->age;
+  if (projectile->fade_start_age == 0xff) return;
+  fade_step = 1 + (projectile->age - projectile->fade_start_age) /
+      MMX_SABER_ICE_CLONE_FADE_STEP_TICKS;
+  if (fade_step > 4) fade_step = 4;
+  projectile->fade_level = (uint8_t)(fade_step * 4);
 }
 
 static void retire_slot(uint8_t *ram, unsigned slot) {
@@ -307,6 +335,7 @@ bool MmxSaberProjectileSpawn(uint8_t *ram,
       .kind = info->kind,
       .x = info->x,
       .y = info->y,
+      .ice_clone_origin_x = info->x,
       .tornado_floor_y = info->y,
       .vx = info->vx,
       .vy = info->vy,
@@ -325,6 +354,7 @@ bool MmxSaberProjectileSpawn(uint8_t *ram,
       .hit_mask = info->hit_mask,
       .hit_any = false,
       .fade_level = info->fade_level,
+      .fade_start_age = 0xff,
       .animation_tick = info->animation_tick};
 
   memset(ram + slot, 0, MMX_SABER_PROJECTILE_SLOT_BYTES);
@@ -387,10 +417,15 @@ void MmxSaberProjectileTick(uint8_t *ram) {
         projectile->tornado_uppercut_motion &&
         projectile->age == MMX_SABER_TORNADO_GROWTH_TICKS)
       projectile->vy = MMX_SABER_TORNADO_RISE_VY;
+    if (projectile->kind == SABER_PROJECTILE_ICE_CLONE)
+      tick_ice_clone(projectile);
     ++projectile->animation_tick;
     write_position(target, projectile);
     update_tornado_collision(target, projectile);
-    if (projectile->age >= projectile->lifetime || offscreen(target, slot)) {
+    if (projectile->age >= projectile->lifetime ||
+        (projectile->kind == SABER_PROJECTILE_ICE_CLONE &&
+         projectile->fade_level >= MMX_SABER_ICE_CLONE_FADE_DONE_LEVEL) ||
+        offscreen(target, slot)) {
       retire_slot(target, slot);
       clear_entry(i);
     }
@@ -468,6 +503,9 @@ static unsigned projectile_damage(uint8_t *ram, unsigned enemy,
   unsigned damage;
 
   if (!projectile) return value;
+  if (projectile->kind == SABER_PROJECTILE_ICE_CLONE &&
+      projectile->fade_level >= MMX_SABER_ICE_CLONE_FADE_ACTIVE_LEVEL)
+    return 0;
   if (value & 128) {
     /* Native reflection stays authoritative. Only a non-pass-through owner
      * is retired by the reflected response, matching the wave owner. */
@@ -510,6 +548,9 @@ unsigned MmxSaberProjectileHitbox(const uint8_t *ram, unsigned enemy,
    * native collision supplies the broad-phase candidate and this callback
    * supplies the per-enemy hit-mask gate. */
   if (!hitbox || !hitbox->half_width || !hitbox->half_height) return 0;
+  if (projectile->kind == SABER_PROJECTILE_ICE_CLONE &&
+      projectile->fade_level >= MMX_SABER_ICE_CLONE_FADE_ACTIVE_LEVEL)
+    return 0;
   if (projectile->kind == SABER_PROJECTILE_TORNADO &&
       !tornado_visible_height(ram, projectile)) return 0;
   if (projectile->hit_mask & bit) return 0;

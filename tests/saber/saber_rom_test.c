@@ -2538,9 +2538,14 @@ static void saber_attack_selection_checks(void) {
   saber_attack_selection_case(
       0xff, true, false, false, false, true, SABER_KIND_GROUND1,
       "Down on ground keeps ground-1 selection");
+  /* Chill Penguin is clear index 7: without it Down + Y in a dash stays the
+   * dash slash; with it the same input is the ice clone. */
   saber_attack_selection_case(
-      0xff, true, false, true, false, true, SABER_KIND_DASH,
-      "Down on ground keeps dash selection");
+      0x7f, true, false, true, false, true, SABER_KIND_DASH,
+      "Down in a dash keeps dash selection without Chill Penguin");
+  saber_attack_selection_case(
+      0xff, true, false, true, false, true, SABER_KIND_ICE_CLONE,
+      "Down in a dash selects the ice clone after Chill Penguin");
 
   MmxSaberTuningLoad(saber_special_moves_off_reader, NULL);
   /* Mutation red: remove the special_moves gate from special_unlocked()
@@ -13684,6 +13689,288 @@ static void saber_weakness_checks(const char *fixture_dir) {
   puts("ok: saber-weakness");
 }
 
+static unsigned saber_ice_clone_count(void) {
+  unsigned count = 0;
+  for (unsigned i = 0; i < MMX_SABER_PROJECTILE_SLOT_COUNT; ++i) {
+    const MmxSaberProjectile *projectile = MmxSaberProjectileGet(i);
+    if (projectile->active && projectile->kind == SABER_PROJECTILE_ICE_CLONE)
+      ++count;
+  }
+  return count;
+}
+
+static unsigned saber_ice_clone_slot(void) {
+  for (unsigned i = 0; i < MMX_SABER_PROJECTILE_SLOT_COUNT; ++i) {
+    const MmxSaberProjectile *projectile = MmxSaberProjectileGet(i);
+    if (projectile->active && projectile->kind == SABER_PROJECTILE_ICE_CLONE)
+      return projectile->slot;
+  }
+  return 0;
+}
+
+static unsigned saber_ice_clone_start_dash(bool right) {
+  const unsigned direction = right ? SNES_PAD_RIGHT : SNES_PAD_LEFT;
+  for (unsigned i = 0; i < 40; ++i) {
+    frame(SNES_PAD_A | direction);
+    if (g_ram[0x0baa] == 0x14 && saber_test_grounded()) return i + 1;
+  }
+  return 0;
+}
+
+static unsigned saber_ice_clone_start_dash_full(bool right) {
+  const unsigned direction = right ? SNES_PAD_RIGHT : SNES_PAD_LEFT;
+  for (unsigned i = 0; i < 40; ++i) {
+    saber_finisher_fill_free_slots();
+    frame(SNES_PAD_A | direction);
+    if (g_ram[0x0baa] == 0x14 && saber_test_grounded()) return i + 1;
+  }
+  return 0;
+}
+
+static unsigned saber_ice_clone_launch_loaded(bool right) {
+  const unsigned direction = right ? SNES_PAD_RIGHT : SNES_PAD_LEFT;
+  const unsigned dash_start = saber_ice_clone_start_dash(right);
+  const int zero_x = (int16_t)read_ram_word(g_ram, 0x0bad);
+  const int feet_y = (int16_t)read_ram_word(g_ram, 0x0bb0);
+  MmxSaberAttackSnapshot snapshot;
+  unsigned slot;
+
+  check(dash_start != 0,
+        right ? "ice clone right route starts a grounded dash" :
+                "ice clone left route starts a grounded dash");
+  frame(SNES_PAD_A | direction | SNES_PAD_DOWN | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  slot = saber_ice_clone_slot();
+  check(snapshot.kind == SABER_KIND_ICE_CLONE &&
+            snapshot.phase == SABER_PHASE_ACTIVE && snapshot.tick == 0 &&
+            snapshot.anim_id == 6 && snapshot.anim_step == 0 &&
+            saber_ice_clone_count() == 1,
+        right ? "right Down+Y dash starts one ice clone at tick 0" :
+                "left Down+Y dash starts one ice clone at tick 0");
+  check(slot != 0 && MmxSaberProjectileOwns(g_ram, slot) &&
+            MmxSaberProjectileGet(
+                (slot - MMX_SABER_PROJECTILE_SLOT_FIRST) /
+                MMX_SABER_PROJECTILE_SLOT_BYTES)->facing ==
+                (right ? 0x40 : 0) &&
+            MmxSaberProjectileGet(
+                (slot - MMX_SABER_PROJECTILE_SLOT_FIRST) /
+                MMX_SABER_PROJECTILE_SLOT_BYTES)->x ==
+                (int32_t)(zero_x +
+                          (right ? MMX_SABER_ICE_CLONE_FRONT_X :
+                                   -MMX_SABER_ICE_CLONE_FRONT_X)) * 256 &&
+            read_ram_word(g_ram, slot + 8) == (unsigned)feet_y &&
+            MmxSaberAttackCueCount() == 1 &&
+            MmxSaberSfxLastClip() == MMX_SABER_SFX_CLIP_SABER_2,
+        right ? "right ice clone leads at Zero X plus 58 and feet Y" :
+                "left ice clone leads at Zero X minus 58 and feet Y");
+  if (!slot || snapshot.kind != SABER_KIND_ICE_CLONE) return 0;
+  return slot;
+}
+
+static unsigned saber_ice_clone_launch(const char *fixture, bool right) {
+  saber_specials_unlock_load(fixture, 0);
+  g_ram[0x1f96] |= 0x40;
+  if (!right) {
+    /* The fixture starts at the left edge of the stage: walk right first so
+     * a left dash has room. */
+    for (unsigned i = 0; i < 48; ++i) frame(SNES_PAD_RIGHT);
+    for (unsigned i = 0; i < 8; ++i) frame(0);
+    /* Turn left on foot first: an A press on the turn frame is swallowed and
+     * a held A never starts a dash. */
+    for (unsigned i = 0; i < 4; ++i) frame(SNES_PAD_LEFT);
+    for (unsigned i = 0; i < 4; ++i) frame(0);
+  }
+  return saber_ice_clone_launch_loaded(right);
+}
+
+static void saber_ice_clone_checks(const char *fixture) {
+  const MmxSaberAttack *clone =
+      MmxSaberAttackRecord(SABER_KIND_ICE_CLONE, 0);
+  MmxSaberAttackSnapshot snapshot;
+  unsigned slot;
+  unsigned index;
+
+  check(clone && clone->visual_animation == 6 &&
+            clone->startup_ticks == 0 && clone->active_ticks == 16 &&
+            clone->total_ticks == 16 && clone->bounds_segments == NULL &&
+            clone->damage == 0,
+        "ice clone record is animation 6, 16 ticks, and melee-hitbox free");
+
+  saber_specials_unlock_load(fixture, 0);
+  g_ram[0x1f96] &= (uint8_t)~0x40;
+  check(saber_ice_clone_start_dash(true) != 0,
+        "locked ice clone probe starts a grounded dash");
+  frame(SNES_PAD_A | SNES_PAD_RIGHT | SNES_PAD_DOWN | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_DASH && saber_ice_clone_count() == 0,
+        "Chill Penguin clear gates Down+Y dash selection");
+
+  saber_specials_unlock_load(fixture, 0);
+  g_ram[0x1f96] |= 0x40;
+  MmxSaberTuningLoad(saber_special_moves_off_reader, NULL);
+  check(saber_ice_clone_start_dash(true) != 0,
+        "special_moves-off ice clone probe starts a grounded dash");
+  frame(SNES_PAD_A | SNES_PAD_RIGHT | SNES_PAD_DOWN | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_DASH && saber_ice_clone_count() == 0,
+        "special_moves off keeps Down+Y dash as dash slash");
+  MmxSaberTuningLoad(NULL, NULL);
+
+  (void)saber_ice_clone_launch(fixture, false);
+  MmxSaberProjectileRetireAll(g_ram);
+
+  slot = saber_ice_clone_launch(fixture, true);
+  if (!slot) return;
+  {
+    const int stopped_x = (int16_t)read_ram_word(g_ram, 0x0bad);
+    bool stopped = true;
+    for (unsigned i = 0; i < 3; ++i) {
+      frame(SNES_PAD_A | SNES_PAD_RIGHT | SNES_PAD_DOWN);
+      if ((int16_t)read_ram_word(g_ram, 0x0bad) != stopped_x) stopped = false;
+    }
+    check(stopped,
+          "ice clone publish_ground_swing writes zero VX before native dash movement");
+  }
+
+  slot = saber_ice_clone_launch(fixture, true);
+  check(slot != 0, "ice clone motion probe relaunches from age zero");
+  if (!slot) return;
+  index = (slot - MMX_SABER_PROJECTILE_SLOT_FIRST) /
+      MMX_SABER_PROJECTILE_SLOT_BYTES;
+  for (unsigned age = 1; age <= 15; ++age) {
+    frame(SNES_PAD_A | SNES_PAD_RIGHT | SNES_PAD_DOWN);
+    const MmxSaberProjectile *projectile = MmxSaberProjectileGet(index);
+    if (age == 3)
+      check(projectile->age == age && projectile->x ==
+                projectile->ice_clone_origin_x + 31 * 256,
+            "ice clone age 3 uses 31-pixel table displacement");
+    if (age == 9)
+      check(projectile->age == age && projectile->x ==
+                projectile->ice_clone_origin_x + 78 * 256,
+            "ice clone age 9 uses 78-pixel table displacement");
+    if (age == 12)
+      check(projectile->fade_level == 4,
+            "ice clone fade starts at age 12 with dither level 4");
+    if (age == 15)
+      check(projectile->age == age && projectile->x ==
+                projectile->ice_clone_origin_x + 95 * 256 &&
+                projectile->fade_level == 8,
+            "ice clone age 15 uses 95-pixel displacement and fade level 8");
+  }
+  for (unsigned age = 16; age <= 18; ++age) frame(0);
+  check(MmxSaberProjectileGet(index)->fade_level == 12 &&
+            MmxSaberProjectileOwns(g_ram, slot),
+        "ice clone stays live but loses hitbox at fade level 12");
+  for (unsigned age = 19; age <= 21; ++age) frame(0);
+  check(!MmxSaberProjectileOwns(g_ram, slot),
+        "ice clone retires when fade level reaches 16");
+
+  {
+    unsigned target;
+    unsigned first_hit;
+    unsigned first_damage;
+    unsigned second_hit;
+    unsigned second_damage;
+    unsigned initial_hp;
+
+    target = walk_to_ground_enemy(fixture, NULL);
+    check(target == 0xea8,
+          "ice clone forced-overlap route reaches Highway enemy $0EA8");
+    MmxSaberFrameReset();
+    g_ram[0x1f96] |= 0x40;
+    /* Real route: the clone spawns over $0EA8 and the native collision of the
+     * launch frame already lands the hit, so measure HP from before the
+     * launch and prove the second contact is masked. */
+    initial_hp = g_ram[target + 0x27] & 127;
+    slot = saber_ice_clone_launch_loaded(true);
+    index = (slot - MMX_SABER_PROJECTILE_SLOT_FIRST) /
+        MMX_SABER_PROJECTILE_SLOT_BYTES;
+    first_hit = (MmxSaberProjectileGet(index)->hit_mask &
+                 (1u << ((target - 0x0e68) / 0x40))) != 0;
+    first_damage = initial_hp - (g_ram[target + 0x27] & 127);
+    second_hit = MmxZeroHitbox(g_ram, target, slot, 1);
+    second_damage = MmxSaberProjectileDamage(g_ram, target, slot, 1);
+    check(first_hit == 1 && first_damage == 6 && second_hit == 0 &&
+              second_damage == 0 && MmxSaberProjectileOwns(g_ram, slot),
+          "ice clone pass-through contact deals 6 once per enemy");
+    check(MmxSaberProjectileGet(index)->fade_level == 0,
+          "ice clone hit does not fade until the next projectile tick");
+    frame(0);
+    check(MmxSaberProjectileOwns(g_ram, slot) &&
+              MmxSaberProjectileGet(index)->age == 1 &&
+              MmxSaberProjectileGet(index)->fade_level == 4,
+          "ice clone hit starts fade early on the next tick");
+    for (unsigned age = 2; age <= 7; ++age) frame(0);
+    write_ram_word(g_ram, slot + 5, read_ram_word(g_ram, target + 5));
+    write_ram_word(g_ram, slot + 8, read_ram_word(g_ram, target + 8));
+    check(MmxSaberProjectileGet(index)->fade_level == 12 &&
+              MmxZeroHitbox(g_ram, target, slot, 1) == 0,
+          "ice clone fade level 12 disables its hitbox");
+    MmxSaberProjectileRetire(g_ram, index);
+  }
+
+  (void)saber_ice_clone_launch(fixture, true);
+  {
+    MmxRenderWorldSprite sprites[1];
+    const uint8_t *frame_pixels[5] = {0};
+    const unsigned samples[] = {0, 3, 6, 9, 12};
+    for (unsigned sample = 0; sample < sizeof(samples) / sizeof(samples[0]);
+         ++sample) {
+      check(MmxSaberRenderProvideWorldSprites(sprites, 1) == 1 &&
+                sprites[0].pixels != NULL,
+            "plugin-registered ice clone strip provides a live world sprite");
+      frame_pixels[sample] = sprites[0].pixels;
+      if (sample) {
+        check(sprites[0].pixels == frame_pixels[sample - 1] ||
+                  sample == 1 || sample == 2,
+              "ice clone renderer keeps each frame for three ticks");
+      }
+      if (sample + 1 < sizeof(samples) / sizeof(samples[0]))
+        for (unsigned tick = samples[sample + 1] - samples[sample];
+             tick; --tick)
+          frame(SNES_PAD_A | SNES_PAD_RIGHT | SNES_PAD_DOWN);
+    }
+    check(frame_pixels[0] != frame_pixels[1] &&
+              frame_pixels[1] != frame_pixels[2] &&
+              frame_pixels[2] == frame_pixels[3] &&
+              frame_pixels[3] == frame_pixels[4],
+          "ice clone renderer shows frames 1, 2, 3, then holds frame 3");
+  }
+  MmxSaberProjectileRetireAll(g_ram);
+
+  {
+    MmxSaberProjectileSpawnInfo info = {0};
+    saber_specials_unlock_load(fixture, 0);
+    g_ram[0x1f96] |= 0x40;
+    info.kind = SABER_PROJECTILE_CUTTER;
+    info.x = 200 * 256;
+    info.y = 60 * 256;
+    info.lifetime = 120;
+    for (unsigned i = 0; i < 6; ++i)
+      check(MmxSaberProjectileSpawn(g_ram, &info, NULL),
+            "ice clone capacity probe fills six Saber slots");
+    for (unsigned i = 0; i < 4; ++i) {
+      saber_finisher_fill_free_slots();
+      if (saber_finisher_free_slots() == 0) break;
+      frame(0);
+    }
+    saber_finisher_fill_free_slots();
+    check(MmxSaberProjectileFreeCapacity(g_ram) == 0,
+          "ice clone capacity probe leaves no free projectile slot");
+    check(saber_ice_clone_start_dash_full(true) != 0,
+          "full-capacity ice clone probe starts a grounded dash");
+    const int stopped_x = (int16_t)read_ram_word(g_ram, 0x0bad);
+    saber_finisher_fill_free_slots();
+    frame(SNES_PAD_A | SNES_PAD_RIGHT | SNES_PAD_DOWN | SNES_PAD_Y);
+    check(MmxSaberAttackSnapshotGet().kind == SABER_KIND_ICE_CLONE &&
+              saber_ice_clone_count() == 0 &&
+              (int16_t)read_ram_word(g_ram, 0x0bad) == stopped_x,
+          "no free projectile slot keeps ice clone attack playing without clone");
+    MmxSaberProjectileRetireAll(g_ram);
+  }
+  puts("ok: saber-ice-clone");
+}
+
 int main(int argc, char **argv) {
   check(argc == 2, "X1 ROM supplied");
   const char *fixture = getenv("MMX_ZERO_TEST_FIXTURE");
@@ -13702,6 +13989,7 @@ int main(int argc, char **argv) {
       !strcmp(only, "saber-thrust") ||
       !strcmp(only, "saber-weakness") ||
       !strcmp(only, "saber-tornado") ||
+      !strcmp(only, "saber-ice-clone") ||
       !strcmp(only, "saber-wall") ||
       !strcmp(only, "saber-cancel") || !strcmp(only, "saber-buster-rules") ||
       !strcmp(only, "saber-damage") || !strcmp(only, "saber-priority") ||
@@ -13812,6 +14100,7 @@ int main(int argc, char **argv) {
       only && !strcmp(only, "saber-specials-damage");
   const bool saber_uppercut = only && !strcmp(only, "saber-uppercut");
   const bool saber_tornado = only && !strcmp(only, "saber-tornado");
+  const bool saber_ice_clone = only && !strcmp(only, "saber-ice-clone");
   const bool saber_rolling = only && !strcmp(only, "saber-rolling");
   const bool saber_thrust = only && !strcmp(only, "saber-thrust");
   const bool saber_weakness = only && !strcmp(only, "saber-weakness");
@@ -13844,6 +14133,7 @@ int main(int argc, char **argv) {
       saber_specials_damage ||
       saber_uppercut ||
       saber_tornado ||
+      saber_ice_clone ||
       saber_rolling ||
       saber_thrust ||
       saber_weakness ||
@@ -13942,6 +14232,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-tornado runs with the Saber package enabled");
     saber_tornado_checks(fixture);
+  } else if (saber_ice_clone) {
+    check(MmxSaberEnabled(),
+          "saber-ice-clone runs with the Saber package enabled");
+    saber_ice_clone_checks(fixture);
   } else if (saber_rolling) {
     check(MmxSaberEnabled(),
           "saber-rolling runs with the Saber package enabled");
@@ -14137,6 +14431,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-specials-damage") &&
        strcmp(only, "saber-uppercut") &&
       strcmp(only, "saber-tornado") &&
+      strcmp(only, "saber-ice-clone") &&
       strcmp(only, "saber-rolling") &&
       strcmp(only, "saber-thrust") &&
       strcmp(only, "saber-weakness") &&

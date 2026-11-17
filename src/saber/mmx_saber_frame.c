@@ -241,7 +241,8 @@ static bool ground_swing(MmxSaberPadSaber saber) {
   return saber.phase != SABER_PHASE_IDLE &&
       (saber.kind == SABER_KIND_GROUND1 ||
        saber.kind == SABER_KIND_GROUND2 ||
-       saber.kind == SABER_KIND_GROUND3);
+       saber.kind == SABER_KIND_GROUND3 ||
+       saber.kind == SABER_KIND_ICE_CLONE);
 }
 
 static void publish_ground_swing(uint8_t *ram, MmxSaberPadSaber saber) {
