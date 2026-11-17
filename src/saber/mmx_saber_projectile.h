@@ -22,6 +22,13 @@ enum {
   MMX_SABER_PROJECTILE_CAMERA = 0x1e4d,
   MMX_SABER_PROJECTILE_COUNT = 0x0bdd,
   MMX_SABER_PROJECTILE_PLAYER_Y = 0x0bb0,
+  /* boomer() ground mock centres: Zero x + 30, floor y - 14. */
+  MMX_SABER_CUTTER_FRONT_X = 30,
+  /* boomer() air step-3 blade bbox right edge is 108 on a 128 canvas;
+   * Zero origin is x=64, so the front offset is 108 - 64. */
+  MMX_SABER_AIR_CUTTER_FRONT_X = 108 - 64,
+  MMX_SABER_CUTTER_GROUND_Y_OFFSET = 14,
+  MMX_SABER_CUTTER_LIFETIME = 60,
   MMX_SABER_TORNADO_FRONT_X = 35,
   /* The growing column reaches the top of the take-off arc: arc bbox top
    * y=31 on the 128 canvas, Zero origin y=88 -> 57 px above Zero. */

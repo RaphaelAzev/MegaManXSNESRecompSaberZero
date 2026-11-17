@@ -29,8 +29,8 @@ static const MmxSaberProjectileBounds kProjectileHitboxes[
   [SABER_PROJECTILE_TORNADO] = {10, 60},
   [SABER_PROJECTILE_ICE_CLONE] = {16, 16},
   [SABER_PROJECTILE_THUNDER_ORB] = {8, 8},
-  [SABER_PROJECTILE_CUTTER] = {12, 8},
-  [SABER_PROJECTILE_CUTTER_AIR] = {12, 8},
+  [SABER_PROJECTILE_CUTTER] = {16, 6},
+  [SABER_PROJECTILE_CUTTER_AIR] = {13, 12},
 };
 
 static unsigned word(const uint8_t *p) {

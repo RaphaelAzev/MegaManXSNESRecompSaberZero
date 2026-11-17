@@ -314,6 +314,8 @@ typedef struct MmxSaberAttackState {
   bool tornado_takeoff_attempted;
   bool tornado_spawn_pending;
   bool tornado_spawned;
+  bool cutter_technique;
+  bool cutter_spawn_attempted;
   uint8_t cue;
   bool cue_pending;
   bool previous_grounded;
@@ -767,6 +769,35 @@ static bool spawn_tornado(uint8_t *ram) {
   return true;
 }
 
+static void spawn_cutter_if_ready(uint8_t *ram) {
+  if (!ram || !state.cutter_technique || state.cutter_spawn_attempted ||
+      state.anim_step != 3 ||
+      (state.kind != SABER_KIND_GROUND2 && state.kind != SABER_KIND_AIR))
+    return;
+  MmxSaberProjectileSpawnInfo info = {0};
+  const bool air = state.kind == SABER_KIND_AIR;
+  const int direction = state.facing ? 1 : -1;
+  const int zero_x = (int16_t)word(ram + 0x0bad);
+  const int zero_y = (int16_t)word(ram + 0x0bb0);
+  const int front_x = air ? MMX_SABER_AIR_CUTTER_FRONT_X :
+      MMX_SABER_CUTTER_FRONT_X;
+
+  state.cutter_spawn_attempted = true;
+  info.kind = air ? SABER_PROJECTILE_CUTTER_AIR : SABER_PROJECTILE_CUTTER;
+  info.x = (int32_t)(zero_x + direction * front_x) * 256;
+  info.y = (int32_t)(zero_y - (air ? 0 : MMX_SABER_CUTTER_GROUND_Y_OFFSET)) * 256;
+  info.vx = (int16_t)(direction * (air ? 5 : 8) * 256);
+  info.vy = (int16_t)(air ? 5 * 256 : 0);
+  info.lifetime = MMX_SABER_CUTTER_LIFETIME;
+  info.facing = state.facing;
+  info.damage_normal = (uint8_t)MmxSaberTuningNormalDamage(
+      MMX_SABER_TUNING_DAMAGE_CUTTER);
+  info.damage_boss = (uint8_t)MmxSaberTuningBossDamage(
+      MMX_SABER_TUNING_DAMAGE_CUTTER);
+  info.pass_through = false;
+  (void)MmxSaberProjectileSpawn(ram, &info, NULL);
+}
+
 static bool tick_in_window(uint8_t tick, uint8_t open, uint8_t close) {
   return open != MMX_SABER_NO_WINDOW && close != MMX_SABER_NO_WINDOW &&
       tick >= open && tick <= close;
@@ -859,6 +890,8 @@ static void clear_attack(void) {
   state.tornado_takeoff_attempted = false;
   state.tornado_spawn_pending = false;
   state.tornado_spawned = false;
+  state.cutter_technique = false;
+  state.cutter_spawn_attempted = false;
   state.hit_slots = 0;
   state.cue = MMX_SABER_SFX_ATTACK_COUNT;
   state.cue_pending = false;
@@ -1153,7 +1186,8 @@ MmxSaberAttackExitReason MmxSaberAttackLastExitReason(void) {
   return last_exit_reason;
 }
 
-static void start_attack(const MmxSaberAttack *attack, uint8_t facing) {
+static void start_attack(const MmxSaberAttack *attack, uint8_t facing,
+                         bool cutter_technique) {
   uint8_t swing_id;
   if (!attack) return;
   swing_id = (uint8_t)(state.swing_id + 1);
@@ -1173,6 +1207,8 @@ static void start_attack(const MmxSaberAttack *attack, uint8_t facing) {
   state.tornado_takeoff_attempted = false;
   state.tornado_spawn_pending = false;
   state.tornado_spawned = false;
+  state.cutter_technique = cutter_technique;
+  state.cutter_spawn_attempted = false;
   state.cue = attack_cue(attack);
   state.cue_pending = state.cue < MMX_SABER_SFX_ATTACK_COUNT;
   update_animation();
@@ -1253,7 +1289,7 @@ void MmxSaberAttackStepWithWallAndDashRequested(
        * requests it directly from idle. */
       start_attack(MmxSaberAttackRecord(
                        kind, kind == SABER_KIND_GROUND2 ? 1 : 0),
-                   facing);
+                   facing, explicit_kind);
     }
     return;
   }
@@ -1290,7 +1326,7 @@ void MmxSaberAttackStepWithWallAndDashRequested(
       special_unlocked(ram, SABER_SPECIAL_UPPERCUT)) {
     const uint8_t facing = state.facing;
     MmxSaberAttackExit(runtime_ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
-    start_attack(MmxSaberAttackRecord(SABER_KIND_UPPERCUT, 0), facing);
+    start_attack(MmxSaberAttackRecord(SABER_KIND_UPPERCUT, 0), facing, false);
     return;
   }
   (void)jump_pressed;
@@ -1310,7 +1346,8 @@ void MmxSaberAttackStepWithWallAndDashRequested(
       const MmxSaberAttack *next = next_ground_attack(attack);
       if (next) {
         start_attack(next,
-                     facing_for_direction(horizontal_direction, state.facing));
+                     facing_for_direction(horizontal_direction, state.facing),
+                     false);
         return;
       }
     }
@@ -1327,7 +1364,8 @@ void MmxSaberAttackStepWithWallAndDashRequested(
       state.buffer_slot = 0;
       if (next) {
         start_attack(next,
-                     facing_for_direction(horizontal_direction, state.facing));
+                     facing_for_direction(horizontal_direction, state.facing),
+                     false);
         return;
       }
     }
@@ -1335,6 +1373,7 @@ void MmxSaberAttackStepWithWallAndDashRequested(
 
   state.phase = MmxSaberAttackPhaseForTick(attack, state.tick);
   update_animation();
+  spawn_cutter_if_ready(runtime_ram);
 }
 
 static uint8_t next_projectile_generation(void) {
@@ -1403,8 +1442,10 @@ void MmxSaberAttackRuntimeTick(uint8_t *ram) {
     release_current_projectile(ram);
   if (!state.projectile && !allocate_projectile(ram, attack)) {
     /* The uppercut's native jump must still be allowed when the eight-slot
-     * native pool is full. Its optional tornado simply cannot be allocated. */
-    if (attack->kind == SABER_KIND_UPPERCUT) return;
+     * native pool is full. Its optional tornado simply cannot be allocated.
+     * A Cutter technique still publishes its slash animation when its
+     * optional cutter has no slot. */
+    if (attack->kind == SABER_KIND_UPPERCUT || state.cutter_technique) return;
     MmxSaberAttackExit(ram, MMX_SABER_ATTACK_EXIT_PROJECTILE);
     return;
   }

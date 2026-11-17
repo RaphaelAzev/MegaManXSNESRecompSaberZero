@@ -638,7 +638,8 @@ static bool saber_tagged_projectile(unsigned d) {
 static unsigned native_projectiles(void) {
   unsigned count = 0;
   for (unsigned d = 0x1228; d < 0x1428; d += 64)
-    count += g_ram[d] && !saber_tagged_projectile(d);
+    count += g_ram[d] && !saber_tagged_projectile(d) &&
+        !MmxSaberProjectileOwns(g_ram, d);
   return count;
 }
 
@@ -712,6 +713,7 @@ static unsigned empty_enemy_slot(void);
 static unsigned saber_active_slot(void);
 static unsigned apply_test_damage(unsigned enemy, unsigned damage);
 static unsigned saber_damage_boss_slot(void);
+static unsigned saber_projectile_contact_target(const char *fixture);
 static bool saber_lifecycle_idle(void);
 static bool saber_window_empty(const uint8_t *window);
 static bool saber_wave_record_empty(const uint8_t *record);
@@ -6158,6 +6160,293 @@ static void saber_weapon_techniques_checks(const char *fixture) {
   check(after == before - 0x0100,
         "weapon_techniques on Cutter hold has only the technique debit");
   puts("ok: saber-weapon-techniques");
+}
+
+static unsigned saber_cutter_count(MmxSaberProjectileKind kind) {
+  unsigned count = 0;
+  for (unsigned i = 0; i < MMX_SABER_PROJECTILE_SLOT_COUNT; ++i) {
+    const MmxSaberProjectile *projectile = MmxSaberProjectileGet(i);
+    count += projectile->active && projectile->kind == kind;
+  }
+  return count;
+}
+
+static unsigned saber_cutter_slot(MmxSaberProjectileKind kind) {
+  for (unsigned i = 0; i < MMX_SABER_PROJECTILE_SLOT_COUNT; ++i) {
+    const MmxSaberProjectile *projectile = MmxSaberProjectileGet(i);
+    if (projectile->active && projectile->kind == kind)
+      return projectile->slot;
+  }
+  return 0;
+}
+
+static void saber_cutter_set_facing(bool right) {
+  g_ram[0x0c11] = right ? 0x40 : 0;
+  g_ram[0x0bb9] = (uint8_t)((g_ram[0x0bb9] & (uint8_t)~0x40) |
+                            (right ? 0x40 : 0));
+}
+
+static void saber_cutter_ground_case(const char *fixture, bool right) {
+  const MmxSaberProjectileKind kind = SABER_PROJECTILE_CUTTER;
+  MmxSaberAttackSnapshot snapshot;
+  unsigned slot;
+  bool no_early_cutter = true;
+  int spawn_zero_x = 0;
+  int spawn_zero_y = 0;
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  select_native_weapon(7);
+  saber_weapon_techniques_set_energy(7, 0x1c00);
+  saber_cutter_set_facing(right);
+  frame(SNES_PAD_X);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_GROUND2 && snapshot.tick == 0 &&
+            snapshot.anim_step == 0 && saber_cutter_count(kind) == 0,
+        right ? "right Cutter ground slash starts without an early cutter" :
+                "left Cutter ground slash starts without an early cutter");
+  for (unsigned tick = 1; tick <= 6; ++tick) {
+    if (tick == 6) {
+      spawn_zero_x = (int)(int16_t)read_ram_word(g_ram, 0x0bad);
+      spawn_zero_y = (int)(int16_t)read_ram_word(g_ram, 0x0bb0);
+    }
+    frame(0);
+    if (tick < 6 && saber_cutter_count(kind) != 0)
+      no_early_cutter = false;
+  }
+  snapshot = MmxSaberAttackSnapshotGet();
+  slot = saber_cutter_slot(kind);
+  check(no_early_cutter && snapshot.kind == SABER_KIND_GROUND2 &&
+            snapshot.tick == 6 && snapshot.anim_step == 3 &&
+            saber_cutter_count(kind) == 1,
+        right ? "right Cutter ground spawns one cutter on slash step 3" :
+                "left Cutter ground spawns one cutter on slash step 3");
+  if (!slot) return;
+
+  const unsigned index = (slot - MMX_SABER_PROJECTILE_SLOT_FIRST) /
+      MMX_SABER_PROJECTILE_SLOT_BYTES;
+  const MmxSaberProjectile *projectile = MmxSaberProjectileGet(index);
+  const int direction = right ? 1 : -1;
+  check(projectile->active && projectile->x ==
+            (int32_t)(spawn_zero_x + direction * MMX_SABER_CUTTER_FRONT_X) * 256 &&
+            projectile->y ==
+                (int32_t)(spawn_zero_y - MMX_SABER_CUTTER_GROUND_Y_OFFSET) * 256 &&
+            projectile->vx == (int16_t)(direction * 8 * 256) &&
+            projectile->vy == 0 && projectile->lifetime ==
+                MMX_SABER_CUTTER_LIFETIME && !projectile->pass_through &&
+            projectile->damage_normal == 4 && projectile->damage_boss == 2 &&
+            (g_ram[slot + 0x11] & 0x40) == (right ? 0x40 : 0),
+        right ? "right ground cutter uses front, feet-minus-14, 8-pixel motion, and mirrored sprite" :
+                "left ground cutter uses mirrored front, feet-minus-14, 8-pixel motion, and mirrored sprite");
+
+  frame(0);
+  projectile = MmxSaberProjectileGet(index);
+  check(projectile->active && projectile->x ==
+            (int32_t)(spawn_zero_x + direction *
+                      (MMX_SABER_CUTTER_FRONT_X + 8)) * 256 &&
+            projectile->y ==
+                (int32_t)(spawn_zero_y - MMX_SABER_CUTTER_GROUND_Y_OFFSET) * 256,
+        right ? "right ground cutter advances 8 pixels and keeps floor height" :
+                "left ground cutter advances 8 pixels and keeps floor height");
+}
+
+static void saber_cutter_air_case(const char *fixture) {
+  const MmxSaberProjectileKind kind = SABER_PROJECTILE_CUTTER_AIR;
+  MmxSaberAttackSnapshot snapshot;
+  unsigned slot;
+  bool no_early_cutter = true;
+  int spawn_zero_x = 0;
+  int spawn_zero_y = 0;
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  select_native_weapon(7);
+  saber_weapon_techniques_set_energy(7, 0x1c00);
+  saber_weapon_techniques_airborne();
+  saber_cutter_set_facing(true);
+  frame(SNES_PAD_X | SNES_PAD_B);
+  for (unsigned tick = 1; tick <= 6; ++tick) {
+    if (tick == 6) {
+      spawn_zero_x = (int)(int16_t)read_ram_word(g_ram, 0x0bad);
+      spawn_zero_y = (int)(int16_t)read_ram_word(g_ram, 0x0bb0);
+    }
+    frame(SNES_PAD_B);
+    if (tick < 6 && saber_cutter_count(kind) != 0)
+      no_early_cutter = false;
+  }
+  snapshot = MmxSaberAttackSnapshotGet();
+  slot = saber_cutter_slot(kind);
+  check(no_early_cutter && snapshot.kind == SABER_KIND_AIR &&
+            snapshot.tick == 6 && snapshot.anim_step == 3 &&
+            saber_cutter_count(kind) == 1,
+        "Cutter air slash spawns one diagonal cutter on air step 3");
+  if (!slot) return;
+
+  const unsigned index = (slot - MMX_SABER_PROJECTILE_SLOT_FIRST) /
+      MMX_SABER_PROJECTILE_SLOT_BYTES;
+  const MmxSaberProjectile *projectile = MmxSaberProjectileGet(index);
+  check(projectile->active && projectile->x ==
+            (int32_t)(spawn_zero_x + MMX_SABER_AIR_CUTTER_FRONT_X) * 256 &&
+            projectile->y == (int32_t)spawn_zero_y * 256 &&
+            projectile->vx == 5 * 256 && projectile->vy == 5 * 256 &&
+            projectile->lifetime == MMX_SABER_CUTTER_LIFETIME &&
+            !projectile->pass_through && projectile->damage_normal == 4 &&
+            projectile->damage_boss == 2 &&
+            (g_ram[slot + 0x11] & 0x40) == 0x40,
+        "air cutter uses measured blade front, Zero origin, diagonal motion, and right-facing sprite");
+
+  frame(SNES_PAD_B);
+  projectile = MmxSaberProjectileGet(index);
+  check(projectile->active && projectile->x ==
+            (int32_t)(spawn_zero_x + MMX_SABER_AIR_CUTTER_FRONT_X + 5) * 256 &&
+            projectile->y == (int32_t)(spawn_zero_y + 5) * 256,
+        "air cutter advances 5 pixels forward and 5 pixels down per tick");
+}
+
+static void saber_cutter_ordinary_slash_checks(const char *fixture) {
+  MmxSaberAttackSnapshot snapshot;
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  select_native_weapon(7);
+  saber_weapon_techniques_set_energy(7, 0x1c00);
+  frame(SNES_PAD_Y);
+  for (unsigned tick = 1; tick < OLD_SABER_GROUND1_CHAIN_OPEN; ++tick)
+    frame(0);
+  frame(SNES_PAD_Y);
+  for (unsigned tick = 1; tick <= 6; ++tick) frame(0);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_GROUND2 && snapshot.anim_step == 3 &&
+            saber_cutter_count(SABER_PROJECTILE_CUTTER) == 0,
+        "ordinary Y ground slash 2 reaches step 3 without a Cutter");
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  select_native_weapon(7);
+  saber_weapon_techniques_set_energy(7, 0x1c00);
+  saber_weapon_techniques_airborne();
+  frame(SNES_PAD_B | SNES_PAD_Y);
+  for (unsigned tick = 1; tick <= 6; ++tick) frame(SNES_PAD_B);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_AIR && snapshot.anim_step == 3 &&
+            saber_cutter_count(SABER_PROJECTILE_CUTTER_AIR) == 0,
+        "ordinary Y air slash reaches step 3 without a Cutter");
+}
+
+static void saber_cutter_capacity_checks(const char *fixture) {
+  MmxSaberProjectileSpawnInfo info = {0};
+  MmxSaberAttackSnapshot snapshot;
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  /* Select the Cutter first: the native game will not change weapons while
+   * one of its shots is out. The filler below occupies the native slots. */
+  select_native_weapon(7);
+  saber_weapon_techniques_set_energy(7, 0x1c00);
+  info.kind = SABER_PROJECTILE_ICE_CLONE;
+  info.x = 200 * 256;
+  info.y = 60 * 256;
+  info.lifetime = 120;
+  info.facing = 0x40;
+  info.pass_through = true;
+  for (unsigned i = 0; i < 6; ++i)
+    check(MmxSaberProjectileSpawn(g_ram, &info, NULL),
+          "Cutter capacity setup fills six Saber projectile slots");
+  saber_finisher_fill_free_slots();
+  check(saber_finisher_free_slots() == 0,
+        "Cutter capacity setup fills every native projectile slot");
+  frame(SNES_PAD_X);
+  for (unsigned tick = 1; tick <= 6; ++tick) {
+    saber_finisher_fill_free_slots();
+    frame(0);
+  }
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_GROUND2 && snapshot.phase != SABER_PHASE_IDLE &&
+            MmxSaberProjectileFreeCapacity(g_ram) == 0 &&
+            saber_cutter_count(SABER_PROJECTILE_CUTTER) == 0,
+        "full projectile capacity keeps the Cutter slash playing without a cutter");
+}
+
+static void saber_cutter_contact_checks(const char *fixture) {
+  MmxSaberProjectileSpawnInfo info = {0};
+  unsigned target = saber_projectile_contact_target(fixture);
+  unsigned index = MMX_SABER_PROJECTILE_SLOT_COUNT;
+  unsigned slot;
+  unsigned initial_hp = g_ram[target + 0x27] & 127;
+  unsigned first_hit;
+  unsigned first_damage;
+  unsigned second_hit;
+  unsigned second_damage;
+
+  info.kind = SABER_PROJECTILE_CUTTER;
+  info.x = (int32_t)(int16_t)read_ram_word(g_ram, target + 5) * 256;
+  info.y = (int32_t)(int16_t)read_ram_word(g_ram, target + 8) * 256;
+  info.lifetime = MMX_SABER_CUTTER_LIFETIME;
+  info.facing = 0x40;
+  info.damage_normal = 4;
+  info.damage_boss = 2;
+  check(MmxSaberProjectileSpawn(g_ram, &info, &index),
+        "forced-overlap ground cutter spawns");
+  if (index >= MMX_SABER_PROJECTILE_SLOT_COUNT) return;
+  slot = MmxSaberProjectileGet(index)->slot;
+  first_hit = MmxZeroHitbox(g_ram, target, slot, 1);
+  first_damage = MmxZeroDamage(g_ram, target, slot, first_hit);
+  apply_test_damage(target, first_damage);
+  /* The cutter is not pass-through: the first hit retires it and frees the
+   * slot, so a second probe of that slot is no longer a Saber contact. */
+  second_hit = MmxSaberProjectileOwns(g_ram, slot);
+  second_damage = MmxSaberProjectileDamage(g_ram, target, slot, 1);
+  check(first_hit == 1 && first_damage == 4 && second_hit == 0 &&
+            second_damage == 1 && (g_ram[target + 0x27] & 127) ==
+                initial_hp - 4 && !g_ram[slot] &&
+            !MmxSaberProjectileGet(index)->active,
+        "forced-overlap cutter deals normal damage once and retires");
+
+  info.kind = SABER_PROJECTILE_CUTTER_AIR;
+  check(MmxSaberProjectileSpawn(g_ram, &info, &index),
+        "weakness probe air cutter spawns");
+  if (index < MMX_SABER_PROJECTILE_SLOT_COUNT) {
+    const unsigned enemy = empty_enemy_slot();
+    memset(g_ram + enemy, 0, MMX_SABER_PROJECTILE_SLOT_BYTES);
+    g_ram[enemy] = 1;
+    g_ram[enemy + 0x0a] = 0x0a;
+    slot = MmxSaberProjectileGet(index)->slot;
+    check(MmxSaberAttackContactClass(g_ram, enemy, slot, 3, false) == 0x0d,
+          "ground and air Cutter weakness keeps class 0x0D against Sting Chameleon");
+    memset(g_ram + enemy, 0, MMX_SABER_PROJECTILE_SLOT_BYTES);
+    MmxSaberProjectileRetire(g_ram, index);
+  }
+}
+
+static void saber_cutter_off_checks(const char *fixture) {
+  unsigned before;
+  unsigned after;
+
+  saber_weapon_techniques_set_option(false);
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  select_native_weapon(7);
+  saber_weapon_techniques_set_energy(7, 0x0400);
+  before = read_ram_word(g_ram, 0x1f93) & 0x3fff;
+  frame(SNES_PAD_X);
+  after = read_ram_word(g_ram, 0x1f93) & 0x3fff;
+  check(native_projectiles() != 0 && saber_cutter_count(SABER_PROJECTILE_CUTTER) == 0 &&
+            after < before,
+        "weapon_techniques off keeps native Cutter shot and emits no Saber cutter");
+  saber_weapon_techniques_set_option(true);
+}
+
+static void saber_cutter_checks(const char *fixture) {
+  check(MmxSaberTuningWeaponTechniques(),
+        "saber-cutter group starts with weapon_techniques on");
+  saber_cutter_ground_case(fixture, true);
+  saber_cutter_ground_case(fixture, false);
+  saber_cutter_air_case(fixture);
+  saber_cutter_ordinary_slash_checks(fixture);
+  saber_cutter_capacity_checks(fixture);
+  saber_cutter_contact_checks(fixture);
+  saber_cutter_off_checks(fixture);
+  puts("ok: saber-cutter");
 }
 
 
@@ -13498,6 +13787,7 @@ int main(int argc, char **argv) {
   const bool saber_arms_charge = only && !strcmp(only, "saber-arms-charge");
   const bool saber_weapon_techniques =
       only && !strcmp(only, "saber-weapon-techniques");
+  const bool saber_cutter = only && !strcmp(only, "saber-cutter");
   const bool saber_head_ammo = only && !strcmp(only, "saber-head-ammo");
   const bool saber_hitbox_debug = only && !strcmp(only, "saber-hitbox-debug");
   const bool saber_damage = only && !strcmp(only, "saber-damage");
@@ -13565,6 +13855,7 @@ int main(int argc, char **argv) {
       saber_tuning || saber_hitbox_debug || saber_damage ||
       saber_head_ammo ||
       saber_armor || saber_arms_charge || saber_weapon_techniques ||
+      saber_cutter ||
       saber_body_damage ||
       saber_wave_travel || saber_wave_damage || saber_wave_lifecycle ||
       saber_wave_render || saber_projectile_contact || saber_ride_pilot ||
@@ -13711,6 +14002,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-weapon-techniques runs with the Saber package enabled");
     saber_weapon_techniques_checks(fixture);
+  } else if (saber_cutter) {
+    check(MmxSaberEnabled(),
+          "saber-cutter runs with the Saber package enabled");
+    saber_cutter_checks(fixture);
   } else if (saber_head_ammo) {
     check(MmxSaberEnabled(),
           "saber-head-ammo runs with the Saber package enabled");
@@ -13820,6 +14115,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-body-damage") &&
       strcmp(only, "saber-arms-charge") &&
        strcmp(only, "saber-weapon-techniques") &&
+      strcmp(only, "saber-cutter") &&
       strcmp(only, "saber-finisher") &&
       strcmp(only, "saber-priority-classify") &&
       strcmp(only, "saber-priority") &&
