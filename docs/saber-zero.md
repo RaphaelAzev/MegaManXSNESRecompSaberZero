@@ -26,8 +26,8 @@ buster/special translation owns X. The other native controls remain available.
 
 | Button | Behavior |
 |--------|----------|
-| Y | Start/continue a Saber attack. On the ground it starts the 3-hit combo; in the air it is an air slash; on a wall it is a wall slash; during a grounded dash it is a dash slash. After they unlock, Up + Y starts the uppercut on the ground or during a dash, and the rolling slash in the air. After any four of the eight Mavericks, Down + Y starts the downward thrust in the air. A held Y produces one edge. |
-| X | Charge and fire the buster when the buster is selected; otherwise fire the selected special weapon. X is blocked from creating a new buster/special shot while a Saber slash, finisher, or wave-shooting animation owns the action. |
+| Y | Start/continue a Saber attack. On the ground it starts the 3-hit combo; in the air it is an air slash; on a wall it is a wall slash; during a grounded dash it is a dash slash. After they unlock, Up + Y starts the uppercut on the ground or during a dash, and the rolling slash in the air. Down + Y starts the downward thrust in the air or the ice clone during a grounded dash. A held Y produces one edge. |
+| X | Charge and fire the buster when the buster is selected; otherwise fire the selected special weapon. With `weapon_techniques` on, X with Boomerang Cutter starts the cutter slash (ground slash 2 or air slash plus cutter); X with Electric Spark starts the thunder slam on the ground and does nothing in the air. These techniques require usable weapon energy. X is blocked from creating a new buster/special shot while a Saber slash, finisher, or wave-shooting animation owns the action. |
 | B | Native jump. |
 | A | Native dash. |
 | Direction | Native movement. Ground swings and dash swings mask the movement edges required by their attack state, so holding the opposite direction cannot turn a swing. |
@@ -43,44 +43,93 @@ resume after he is free.
 
 ## Special moves
 
-After any two of the eight Maverick bosses are defeated, Up + Y on the ground or
-during a dash starts the uppercut. The eight bosses are Chill Penguin, Spark
-Mandrill, Armored Armadillo, Launch Octopus, Boomer Kuwanger, Sting Chameleon,
-Storm Eagle, and Flame Mammoth. Sigma-stage bosses and Vile do not count. The
-progression follows the native boss-clear flags, so it persists through saves
-and passwords.
+Each move uses its own native `$40` boss-clear flag:
 
-The `special_moves` option defaults to true; when off, Up or Down + Y keeps the behavior it had before these moves existed.
+| Clear | Unlocks |
+|-------|---------|
+| Storm Eagle | Storm uppercut and tornado |
+| Armored Armadillo | Rolling slash |
+| Flame Mammoth | Enkoujin thrust |
+| Chill Penguin | Ice clone dash |
+| Spark Mandrill | Thunder slam |
+| Boomer Kuwanger | Cutter slash |
 
-Before the required boss count, Up + Y keeps its previous behavior: ground
-slash, air slash, dash slash, or wall slash. Wall slash always wins while Zero
-is on a wall. Both special moves are Saber Zero-only and cost no energy or
-cooldown.
+Sigma-stage bosses and Vile do not count. The flags persist through saves and
+passwords. `special_moves` defaults to true; when false, every special selector
+stays disabled and Up/Down + Y keeps its previous Saber behavior. When
+`unlock_special_moves` is true, the six moves ignore their boss-clear flags for
+testing. Wall slash still wins while Zero clings to a wall.
 
-The uppercut makes Zero rise through the regular jump path while Y is held, by
-default 30% higher than a normal jump (`uppercut_height`, 100-200%). It can also
-cancel the third ground slash or the dash slash: press Up + Y during either.
-Releasing Y early cuts the height and ends the attack. From a dash, it keeps
-dash-jump speed. It ends at the top of the rise, on landing, when Zero is hurt,
-or when the jump is not possible.
+The Storm uppercut starts on ground or dash Up + Y. Its startup is 4 ticks, its
+active record is 26 ticks, and its total record is 30 ticks. Zero remains on the
+ground through tick 3; takeoff happens on tick 4, with `uppercut_height` defaulting
+to 130% of a normal jump. Y release ends it early, and it keeps dash-jump speed
+when started from a dash. On takeoff, one tornado spawns 35 px in front at the
+takeoff floor. It grows for 10 ticks to a visible 120 px column, capped during
+growth at 57 px above Zero, then rises 9 px per tick for up to 90 ticks. The
+tornado passes through enemies and hits each enemy once. No energy is spent; a
+full projectile pool can prevent the tornado while leaving the uppercut active.
 
-After any three of the eight Mavericks are defeated, Up + Y in the air starts
-the rolling slash. It performs one 18-tick spin with normal air control and a
-hit that remains live through the spin. Landing ends it. The crescent effect is
-drawn in front of Zero when the `crescent_effect` option is enabled. The rolling
-slash plays its own crescent-slash sound; the uppercut plays the first slash sound
-pitched up.
+The rolling slash starts on airborne Up + Y after Armored Armadillo is defeated.
+It has 2 startup ticks, 16 active ticks, and an 18-tick total. It uses native air
+movement, keeps its hit active through the spin, hits each enemy once, and ends
+on landing. It costs no weapon energy. The crescent effect is drawn in front of
+Zero when `crescent_effect` is enabled, and the move plays its own crescent-slash
+sound.
 
-After any four of the eight Mavericks are defeated, Down + Y in the air starts
-the downward thrust. It uses the normal fall and air control. It lasts until
-landing or until Y is released. A hit bounces Zero up by `thrust_bounce_height`,
-as a percentage of a normal jump; 0 turns the bounce off. Each bounce also makes
-the double jump and air dash available again, as landing does. The thrust continues,
-with one hit per bounce. Its default damage is 4 against normal enemies and 2
-against bosses. Its default hit priority is 8.
+The Enkoujin thrust starts on airborne Down + Y after Flame Mammoth is defeated.
+Its record has 2 startup ticks and an open-ended 253-tick active window in a
+255-tick state. The wind-up uses steps 0 and 1 for ticks 0-3; dive steps 2-5
+loop every 2 ticks afterward. It follows native falling and air control. A hit
+bounces Zero by `thrust_bounce_height` (60% by default), refreshes aerial actions,
+and permits one hit per bounce. Release or landing ends it. It costs no weapon
+energy.
+
+The ice clone starts on a grounded dash with Down + Y after Chill Penguin is
+defeated. Zero's dash stops, the move state lasts 16 ticks, and the clone spawns
+on tick 0 with its leading edge 58 px in front of Zero at his feet. Its authored
+displacement table reaches 99 px, its lifetime is 21 ticks, and it passes through
+enemies while hitting each enemy at most once. It begins fading at age 12 or the
+tick after its first hit; fade level 12 disables its hitbox and level 16 retires
+it. The move costs no weapon energy, and it still plays if no projectile slot is
+available.
+
+The thunder slam starts on the ground when Electric Spark is selected and
+`weapon_techniques` is enabled. Its animation is 42 ticks: animation 19 has 14
+frames at 3 ticks each, and Zero stays in place. At tick 21, seven orbs spawn
+from 5 px in front of Zero and 8 px above his feet. They travel through the
+upper half at 4.5 px per tick, live for 60 ticks, and retire on their first enemy
+hit or when offscreen. Each orb has 8 normal / 2 boss damage by default. The
+slam spends `$04AB` Spark energy, or `$0256` with the Head part, clamped at zero;
+no usable energy prevents the technique. The slam still plays and spends energy
+when no projectile slots are available.
+
+The cutter slash starts on X with a usable Boomerang Cutter. On the ground it
+starts Saber ground slash 2; in the air it starts the air slash. At animation
+step 3, the ground cutter spawns 30 px forward and 14 px above Zero's feet,
+moving 8 px per tick. The air cutter spawns 44 px forward at Zero's height,
+moving 5 px forward and 5 px down per tick. Both live for 60 ticks, are not
+pass-through, and retire on their first enemy hit. The technique spends `$0100`
+of Cutter energy, or `$0080` with the Head part, clamped at zero. The slash still
+plays when no projectile slot is available.
 
 The special-move art is credited in
 [assets/saber-zero/CREDITS.md](../assets/saber-zero/CREDITS.md).
+
+## Weaknesses
+
+Each listed Saber special publishes the matching X1 weapon class to its theme
+boss. A weak hit keeps the boss's native reaction and deals the higher of the
+game's weakness damage and the tuned Saber damage.
+
+| Move | Weak boss | X1 weapon class |
+|------|-----------|-----------------|
+| Storm uppercut / tornado | Flame Mammoth | Tornado |
+| Rolling slash | Launch Octopus | Rolling Shield |
+| Enkoujin thrust | Chill Penguin | Fire |
+| Ice clone | Spark Mandrill | Ice |
+| Thunder orb | Armored Armadillo | Electric Spark |
+| Cutter slash | Sting Chameleon | Boomerang Cutter |
 
 ## Saber attacks
 
@@ -102,9 +151,10 @@ owner uses the native action context for jump, dash, wall cling, landing, hurt,
 and death transitions, so an attack does not create a second movement system.
 
 The default normal damage is 3 / 3 / 8 for the ground combo, 3 for air, wall,
-and dash, 8 for the uppercut and rolling slash, 16 for the X3 finisher, and 6
-for each wave pulse. The boss values are intentionally lower; the full defaults
-are in the option table below.
+and dash, 8 for the uppercut, rolling slash, and thrust, 16 for the X3 finisher,
+6 for each wave pulse, 4 for the tornado, 6 for the ice clone, 8 for each
+thunder orb, and 4 for the cutter. The boss values are intentionally lower; the
+full defaults are in the option table below.
 Damage is applied once per enemy per swing where the current attack owner
 requires that protection.
 
@@ -163,8 +213,9 @@ The default ladder is:
 | 7 | Rolling slash |
 | 8 | Downward thrust |
 
-The ladder is configurable through the priority options. This is a follow-up
-system, not a general “ignore all invincibility” switch.
+The ladder is configurable through the priority options. Projectile priority is
+not configurable yet. This is a follow-up system, not a general “ignore all
+invincibility” switch.
 
 ## Rendering and Ride Armor
 
@@ -223,20 +274,20 @@ Tuning lives in the separate **Characters → Saber Zero settings** feature
 unless a Zero behavior is Saber Zero. While it is disabled every option keeps
 the default below, even if a different value was stored earlier: a disabled
 feature is left out of the netplay mod comparison, so its values must not reach
-the game either. It exposes 42 numeric tuning options and five boolean options:
-`show_hitboxes`, `start_all_upgrades`, `special_moves`, `unlock_special_moves`, and
+the game either. It exposes 50 numeric tuning options and seven boolean options:
+`show_hitboxes`, `start_all_upgrades`, `start_all_weapons`, `special_moves`,
+`weapon_techniques`, `unlock_special_moves`, and
 `crescent_effect`. Normal damage values accept 1–32; boss damage accepts 0–32,
 where 0 means “use the matching normal value”; priority values accept 1–9.
-The manifest also exposes `start` and `start_all_upgrades`; the table includes
-their defaults.
+The table also shows the character start and upgrade defaults.
 The window ranges are 30–120 frames for priority and 12–60 frames for the
 finisher. Swing volume ranges from 0–200 in steps of 10.
 
 | Group | Options and defaults |
 |-------|----------------------|
-| Character/debug | `start=zero`; `start_all_upgrades=false`; `show_hitboxes=false`; `special_moves=true`; `unlock_special_moves=false` (testing aid); `crescent_effect=true`; `uppercut_height=130`; `thrust_bounce_height=60` |
-| Normal damage | `slash1_damage=3`, `slash2_damage=3`, `slash3_damage=8`, `x3_finisher_damage=16`, `air_damage=3`, `wall_damage=3`, `dash_damage=3`, `wave_damage=6`, `uppercut_damage=8`, `rolling_slash_damage=8`, `thrust_damage=4` |
-| Boss damage | `boss_slash1_damage=1`, `boss_slash2_damage=1`, `boss_slash3_damage=2`, `boss_air_damage=1`, `boss_wall_damage=1`, `boss_dash_damage=1`, `boss_x3_finisher_damage=6`, `boss_wave_damage=4`, `boss_uppercut_damage=2`, `boss_rolling_slash_damage=2`, `boss_thrust_damage=2` |
+| Character/debug | `start=zero`; `start_all_upgrades=false`; `start_all_weapons=false`; `show_hitboxes=false`; `special_moves=true`; `weapon_techniques=true`; `unlock_special_moves=false` (testing aid); `crescent_effect=true`; `uppercut_height=130`; `thrust_bounce_height=60` |
+| Normal damage | `slash1_damage=3`, `slash2_damage=3`, `slash3_damage=8`, `x3_finisher_damage=16`, `air_damage=3`, `wall_damage=3`, `dash_damage=3`, `wave_damage=6`, `uppercut_damage=8`, `rolling_slash_damage=8`, `thrust_damage=4`, `tornado_damage=4`, `ice_clone_damage=6`, `thunder_orb_damage=8`, `cutter_damage=4` |
+| Boss damage | `boss_slash1_damage=1`, `boss_slash2_damage=1`, `boss_slash3_damage=2`, `boss_air_damage=1`, `boss_wall_damage=1`, `boss_dash_damage=1`, `boss_x3_finisher_damage=6`, `boss_wave_damage=4`, `boss_uppercut_damage=2`, `boss_rolling_slash_damage=2`, `boss_thrust_damage=2`, `tornado_boss_damage=2`, `ice_clone_boss_damage=2`, `thunder_orb_boss_damage=2`, `cutter_boss_damage=2` |
 | Priority | `slash1_priority=2`, `slash2_priority=3`, `slash3_priority=4`, `air_priority=1`, `wall_priority=1`, `dash_priority=5`, `charge_small_priority=1`, `charge_full_priority=1`, `max_shot1_priority=2`, `max_shot2_priority=3`, `x3_finisher_priority=4`, `wave_priority=5`, `uppercut_priority=6`, `rolling_slash_priority=7`, `thrust_priority=8` |
 | Windows/audio | `priority_window_frames=70`, `finisher_window_frames=27`, `saber_swing_volume=50` |
 
@@ -275,6 +326,9 @@ playtesting.
 
 Additional Zero saber techniques and Zero-related dialogue and other cutscene
 entries remain planned.
+
+Thunder slam art is colour-reduced to fit the 255-colour Saber palette. The
+Boomerang cutter blade remains green. Full concept-sheet credits are pending.
 
 ## Running the tests
 
