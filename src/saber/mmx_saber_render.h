@@ -52,6 +52,7 @@ void MmxSaberRenderSetProjectileStrip(MmxSaberProjectileKind kind,
                                       unsigned frame_count,
                                       unsigned ticks_per_frame,
                                       bool hold_last,
+                                      bool facing_xor,
                                       const uint16_t *palette,
                                       unsigned palette_count);
 

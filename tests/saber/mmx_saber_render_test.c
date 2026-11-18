@@ -47,10 +47,10 @@ const uint16_t *MmxZeroBodyColors(const MmxZeroState *s) {
 }
 
 static const uint8_t kSaberManifestSha[32] = {
-  0xb6, 0x71, 0xfc, 0x07, 0xd6, 0x42, 0x56, 0xdb,
-  0x6d, 0xc8, 0x18, 0x88, 0x06, 0x3e, 0x3e, 0x5d,
-  0x90, 0x2a, 0xbd, 0x93, 0x68, 0x6b, 0xc8, 0xf3,
-  0x94, 0x6c, 0x91, 0xa4, 0x2e, 0xb7, 0x75, 0x5d,
+  0x10, 0x7f, 0xb6, 0xae, 0xae, 0x37, 0x64, 0x7e,
+  0x9d, 0x4e, 0x5c, 0x46, 0x5c, 0x44, 0xb1, 0x6f,
+  0x6e, 0xfb, 0x8c, 0x6c, 0x82, 0x15, 0x9a, 0x30,
+  0x81, 0x22, 0x99, 0x92, 0x2c, 0x9b, 0xba, 0x1e,
 };
 
 static const uint8_t kRideManifestSha[32] = {
@@ -155,6 +155,88 @@ static void put_u16(uint8_t *bytes, unsigned offset, unsigned value) {
 static void put_u32(uint8_t *bytes, unsigned offset, unsigned value) {
   put_u16(bytes, offset, value);
   put_u16(bytes, offset + 2, value >> 16);
+}
+
+typedef struct TestOpaqueRect {
+  int min_x, min_y, max_x, max_y;
+} TestOpaqueRect;
+
+static void include_opaque_pixel(TestOpaqueRect *rect, int x, int y,
+                                 bool *found) {
+  if (!*found) {
+    rect->min_x = x;
+    rect->max_x = x + 1;
+    rect->min_y = y;
+    rect->max_y = y + 1;
+    *found = true;
+    return;
+  }
+  if (x < rect->min_x) rect->min_x = x;
+  if (x + 1 > rect->max_x) rect->max_x = x + 1;
+  if (y < rect->min_y) rect->min_y = y;
+  if (y + 1 > rect->max_y) rect->max_y = y + 1;
+}
+
+/* Same final world-space mapping as src/mmx_renderer.c:2230-2257. */
+static bool compose_world_opaque_rect(const MmxRenderWorldSprite *sprite,
+                                      TestOpaqueRect *rect) {
+  bool found = false;
+  if (!sprite || !rect || !sprite->pixels) return false;
+  for (unsigned row = 0; row < sprite->height; ++row) {
+    for (unsigned col = 0; col < sprite->width; ++col) {
+      unsigned pixel = sprite->pixels[row * sprite->width + col];
+      int world_x;
+      int world_y;
+      if (!pixel || pixel >= sprite->palette_count) continue;
+      world_x = sprite->world_x + (sprite->facing_left ?
+          -1 - sprite->origin_x - (int)col :
+          sprite->origin_x + (int)col);
+      world_y = sprite->world_y + sprite->origin_y + (int)row;
+      include_opaque_pixel(rect, world_x, world_y, &found);
+    }
+  }
+  return found;
+}
+
+static bool compose_world_has_opaque_pixel(const MmxRenderWorldSprite *sprite,
+                                           int target_x, int target_y) {
+  if (!sprite || !sprite->pixels) return false;
+  for (unsigned row = 0; row < sprite->height; ++row) {
+    for (unsigned col = 0; col < sprite->width; ++col) {
+      unsigned pixel = sprite->pixels[row * sprite->width + col];
+      int world_x;
+      int world_y;
+      if (!pixel || pixel >= sprite->palette_count) continue;
+      world_x = sprite->world_x + (sprite->facing_left ?
+          -1 - sprite->origin_x - (int)col :
+          sprite->origin_x + (int)col);
+      world_y = sprite->world_y + sprite->origin_y + (int)row;
+      if (world_x == target_x && world_y == target_y) return true;
+    }
+  }
+  return false;
+}
+
+/* Same player-overlay mapping as src/mmx_renderer.c:2216-2223. */
+static bool compose_overlay_opaque_rect(
+    const MmxRenderPlayerOverlayPlane *plane, bool facing_left, int zero_x,
+    int zero_y, unsigned palette_count, TestOpaqueRect *rect) {
+  bool found = false;
+  if (!plane || !rect || !plane->pixels) return false;
+  for (unsigned row = 0; row < plane->height; ++row) {
+    for (unsigned col = 0; col < plane->width; ++col) {
+      unsigned pixel = plane->pixels[row * plane->width + col];
+      int canvas_col;
+      int x;
+      int y;
+      if (!pixel || pixel >= palette_count) continue;
+      canvas_col = plane->origin_x + (int)col;
+      x = zero_x + (facing_left ? 63 - canvas_col : canvas_col - 64);
+      y = zero_y - 64 + plane->origin_y + (int)row;
+      include_opaque_pixel(rect, x, y, &found);
+    }
+  }
+  return found;
 }
 
 static MmxSaberAssets *make_flash_assets(bool include_new) {
@@ -1166,6 +1248,7 @@ static void tornado_asset_checks(const MmxSaberAssets *assets) {
       MmxSaberAssetsAnimationById(assets, 15);
   MmxSaberProjectileFrame frames[3];
   MmxRenderWorldSprite actual[1];
+  TestOpaqueRect rect;
   const uint16_t *palette = MmxSaberAssetsPalette(assets);
   const uint16_t palette_count = MmxSaberAssetsPaletteCount(assets);
   uint8_t ram[0x20000] = {0};
@@ -1194,7 +1277,7 @@ static void tornado_asset_checks(const MmxSaberAssets *assets) {
   MmxSaberProjectileReset(ram);
   MmxSaberRenderSetWave(NULL);
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_TORNADO, frames, 3, 4,
-                                   false, palette, palette_count);
+                                   false, true, palette, palette_count);
   info.kind = SABER_PROJECTILE_TORNADO;
   info.x = 321 * 256;
   info.y = 123 * 256;
@@ -1202,10 +1285,22 @@ static void tornado_asset_checks(const MmxSaberAssets *assets) {
   check(MmxSaberProjectileSpawn(ram, &info, &index) &&
             MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
             actual[0].pixels == frames[0].pixels && actual[0].width == 28 &&
-            actual[0].height == 120 && actual[0].origin_x == 14 &&
-            actual[0].origin_y == 120 && actual[0].palette == palette &&
+            actual[0].height == 120 && actual[0].origin_x == -14 &&
+            actual[0].origin_y == -120 && actual[0].palette == palette &&
             actual[0].palette_count == palette_count,
         "loaded tornado strip registers frame zero with palette and origin");
+  check(actual[0].facing_left && compose_world_opaque_rect(&actual[0], &rect) &&
+            rect.min_x == 308 && rect.max_x == 335 && rect.min_y == 3 &&
+            rect.max_y == 123,
+        "left tornado opaque rect is centred on spawn and ends at floor");
+  MmxSaberProjectileReset(ram);
+  info.facing = 0x40;
+  check(MmxSaberProjectileSpawn(ram, &info, &index) &&
+            MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
+            !actual[0].facing_left && compose_world_opaque_rect(&actual[0], &rect) &&
+            rect.min_x == 307 && rect.max_x == 334 && rect.min_y == 3 &&
+            rect.max_y == 123,
+        "right tornado opaque rect is centred on spawn and ends at floor");
   for (unsigned i = 0; i < 4; ++i) MmxSaberProjectileTick(ram);
   check(MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
             actual[0].pixels == frames[1].pixels,
@@ -1220,20 +1315,20 @@ static void tornado_asset_checks(const MmxSaberAssets *assets) {
   check(MmxSaberProjectileSpawn(ram, &info, &index) &&
             MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
             actual[0].pixels == frames[0].pixels + (120 - 70) * 28 &&
-            actual[0].height == 70 && actual[0].origin_y == 120 &&
-            actual[0].world_y == 123 - 120 - 120 + (120 - 70) &&
+            actual[0].height == 70 && actual[0].origin_y == -120 &&
+            actual[0].world_y == 123 + 120 - 70 &&
             actual[0].world_y + actual[0].origin_y + actual[0].height == 123,
         "growing tornado crops its top rows and keeps the bottom at the floor");
   ram[MMX_SABER_PROJECTILE_PLAYER_Y] = 90;
   MmxSaberProjectileTick(ram);
   check(MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
             actual[0].pixels == frames[0].pixels + (120 - 90) * 28 &&
-            actual[0].height == 90 &&
-            actual[0].world_y == 123 - 120 - 120 + (120 - 90) &&
+            actual[0].height == 90 && actual[0].origin_y == -120 &&
+            actual[0].world_y == 123 + 120 - 90 &&
             actual[0].world_y + actual[0].origin_y + actual[0].height == 123,
         "tornado crop grows with Zero and remains bottom-anchored");
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_TORNADO, NULL, 0, 0,
-                                   false, NULL, 0);
+                                   false, false, NULL, 0);
   MmxSaberProjectileReset(ram);
 }
 
@@ -1251,6 +1346,7 @@ static void cutter_asset_checks(const MmxSaberAssets *assets) {
   MmxSaberProjectileFrame forward_frames[CUTTER_FRAME_COUNT];
   MmxSaberProjectileFrame diagonal_frames[CUTTER_FRAME_COUNT];
   MmxRenderWorldSprite actual[2];
+  TestOpaqueRect rect;
   const uint16_t *palette = MmxSaberAssetsPalette(assets);
   const uint16_t palette_count = MmxSaberAssetsPaletteCount(assets);
   uint8_t ram[0x20000] = {0};
@@ -1307,10 +1403,10 @@ static void cutter_asset_checks(const MmxSaberAssets *assets) {
   MmxSaberRenderSetWave(NULL);
   MmxSaberRenderSetProjectileStrip(
       SABER_PROJECTILE_CUTTER, forward_frames, CUTTER_FRAME_COUNT,
-      CUTTER_TICKS_PER_FRAME, false, palette, palette_count);
+      CUTTER_TICKS_PER_FRAME, false, true, palette, palette_count);
   MmxSaberRenderSetProjectileStrip(
       SABER_PROJECTILE_CUTTER_AIR, diagonal_frames, CUTTER_FRAME_COUNT,
-      CUTTER_TICKS_PER_FRAME, false, palette, palette_count);
+      CUTTER_TICKS_PER_FRAME, false, true, palette, palette_count);
   info.kind = SABER_PROJECTILE_CUTTER;
   info.x = 321 * 256;
   info.y = 123 * 256;
@@ -1324,13 +1420,38 @@ static void cutter_asset_checks(const MmxSaberAssets *assets) {
   check(MmxSaberRenderProvideWorldSprites(actual, 2) == 2 &&
             actual[0].pixels == forward_frames[0].pixels &&
             actual[0].width == 32 && actual[0].height == 12 &&
-            actual[0].origin_x == 16 && actual[0].origin_y == 6 &&
+            actual[0].origin_x == -16 && actual[0].origin_y == -6 &&
             actual[0].palette == palette && actual[0].palette_count == palette_count &&
             actual[1].pixels == diagonal_frames[0].pixels &&
             actual[1].width == 26 && actual[1].height == 24 &&
-            actual[1].origin_x == 13 && actual[1].origin_y == 12 &&
+            actual[1].origin_x == -13 && actual[1].origin_y == -12 &&
             actual[1].palette == palette && actual[1].palette_count == palette_count,
         "loaded cutter strips register forward and diagonal frame zero");
+  check(actual[0].facing_left && actual[1].facing_left &&
+            compose_world_opaque_rect(&actual[0], &rect) &&
+            rect.min_x == 305 && rect.max_x == 337 && rect.min_y == 117 &&
+            rect.max_y == 129 && compose_world_opaque_rect(&actual[1], &rect) &&
+            rect.min_x == 321 && rect.max_x == 346 && rect.min_y == 111 &&
+            rect.max_y == 135 && compose_world_has_opaque_pixel(&actual[1], 343, 111),
+        "left cutters are centred and air cutter points down-forward");
+  MmxSaberProjectileReset(ram);
+  info.facing = 0x40;
+  info.kind = SABER_PROJECTILE_CUTTER;
+  info.x = 321 * 256;
+  check(MmxSaberProjectileSpawn(ram, &info, &index),
+        "right-facing ground cutter spawns for composite check");
+  info.kind = SABER_PROJECTILE_CUTTER_AIR;
+  info.x = 333 * 256;
+  check(MmxSaberProjectileSpawn(ram, &info, &index),
+        "right-facing air cutter spawns for composite check");
+  check(MmxSaberRenderProvideWorldSprites(actual, 2) == 2 &&
+            !actual[0].facing_left && !actual[1].facing_left &&
+            compose_world_opaque_rect(&actual[0], &rect) &&
+            rect.min_x == 305 && rect.max_x == 337 && rect.min_y == 117 &&
+            rect.max_y == 129 && compose_world_opaque_rect(&actual[1], &rect) &&
+            rect.min_x == 320 && rect.max_x == 345 && rect.min_y == 111 &&
+            rect.max_y == 135 && compose_world_has_opaque_pixel(&actual[1], 322, 111),
+        "right cutters are centred and air cutter points down-forward");
   for (unsigned i = 0; i < CUTTER_TICKS_PER_FRAME; ++i)
     MmxSaberProjectileTick(ram);
   check(MmxSaberRenderProvideWorldSprites(actual, 2) == 2 &&
@@ -1344,9 +1465,9 @@ static void cutter_asset_checks(const MmxSaberAssets *assets) {
             actual[1].pixels == diagonal_frames[0].pixels,
         "loaded cutter strips loop after four frames");
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_CUTTER, NULL, 0, 0,
-                                   false, NULL, 0);
+                                   false, false, NULL, 0);
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_CUTTER_AIR, NULL, 0, 0,
-                                   false, NULL, 0);
+                                   false, false, NULL, 0);
   MmxSaberProjectileReset(ram);
 }
 
@@ -1364,6 +1485,7 @@ static void ice_clone_asset_checks(const MmxSaberAssets *assets) {
       MmxSaberAssetsAnimationById(assets, ICE_CLONE_ANIMATION_ID);
   MmxSaberProjectileFrame frames[ICE_CLONE_FRAME_COUNT];
   MmxRenderWorldSprite actual[1];
+  TestOpaqueRect rect;
   const uint16_t *palette = MmxSaberAssetsPalette(assets);
   const uint16_t palette_count = MmxSaberAssetsPaletteCount(assets);
   uint8_t ram[0x20000] = {0};
@@ -1402,7 +1524,7 @@ static void ice_clone_asset_checks(const MmxSaberAssets *assets) {
   MmxSaberRenderSetWave(NULL);
   MmxSaberRenderSetProjectileStrip(
       SABER_PROJECTILE_ICE_CLONE, frames, ICE_CLONE_FRAME_COUNT,
-      ICE_CLONE_TICKS_PER_FRAME, true, palette, palette_count);
+      ICE_CLONE_TICKS_PER_FRAME, true, true, palette, palette_count);
   info.kind = SABER_PROJECTILE_ICE_CLONE;
   info.x = 142 * 256;
   info.y = 160 * 256;
@@ -1412,11 +1534,23 @@ static void ice_clone_asset_checks(const MmxSaberAssets *assets) {
             actual[0].pixels == frames[0].pixels &&
             actual[0].width == ICE_CLONE_WIDTH &&
             actual[0].height == ICE_CLONE_HEIGHT &&
-            actual[0].origin_x == ICE_CLONE_ORIGIN_X &&
-            actual[0].origin_y == ICE_CLONE_ORIGIN_Y &&
+            actual[0].origin_x == -ICE_CLONE_ORIGIN_X &&
+            actual[0].origin_y == -ICE_CLONE_ORIGIN_Y &&
             actual[0].palette == palette &&
             actual[0].palette_count == palette_count,
         "loaded ice clone strip registers frame zero with palette and origin");
+  check(actual[0].facing_left && compose_world_opaque_rect(&actual[0], &rect) &&
+            rect.min_x == 142 && rect.max_x == 221 && rect.min_y == 124 &&
+            rect.max_y == 160,
+        "left ice clone leading edge is at projectile point and feet stay aligned");
+  MmxSaberProjectileReset(ram);
+  info.facing = 0x40;
+  check(MmxSaberProjectileSpawn(ram, &info, &index) &&
+            MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
+            !actual[0].facing_left && compose_world_opaque_rect(&actual[0], &rect) &&
+            rect.min_x == 63 && rect.max_x == 142 && rect.min_y == 124 &&
+            rect.max_y == 160,
+        "right ice clone leading edge is at projectile point and feet stay aligned");
   for (unsigned i = 0; i < ICE_CLONE_TICKS_PER_FRAME; ++i)
     MmxSaberProjectileTick(ram);
   check(MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
@@ -1433,7 +1567,7 @@ static void ice_clone_asset_checks(const MmxSaberAssets *assets) {
             actual[0].pixels == frames[2].pixels,
         "loaded ice clone strip holds frame three after nine ticks");
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_ICE_CLONE, NULL, 0, 0,
-                                   false, NULL, 0);
+                                   false, false, NULL, 0);
   MmxSaberProjectileReset(ram);
 }
 
@@ -1446,8 +1580,8 @@ static void thunder_slam_asset_checks(const MmxSaberAssets *assets) {
     THUNDER_TICKS_PER_FRAME = 3,
     THUNDER_SLAM_WIDTH = 128,
     THUNDER_SLAM_HEIGHT = 128,
-    THUNDER_SLAM_ORIGIN_X = 64,
-    THUNDER_SLAM_ORIGIN_Y = 88,
+    THUNDER_SLAM_ORIGIN_X = 0,
+    THUNDER_SLAM_ORIGIN_Y = 0,
     THUNDER_ORB_WIDTH = 32,
     THUNDER_ORB_HEIGHT = 32,
     THUNDER_ORB_ORIGIN_X = 16,
@@ -1459,6 +1593,17 @@ static void thunder_slam_asset_checks(const MmxSaberAssets *assets) {
       MmxSaberAssetsAnimationById(assets, THUNDER_ORB_ANIMATION_ID);
   MmxSaberProjectileFrame orb_frames[THUNDER_ORB_FRAME_COUNT];
   MmxRenderWorldSprite actual[1];
+  MmxRenderPlayerOverlay overlay;
+  MmxSaberAttackSnapshot snapshot = {
+    .kind = SABER_KIND_THUNDER_SLAM,
+    .index = 0,
+    .phase = SABER_PHASE_ACTIVE,
+    .tick = 0,
+    .anim_id = THUNDER_SLAM_ANIMATION_ID,
+    .anim_step = 0,
+    .facing = 0x40,
+  };
+  TestOpaqueRect rect;
   const uint16_t *palette = MmxSaberAssetsPalette(assets);
   const uint16_t palette_count = MmxSaberAssetsPaletteCount(assets);
   uint8_t ram[0x20000] = {0};
@@ -1484,8 +1629,24 @@ static void thunder_slam_asset_checks(const MmxSaberAssets *assets) {
               frame->source_id == 19 && frame->source_frame_id == i &&
               frame->blade.pixels == NULL && frame->blade.width == 0 &&
               frame->blade.height == 0 && frame->blade_layer == 0,
-          "thunder slam body frame keeps 128x128 origin geometry and no blade");
+          "thunder slam body frame keeps 128x128 full-cell crop origin and no blade");
   }
+  check(MmxSaberRenderResolveSnapshot(assets, snapshot, &overlay) &&
+            !overlay.facing_left && overlay.body.origin_x == 0 &&
+            overlay.body.origin_y == 0 &&
+            compose_overlay_opaque_rect(&overlay.body, overlay.facing_left,
+                                        200, 160, overlay.palette_count, &rect) &&
+            rect.min_x == 182 && rect.max_x == 219 && rect.min_y == 139 &&
+            rect.max_y == 184,
+        "right thunder slam body keeps art anchor on Zero");
+  snapshot.facing = 0;
+  check(MmxSaberRenderResolveSnapshot(assets, snapshot, &overlay) &&
+            overlay.facing_left &&
+            compose_overlay_opaque_rect(&overlay.body, overlay.facing_left,
+                                        200, 160, overlay.palette_count, &rect) &&
+            rect.min_x == 181 && rect.max_x == 218 && rect.min_y == 139 &&
+            rect.max_y == 184,
+        "left thunder slam body mirrors around Zero");
   for (unsigned i = 0; i < THUNDER_ORB_FRAME_COUNT; ++i) {
     const MmxSaberStep *step = MmxSaberAssetsAnimationStep(
         assets, THUNDER_ORB_ANIMATION_ID, i);
@@ -1513,7 +1674,7 @@ static void thunder_slam_asset_checks(const MmxSaberAssets *assets) {
   MmxSaberRenderSetWave(NULL);
   MmxSaberRenderSetProjectileStrip(
       SABER_PROJECTILE_THUNDER_ORB, orb_frames, THUNDER_ORB_FRAME_COUNT,
-      THUNDER_TICKS_PER_FRAME, false, palette, palette_count);
+      THUNDER_TICKS_PER_FRAME, false, true, palette, palette_count);
   info.kind = SABER_PROJECTILE_THUNDER_ORB;
   info.x = 218 * 256;
   info.y = 141 * 256;
@@ -1523,8 +1684,8 @@ static void thunder_slam_asset_checks(const MmxSaberAssets *assets) {
             actual[0].pixels == orb_frames[0].pixels &&
             actual[0].width == THUNDER_ORB_WIDTH &&
             actual[0].height == THUNDER_ORB_HEIGHT &&
-            actual[0].origin_x == THUNDER_ORB_ORIGIN_X &&
-            actual[0].origin_y == THUNDER_ORB_ORIGIN_Y &&
+            actual[0].origin_x == -THUNDER_ORB_ORIGIN_X &&
+            actual[0].origin_y == -THUNDER_ORB_ORIGIN_Y &&
             actual[0].palette == palette &&
             actual[0].palette_count == palette_count,
         "registered thunder orb strip outputs frame zero with palette and origin");
@@ -1539,7 +1700,7 @@ static void thunder_slam_asset_checks(const MmxSaberAssets *assets) {
             actual[0].pixels == orb_frames[0].pixels,
         "registered thunder orb strip loops after two frames");
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_THUNDER_ORB, NULL, 0, 0,
-                                   false, NULL, 0);
+                                   false, false, NULL, 0);
   MmxSaberProjectileReset(ram);
 }
 
@@ -1577,7 +1738,7 @@ static void projectile_provider_checks(const MmxSaberWave *wave) {
   check(MmxSaberProjectileSpawn(ram, &info, &index),
         "synthetic cutter projectile spawns for render provider");
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_CUTTER, frames, 2, 2,
-                                    false, palette, 3);
+                                    false, false, palette, 3);
   MmxSaberRenderSetWave(wave);
   check(MmxSaberRenderProvideWorldSprites(actual, 8) == 2 &&
             actual[0].world_x == 300 && actual[0].facing_left,
@@ -1597,7 +1758,7 @@ static void projectile_provider_checks(const MmxSaberWave *wave) {
         "projectile frame advances after ticks_per_frame");
 
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_CUTTER, frames, 2, 2,
-                                   true, palette, 3);
+                                   true, false, palette, 3);
   MmxSaberProjectileTick(ram);
   MmxSaberProjectileTick(ram);
   check(MmxSaberRenderProvideWorldSprites(actual, 8) == 2 &&
@@ -1606,7 +1767,7 @@ static void projectile_provider_checks(const MmxSaberWave *wave) {
 
   MmxSaberProjectileReset(ram);
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_CUTTER, NULL, 0, 0,
-                                   false, NULL, 0);
+                                   false, false, NULL, 0);
   info.kind = SABER_PROJECTILE_TORNADO;
   check(MmxSaberProjectileSpawn(ram, &info, &index),
         "unregistered projectile kind spawns for provider filter");
@@ -1617,14 +1778,14 @@ static void projectile_provider_checks(const MmxSaberWave *wave) {
   MmxSaberProjectileReset(ram);
   MmxSaberRenderSetWave(NULL);
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_TORNADO, frames, 2, 2,
-                                   false, palette, 3);
+                                   false, false, palette, 3);
   check(MmxSaberProjectileSpawn(ram, &info, &index) &&
             MmxSaberRenderProvideWorldSprites(actual, 8) == 1 &&
             actual[0].world_x == 321,
         "projectiles draw when no wave asset is registered");
 
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_TORNADO, NULL, 0, 0,
-                                   false, NULL, 0);
+                                   false, false, NULL, 0);
   MmxSaberProjectileReset(ram);
   MmxSaberWaveRuntimeReset(ram);
 }

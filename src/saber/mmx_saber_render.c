@@ -34,6 +34,7 @@ typedef struct MmxSaberProjectileStrip {
   unsigned frame_count;
   unsigned ticks_per_frame;
   bool hold_last;
+  bool facing_xor;
   const uint16_t *palette;
   unsigned palette_count;
 } MmxSaberProjectileStrip;
@@ -544,14 +545,16 @@ static bool resolve_projectile_snapshot(
   out->pixels = frame->pixels + crop_rows * frame->width;
   out->width = frame->width;
   out->height = (uint16_t)visible_height;
-  out->origin_x = frame->origin_x;
-  out->origin_y = frame->origin_y;
+  out->origin_x = (int16_t)-frame->origin_x;
+  out->origin_y = (int16_t)-frame->origin_y;
   out->world_x = live->world_x;
   out->world_y = live->kind == SABER_PROJECTILE_TORNADO ?
-      live->world_y - (int32_t)frame->origin_y - (int32_t)frame->height +
-          (int32_t)crop_rows :
+      live->world_y + (int32_t)frame->origin_y - (int32_t)visible_height :
       live->world_y;
-  out->facing_left = live->facing_left;
+  /* Projectile live state stores native facing after conversion: $40 is
+   * right. Manifest facing_xor is authored against that native bit, so
+   * convert back before applying the strip's art convention. */
+  out->facing_left = (!live->facing_left) ^ strip->facing_xor;
   out->palette = strip->palette;
   out->palette_count = strip->palette_count;
   out->z = 0xa680;
@@ -564,6 +567,7 @@ void MmxSaberRenderSetProjectileStrip(MmxSaberProjectileKind kind,
                                       unsigned frame_count,
                                       unsigned ticks_per_frame,
                                       bool hold_last,
+                                      bool facing_xor,
                                       const uint16_t *palette,
                                       unsigned palette_count) {
   if (kind < SABER_PROJECTILE_TORNADO ||
@@ -574,7 +578,8 @@ void MmxSaberRenderSetProjectileStrip(MmxSaberProjectileKind kind,
       !palette_count)
     return;
   projectile_strips[kind] = (MmxSaberProjectileStrip){
-    frames, frame_count, ticks_per_frame, hold_last, palette, palette_count};
+    frames, frame_count, ticks_per_frame, hold_last, facing_xor, palette,
+    palette_count};
 }
 
 unsigned MmxSaberRenderSharedBladePaletteCount(void) {

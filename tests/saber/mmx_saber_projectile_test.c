@@ -194,13 +194,13 @@ static bool test_live_snapshot(void) {
     return false;
   if (!check(live[0].kind == SABER_PROJECTILE_ICE_CLONE &&
                  live[0].world_x == 123 && live[0].world_y == 45 &&
-                 live[0].facing_left && live[0].age == 0 &&
+                 !live[0].facing_left && live[0].age == 0 && /* $40 = right */
                  live[0].animation_tick == 7 && live[0].fade_level == 9,
              "live accessor converts first Q8.8 position and copies presentation state"))
     return false;
   return check(live[1].kind == SABER_PROJECTILE_CUTTER &&
                    live[1].world_x == 201 && live[1].world_y == 77 &&
-                   !live[1].facing_left && live[1].age == 0 &&
+                   live[1].facing_left && live[1].age == 0 &&
                    live[1].animation_tick == 11 && live[1].fade_level == 2,
                "live accessor returns second projectile presentation state");
 }

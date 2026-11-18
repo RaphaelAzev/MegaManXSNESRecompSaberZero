@@ -64,9 +64,9 @@ static void coop_seat_pad(const uint8_t *ram, MmxSaberFramePad *pad) {
 
 static void clear_saber_cutter_strips(void) {
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_CUTTER, NULL, 0, 0,
-                                   false, NULL, 0);
+                                   false, false, NULL, 0);
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_CUTTER_AIR, NULL, 0, 0,
-                                   false, NULL, 0);
+                                   false, false, NULL, 0);
   memset(g_saber_cutter_forward_frames, 0,
          sizeof(g_saber_cutter_forward_frames));
   memset(g_saber_cutter_diagonal_frames, 0,
@@ -75,13 +75,13 @@ static void clear_saber_cutter_strips(void) {
 
 static void clear_saber_ice_clone_strip(void) {
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_ICE_CLONE, NULL, 0, 0,
-                                   false, NULL, 0);
+                                   false, false, NULL, 0);
   memset(g_saber_ice_clone_frames, 0, sizeof(g_saber_ice_clone_frames));
 }
 
 static void clear_saber_thunder_orb_strip(void) {
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_THUNDER_ORB, NULL, 0, 0,
-                                   false, NULL, 0);
+                                   false, false, NULL, 0);
   memset(g_saber_thunder_orb_frames, 0,
          sizeof(g_saber_thunder_orb_frames));
 }
@@ -94,7 +94,7 @@ static void saber_activation_failed(void) {
   MmxRendererSetDebugRectProvider(NULL);
   MmxSaberRenderSetWave(NULL);
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_TORNADO, NULL, 0, 0,
-                                   false, NULL, 0);
+                                   false, false, NULL, 0);
   clear_saber_cutter_strips();
   clear_saber_ice_clone_strip();
   clear_saber_thunder_orb_strip();
@@ -155,10 +155,10 @@ static bool saber_tuning_option_reader(const char *option_id, char *value,
 }
 
 static const uint8_t kSaberManifestSha[32] = {
-  0xb6, 0x71, 0xfc, 0x07, 0xd6, 0x42, 0x56, 0xdb,
-  0x6d, 0xc8, 0x18, 0x88, 0x06, 0x3e, 0x3e, 0x5d,
-  0x90, 0x2a, 0xbd, 0x93, 0x68, 0x6b, 0xc8, 0xf3,
-  0x94, 0x6c, 0x91, 0xa4, 0x2e, 0xb7, 0x75, 0x5d,
+  0x10, 0x7f, 0xb6, 0xae, 0xae, 0x37, 0x64, 0x7e,
+  0x9d, 0x4e, 0x5c, 0x46, 0x5c, 0x44, 0xb1, 0x6f,
+  0x6e, 0xfb, 0x8c, 0x6c, 0x82, 0x15, 0x9a, 0x30,
+  0x81, 0x22, 0x99, 0x92, 0x2c, 0x9b, 0xba, 0x1e,
 };
 
 static const uint8_t kRideManifestSha[32] = {
@@ -254,7 +254,7 @@ static int configure_saber_tornado_strip(const MmxSaberAssets *assets) {
       MmxSaberAssetsAnimationById(assets, TORNADO_ANIMATION_ID);
 
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_TORNADO, NULL, 0, 0,
-                                   false, NULL, 0);
+                                   false, false, NULL, 0);
   memset(g_saber_tornado_frames, 0, sizeof(g_saber_tornado_frames));
   if (!animation) return 1;
   if (animation->step_count != TORNADO_FRAME_COUNT ||
@@ -284,7 +284,8 @@ static int configure_saber_tornado_strip(const MmxSaberAssets *assets) {
   }
   MmxSaberRenderSetProjectileStrip(
       SABER_PROJECTILE_TORNADO, g_saber_tornado_frames, TORNADO_FRAME_COUNT,
-      TORNADO_TICKS_PER_FRAME, false, MmxSaberAssetsPalette(assets),
+      TORNADO_TICKS_PER_FRAME, false, animation->facing_xor != 0,
+      MmxSaberAssetsPalette(assets),
       MmxSaberAssetsPaletteCount(assets));
   return 1;
 }
@@ -297,7 +298,7 @@ static int configure_saber_projectile_strip(
   const MmxSaberAnimation *animation =
       MmxSaberAssetsAnimationById(assets, animation_id);
 
-  MmxSaberRenderSetProjectileStrip(kind, NULL, 0, 0, false, NULL, 0);
+  MmxSaberRenderSetProjectileStrip(kind, NULL, 0, 0, false, false, NULL, 0);
   memset(frames, 0, sizeof(*frames) * frame_count);
   if (!animation || animation->step_count != frame_count ||
       animation->total_ticks != frame_count * 3)
@@ -322,7 +323,8 @@ static int configure_saber_projectile_strip(
     };
   }
   MmxSaberRenderSetProjectileStrip(
-      kind, frames, frame_count, 3, hold_last, MmxSaberAssetsPalette(assets),
+      kind, frames, frame_count, 3, hold_last, animation->facing_xor != 0,
+      MmxSaberAssetsPalette(assets),
       MmxSaberAssetsPaletteCount(assets));
   return 1;
 }
@@ -372,7 +374,7 @@ static void release_saber_assets(void) {
   MmxRendererSetDebugRectProvider(NULL);
   MmxSaberRenderSetWave(NULL);
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_TORNADO, NULL, 0, 0,
-                                   false, NULL, 0);
+                                   false, false, NULL, 0);
   memset(g_saber_tornado_frames, 0, sizeof(g_saber_tornado_frames));
   clear_saber_cutter_strips();
   clear_saber_ice_clone_strip();

@@ -465,7 +465,7 @@ unsigned MmxSaberProjectileLive(MmxSaberProjectileLiveInfo *out,
       out[count].kind = projectile->kind;
       out[count].world_x = native_coordinate(projectile->x);
       out[count].world_y = native_coordinate(projectile->y);
-      out[count].facing_left = (projectile->facing & 0x40) != 0;
+      out[count].facing_left = !(projectile->facing & 0x40);
       out[count].age = projectile->age;
       out[count].animation_tick = projectile->animation_tick;
       out[count].fade_level = projectile->fade_level;
