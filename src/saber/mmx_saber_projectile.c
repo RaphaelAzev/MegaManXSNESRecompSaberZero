@@ -11,12 +11,12 @@ static bool table_initialized;
 static uint8_t *collision_rom;
 static size_t collision_rom_size;
 
-typedef struct MmxSaberTornadoCollision {
+typedef struct MmxSaberProjectileCollision {
   bool installed;
-  uint8_t bytes[MMX_SABER_PROJECTILE_TORNADO_COLLISION_RECORD_BYTES];
-} MmxSaberTornadoCollision;
+  uint8_t bytes[MMX_SABER_PROJECTILE_COLLISION_RECORD_BYTES];
+} MmxSaberProjectileCollision;
 
-static MmxSaberTornadoCollision tornado_collision[
+static MmxSaberProjectileCollision projectile_collision[
     MMX_SABER_PROJECTILE_SLOT_COUNT];
 
 typedef struct MmxSaberProjectileBounds {
@@ -65,7 +65,7 @@ static unsigned index_for_slot(unsigned slot) {
       MMX_SABER_PROJECTILE_SLOT_BYTES;
 }
 
-static void clear_tornado_collision(unsigned index);
+static void clear_collision_record(unsigned index);
 
 static bool tag_family(unsigned tag) {
   return (tag & MMX_SABER_PROJECTILE_RUNTIME_TAG_FAMILY_MASK) ==
@@ -122,7 +122,7 @@ static const MmxSaberProjectileBounds *hitbox_for_kind(
 }
 
 static void clear_entry(unsigned index) {
-  clear_tornado_collision(index);
+  clear_collision_record(index);
   memset(&projectiles[index], 0, sizeof(projectiles[index]));
   projectiles[index].slot = (uint16_t)slot_for_index(index);
 }
@@ -154,7 +154,7 @@ static void retire_slot(uint8_t *ram, unsigned slot) {
   const unsigned index = index_for_slot(slot);
   if (!owns_slot(ram, slot)) return;
   if (index < MMX_SABER_PROJECTILE_SLOT_COUNT)
-    clear_tornado_collision(index);
+    clear_collision_record(index);
   counted = ram[slot] != 0;
   memset(ram + slot, 0, MMX_SABER_PROJECTILE_SLOT_BYTES);
   if (counted && ram[MMX_SABER_PROJECTILE_COUNT])
@@ -167,29 +167,37 @@ static int16_t native_coordinate(int32_t fixed) {
   return (int16_t)(value / 256);
 }
 
-unsigned MmxSaberProjectileTornadoCollisionPointer(unsigned index) {
+unsigned MmxSaberProjectileCollisionPointer(unsigned index) {
   if (index >= MMX_SABER_PROJECTILE_SLOT_COUNT) return 0;
   return index < 3 ?
-      MMX_SABER_PROJECTILE_TORNADO_COLLISION_POINTER + index * 4 :
-      MMX_SABER_PROJECTILE_TORNADO_COLLISION_POINTER_TAIL +
+      MMX_SABER_PROJECTILE_COLLISION_POINTER_BASE + index * 4 :
+      MMX_SABER_PROJECTILE_COLLISION_POINTER_TAIL +
           (index - 3) * 4;
 }
 
-size_t MmxSaberProjectileTornadoCollisionOffset(unsigned index) {
+size_t MmxSaberProjectileCollisionOffset(unsigned index) {
   return 0x30000u +
-      (MmxSaberProjectileTornadoCollisionPointer(index) & 0x7fffu);
+      (MmxSaberProjectileCollisionPointer(index) & 0x7fffu);
 }
 
-static uint8_t *tornado_collision_record(unsigned index) {
+unsigned MmxSaberProjectileTornadoCollisionPointer(unsigned index) {
+  return MmxSaberProjectileCollisionPointer(index);
+}
+
+size_t MmxSaberProjectileTornadoCollisionOffset(unsigned index) {
+  return MmxSaberProjectileCollisionOffset(index);
+}
+
+static uint8_t *projectile_collision_record(unsigned index) {
   size_t offset;
   if (index >= MMX_SABER_PROJECTILE_SLOT_COUNT || !collision_rom ||
-      !MmxSaberProjectileTornadoCollisionPointer(index) ||
+      !MmxSaberProjectileCollisionPointer(index) ||
       collision_rom_size < 0x30000)
     return NULL;
-  offset = MmxSaberProjectileTornadoCollisionOffset(index);
+  offset = MmxSaberProjectileCollisionOffset(index);
   if (offset > collision_rom_size ||
       collision_rom_size - offset <
-          MMX_SABER_PROJECTILE_TORNADO_COLLISION_RECORD_BYTES)
+          MMX_SABER_PROJECTILE_COLLISION_RECORD_BYTES)
     return NULL;
   return collision_rom + offset;
 }
@@ -197,18 +205,18 @@ static uint8_t *tornado_collision_record(unsigned index) {
 static bool collision_record_empty(const uint8_t *record) {
   if (!record) return false;
   for (unsigned i = 0;
-       i < MMX_SABER_PROJECTILE_TORNADO_COLLISION_RECORD_BYTES; ++i)
+       i < MMX_SABER_PROJECTILE_COLLISION_RECORD_BYTES; ++i)
     if (record[i] != 0xff) return false;
   return true;
 }
 
-static void clear_tornado_collision(unsigned index) {
-  MmxSaberTornadoCollision *owner;
+static void clear_collision_record(unsigned index) {
+  MmxSaberProjectileCollision *owner;
   uint8_t *record;
   if (index >= MMX_SABER_PROJECTILE_SLOT_COUNT) return;
-  owner = &tornado_collision[index];
+  owner = &projectile_collision[index];
   if (!owner->installed) return;
-  record = tornado_collision_record(index);
+  record = projectile_collision_record(index);
   if (record && !memcmp(record, owner->bytes, sizeof(owner->bytes)))
     memset(record, 0xff, sizeof(owner->bytes));
   owner->installed = false;
@@ -232,23 +240,23 @@ static unsigned tornado_visible_height(const uint8_t *ram,
   return (unsigned)height;
 }
 
-static void update_tornado_collision(const uint8_t *ram,
-                                     const MmxSaberProjectile *projectile) {
+static void update_collision_record(const uint8_t *ram,
+                                    const MmxSaberProjectile *projectile) {
   const unsigned index = projectile ? index_for_slot(projectile->slot) :
       MMX_SABER_PROJECTILE_SLOT_COUNT;
   const MmxSaberProjectileBounds *hitbox = projectile ?
       hitbox_for_kind(projectile->kind) : NULL;
-  MmxSaberTornadoCollision *owner;
+  MmxSaberProjectileCollision *owner;
   uint8_t *record;
-  uint8_t next[MMX_SABER_PROJECTILE_TORNADO_COLLISION_RECORD_BYTES];
+  uint8_t next[MMX_SABER_PROJECTILE_COLLISION_RECORD_BYTES];
   unsigned half_height;
 
-  if (!projectile || projectile->kind != SABER_PROJECTILE_TORNADO || !hitbox ||
+  if (!projectile || !hitbox ||
       index >= MMX_SABER_PROJECTILE_SLOT_COUNT)
     return;
-  record = tornado_collision_record(index);
+  record = projectile_collision_record(index);
   if (!record) return;
-  owner = &tornado_collision[index];
+  owner = &projectile_collision[index];
   if (owner->installed) {
     if (memcmp(record, owner->bytes, sizeof(owner->bytes)) != 0) {
       owner->installed = false;
@@ -259,9 +267,13 @@ static void update_tornado_collision(const uint8_t *ram,
     return;
   }
 
-  half_height = (tornado_visible_height(ram, projectile) + 1) / 2;
-  next[0] = 0;
-  next[1] = (uint8_t)(-(int)half_height);
+  half_height = projectile->kind == SABER_PROJECTILE_TORNADO ?
+      (tornado_visible_height(ram, projectile) + 1) / 2 :
+      hitbox->half_height;
+  next[0] = projectile->kind == SABER_PROJECTILE_ICE_CLONE ? 47 : 0;
+  next[1] = projectile->kind == SABER_PROJECTILE_TORNADO ?
+      (uint8_t)(-(int)half_height) :
+      projectile->kind == SABER_PROJECTILE_ICE_CLONE ? (uint8_t)-19 : 0;
   next[2] = hitbox->half_width;
   next[3] = (uint8_t)half_height;
   memcpy(record, next, sizeof(next));
@@ -271,10 +283,8 @@ static void update_tornado_collision(const uint8_t *ram,
 
 static void write_position(uint8_t *ram, const MmxSaberProjectile *projectile) {
   const unsigned slot = projectile->slot;
-  const unsigned index = index_for_slot(slot);
-  const unsigned collision_pointer = projectile->kind == SABER_PROJECTILE_TORNADO ?
-      MmxSaberProjectileTornadoCollisionPointer(index) :
-      MMX_SABER_PROJECTILE_COLLISION_POINTER;
+  const unsigned collision_pointer = MmxSaberProjectileCollisionPointer(
+      index_for_slot(slot));
   ram[slot + 4] = (uint8_t)projectile->x;
   putword(ram + slot + 5, (uint16_t)native_coordinate(projectile->x));
   ram[slot + 7] = (uint8_t)projectile->y;
@@ -292,7 +302,7 @@ static bool offscreen(const uint8_t *ram, unsigned slot) {
 void MmxSaberProjectileCollisionRom(uint8_t *rom, size_t size) {
   if (collision_rom != rom || collision_rom_size != size) {
     for (unsigned i = 0; i < MMX_SABER_PROJECTILE_SLOT_COUNT; ++i)
-      clear_tornado_collision(i);
+      clear_collision_record(i);
   }
   collision_rom = rom;
   collision_rom_size = size;
@@ -300,7 +310,7 @@ void MmxSaberProjectileCollisionRom(uint8_t *rom, size_t size) {
   if (!rom) return;
   for (unsigned i = 0; i < MMX_SABER_PROJECTILE_SLOT_COUNT; ++i)
     if (projectiles[i].active)
-      update_tornado_collision(runtime_ram, &projectiles[i]);
+      update_collision_record(runtime_ram, &projectiles[i]);
 }
 
 void MmxSaberProjectileReset(uint8_t *ram) {
@@ -371,7 +381,7 @@ bool MmxSaberProjectileSpawn(uint8_t *ram,
   putword(ram + slot + 0x3e,
           MMX_SABER_PROJECTILE_RUNTIME_TAG_FAMILY | (first + 1));
   ++ram[MMX_SABER_PROJECTILE_COUNT];
-  update_tornado_collision(ram, projectile);
+  update_collision_record(ram, projectile);
   if (index_out) *index_out = first;
   return true;
 }
@@ -424,7 +434,7 @@ void MmxSaberProjectileTick(uint8_t *ram) {
       tick_ice_clone(projectile);
     ++projectile->animation_tick;
     write_position(target, projectile);
-    update_tornado_collision(target, projectile);
+    update_collision_record(target, projectile);
     if (projectile->age >= projectile->lifetime ||
         (projectile->kind == SABER_PROJECTILE_ICE_CLONE &&
          projectile->fade_level >= MMX_SABER_ICE_CLONE_FADE_DONE_LEVEL) ||
@@ -446,7 +456,7 @@ void MmxSaberProjectileRefreshCollision(uint8_t *ram) {
       clear_entry(i);
       continue;
     }
-    update_tornado_collision(target, projectile);
+    update_collision_record(target, projectile);
   }
 }
 
@@ -494,7 +504,7 @@ void MmxSaberProjectileSetTornadoUppercutLive(uint8_t *ram, unsigned index,
       !owns_slot(target, projectile->slot))
     return;
   projectile->tornado_uppercut_live = live;
-  update_tornado_collision(target, projectile);
+  update_collision_record(target, projectile);
 }
 
 static unsigned projectile_damage(uint8_t *ram, unsigned enemy,
@@ -547,9 +557,8 @@ unsigned MmxSaberProjectileHitbox(const uint8_t *ram, unsigned enemy,
 
   if (!projectile || !enemy_slot_valid(enemy) || !value) return value;
   hitbox = hitbox_for_kind(projectile->kind);
-  /* Tornado records are refreshed from its bottom-anchored visible height;
-   * native collision supplies the broad-phase candidate and this callback
-   * supplies the per-enemy hit-mask gate. */
+  /* Native collision supplies the record-sized broad-phase candidate; this
+   * callback supplies the per-enemy hit-mask gate. */
   if (!hitbox || !hitbox->half_width || !hitbox->half_height) return 0;
   if (projectile->kind == SABER_PROJECTILE_ICE_CLONE &&
       projectile->fade_level >= MMX_SABER_ICE_CLONE_FADE_ACTIVE_LEVEL)

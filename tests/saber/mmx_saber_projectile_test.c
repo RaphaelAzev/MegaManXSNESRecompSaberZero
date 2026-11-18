@@ -100,7 +100,7 @@ static bool test_spawn_publishes_slot(void) {
                  read_word(ram + slot + 5) == 100 &&
                  read_word(ram + slot + 8) == 50 &&
                  read_word(ram + slot + 0x20) ==
-                     MMX_SABER_PROJECTILE_COLLISION_POINTER &&
+                     MmxSaberProjectileCollisionPointer(0) &&
                  ram[slot + 0x32] == 4,
              "spawn publishes native active, Saber class 3, facing, position, collision and stage"))
     return false;
@@ -108,6 +108,46 @@ static bool test_spawn_publishes_slot(void) {
                    MMX_SABER_PROJECTILE_RUNTIME_TAG_FAMILY &&
                    (tag & 0xff) != 0,
                "spawn publishes nonzero $5700 family tag");
+}
+
+static bool test_collision_records(void) {
+  static const uint8_t expected[SABER_PROJECTILE_KIND_COUNT][4] = {
+    [SABER_PROJECTILE_TORNADO] = {0, (uint8_t)-60, 10, 60},
+    [SABER_PROJECTILE_ICE_CLONE] = {47, (uint8_t)-19, 47, 19},
+    [SABER_PROJECTILE_THUNDER_ORB] = {0, 0, 16, 16},
+    [SABER_PROJECTILE_CUTTER] = {0, 0, 16, 6},
+    [SABER_PROJECTILE_CUTTER_AIR] = {0, 0, 13, 12},
+  };
+
+  for (unsigned facing = 0; facing < 2; ++facing) {
+    prepare_ram();
+    memset(collision_rom, 0xff, sizeof(collision_rom));
+    MmxSaberProjectileCollisionRom(collision_rom, sizeof(collision_rom));
+    for (unsigned kind = 0; kind < SABER_PROJECTILE_KIND_COUNT; ++kind) {
+      MmxSaberProjectileSpawnInfo info = default_info();
+      unsigned index = MMX_SABER_PROJECTILE_SLOT_COUNT;
+      unsigned slot;
+      info.kind = (MmxSaberProjectileKind)kind;
+      info.x = (int32_t)(100 + kind) * 256;
+      info.y = 50 * 256;
+      info.facing = facing ? 0x40 : 0;
+      if (!check(MmxSaberProjectileSpawn(ram, &info, &index),
+                 "each Saber kind spawns for both native facings"))
+        return false;
+      slot = MmxSaberProjectileGet(index)->slot;
+      if (!check(index == kind &&
+                     read_word(ram + slot + 0x20) ==
+                         MmxSaberProjectileCollisionPointer(index) &&
+                     !memcmp(collision_rom +
+                                 MmxSaberProjectileCollisionOffset(index),
+                             expected[kind], sizeof(expected[kind])),
+                 "each kind and facing publishes its exact per-index record"))
+        return false;
+    }
+  }
+  MmxSaberProjectileReset(ram);
+  MmxSaberProjectileCollisionRom(NULL, 0);
+  return true;
 }
 
 static bool test_motion(void) {
@@ -391,7 +431,7 @@ static bool test_tornado_growth_and_rise(void) {
   ram[MMX_SABER_PROJECTILE_PLAYER_Y] = 60;
   MmxSaberProjectileRefreshCollision(ram);
   if (!check(MmxSaberProjectileVisibleHeight(ram, slot) == 97 &&
-                 collision_rom[MmxSaberProjectileTornadoCollisionOffset(index) +
+                 collision_rom[MmxSaberProjectileCollisionOffset(index) +
                               3] == 49,
              "tornado collision refresh follows Zero after native movement"))
     return false;
@@ -400,11 +440,11 @@ static bool test_tornado_growth_and_rise(void) {
   if (!check(height_at_birth == 77 && height_after_rise == 97,
              "uppercut tornado grows from the fixed floor as Zero rises"))
     return false;
-  if (!check(collision_rom[MmxSaberProjectileTornadoCollisionOffset(index) +
+  if (!check(collision_rom[MmxSaberProjectileCollisionOffset(index) +
                           1] == (uint8_t)-49 &&
-                 collision_rom[MmxSaberProjectileTornadoCollisionOffset(index) +
+                 collision_rom[MmxSaberProjectileCollisionOffset(index) +
                           2] == 10 &&
-                 collision_rom[MmxSaberProjectileTornadoCollisionOffset(index) +
+                 collision_rom[MmxSaberProjectileCollisionOffset(index) +
                           3] == 49,
              "tornado collision record stays bottom-anchored with visible height"))
     return false;
@@ -458,6 +498,7 @@ static bool test_tornado_hit_mask(void) {
 
 int main(void) {
   if (!test_spawn_publishes_slot()) return 1;
+  if (!test_collision_records()) return 1;
   if (!test_motion()) return 1;
   if (!test_live_snapshot()) return 1;
   if (!test_lifetime_retire()) return 1;

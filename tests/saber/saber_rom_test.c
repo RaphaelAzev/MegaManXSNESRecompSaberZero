@@ -9506,6 +9506,115 @@ static unsigned saber_projectile_spawn_contact(
   return MmxSaberProjectileGet(index)->slot;
 }
 
+typedef struct SaberProjectileContactBox {
+  int left;
+  int top;
+  int right;
+  int bottom;
+} SaberProjectileContactBox;
+
+static const uint8_t *saber_projectile_collision_record(unsigned pointer) {
+  const size_t offset = 0x30000u + (pointer & 0x7fffu);
+  if (!g_snes || !g_snes->cart || !g_snes->cart->rom ||
+      offset > g_snes->cart->romSize ||
+      g_snes->cart->romSize - offset <
+          MMX_SABER_PROJECTILE_COLLISION_RECORD_BYTES)
+    return NULL;
+  return g_snes->cart->rom + offset;
+}
+
+static bool saber_projectile_contact_box(unsigned object,
+                                         SaberProjectileContactBox *out) {
+  const uint8_t *record;
+  int center_x;
+  int center_y;
+  int object_x;
+  int object_y;
+
+  if (!out) return false;
+  record = saber_projectile_collision_record(
+      read_ram_word(g_ram, object + 0x20));
+  if (!record) return false;
+  center_x = (int8_t)record[0];
+  if (g_ram[object + 0x11] & 0x40) center_x = -center_x;
+  center_y = (int8_t)record[1];
+  object_x = (int16_t)read_ram_word(g_ram, object + 5);
+  object_y = (int16_t)read_ram_word(g_ram, object + 8);
+  out->left = object_x + center_x - record[2];
+  out->top = object_y + center_y - record[3];
+  out->right = object_x + center_x + record[2];
+  out->bottom = object_y + center_y + record[3];
+  return true;
+}
+
+static void saber_projectile_edge_case(const char *fixture,
+                                       MmxSaberProjectileKind kind,
+                                       bool overlap,
+                                       const char *message) {
+  const unsigned target = saber_projectile_contact_target(fixture);
+  SaberProjectileContactBox enemy_box;
+  MmxSaberProjectileSpawnInfo info = {0};
+  int point_y;
+  int point_x;
+  unsigned index = MMX_SABER_PROJECTILE_SLOT_COUNT;
+  unsigned initial_hp;
+
+  check(target == 0xea8 && saber_projectile_contact_box(target, &enemy_box),
+        "saber-projectile-contact reads the real Highway enemy collision box");
+  point_y = (enemy_box.top + enemy_box.bottom) / 2;
+  if (kind == SABER_PROJECTILE_CUTTER) {
+    const int edge_delta = overlap ? 2 : -2;
+    point_x = enemy_box.left + edge_delta - 16;
+  } else {
+    /* The right-facing clone spans point-94 through point. Probe its back
+     * edge against the enemy's right edge, not its left edge. */
+    const int edge_delta = overlap ? -2 : 2;
+    point_x = enemy_box.right + edge_delta + 94;
+  }
+
+  info.kind = kind;
+  /* Pre-player projectile tick advances an ice clone 10 pixels at age 1. */
+  info.x = (int32_t)(point_x - (kind == SABER_PROJECTILE_ICE_CLONE ? 10 : 0)) * 256;
+  info.y = (int32_t)point_y * 256;
+  info.lifetime = kind == SABER_PROJECTILE_ICE_CLONE ?
+      MMX_SABER_ICE_CLONE_LIFETIME : MMX_SABER_CUTTER_LIFETIME;
+  info.facing = 0x40;
+  info.damage_normal = 4;
+  info.damage_boss = 2;
+  initial_hp = g_ram[target + 0x27] & 127;
+  check(MmxSaberProjectileSpawn(g_ram, &info, &index),
+        "saber-projectile-contact edge probe spawns by position");
+  check(index < MMX_SABER_PROJECTILE_SLOT_COUNT,
+        "saber-projectile-contact edge probe returns a valid slot");
+  frame(0);
+  check(((g_ram[target + 0x27] & 127) < initial_hp) == overlap &&
+            (MmxSaberProjectileOwns(g_ram,
+                                    MmxSaberProjectileGet(index)->slot) !=
+             overlap),
+        message);
+  printf("reference: projectile edge kind=%u overlap=%u enemy=0x%X "
+         "box=(%d,%d)-(%d,%d) point=(%d,%d) hp=%u->%u\n",
+         kind, overlap, target, enemy_box.left, enemy_box.top,
+         enemy_box.right, enemy_box.bottom, point_x, point_y, initial_hp,
+         g_ram[target + 0x27] & 127);
+  MmxSaberProjectileRetire(g_ram, index);
+}
+
+static void saber_projectile_collision_edge_checks(const char *fixture) {
+  saber_projectile_edge_case(
+      fixture, SABER_PROJECTILE_CUTTER, false,
+      "ground cutter drawn box 2 pixels short of enemy does not hit");
+  saber_projectile_edge_case(
+      fixture, SABER_PROJECTILE_CUTTER, true,
+      "ground cutter drawn box overlapping enemy by 2 pixels hits");
+  saber_projectile_edge_case(
+      fixture, SABER_PROJECTILE_ICE_CLONE, false,
+      "ice clone back edge 2 pixels short of enemy does not hit");
+  saber_projectile_edge_case(
+      fixture, SABER_PROJECTILE_ICE_CLONE, true,
+      "ice clone back edge overlapping enemy by 2 pixels hits");
+}
+
 static void saber_projectile_dispatch_checks(const char *fixture) {
   const unsigned target = saber_projectile_contact_target(fixture);
   const int player_x = (int16_t)read_ram_word(g_ram, 0x0bad);
@@ -9546,6 +9655,7 @@ static void saber_projectile_contact_checks(const char *fixture) {
   const MmxSaberProjectile *projectile;
 
   saber_projectile_dispatch_checks(fixture);
+  saber_projectile_collision_edge_checks(fixture);
 
   target = saber_projectile_contact_target(fixture);
   initial_hp = g_ram[target + 0x27] & 127;
@@ -12390,9 +12500,9 @@ static void saber_tornado_checks(const char *fixture) {
             read_ram_word(g_ram, slot + 8) == takeoff_floor_y &&
             (g_ram[slot + 0x11] & 0x40) == 0x40 &&
             read_ram_word(g_ram, slot + 0x20) ==
-                MmxSaberProjectileTornadoCollisionPointer(index),
+                MmxSaberProjectileCollisionPointer(index),
         "right tornado uses Zero X plus 35 and take-off floor Y");
-  check(g_snes->cart->rom[MmxSaberProjectileTornadoCollisionOffset(index) +
+  check(g_snes->cart->rom[MmxSaberProjectileCollisionOffset(index) +
                           2] == 10,
         "tornado collision record publishes 20-pixel centred width");
 
