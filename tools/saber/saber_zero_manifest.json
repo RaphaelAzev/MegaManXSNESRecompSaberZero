@@ -92,6 +92,16 @@
       "id": 18,
       "file": "Special_IceClone.png",
       "sha256": "0e9980bcdc3112c4b8b07cce706afa4a96bbf9e7158bf93da8c3e5fa793096d5"
+    },
+    {
+      "id": 19,
+      "file": "Special_ThunderSlam.png",
+      "sha256": "185c89174a3e654b96f5d71d84f76248fcbfad4d663a9fc31fb08d409a0788d9"
+    },
+    {
+      "id": 20,
+      "file": "Special_ThunderOrb.png",
+      "sha256": "e4f4f37a32c137f36b7919f11a073614cb08b3059d3375bec098f3006638d5bd"
     }
   ],
   "frames": [
@@ -2814,6 +2824,278 @@
         ]
       },
       "source_frame": 2
+    },
+    {
+      "id": 1164,
+      "source": 19,
+      "body": {
+        "rect": [
+          0,
+          0,
+          128,
+          128
+        ],
+        "origin": [
+          64,
+          88
+        ]
+      },
+      "source_frame": 0
+    },
+    {
+      "id": 1165,
+      "source": 19,
+      "body": {
+        "rect": [
+          128,
+          0,
+          128,
+          128
+        ],
+        "origin": [
+          64,
+          88
+        ]
+      },
+      "source_frame": 1
+    },
+    {
+      "id": 1166,
+      "source": 19,
+      "body": {
+        "rect": [
+          256,
+          0,
+          128,
+          128
+        ],
+        "origin": [
+          64,
+          88
+        ]
+      },
+      "source_frame": 2
+    },
+    {
+      "id": 1167,
+      "source": 19,
+      "body": {
+        "rect": [
+          384,
+          0,
+          128,
+          128
+        ],
+        "origin": [
+          64,
+          88
+        ]
+      },
+      "source_frame": 3
+    },
+    {
+      "id": 1168,
+      "source": 19,
+      "body": {
+        "rect": [
+          512,
+          0,
+          128,
+          128
+        ],
+        "origin": [
+          64,
+          88
+        ]
+      },
+      "source_frame": 4
+    },
+    {
+      "id": 1169,
+      "source": 19,
+      "body": {
+        "rect": [
+          640,
+          0,
+          128,
+          128
+        ],
+        "origin": [
+          64,
+          88
+        ]
+      },
+      "source_frame": 5
+    },
+    {
+      "id": 1170,
+      "source": 19,
+      "body": {
+        "rect": [
+          768,
+          0,
+          128,
+          128
+        ],
+        "origin": [
+          64,
+          88
+        ]
+      },
+      "source_frame": 6
+    },
+    {
+      "id": 1171,
+      "source": 19,
+      "body": {
+        "rect": [
+          896,
+          0,
+          128,
+          128
+        ],
+        "origin": [
+          64,
+          88
+        ]
+      },
+      "source_frame": 7
+    },
+    {
+      "id": 1172,
+      "source": 19,
+      "body": {
+        "rect": [
+          1024,
+          0,
+          128,
+          128
+        ],
+        "origin": [
+          64,
+          88
+        ]
+      },
+      "source_frame": 8
+    },
+    {
+      "id": 1173,
+      "source": 19,
+      "body": {
+        "rect": [
+          1152,
+          0,
+          128,
+          128
+        ],
+        "origin": [
+          64,
+          88
+        ]
+      },
+      "source_frame": 9
+    },
+    {
+      "id": 1174,
+      "source": 19,
+      "body": {
+        "rect": [
+          1280,
+          0,
+          128,
+          128
+        ],
+        "origin": [
+          64,
+          88
+        ]
+      },
+      "source_frame": 10
+    },
+    {
+      "id": 1175,
+      "source": 19,
+      "body": {
+        "rect": [
+          1408,
+          0,
+          128,
+          128
+        ],
+        "origin": [
+          64,
+          88
+        ]
+      },
+      "source_frame": 11
+    },
+    {
+      "id": 1176,
+      "source": 19,
+      "body": {
+        "rect": [
+          1536,
+          0,
+          128,
+          128
+        ],
+        "origin": [
+          64,
+          88
+        ]
+      },
+      "source_frame": 12
+    },
+    {
+      "id": 1177,
+      "source": 19,
+      "body": {
+        "rect": [
+          1664,
+          0,
+          128,
+          128
+        ],
+        "origin": [
+          64,
+          88
+        ]
+      },
+      "source_frame": 13
+    },
+    {
+      "id": 1178,
+      "source": 20,
+      "body": {
+        "rect": [
+          0,
+          0,
+          32,
+          32
+        ],
+        "origin": [
+          16,
+          16
+        ]
+      },
+      "source_frame": 0
+    },
+    {
+      "id": 1179,
+      "source": 20,
+      "body": {
+        "rect": [
+          32,
+          0,
+          32,
+          32
+        ],
+        "origin": [
+          16,
+          16
+        ]
+      },
+      "source_frame": 1
     }
   ],
   "animations": [
@@ -3537,6 +3819,82 @@
         },
         {
           "frame": 1163,
+          "ticks": 3
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "facing_xor": 1,
+      "steps": [
+        {
+          "frame": 1164,
+          "ticks": 3
+        },
+        {
+          "frame": 1165,
+          "ticks": 3
+        },
+        {
+          "frame": 1166,
+          "ticks": 3
+        },
+        {
+          "frame": 1167,
+          "ticks": 3
+        },
+        {
+          "frame": 1168,
+          "ticks": 3
+        },
+        {
+          "frame": 1169,
+          "ticks": 3
+        },
+        {
+          "frame": 1170,
+          "ticks": 3
+        },
+        {
+          "frame": 1171,
+          "ticks": 3
+        },
+        {
+          "frame": 1172,
+          "ticks": 3
+        },
+        {
+          "frame": 1173,
+          "ticks": 3
+        },
+        {
+          "frame": 1174,
+          "ticks": 3
+        },
+        {
+          "frame": 1175,
+          "ticks": 3
+        },
+        {
+          "frame": 1176,
+          "ticks": 3
+        },
+        {
+          "frame": 1177,
+          "ticks": 3
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "facing_xor": 1,
+      "steps": [
+        {
+          "frame": 1178,
+          "ticks": 3
+        },
+        {
+          "frame": 1179,
           "ticks": 3
         }
       ]

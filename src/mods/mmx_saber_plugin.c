@@ -36,6 +36,7 @@ static MmxSaberProjectileFrame g_saber_tornado_frames[3];
 static MmxSaberProjectileFrame g_saber_cutter_forward_frames[4];
 static MmxSaberProjectileFrame g_saber_cutter_diagonal_frames[4];
 static MmxSaberProjectileFrame g_saber_ice_clone_frames[3];
+static MmxSaberProjectileFrame g_saber_thunder_orb_frames[2];
 static bool g_saber_sfx_warning;
 
 /* Saber owns Zero's body, whichever seat the renderer is drawing. An X body
@@ -78,6 +79,13 @@ static void clear_saber_ice_clone_strip(void) {
   memset(g_saber_ice_clone_frames, 0, sizeof(g_saber_ice_clone_frames));
 }
 
+static void clear_saber_thunder_orb_strip(void) {
+  MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_THUNDER_ORB, NULL, 0, 0,
+                                   false, NULL, 0);
+  memset(g_saber_thunder_orb_frames, 0,
+         sizeof(g_saber_thunder_orb_frames));
+}
+
 static void saber_activation_failed(void) {
   MmxWeaponsSetContactClassOverride(NULL);
   MmxSaberFrameSetPadSource(NULL);
@@ -89,6 +97,7 @@ static void saber_activation_failed(void) {
                                    false, NULL, 0);
   clear_saber_cutter_strips();
   clear_saber_ice_clone_strip();
+  clear_saber_thunder_orb_strip();
   MmxZeroSetExtension(NULL);
   MmxSaberFrameReset();
 }
@@ -146,10 +155,10 @@ static bool saber_tuning_option_reader(const char *option_id, char *value,
 }
 
 static const uint8_t kSaberManifestSha[32] = {
-  0x49, 0x2a, 0xac, 0xeb, 0x77, 0x94, 0x4c, 0x37,
-  0x90, 0xb6, 0x47, 0xb8, 0xba, 0xa6, 0x06, 0xce,
-  0x74, 0x11, 0x95, 0x19, 0x7c, 0xe2, 0x39, 0x3d,
-  0xb5, 0x08, 0xd3, 0x31, 0x63, 0xc1, 0xcb, 0xe1
+  0xb6, 0x71, 0xfc, 0x07, 0xd6, 0x42, 0x56, 0xdb,
+  0x6d, 0xc8, 0x18, 0x88, 0x06, 0x3e, 0x3e, 0x5d,
+  0x90, 0x2a, 0xbd, 0x93, 0x68, 0x6b, 0xc8, 0xf3,
+  0x94, 0x6c, 0x91, 0xa4, 0x2e, 0xb7, 0x75, 0x5d,
 };
 
 static const uint8_t kRideManifestSha[32] = {
@@ -346,6 +355,17 @@ static int configure_saber_ice_clone_strip(const MmxSaberAssets *assets) {
   return 1;
 }
 
+static int configure_saber_thunder_orb_strip(const MmxSaberAssets *assets) {
+  clear_saber_thunder_orb_strip();
+  if (!configure_saber_projectile_strip(
+          assets, SABER_PROJECTILE_THUNDER_ORB, 20, 2, 32, 32, 16, 16,
+          false, g_saber_thunder_orb_frames)) {
+    clear_saber_thunder_orb_strip();
+    return 0;
+  }
+  return 1;
+}
+
 static void release_saber_assets(void) {
   MmxRendererSetPlayerOverlayProvider(NULL);
   MmxRendererSetWorldSpriteProvider(NULL);
@@ -356,6 +376,7 @@ static void release_saber_assets(void) {
   memset(g_saber_tornado_frames, 0, sizeof(g_saber_tornado_frames));
   clear_saber_cutter_strips();
   clear_saber_ice_clone_strip();
+  clear_saber_thunder_orb_strip();
   MmxSaberWaveRuntimeSetCollisionRecord(NULL, 0);
   MmxSaberWaveFree(g_saber_wave);
   MmxSaberAssetsFree(g_saber_assets);
@@ -422,6 +443,12 @@ static int load_saber_assets(char reason[256]) {
     MmxSaberAssetsFree(ride);
     MmxSaberAssetsFree(saber);
     snprintf(reason, 256, "saber-v1.bin: invalid ice clone projectile strip");
+    return 0;
+  }
+  if (!configure_saber_thunder_orb_strip(saber)) {
+    MmxSaberAssetsFree(ride);
+    MmxSaberAssetsFree(saber);
+    snprintf(reason, 256, "saber-v1.bin: invalid thunder orb projectile strip");
     return 0;
   }
   g_saber_assets = saber;

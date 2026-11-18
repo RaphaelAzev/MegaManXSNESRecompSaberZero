@@ -47,10 +47,10 @@ const uint16_t *MmxZeroBodyColors(const MmxZeroState *s) {
 }
 
 static const uint8_t kSaberManifestSha[32] = {
-  0x49, 0x2a, 0xac, 0xeb, 0x77, 0x94, 0x4c, 0x37,
-  0x90, 0xb6, 0x47, 0xb8, 0xba, 0xa6, 0x06, 0xce,
-  0x74, 0x11, 0x95, 0x19, 0x7c, 0xe2, 0x39, 0x3d,
-  0xb5, 0x08, 0xd3, 0x31, 0x63, 0xc1, 0xcb, 0xe1
+  0xb6, 0x71, 0xfc, 0x07, 0xd6, 0x42, 0x56, 0xdb,
+  0x6d, 0xc8, 0x18, 0x88, 0x06, 0x3e, 0x3e, 0x5d,
+  0x90, 0x2a, 0xbd, 0x93, 0x68, 0x6b, 0xc8, 0xf3,
+  0x94, 0x6c, 0x91, 0xa4, 0x2e, 0xb7, 0x75, 0x5d,
 };
 
 static const uint8_t kRideManifestSha[32] = {
@@ -1437,6 +1437,112 @@ static void ice_clone_asset_checks(const MmxSaberAssets *assets) {
   MmxSaberProjectileReset(ram);
 }
 
+static void thunder_slam_asset_checks(const MmxSaberAssets *assets) {
+  enum {
+    THUNDER_SLAM_ANIMATION_ID = 19,
+    THUNDER_SLAM_FRAME_COUNT = 14,
+    THUNDER_ORB_ANIMATION_ID = 20,
+    THUNDER_ORB_FRAME_COUNT = 2,
+    THUNDER_TICKS_PER_FRAME = 3,
+    THUNDER_SLAM_WIDTH = 128,
+    THUNDER_SLAM_HEIGHT = 128,
+    THUNDER_SLAM_ORIGIN_X = 64,
+    THUNDER_SLAM_ORIGIN_Y = 88,
+    THUNDER_ORB_WIDTH = 32,
+    THUNDER_ORB_HEIGHT = 32,
+    THUNDER_ORB_ORIGIN_X = 16,
+    THUNDER_ORB_ORIGIN_Y = 16,
+  };
+  const MmxSaberAnimation *slam =
+      MmxSaberAssetsAnimationById(assets, THUNDER_SLAM_ANIMATION_ID);
+  const MmxSaberAnimation *orb =
+      MmxSaberAssetsAnimationById(assets, THUNDER_ORB_ANIMATION_ID);
+  MmxSaberProjectileFrame orb_frames[THUNDER_ORB_FRAME_COUNT];
+  MmxRenderWorldSprite actual[1];
+  const uint16_t *palette = MmxSaberAssetsPalette(assets);
+  const uint16_t palette_count = MmxSaberAssetsPaletteCount(assets);
+  uint8_t ram[0x20000] = {0};
+  MmxSaberProjectileSpawnInfo info = {0};
+  unsigned index;
+
+  check(slam && slam->step_count == THUNDER_SLAM_FRAME_COUNT &&
+            slam->total_ticks == THUNDER_SLAM_FRAME_COUNT * THUNDER_TICKS_PER_FRAME &&
+            orb && orb->step_count == THUNDER_ORB_FRAME_COUNT &&
+            orb->total_ticks == THUNDER_ORB_FRAME_COUNT * THUNDER_TICKS_PER_FRAME,
+        "loaded asset exposes 14 three-tick thunder slam frames and two orb frames");
+  for (unsigned i = 0; i < THUNDER_SLAM_FRAME_COUNT; ++i) {
+    const MmxSaberStep *step = MmxSaberAssetsAnimationStep(
+        assets, THUNDER_SLAM_ANIMATION_ID, i);
+    const MmxSaberFrame *frame = MmxSaberAssetsFrameForStep(
+        assets, THUNDER_SLAM_ANIMATION_ID, i);
+    check(step && step->duration_ticks == THUNDER_TICKS_PER_FRAME &&
+              frame && frame->body.pixels &&
+              frame->body.width == THUNDER_SLAM_WIDTH &&
+              frame->body.height == THUNDER_SLAM_HEIGHT &&
+              frame->body.origin_x == THUNDER_SLAM_ORIGIN_X &&
+              frame->body.origin_y == THUNDER_SLAM_ORIGIN_Y &&
+              frame->source_id == 19 && frame->source_frame_id == i &&
+              frame->blade.pixels == NULL && frame->blade.width == 0 &&
+              frame->blade.height == 0 && frame->blade_layer == 0,
+          "thunder slam body frame keeps 128x128 origin geometry and no blade");
+  }
+  for (unsigned i = 0; i < THUNDER_ORB_FRAME_COUNT; ++i) {
+    const MmxSaberStep *step = MmxSaberAssetsAnimationStep(
+        assets, THUNDER_ORB_ANIMATION_ID, i);
+    const MmxSaberFrame *frame = MmxSaberAssetsFrameForStep(
+        assets, THUNDER_ORB_ANIMATION_ID, i);
+    check(step && step->duration_ticks == THUNDER_TICKS_PER_FRAME &&
+              frame && frame->body.pixels && frame->body.width == THUNDER_ORB_WIDTH &&
+              frame->body.height == THUNDER_ORB_HEIGHT &&
+              frame->body.origin_x == THUNDER_ORB_ORIGIN_X &&
+              frame->body.origin_y == THUNDER_ORB_ORIGIN_Y &&
+              frame->source_id == 20 && frame->source_frame_id == i &&
+              frame->blade.pixels == NULL && frame->blade.width == 0 &&
+              frame->blade.height == 0 && frame->blade_layer == 0,
+          "thunder orb frame keeps 32x32 centre-origin geometry and no blade");
+    orb_frames[i] = (MmxSaberProjectileFrame){
+      frame->body.pixels,
+      frame->body.width,
+      frame->body.height,
+      frame->body.origin_x,
+      frame->body.origin_y,
+    };
+  }
+
+  MmxSaberProjectileReset(ram);
+  MmxSaberRenderSetWave(NULL);
+  MmxSaberRenderSetProjectileStrip(
+      SABER_PROJECTILE_THUNDER_ORB, orb_frames, THUNDER_ORB_FRAME_COUNT,
+      THUNDER_TICKS_PER_FRAME, false, palette, palette_count);
+  info.kind = SABER_PROJECTILE_THUNDER_ORB;
+  info.x = 218 * 256;
+  info.y = 141 * 256;
+  info.lifetime = 20;
+  check(MmxSaberProjectileSpawn(ram, &info, &index) &&
+            MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
+            actual[0].pixels == orb_frames[0].pixels &&
+            actual[0].width == THUNDER_ORB_WIDTH &&
+            actual[0].height == THUNDER_ORB_HEIGHT &&
+            actual[0].origin_x == THUNDER_ORB_ORIGIN_X &&
+            actual[0].origin_y == THUNDER_ORB_ORIGIN_Y &&
+            actual[0].palette == palette &&
+            actual[0].palette_count == palette_count,
+        "registered thunder orb strip outputs frame zero with palette and origin");
+  for (unsigned i = 0; i < THUNDER_TICKS_PER_FRAME; ++i)
+    MmxSaberProjectileTick(ram);
+  check(MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
+            actual[0].pixels == orb_frames[1].pixels,
+        "registered thunder orb strip advances after three ticks");
+  for (unsigned i = 0; i < THUNDER_TICKS_PER_FRAME; ++i)
+    MmxSaberProjectileTick(ram);
+  check(MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
+            actual[0].pixels == orb_frames[0].pixels,
+        "registered thunder orb strip loops after two frames");
+  MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_THUNDER_ORB, NULL, 0, 0,
+                                   false, NULL, 0);
+  MmxSaberProjectileReset(ram);
+}
+
 static void projectile_provider_checks(const MmxSaberWave *wave) {
   static const uint8_t frame_zero_pixels[] = {1};
   static const uint8_t frame_one_pixels[] = {2};
@@ -2009,6 +2115,7 @@ int main(void) {
   tornado_asset_checks(assets);
   cutter_asset_checks(assets);
   ice_clone_asset_checks(assets);
+  thunder_slam_asset_checks(assets);
   ride_matrix_checks(ride);
   uppercut_attack_checks();
   thrust_attack_checks();

@@ -600,10 +600,10 @@ class SaberConverterTests(unittest.TestCase):
             struct.unpack_from("<5H", data, 20)
         )
         self.assertEqual(source_count, len(manifest["sources"]))
-        self.assertEqual(palette_count, 97)
-        self.assertEqual(animation_count, 18)
-        self.assertEqual(step_count, 154)  # uppercut step 6 dropped from animations 8 and 9
-        self.assertEqual(frame_count, 160)
+        self.assertEqual(palette_count, 131)
+        self.assertEqual(animation_count, 20)
+        self.assertEqual(step_count, 170)  # uppercut step 6 dropped from animations 8 and 9
+        self.assertEqual(frame_count, 176)
         section = 112 + source_count * 36
         section += palette_count * 2
         section = (section + 3) & ~3
