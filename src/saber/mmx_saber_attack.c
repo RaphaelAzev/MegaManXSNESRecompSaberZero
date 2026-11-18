@@ -99,6 +99,12 @@ static const MmxSaberBoundsSegment *thrust_frame_bounds(uint8_t tick) {
       kThrustFrameBounds + step : kThrustFrameBounds;
 }
 
+static const int16_t kThunderOrbVx[] = {
+    1152, 997, 576, 0, -576, -997, -1152};
+static const int16_t kThunderOrbVy[] = {
+    0, -576, -997, -1152, -997, -576, 0};
+static const uint8_t kThunderOrbSpawnOrder[] = {3, 2, 4, 1, 5, 0, 6};
+
 /* Ported from old src/mmx_saber.c:260-400.  In particular, keep the numeric
  * timing values here independent of the ROM test's old-table oracle. */
 static const MmxSaberAttack kSaberAttacks[] = {
@@ -310,6 +316,24 @@ static const MmxSaberAttack kSaberAttacks[] = {
         .bounds_segments = NULL,
         .bounds_segment_count = 0,
         .damage = 0,
+        .bounds_pointer = 0},
+    {
+        .kind = SABER_KIND_THUNDER_SLAM,
+        .index = 0,
+        .visual_animation = 19,
+        .facing_xor = 1,
+        .startup_ticks = 0,
+        .active_ticks = 42,
+        .recovery_ticks = 0,
+        .total_ticks = 42,
+        .chain_open_tick = MMX_SABER_NO_WINDOW,
+        .chain_close_tick = MMX_SABER_NO_WINDOW,
+        .buffer_open_tick = MMX_SABER_NO_WINDOW,
+        .buffer_close_tick = MMX_SABER_NO_WINDOW,
+        .next_index = MMX_SABER_NO_WINDOW,
+        .bounds_segments = NULL,
+        .bounds_segment_count = 0,
+        .damage = 0,
         .bounds_pointer = 0}};
 
 typedef struct MmxSaberAttackState {
@@ -335,6 +359,7 @@ typedef struct MmxSaberAttackState {
   bool cutter_technique;
   bool cutter_spawn_attempted;
   bool ice_clone_spawn_attempted;
+  bool thunder_orbs_spawn_attempted;
   uint8_t cue;
   bool cue_pending;
   bool previous_grounded;
@@ -855,6 +880,8 @@ static uint8_t animation_step_for_tick(uint8_t animation, uint8_t tick) {
    * resolved step here makes the state query useful before rendering exists. */
   if (animation == 13)
     return MmxSaberThrustAnimationStepForTick(tick);
+  if (animation == 19)
+    return (uint8_t)(tick / 3);
   if (animation == 3 && tick >= 30)
     return (uint8_t)(15 + (tick - 30) / 3);
   if (animation == 8 && tick >= 10)
@@ -895,6 +922,8 @@ static MmxSaberSfxAttackCue attack_cue(const MmxSaberAttack *attack) {
       return MMX_SABER_SFX_ATTACK_THRUST;
     case SABER_KIND_ICE_CLONE:
       return MMX_SABER_SFX_ATTACK_DASH;
+    case SABER_KIND_THUNDER_SLAM:
+      return MMX_SABER_SFX_ATTACK_GROUND_SLASH_3;
     default:
       return MMX_SABER_SFX_ATTACK_COUNT;
   }
@@ -921,6 +950,7 @@ static void clear_attack(void) {
   state.cutter_technique = false;
   state.cutter_spawn_attempted = false;
   state.ice_clone_spawn_attempted = false;
+  state.thunder_orbs_spawn_attempted = false;
   state.hit_slots = 0;
   state.cue = MMX_SABER_SFX_ATTACK_COUNT;
   state.cue_pending = false;
@@ -1239,6 +1269,7 @@ static void start_attack(const MmxSaberAttack *attack, uint8_t facing,
   state.cutter_technique = cutter_technique;
   state.cutter_spawn_attempted = false;
   state.ice_clone_spawn_attempted = false;
+  state.thunder_orbs_spawn_attempted = false;
   state.cue = attack_cue(attack);
   state.cue_pending = state.cue < MMX_SABER_SFX_ATTACK_COUNT;
   update_animation();
@@ -1300,7 +1331,10 @@ void MmxSaberAttackStepWithWallAndDashRequested(
 
   if (state.phase == SABER_PHASE_IDLE) {
     const bool explicit_kind = requested_kind == SABER_KIND_GROUND2 ||
-        requested_kind == SABER_KIND_AIR;
+        requested_kind == SABER_KIND_AIR ||
+        requested_kind == SABER_KIND_THUNDER_SLAM;
+    const bool cutter_technique = explicit_kind &&
+        requested_kind != SABER_KIND_THUNDER_SLAM;
     if (saber_pressed || explicit_kind) {
       const MmxSaberPadKind kind = explicit_kind ? requested_kind :
           wall_clinging ? SABER_KIND_WALL :
@@ -1323,7 +1357,7 @@ void MmxSaberAttackStepWithWallAndDashRequested(
        * requests it directly from idle. */
       start_attack(MmxSaberAttackRecord(
                        kind, kind == SABER_KIND_GROUND2 ? 1 : 0),
-                   facing, explicit_kind);
+                   facing, cutter_technique);
     }
     return;
   }
@@ -1346,7 +1380,8 @@ void MmxSaberAttackStepWithWallAndDashRequested(
    * Startup input is masked by the pure pad before it reaches the native
    * routine. */
   if (attack->kind == SABER_KIND_DASH ||
-      attack->kind == SABER_KIND_ICE_CLONE) {
+      attack->kind == SABER_KIND_ICE_CLONE ||
+      attack->kind == SABER_KIND_THUNDER_SLAM) {
     if (!grounded) {
       MmxSaberAttackExit(runtime_ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
       return;
@@ -1485,12 +1520,45 @@ static void spawn_ice_clone_if_ready(uint8_t *ram) {
   (void)MmxSaberProjectileSpawn(ram, &info, NULL);
 }
 
+static void spawn_thunder_orbs_if_ready(uint8_t *ram) {
+  const int direction = state.facing ? 1 : -1;
+  const int zero_x = (int16_t)word(ram + 0x0bad);
+  const int zero_y = (int16_t)word(ram + 0x0bb0);
+
+  if (state.kind != SABER_KIND_THUNDER_SLAM || state.tick != 21 ||
+      state.thunder_orbs_spawn_attempted)
+    return;
+  state.thunder_orbs_spawn_attempted = true;
+  for (unsigned i = 0; i < sizeof(kThunderOrbSpawnOrder); ++i) {
+    const unsigned k = kThunderOrbSpawnOrder[i];
+    MmxSaberProjectileSpawnInfo info = {0};
+    info.kind = SABER_PROJECTILE_THUNDER_ORB;
+    info.x = (int32_t)(zero_x + direction * 5) * 256;
+    info.y = (int32_t)(zero_y - 8) * 256;
+    info.vx = (int16_t)(direction * kThunderOrbVx[k]);
+    info.vy = kThunderOrbVy[k];
+    info.lifetime = 60;
+    info.facing = state.facing;
+    info.damage_normal = (uint8_t)MmxSaberTuningNormalDamage(
+        MMX_SABER_TUNING_DAMAGE_THUNDER_ORB);
+    info.damage_boss = (uint8_t)MmxSaberTuningBossDamage(
+        MMX_SABER_TUNING_DAMAGE_THUNDER_ORB);
+    info.pass_through = false;
+    info.animation_tick = (uint8_t)(k * 3);
+    if (!MmxSaberProjectileSpawn(ram, &info, NULL)) break;
+  }
+}
+
 void MmxSaberAttackRuntimeTick(uint8_t *ram) {
   const MmxSaberAttack *attack;
   runtime_ram = ram;
   if (!ram) return;
   collision_windows_refresh();
   attack = state_attack();
+  if (attack && attack->kind == SABER_KIND_THUNDER_SLAM) {
+    spawn_thunder_orbs_if_ready(ram);
+    return;
+  }
   if (attack && attack->kind == SABER_KIND_ICE_CLONE) {
     spawn_ice_clone_if_ready(ram);
     return;
@@ -1600,6 +1668,7 @@ static bool native_movement_accepted(const uint8_t *ram) {
     case SABER_KIND_GROUND2:
     case SABER_KIND_GROUND3:
     case SABER_KIND_ICE_CLONE:
+    case SABER_KIND_THUNDER_SLAM:
       /* Native jump acceptance is the grounded -> airborne publication. */
       if (native_jump_accepted(ram)) return true;
       /* Native dash acceptance is the transition into action $14. */
@@ -1751,6 +1820,8 @@ unsigned MmxSaberAttackWeaponTick(uint8_t *ram, unsigned projectile,
   if (MmxSaberWaveRuntimeOwns(ram, projectile))
     return MmxSaberWaveRuntimeWeaponTick(ram, projectile, value);
   if (MmxSaberProjectileOwns(ram, projectile)) return 0;
+  /* Thunder has no melee owner object.  Keep a raw class-3 fixture out of
+   * native projectile dispatch while the slam itself remains active. */
   if (!ram || !projectile_slot_valid(projectile) || !ram[projectile] ||
       !saber_tag_family(word(ram + projectile + 0x3e)))
     return value;

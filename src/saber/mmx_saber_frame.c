@@ -46,13 +46,17 @@ static unsigned weapon_cost(unsigned weapon_id, unsigned cost, bool charged) {
   return half ? half : 1;
 }
 
+static unsigned weapon_technique_cost(unsigned weapon_id, unsigned cost) {
+  if (weapon_id == 0 || !cost || !MmxSaberArmorCurrent().head) return cost;
+  return (cost + 1) >> 1;
+}
+
 enum {
   SABER_WEAPON_SPARK = 0x0c,
   SABER_WEAPON_CUTTER = 0x0e,
   SABER_WEAPON_ENERGY_BASE = 0x1f85,
   SABER_WEAPON_ENERGY_MASK = 0x3fff,
   SABER_WEAPON_OWNED_BIT = 0x40,
-  SABER_WEAPON_STATUS_BITS = 0xc000,
 };
 
 static bool weapon_technique_selected(unsigned weapon_id) {
@@ -89,13 +93,16 @@ static void clear_special_weapon_latches(uint8_t *ram) {
 }
 
 static void debit_weapon_energy(uint8_t *ram, unsigned weapon_id,
-                                unsigned cost) {
+                                unsigned cost, bool technique_round_up) {
   const unsigned offset = weapon_energy_offset(weapon_id);
-  const unsigned usable = weapon_energy_word(ram, weapon_id) &
-      SABER_WEAPON_ENERGY_MASK;
-  const unsigned spend = weapon_cost(weapon_id, cost, false);
+  const uint16_t original = weapon_energy_word(ram, weapon_id);
+  const unsigned usable = original & SABER_WEAPON_ENERGY_MASK;
+  const unsigned spend = technique_round_up ?
+      weapon_technique_cost(weapon_id, cost) :
+      weapon_cost(weapon_id, cost, false);
   const unsigned remaining = usable >= spend ? usable - spend : 0;
-  const uint16_t stored = (uint16_t)(remaining | SABER_WEAPON_STATUS_BITS);
+  const uint16_t stored = (uint16_t)((remaining & SABER_WEAPON_ENERGY_MASK) |
+                                     (original & (uint16_t)~SABER_WEAPON_ENERGY_MASK));
   ram[offset] = (uint8_t)stored;
   ram[offset + 1] = (uint8_t)(stored >> 8);
 }
@@ -242,7 +249,8 @@ static bool ground_swing(MmxSaberPadSaber saber) {
       (saber.kind == SABER_KIND_GROUND1 ||
        saber.kind == SABER_KIND_GROUND2 ||
        saber.kind == SABER_KIND_GROUND3 ||
-       saber.kind == SABER_KIND_ICE_CLONE);
+       saber.kind == SABER_KIND_ICE_CLONE ||
+       saber.kind == SABER_KIND_THUNDER_SLAM);
 }
 
 static void publish_ground_swing(uint8_t *ram, MmxSaberPadSaber saber) {
@@ -382,12 +390,17 @@ static void pre_player(uint8_t *ram) {
       weapon_technique_hold = true;
       requested_kind = grounded ? SABER_KIND_GROUND2 : SABER_KIND_AIR;
       if (!finisher_claimed && saber.phase == SABER_PHASE_IDLE)
-        debit_weapon_energy(ram, selected_weapon, 0x0100);
+        debit_weapon_energy(ram, selected_weapon, 0x0100, false);
       if (finisher_claimed) requested_kind = SABER_KIND_NONE;
-    } else if (selected_weapon == SABER_WEAPON_SPARK &&
-               !grounded && weapon_owned(ram, selected_weapon)) {
+    } else if (selected_weapon == SABER_WEAPON_SPARK) {
       suppress_technique_hold = true;
       weapon_technique_hold = true;
+      if (grounded && weapon_owned_with_energy(ram, selected_weapon)) {
+        requested_kind = SABER_KIND_THUNDER_SLAM;
+        if (!finisher_claimed && saber.phase == SABER_PHASE_IDLE)
+          debit_weapon_energy(ram, selected_weapon, 0x04ab, true);
+        if (finisher_claimed) requested_kind = SABER_KIND_NONE;
+      }
     }
   }
 

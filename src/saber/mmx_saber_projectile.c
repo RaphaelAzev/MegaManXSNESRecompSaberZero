@@ -28,7 +28,7 @@ static const MmxSaberProjectileBounds kProjectileHitboxes[
     SABER_PROJECTILE_KIND_COUNT] = {
   [SABER_PROJECTILE_TORNADO] = {10, 60},
   [SABER_PROJECTILE_ICE_CLONE] = {47, 19},
-  [SABER_PROJECTILE_THUNDER_ORB] = {8, 8},
+  [SABER_PROJECTILE_THUNDER_ORB] = {16, 16},
   [SABER_PROJECTILE_CUTTER] = {16, 6},
   [SABER_PROJECTILE_CUTTER_AIR] = {13, 12},
 };
@@ -322,8 +322,11 @@ bool MmxSaberProjectileSpawn(uint8_t *ram,
     if (first == MMX_SABER_PROJECTILE_SLOT_COUNT) first = i;
     ++free_count;
   }
-  /* Keep one free native slot for a slash, matching wave reservation. */
-  if (free_count < 2) return false;
+  if (first == MMX_SABER_PROJECTILE_SLOT_COUNT) return false;
+  /* Keep one free native slot for ordinary Saber objects, matching wave
+   * reservation. A thunder burst may consume every slot it was given. */
+  if (info->kind != SABER_PROJECTILE_THUNDER_ORB && free_count < 2)
+    return false;
 
   initialize_table();
   runtime_ram = ram;

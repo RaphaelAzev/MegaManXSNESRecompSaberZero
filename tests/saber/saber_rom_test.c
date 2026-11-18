@@ -6454,6 +6454,352 @@ static void saber_cutter_checks(const char *fixture) {
   puts("ok: saber-cutter");
 }
 
+static unsigned saber_weapon_ammo_word(unsigned weapon);
+
+static const int16_t kSaberThunderOrbVx[7] = {
+    1152, 997, 576, 0, -576, -997, -1152};
+static const int16_t kSaberThunderOrbVy[7] = {
+    0, -576, -997, -1152, -997, -576, 0};
+
+static unsigned saber_thunder_orb_count(void) {
+  unsigned count = 0;
+  for (unsigned i = 0; i < MMX_SABER_PROJECTILE_SLOT_COUNT; ++i) {
+    const MmxSaberProjectile *projectile = MmxSaberProjectileGet(i);
+    count += projectile->active && projectile->kind ==
+        SABER_PROJECTILE_THUNDER_ORB;
+  }
+  return count;
+}
+
+static unsigned saber_thunder_orb_index(bool right, unsigned k) {
+  const int16_t vx = right ? kSaberThunderOrbVx[k] : -kSaberThunderOrbVx[k];
+  for (unsigned i = 0; i < MMX_SABER_PROJECTILE_SLOT_COUNT; ++i) {
+    const MmxSaberProjectile *projectile = MmxSaberProjectileGet(i);
+    if (projectile->active && projectile->kind == SABER_PROJECTILE_THUNDER_ORB &&
+        projectile->vx == vx && projectile->vy == kSaberThunderOrbVy[k])
+      return i;
+  }
+  return MMX_SABER_PROJECTILE_SLOT_COUNT;
+}
+
+static void saber_thunder_prepare(const char *fixture, bool right) {
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  if (!right) {
+    /* save0 starts at the stage's left edge. Walk right, then turn left on
+     * foot before pressing X; the turn frame must not carry an A/X edge. */
+    for (unsigned i = 0; i < 48; ++i) frame(SNES_PAD_RIGHT);
+    for (unsigned i = 0; i < 8; ++i) frame(0);
+    for (unsigned i = 0; i < 4; ++i) frame(SNES_PAD_LEFT);
+    for (unsigned i = 0; i < 4; ++i) frame(0);
+  }
+  select_native_weapon(6);
+  saber_weapon_techniques_set_energy(6, 0x1c00);
+  g_ram[0x1f99] &= (uint8_t)~0x01;
+  saber_cutter_set_facing(right);
+}
+
+static void saber_thunder_cost_checks(const char *fixture) {
+  const MmxSaberAttack *slam =
+      MmxSaberAttackRecord(SABER_KIND_THUNDER_SLAM, 0);
+  unsigned before;
+  unsigned after;
+  int standing_x;
+
+  check(slam && slam->visual_animation == 19 && slam->total_ticks == 42 &&
+            slam->active_ticks == 42 && slam->bounds_segments == NULL &&
+            slam->damage == 0,
+        "thunder slam record uses animation 19, 42 active ticks, and no melee hitbox");
+
+  saber_thunder_prepare(fixture, true);
+  before = saber_weapon_ammo_word(6);
+  standing_x = (int16_t)read_ram_word(g_ram, 0x0bad);
+  frame(SNES_PAD_X);
+  after = saber_weapon_ammo_word(6);
+  check(MmxSaberAttackSnapshotGet().kind == SABER_KIND_THUNDER_SLAM &&
+            MmxSaberAttackSnapshotGet().tick == 0 && tagged_projectiles() == 0,
+        "ground Spark X starts thunder slam without a Saber melee object");
+  check(before == 0x1c00 && after == 0x1c00 - 0x04ab,
+        "thunder slam without Head spends exactly 0x04AB");
+  for (unsigned tick = 1; tick <= 41; ++tick) {
+    frame(0);
+    if ((int16_t)read_ram_word(g_ram, 0x0bad) != standing_x)
+      standing_x = INT16_MIN;
+  }
+  check(standing_x != INT16_MIN,
+        "thunder slam keeps Zero at one X position through tick 41");
+  frame(0);
+  check(MmxSaberAttackSnapshotGet().phase == SABER_PHASE_IDLE,
+        "thunder slam ends after exactly 42 ticks");
+  MmxSaberProjectileRetireAll(g_ram);
+
+  saber_thunder_prepare(fixture, true);
+  g_ram[0x1f99] |= 0x01;
+  before = saber_weapon_ammo_word(6);
+  frame(SNES_PAD_X);
+  after = saber_weapon_ammo_word(6);
+  check(after == before - 0x0256,
+        "thunder slam with Head spends exactly 0x0256");
+  MmxSaberProjectileRetireAll(g_ram);
+
+  saber_thunder_prepare(fixture, true);
+  for (unsigned slam_number = 0; slam_number < 6; ++slam_number) {
+    frame(SNES_PAD_X);
+    check(MmxSaberAttackSnapshotGet().kind == SABER_KIND_THUNDER_SLAM,
+          "each charged Spark edge starts one thunder slam");
+    for (unsigned tick = 1; tick <= 42; ++tick) frame(0);
+    MmxSaberProjectileRetireAll(g_ram);
+  }
+  check(saber_weapon_ammo_word(6) == 0,
+        "six no-Head thunder slams clamp a full bar to zero");
+  frame(SNES_PAD_X);
+  check(MmxSaberAttackSnapshotGet().kind == SABER_KIND_NONE &&
+            MmxSaberAttackSnapshotGet().phase == SABER_PHASE_IDLE &&
+            saber_weapon_ammo_word(6) == 0 && native_projectiles() == 0,
+        "seventh thunder slam edge at zero energy does nothing");
+}
+
+static void saber_thunder_geometry_case(const char *fixture, bool right) {
+  const int direction = right ? 1 : -1;
+  int center_x;
+  int center_y;
+  const unsigned samples[] = {0, 3, 6};
+
+  saber_thunder_prepare(fixture, right);
+  frame(SNES_PAD_X);
+  center_x = (int16_t)read_ram_word(g_ram, 0x0bad) + direction * 5;
+  center_y = (int16_t)read_ram_word(g_ram, 0x0bb0) - 8;
+  for (unsigned tick = 1; tick <= 20; ++tick) {
+    frame(0);
+    if (saber_thunder_orb_count() != 0)
+      check(false, "thunder slam has no orb before tick 21");
+  }
+  check(saber_thunder_orb_count() == 0,
+        "thunder slam has no orb through tick 20");
+  frame(0);
+  check(saber_thunder_orb_count() == 7,
+        right ? "right thunder slam bursts seven orbs on tick 21" :
+                "left thunder slam bursts seven orbs on tick 21");
+  for (unsigned k = 0; k < 7; ++k) {
+    const unsigned index = saber_thunder_orb_index(right, k);
+    const MmxSaberProjectile *projectile = index <
+        MMX_SABER_PROJECTILE_SLOT_COUNT ? MmxSaberProjectileGet(index) : NULL;
+    check(projectile && projectile->x == center_x * 256 &&
+              projectile->y == center_y * 256 && projectile->age == 0 &&
+              projectile->lifetime == 60 &&
+              projectile->vx == (right ? kSaberThunderOrbVx[k] :
+                                           -kSaberThunderOrbVx[k]) &&
+              projectile->vy == kSaberThunderOrbVy[k] &&
+              projectile->damage_normal == 8 && projectile->damage_boss == 2 &&
+              !projectile->pass_through &&
+              projectile->animation_tick == (uint8_t)(k * 3),
+          right ? "right thunder orb fan starts at dome centre with its Q8.8 vector" :
+                  "left thunder orb fan mirrors X velocity at dome centre");
+  }
+  for (unsigned tick = 0; tick < 10; ++tick) frame(0);
+  for (unsigned sample = 0; sample < sizeof(samples) / sizeof(samples[0]);
+       ++sample) {
+    const unsigned k = samples[sample];
+    const unsigned index = saber_thunder_orb_index(right, k);
+    const MmxSaberProjectile *projectile = index <
+        MMX_SABER_PROJECTILE_SLOT_COUNT ? MmxSaberProjectileGet(index) : NULL;
+    const int32_t expected_x = (int32_t)center_x * 256 +
+        (right ? kSaberThunderOrbVx[k] : -kSaberThunderOrbVx[k]) * 10;
+    const int32_t expected_y = (int32_t)center_y * 256 +
+        kSaberThunderOrbVy[k] * 10;
+    /* A low orb can meet a Highway enemy within 10 ticks and retire (not
+     * pass-through); every spawn vector is checked exactly above. The
+     * straight-up orb (k = 3) never meets one and must be present. */
+    if (!projectile && k != 3) continue;
+    check(projectile && abs((int)(projectile->x - expected_x)) <= 256 &&
+              abs((int)(projectile->y - expected_y)) <= 256,
+          "thunder orb travels 4.5 pixels per tick on 30-degree fan angle");
+  }
+  /* Orbs that met no enemy are still flying (low ones may have retired on
+   * a Highway enemy); the straight-up orb is always among them. */
+  check(saber_thunder_orb_count() >= 1 &&
+            saber_thunder_orb_index(right, 3) < MMX_SABER_PROJECTILE_SLOT_COUNT,
+        "thunder orbs survive after the slam body continues");
+  MmxSaberProjectileRetireAll(g_ram);
+}
+
+/* In play, Electric Spark with weapon_techniques on cannot leave native
+ * player shots on screen, so the slots a slam competes for hold Saber
+ * projectiles (earlier orbs, cutters, a tornado). Occupy them with parked
+ * Saber cutters above Zero. */
+static unsigned saber_thunder_occupy_slots(unsigned count) {
+  MmxSaberProjectileSpawnInfo info = {0};
+  unsigned spawned = 0;
+
+  info.kind = SABER_PROJECTILE_CUTTER;
+  info.x = (int32_t)(int16_t)read_ram_word(g_ram, 0x0bad) * 256;
+  info.y = ((int32_t)(int16_t)read_ram_word(g_ram, 0x0bb0) - 96) * 256;
+  info.lifetime = 240;
+  info.facing = 0x40;
+  info.damage_normal = 1;
+  info.damage_boss = 1;
+  for (unsigned i = 0; i < count; ++i)
+    spawned += MmxSaberProjectileSpawn(g_ram, &info, NULL) ? 1u : 0u;
+  return spawned;
+}
+
+static bool saber_thunder_orb_order(const int16_t *expected, unsigned count) {
+  unsigned seen = 0;
+  for (unsigned i = 0; i < MMX_SABER_PROJECTILE_SLOT_COUNT; ++i) {
+    const MmxSaberProjectile *projectile = MmxSaberProjectileGet(i);
+    if (!projectile->active || projectile->kind != SABER_PROJECTILE_THUNDER_ORB)
+      continue;
+    if (seen >= count || projectile->vx != expected[seen]) return false;
+    ++seen;
+  }
+  return seen == count;
+}
+
+static void saber_thunder_capacity_checks(const char *fixture) {
+  static const int16_t kMiddleOut[] = {0, 576, -576};
+  MmxSaberAttackSnapshot snapshot;
+
+  saber_thunder_prepare(fixture, true);
+  check(saber_thunder_occupy_slots(5) == 5,
+        "thunder capacity setup parks five Saber cutters");
+  frame(SNES_PAD_X);
+  for (unsigned tick = 1; tick <= 21; ++tick) frame(0);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_THUNDER_SLAM &&
+            snapshot.phase == SABER_PHASE_ACTIVE && snapshot.tick == 21,
+        "thunder slam reaches burst tick 21 with five slots occupied");
+  check(saber_thunder_orb_count() == 3 &&
+            saber_thunder_orb_order(kMiddleOut, 3),
+        "three free slots spawn thunder orbs in k=3,2,4 order");
+  for (unsigned tick = 22; tick <= 41; ++tick) frame(0);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_THUNDER_SLAM &&
+            snapshot.phase == SABER_PHASE_ACTIVE && snapshot.tick == 41,
+        "thunder slam reaches tick 41 with five slots occupied");
+  MmxSaberProjectileRetireAll(g_ram);
+
+  saber_thunder_prepare(fixture, true);
+  (void)saber_thunder_occupy_slots(MMX_SABER_PROJECTILE_SLOT_COUNT);
+  check(MmxSaberProjectileFreeCapacity(g_ram) == 0,
+        "thunder capacity setup leaves no free projectile slot");
+  const unsigned before = saber_weapon_ammo_word(6);
+  frame(SNES_PAD_X);
+  /* A native slot that frees during the slam is fair game for an orb, so
+   * keep every slot occupied up to the burst tick. */
+  for (unsigned tick = 1; tick <= 21; ++tick) {
+    (void)saber_thunder_occupy_slots(MMX_SABER_PROJECTILE_SLOT_COUNT);
+    frame(0);
+  }
+  /* A native object can free its slot inside the burst frame itself, so
+   * at most that one orb may appear; middle-out order is proven above. */
+  check(MmxSaberAttackSnapshotGet().kind == SABER_KIND_THUNDER_SLAM &&
+            MmxSaberAttackSnapshotGet().tick == 21 &&
+            saber_thunder_orb_count() <= 1 &&
+            saber_weapon_ammo_word(6) == before - 0x04ab,
+        "no free slot still lets thunder slam play and spend energy");
+  MmxSaberProjectileRetireAll(g_ram);
+}
+
+static void saber_thunder_air_and_native_checks(const char *fixture) {
+  unsigned before;
+  unsigned after;
+
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  select_native_weapon(6);
+  saber_weapon_techniques_set_energy(6, 0x0400);
+  saber_weapon_techniques_airborne();
+  before = saber_weapon_ammo_word(6);
+  frame(SNES_PAD_X | SNES_PAD_B);
+  after = saber_weapon_ammo_word(6);
+  check(MmxSaberAttackSnapshotGet().kind == SABER_KIND_NONE &&
+            MmxSaberAttackSnapshotGet().phase == SABER_PHASE_IDLE &&
+            after == before && native_projectiles() == 0,
+        "airborne Spark X is a no-op with techniques on");
+
+  saber_weapon_techniques_set_option(false);
+  load_fixture(fixture);
+  MmxSaberFrameReset();
+  select_native_weapon(6);
+  saber_weapon_techniques_set_energy(6, 0x0400);
+  before = saber_weapon_ammo_word(6);
+  frame(SNES_PAD_X);
+  after = saber_weapon_ammo_word(6);
+  check(MmxSaberAttackSnapshotGet().kind == SABER_KIND_NONE &&
+            saber_thunder_orb_count() == 0 && native_projectiles() != 0 &&
+            after < before,
+        "weapon_techniques off keeps native Electric Spark shot");
+  saber_weapon_techniques_set_option(true);
+}
+
+static void saber_thunder_contact_checks(const char *fixture) {
+  MmxSaberProjectileSpawnInfo info = {0};
+  const unsigned target = saber_projectile_contact_target(fixture);
+  const unsigned initial_hp = g_ram[target + 0x27] & 127;
+  unsigned index = MMX_SABER_PROJECTILE_SLOT_COUNT;
+  unsigned slot;
+  unsigned first_hit;
+  unsigned first_damage;
+  unsigned second_damage;
+  const MmxSaberProjectile *projectile;
+  bool spawned;
+
+  info.kind = SABER_PROJECTILE_THUNDER_ORB;
+  info.x = (int32_t)(int16_t)read_ram_word(g_ram, target + 5) * 256;
+  info.y = (int32_t)(int16_t)read_ram_word(g_ram, target + 8) * 256;
+  info.lifetime = 60;
+  info.facing = 0x40;
+  info.vx = 1152;
+  info.vy = 0;
+  info.damage_normal = 8;
+  info.damage_boss = 2;
+  spawned = MmxSaberProjectileSpawn(g_ram, &info, &index);
+  check(spawned, "forced-overlap thunder orb spawns");
+  if (!spawned) return;
+  projectile = MmxSaberProjectileGet(index);
+  check(projectile != NULL, "forced-overlap thunder orb has a table entry");
+  if (!projectile) return;
+  slot = projectile->slot;
+  first_hit = MmxZeroHitbox(g_ram, target, slot, 1);
+  first_damage = MmxZeroDamage(g_ram, target, slot, first_hit);
+  apply_test_damage(target, first_damage);
+  second_damage = MmxSaberProjectileDamage(g_ram, target, slot, 1);
+  check(first_hit == 1 && first_damage == 8 && second_damage == 1 &&
+            (g_ram[target + 0x27] & 127) == initial_hp - 8 &&
+            !MmxSaberProjectileOwns(g_ram, slot) && !g_ram[slot],
+        "thunder orb deals 8 once and retires on first contact");
+}
+
+static void saber_thunder_animation_checks(const char *fixture) {
+  bool frames_ok = true;
+
+  saber_thunder_prepare(fixture, true);
+  frame(SNES_PAD_X);
+  for (unsigned tick = 0; tick < 42; ++tick) {
+    const MmxSaberAttackSnapshot snapshot = MmxSaberAttackSnapshotGet();
+    if (snapshot.kind != SABER_KIND_THUNDER_SLAM || snapshot.tick != tick ||
+        snapshot.anim_id != 19 || snapshot.anim_step != tick / 3)
+      frames_ok = false;
+    if (tick < 41) frame(0);
+  }
+  check(frames_ok,
+        "thunder slam body publishes animation 19 frame index tick divided by 3");
+  MmxSaberProjectileRetireAll(g_ram);
+}
+
+static void saber_thunder_slam_checks(const char *fixture) {
+  check(MmxSaberTuningWeaponTechniques(),
+        "saber-thunder-slam group starts with weapon_techniques on");
+  saber_thunder_cost_checks(fixture);
+  saber_thunder_geometry_case(fixture, true);
+  saber_thunder_geometry_case(fixture, false);
+  saber_thunder_capacity_checks(fixture);
+  saber_thunder_air_and_native_checks(fixture);
+  saber_thunder_contact_checks(fixture);
+  saber_thunder_animation_checks(fixture);
+  puts("ok: saber-thunder-slam");
+}
+
 
 static unsigned saber_weapon_ammo_word(unsigned weapon) {
   return read_ram_word(g_ram, 0x1f85 + weapon * 2) & 0x3fff;
@@ -14075,6 +14421,8 @@ int main(int argc, char **argv) {
   const bool saber_arms_charge = only && !strcmp(only, "saber-arms-charge");
   const bool saber_weapon_techniques =
       only && !strcmp(only, "saber-weapon-techniques");
+  const bool saber_thunder_slam =
+      only && !strcmp(only, "saber-thunder-slam");
   const bool saber_cutter = only && !strcmp(only, "saber-cutter");
   const bool saber_head_ammo = only && !strcmp(only, "saber-head-ammo");
   const bool saber_hitbox_debug = only && !strcmp(only, "saber-hitbox-debug");
@@ -14145,6 +14493,7 @@ int main(int argc, char **argv) {
       saber_tuning || saber_hitbox_debug || saber_damage ||
       saber_head_ammo ||
       saber_armor || saber_arms_charge || saber_weapon_techniques ||
+      saber_thunder_slam ||
       saber_cutter ||
       saber_body_damage ||
       saber_wave_travel || saber_wave_damage || saber_wave_lifecycle ||
@@ -14296,6 +14645,10 @@ int main(int argc, char **argv) {
     check(MmxSaberEnabled(),
           "saber-weapon-techniques runs with the Saber package enabled");
     saber_weapon_techniques_checks(fixture);
+  } else if (saber_thunder_slam) {
+    check(MmxSaberEnabled(),
+          "saber-thunder-slam runs with the Saber package enabled");
+    saber_thunder_slam_checks(fixture);
   } else if (saber_cutter) {
     check(MmxSaberEnabled(),
           "saber-cutter runs with the Saber package enabled");
@@ -14409,6 +14762,7 @@ int main(int argc, char **argv) {
       strcmp(only, "saber-body-damage") &&
       strcmp(only, "saber-arms-charge") &&
        strcmp(only, "saber-weapon-techniques") &&
+      strcmp(only, "saber-thunder-slam") &&
       strcmp(only, "saber-cutter") &&
       strcmp(only, "saber-finisher") &&
       strcmp(only, "saber-priority-classify") &&

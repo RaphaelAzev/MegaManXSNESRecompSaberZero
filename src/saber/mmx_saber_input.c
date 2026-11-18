@@ -28,7 +28,8 @@ static bool attack_locked(MmxSaberPadPhase phase) {
 
 static bool ground_kind(MmxSaberPadKind kind) {
   return kind == SABER_KIND_GROUND1 || kind == SABER_KIND_GROUND2 ||
-      kind == SABER_KIND_GROUND3 || kind == SABER_KIND_ICE_CLONE;
+      kind == SABER_KIND_GROUND3 || kind == SABER_KIND_ICE_CLONE ||
+      kind == SABER_KIND_THUNDER_SLAM;
 }
 
 static bool slashing(const MmxSaberPadSaber *saber) {
