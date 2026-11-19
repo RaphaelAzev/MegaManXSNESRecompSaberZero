@@ -34,6 +34,7 @@ MmxSaberArmorFlags MmxSaberArmorCurrent(void) {
   return flags;
 }
 MmxZeroState MmxZeroGetState(void) { return test_zero_state; }
+void MmxZeroSelectState(MmxZeroState state) { test_zero_state = state; }
 const uint16_t *MmxZeroColors(void) { return test_zero_colors; }
 int MmxZeroChargeFlashPaletteIndex(const MmxZeroState *s) {
   if (!s || s->active_x || s->swap_phase || s->slash ||

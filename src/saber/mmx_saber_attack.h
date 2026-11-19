@@ -104,12 +104,13 @@ void MmxSaberAttackStepWithWall(bool saber_pressed, bool grounded,
                                 bool wall_clinging, bool playable,
                                 uint8_t native_facing,
                                 uint8_t horizontal_direction);
-/* Full native-context form.  dash_active is the old native action gate
+/* Full native-context form.  dash_active is the native ground/air action gate
  * ($0BAA == $14); jump_pressed is retained for the frame-bridge ABI but
  * cancellation is decided from the post-native observation below.
  * up_held and down_held select unlocked special attacks; y_held owns uppercut
- * release; ram supplies the unlock count. Selection priority is wall > thrust
- * > rolling/air > uppercut > dash > ground. */
+ * release; ram supplies the unlock count. Selection priority is wall >
+ * air-dash ice clone > thrust > rolling > air > uppercut > grounded-dash ice
+ * clone > ground cutter slash > dash > ground1. */
 void MmxSaberAttackStepWithWallAndDash(bool saber_pressed, bool grounded,
                                        bool wall_clinging, bool dash_active,
                                        bool up_held, bool down_held,

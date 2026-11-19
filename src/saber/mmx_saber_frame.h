@@ -11,6 +11,7 @@ void MmxSaberFrameReset(void);
 
 enum {
   /* These are native selected IDs, equal to 2*w for weapon RAM words. */
+  MMX_SABER_WEAPON_CUTTER = 0x0e,
   MMX_SABER_WEAPON_STORM_TORNADO = 0x0a,
   MMX_SABER_WEAPON_SHOTGUN_ICE = 0x10,
   MMX_SABER_NORMAL_SHOT_COST = 0x0100,

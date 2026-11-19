@@ -365,6 +365,9 @@ typedef struct MmxSaberAttackState {
   bool cue_pending;
   bool previous_grounded;
   bool previous_grounded_valid;
+  /* Air-dash input makes ICE_CLONE an airborne owner until its 16-tick move
+   * ends; grounded-dash input keeps the old grounded movement boundary. */
+  bool ice_clone_air_dash;
 } MmxSaberAttackState;
 
 static MmxSaberAttackState state;
@@ -956,6 +959,7 @@ static void clear_attack(void) {
   state.hit_slots = 0;
   state.cue = MMX_SABER_SFX_ATTACK_COUNT;
   state.cue_pending = false;
+  state.ice_clone_air_dash = false;
 }
 
 static const MmxSaberBoundsSegment *bounds_segment(
@@ -1272,18 +1276,34 @@ static void start_attack(const MmxSaberAttack *attack, uint8_t facing,
   state.cutter_spawn_attempted = false;
   state.ice_clone_spawn_attempted = false;
   state.thunder_orbs_spawn_attempted = false;
+  state.ice_clone_air_dash = false;
   state.cue = attack_cue(attack);
   state.cue_pending = state.cue < MMX_SABER_SFX_ATTACK_COUNT;
   update_animation();
 }
 
-static void stop_native_ground_dash(uint8_t *ram) {
+static void stop_native_dash(uint8_t *ram) {
   if (!ram || state.kind != SABER_KIND_ICE_CLONE || state.tick != 0 ||
       (ram[0x0baa] != 0x14 && native_action != 0x14))
     return;
-  /* Grounded native movement returns to its standing action through $0BAA/$0BAB.
-   * Run after native input consumption, so the activation dash edge cannot
-   * restart the action in the same frame. */
+  if (state.ice_clone_air_dash) {
+    /* Match native end_air_dash(): clear dash state, enter falling action $08,
+     * and leave vertical motion for native gravity. Run after native input
+     * consumption so the activation dash edge cannot restart the action. */
+    ram[0x0bfd] = 0;
+    ram[0x0c06] &= (uint8_t)~4;
+    ram[0x0baa] = 0x08;
+    ram[0x0bab] = 0;
+    ram[0x0bc2] = 0;
+    ram[0x0bc3] = 0;
+    /* MmxZeroPlayerEnd normally clears this private timer after native motion.
+     * Select the same native state without resetting Saber extension state. */
+    MmxZeroState zero = MmxZeroGetState();
+    zero.modern.dash_ticks = 0;
+    MmxZeroSelectState(zero);
+    return;
+  }
+  /* Grounded native movement returns to its standing action through $0BAA/$0BAB. */
   ram[0x0baa] = 0;
   ram[0x0bab] = 0;
 }
@@ -1346,24 +1366,51 @@ void MmxSaberAttackStepWithWallAndDashRequested(
     const bool explicit_kind = requested_kind == SABER_KIND_GROUND2 ||
         requested_kind == SABER_KIND_AIR ||
         requested_kind == SABER_KIND_THUNDER_SLAM;
-    const bool cutter_technique = explicit_kind &&
-        requested_kind != SABER_KIND_THUNDER_SLAM;
     if (saber_pressed || explicit_kind) {
-      const MmxSaberPadKind kind = explicit_kind ? requested_kind :
-          wall_clinging ? SABER_KIND_WALL :
-              (!grounded && down_held &&
-                       special_unlocked(ram, SABER_SPECIAL_THRUST) ? SABER_KIND_THRUST :
-               (!grounded && up_held &&
-                        special_unlocked(ram, SABER_SPECIAL_ROLLING) ? SABER_KIND_ROLLING :
-                (!grounded ? SABER_KIND_AIR :
-                 (grounded && up_held &&
-                          special_unlocked(ram, SABER_SPECIAL_UPPERCUT) ? SABER_KIND_UPPERCUT :
-                  (dash_active && down_held &&
-                           special_unlocked(ram, SABER_SPECIAL_ICE_CLONE) &&
-                           MmxSaberFrameWeaponHasUsableEnergy(
-                               ram, MMX_SABER_WEAPON_SHOTGUN_ICE) ?
-                       SABER_KIND_ICE_CLONE :
-                   (dash_active ? SABER_KIND_DASH : SABER_KIND_GROUND1))))));
+      MmxSaberPadKind kind;
+      bool cutter_technique;
+
+      if (explicit_kind) {
+        kind = requested_kind;
+      } else {
+        /* Keep selection deterministic: wall > air-dash ice clone > thrust >
+         * rolling > air > uppercut > grounded-dash ice clone > ground cutter
+         * slash > dash > ground1. */
+        if (wall_clinging) {
+          kind = SABER_KIND_WALL;
+        } else if (!grounded && dash_active && down_held &&
+                   special_unlocked(ram, SABER_SPECIAL_ICE_CLONE) &&
+                   MmxSaberFrameWeaponHasUsableEnergy(
+                       ram, MMX_SABER_WEAPON_SHOTGUN_ICE)) {
+          kind = SABER_KIND_ICE_CLONE;
+        } else if (!grounded && down_held &&
+                   special_unlocked(ram, SABER_SPECIAL_THRUST)) {
+          kind = SABER_KIND_THRUST;
+        } else if (!grounded && up_held &&
+                   special_unlocked(ram, SABER_SPECIAL_ROLLING)) {
+          kind = SABER_KIND_ROLLING;
+        } else if (!grounded) {
+          kind = SABER_KIND_AIR;
+        } else if (up_held && special_unlocked(
+                       ram, SABER_SPECIAL_UPPERCUT)) {
+          kind = SABER_KIND_UPPERCUT;
+        } else if (dash_active && down_held &&
+                   special_unlocked(ram, SABER_SPECIAL_ICE_CLONE) &&
+                   MmxSaberFrameWeaponHasUsableEnergy(
+                       ram, MMX_SABER_WEAPON_SHOTGUN_ICE)) {
+          kind = SABER_KIND_ICE_CLONE;
+        } else if (!dash_active && down_held &&
+                   special_unlocked(ram, SABER_SPECIAL_CUTTER_SLASH) &&
+                   MmxSaberFrameWeaponHasUsableEnergy(
+                       ram, MMX_SABER_WEAPON_CUTTER)) {
+          kind = SABER_KIND_GROUND2;
+        } else {
+          kind = dash_active ? SABER_KIND_DASH : SABER_KIND_GROUND1;
+        }
+      }
+      cutter_technique = (explicit_kind &&
+                          requested_kind != SABER_KIND_THUNDER_SLAM) ||
+          (!explicit_kind && kind == SABER_KIND_GROUND2);
       const uint8_t facing = wall_clinging ||
           kind == SABER_KIND_DASH || kind == SABER_KIND_ICE_CLONE ?
           (native_facing & 0x40) :
@@ -1373,6 +1420,11 @@ void MmxSaberAttackStepWithWallAndDashRequested(
       start_attack(MmxSaberAttackRecord(
                        kind, kind == SABER_KIND_GROUND2 ? 1 : 0),
                    facing, cutter_technique);
+      state.ice_clone_air_dash = kind == SABER_KIND_ICE_CLONE &&
+          !grounded && dash_active;
+      if (kind == SABER_KIND_GROUND2 && !explicit_kind)
+        MmxSaberFrameDebitNormalWeaponEnergy(
+            ram, MMX_SABER_WEAPON_CUTTER, MMX_SABER_NORMAL_SHOT_COST);
       if (kind == SABER_KIND_ICE_CLONE)
         MmxSaberFrameDebitNormalWeaponEnergy(
             ram, MMX_SABER_WEAPON_SHOTGUN_ICE, MMX_SABER_NORMAL_SHOT_COST);
@@ -1398,7 +1450,8 @@ void MmxSaberAttackStepWithWallAndDashRequested(
    * Startup input is masked by the pure pad before it reaches the native
    * routine. */
   if (attack->kind == SABER_KIND_DASH ||
-      attack->kind == SABER_KIND_ICE_CLONE ||
+      (attack->kind == SABER_KIND_ICE_CLONE &&
+       !state.ice_clone_air_dash) ||
       attack->kind == SABER_KIND_THUNDER_SLAM) {
     if (!grounded) {
       MmxSaberAttackExit(runtime_ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
@@ -1732,7 +1785,7 @@ void MmxSaberAttackPlayerEnd(uint8_t *ram) {
   if (ram) runtime_ram = ram;
   if (!ram) return;
 
-  stop_native_ground_dash(ram);
+  stop_native_dash(ram);
   scale_uppercut_jump(ram);
 
   movement_accepted = native_movement_accepted(ram);

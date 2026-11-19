@@ -710,6 +710,8 @@ static void load_response_fixture(const char *fixture) {
 
 static unsigned read_ram_word(const uint8_t *ram, unsigned offset);
 static unsigned empty_enemy_slot(void);
+static void saber_specials_unlock_load(const char *path,
+                                       unsigned expected_defeated);
 static unsigned saber_active_slot(void);
 static unsigned apply_test_damage(unsigned enemy, unsigned damage);
 static unsigned saber_damage_boss_slot(void);
@@ -2411,6 +2413,7 @@ static void saber_attack_selection_case(
     bool up_held, bool down_held, MmxSaberPadKind expected,
     const char *label) {
   MmxSaberAttackSnapshot snapshot;
+  const uint8_t expected_index = expected == SABER_KIND_GROUND2 ? 1 : 0;
 
   MmxSaberAttackResetRam(g_ram);
   memset(g_ram + 0x1f88, 0, 16);
@@ -2423,7 +2426,7 @@ static void saber_attack_selection_case(
       false, true,
       g_ram, g_ram[0x0c11], 0);
   snapshot = MmxSaberAttackSnapshotGet();
-  check(snapshot.kind == expected && snapshot.index == 0 &&
+  check(snapshot.kind == expected && snapshot.index == expected_index &&
             snapshot.phase != SABER_PHASE_IDLE,
         label);
   MmxSaberAttackExit(g_ram, MMX_SABER_ATTACK_EXIT_CONTEXT);
@@ -2538,8 +2541,11 @@ static void saber_attack_selection_checks(void) {
       "wall cling always selects wall slash");
 
   saber_attack_selection_case(
-      0xff, true, false, false, false, true, SABER_KIND_GROUND1,
-      "Down on ground keeps ground-1 selection");
+      0xff, true, false, false, false, true, SABER_KIND_GROUND2,
+      "unlocked Cutter Down+Y on ground selects ground slash 2");
+  saber_attack_selection_case(
+      0xff, false, false, true, false, true, SABER_KIND_ICE_CLONE,
+      "Down in an air dash selects the ice clone before air thrust");
   /* Chill Penguin is clear index 7: without it Down + Y in a dash stays the
    * dash slash; with it the same input is the ice clone. */
   saber_attack_selection_case(
@@ -5911,7 +5917,7 @@ static void saber_special_release_save_state_case(const char *fixture) {
   if (snapshot.phase == SABER_PHASE_IDLE) return;
 
   MmxZeroExtSaveState(extension_state);
-  check(extension_state[4] == 2 && extension_state[5] == 0 &&
+  check(extension_state[4] == 3 && extension_state[5] == 0 && /* layout v3 */
             extension_state[6] == 0 && extension_state[7] == 0 &&
             extension_state[8] && extension_state[9],
         "save-state probe captures release_pending_from_special before snapshot");
@@ -5947,7 +5953,7 @@ static void saber_special_release_save_state_case(const char *fixture) {
         "loaded save-state branch accepts the v2 special-release snapshot");
   memset(extension_state, 0, sizeof(extension_state));
   MmxZeroExtSaveState(extension_state);
-  check(extension_state[4] == 2 && extension_state[8] && extension_state[9],
+  check(extension_state[4] == 3 && extension_state[8] && extension_state[9],
         "v2 save-state load restores the special-owned release latch");
   MmxRendererBeginFrame(g_ram);
   g_ram[0x0bdb] = 0; /* Same buster switch as uninterrupted branch. */
@@ -6257,6 +6263,78 @@ static void saber_cutter_ground_case(const char *fixture, bool right) {
                 "left ground cutter advances 8 pixels and keeps floor height");
 }
 
+static void saber_cutter_ground_input_case(const char *fixture) {
+  MmxSaberAttackSnapshot snapshot;
+  unsigned before;
+  unsigned after;
+  unsigned slot;
+  bool no_early_cutter = true;
+  int spawn_zero_x;
+  int spawn_zero_y;
+
+  saber_specials_unlock_load(fixture, 0);
+  select_native_weapon(1);
+  /* Weapon 1 stays selected. Cutter ownership and energy live in its own
+   * native slot, so Down+Y must not depend on selected weapon. */
+  write_ram_word(g_ram, 0x1f93, 0xdc00);
+  saber_cutter_set_facing(true);
+  before = read_ram_word(g_ram, 0x1f93) & 0x3fff;
+  frame(SNES_PAD_DOWN | SNES_PAD_Y);
+  after = read_ram_word(g_ram, 0x1f93) & 0x3fff;
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_GROUND2 && snapshot.index == 1 &&
+            snapshot.tick == 0 && snapshot.phase != SABER_PHASE_IDLE &&
+            before == 0x1c00 && after == before - 0x0100,
+        "ground Down+Y with non-Cutter selected starts GROUND2 and debits Cutter");
+
+  spawn_zero_x = (int)(int16_t)read_ram_word(g_ram, 0x0bad);
+  spawn_zero_y = (int)(int16_t)read_ram_word(g_ram, 0x0bb0);
+  for (unsigned tick = 1; tick <= 6; ++tick) {
+    frame(0);
+    if (tick < 6 && saber_cutter_count(SABER_PROJECTILE_CUTTER) != 0)
+      no_early_cutter = false;
+  }
+  snapshot = MmxSaberAttackSnapshotGet();
+  slot = saber_cutter_slot(SABER_PROJECTILE_CUTTER);
+  check(no_early_cutter && snapshot.kind == SABER_KIND_GROUND2 &&
+            snapshot.tick == 6 && snapshot.anim_step == 3 && slot != 0,
+        "ground Down+Y Cutter technique spawns forward cutter on step 3");
+  if (slot) {
+    const unsigned index = (slot - MMX_SABER_PROJECTILE_SLOT_FIRST) /
+        MMX_SABER_PROJECTILE_SLOT_BYTES;
+    const MmxSaberProjectile *projectile = MmxSaberProjectileGet(index);
+    check(projectile->x ==
+              (int32_t)(spawn_zero_x + MMX_SABER_CUTTER_FRONT_X) * 256 &&
+              projectile->y ==
+                  (int32_t)(spawn_zero_y - MMX_SABER_CUTTER_GROUND_Y_OFFSET) * 256 &&
+              projectile->vx > 0,
+          "ground Down+Y Cutter technique sends cutter forward at floor height");
+  }
+}
+
+static void saber_cutter_ground_rejection_case(
+    const char *fixture, unsigned cutter_word, bool special_moves,
+    const char *label) {
+  MmxSaberAttackSnapshot snapshot;
+  unsigned before;
+  unsigned after;
+
+  saber_specials_unlock_load(fixture, 0);
+  select_native_weapon(1);
+  write_ram_word(g_ram, 0x1f93, cutter_word);
+  if (!special_moves) MmxSaberTuningLoad(saber_special_moves_off_reader, NULL);
+  before = read_ram_word(g_ram, 0x1f93) & 0x3fff;
+  frame(SNES_PAD_DOWN | SNES_PAD_Y);
+  after = read_ram_word(g_ram, 0x1f93) & 0x3fff;
+  snapshot = MmxSaberAttackSnapshotGet();
+  idle(7);
+  check(snapshot.kind == SABER_KIND_GROUND1 && snapshot.index == 0 &&
+            snapshot.phase != SABER_PHASE_IDLE && after == before &&
+            saber_cutter_count(SABER_PROJECTILE_CUTTER) == 0,
+        label);
+  if (!special_moves) MmxSaberTuningLoad(NULL, NULL);
+}
+
 static void saber_cutter_air_case(const char *fixture) {
   const MmxSaberProjectileKind kind = SABER_PROJECTILE_CUTTER_AIR;
   MmxSaberAttackSnapshot snapshot;
@@ -6448,6 +6526,16 @@ static void saber_cutter_checks(const char *fixture) {
         "saber-cutter group starts with weapon_techniques on");
   saber_cutter_ground_case(fixture, true);
   saber_cutter_ground_case(fixture, false);
+  saber_cutter_ground_input_case(fixture);
+  saber_cutter_ground_rejection_case(
+      fixture, 0x0400, true,
+      "locked Cutter keeps ground Down+Y on GROUND1 without debit");
+  saber_cutter_ground_rejection_case(
+      fixture, 0x4000, true,
+      "empty Cutter energy keeps ground Down+Y on GROUND1 without debit");
+  saber_cutter_ground_rejection_case(
+      fixture, 0xdc00, false,
+      "special_moves off keeps ground Down+Y on GROUND1 without debit");
   saber_cutter_air_case(fixture);
   saber_cutter_ordinary_slash_checks(fixture);
   saber_cutter_capacity_checks(fixture);
@@ -14380,6 +14468,109 @@ static unsigned saber_ice_clone_use(const char *fixture, bool right,
   return slot;
 }
 
+static void saber_ice_clone_air_dash_case(const char *fixture) {
+  MmxSaberAttackSnapshot snapshot;
+  MmxZeroState zero;
+  unsigned before;
+  unsigned after;
+  unsigned slot;
+  bool body_ok = true;
+  bool clone_height_ok = true;
+  bool clone_slide_ok = true;
+  bool horizontal_ok = true;
+  bool fall_seen = false;
+  int spawn_zero_x;
+  int spawn_zero_y;
+  int previous_zero_y;
+  int32_t previous_clone_x;
+
+  saber_specials_unlock_load(fixture, 0);
+  g_ram[0x1f99] = MMX_SABER_ARMOR_LEGS_BIT;
+  g_ram[0x1f96] |= 0x40;
+  saber_weapon_techniques_set_energy(8, 0x1c00);
+  for (unsigned i = 0; i < 5; ++i) frame(SNES_PAD_B);
+  for (unsigned i = 0; i < 4; ++i) frame(0);
+  check(!saber_test_grounded(),
+        "Legs air-clone route reaches airborne Zero before the dash");
+  frame(SNES_PAD_A | SNES_PAD_RIGHT);
+  zero = MmxZeroGetState();
+  check(g_ram[0x0baa] == 0x14 && zero.modern.dash_ticks != 0,
+        "Legs air-clone route starts native air dash action 0x14");
+
+  spawn_zero_x = (int)(int16_t)read_ram_word(g_ram, 0x0bad);
+  spawn_zero_y = (int)(int16_t)read_ram_word(g_ram, 0x0bb0);
+  previous_zero_y = spawn_zero_y;
+  before = saber_weapon_ammo_word(8);
+  frame(SNES_PAD_DOWN | SNES_PAD_Y);
+  after = saber_weapon_ammo_word(8);
+  snapshot = MmxSaberAttackSnapshotGet();
+  zero = MmxZeroGetState();
+  slot = saber_ice_clone_slot();
+  check(snapshot.kind == SABER_KIND_ICE_CLONE &&
+            snapshot.phase == SABER_PHASE_ACTIVE && snapshot.tick == 0 &&
+            g_ram[0x0baa] == 0x08 && zero.modern.dash_ticks == 0 &&
+            (int16_t)read_ram_word(g_ram, 0x0bc2) == 0 &&
+            !MmxRendererPlayerOverlaySnapshot().active && slot != 0 &&
+            before == 0x1c00 && after == before - 0x0100,
+        "air-dash Down+Y starts ice clone, ends at falling 0x08, stops Zero, and debits Shotgun Ice");
+  if (!slot) return;
+
+  {
+    const unsigned index = (slot - MMX_SABER_PROJECTILE_SLOT_FIRST) /
+        MMX_SABER_PROJECTILE_SLOT_BYTES;
+    const MmxSaberProjectile *projectile = MmxSaberProjectileGet(index);
+    check(projectile->x ==
+              (int32_t)(spawn_zero_x + MMX_SABER_ICE_CLONE_FRONT_X) * 256 &&
+              projectile->y == (int32_t)spawn_zero_y * 256 &&
+              projectile->facing == 0x40,
+          "air ice clone spawns at Zero front and feet height");
+    previous_clone_x = projectile->x;
+    for (unsigned tick = 1; tick < 16; ++tick) {
+      frame(0);
+      snapshot = MmxSaberAttackSnapshotGet();
+      zero = MmxZeroGetState();
+      projectile = MmxSaberProjectileGet(index);
+      if (!projectile->active || projectile->y != (int32_t)spawn_zero_y * 256)
+        clone_height_ok = false;
+      if (!projectile->active || projectile->x <= previous_clone_x)
+        clone_slide_ok = false;
+      previous_clone_x = projectile->x;
+      if ((int16_t)read_ram_word(g_ram, 0x0bc2) != 0)
+        horizontal_ok = false;
+      if ((int16_t)read_ram_word(g_ram, 0x0bb0) > previous_zero_y)
+        fall_seen = true;
+      previous_zero_y = (int16_t)read_ram_word(g_ram, 0x0bb0);
+      if (snapshot.kind != SABER_KIND_ICE_CLONE ||
+          snapshot.phase == SABER_PHASE_IDLE ||
+          MmxRendererPlayerOverlaySnapshot().active || zero.modern.dash_ticks)
+        body_ok = false;
+    }
+    check(body_ok && horizontal_ok && clone_height_ok,
+          "air ice clone keeps Saber body hidden, Zero horizontal speed zero, and clone height fixed");
+    check(clone_slide_ok && fall_seen,
+          "air ice clone slides forward while Zero falls under gravity");
+  }
+}
+
+static void saber_ice_clone_air_thrust_case(const char *fixture) {
+  MmxSaberAttackSnapshot snapshot;
+
+  saber_specials_unlock_load(fixture, 0);
+  g_ram[0x1f8e] |= 0x40;
+  g_ram[0x1f96] |= 0x40;
+  saber_weapon_techniques_set_energy(8, 0x1c00);
+  for (unsigned i = 0; i < 5; ++i) frame(SNES_PAD_B);
+  for (unsigned i = 0; i < 4; ++i) frame(0);
+  check(!saber_test_grounded(),
+        "no-dash air Down+Y route is airborne before selection");
+  frame(SNES_PAD_DOWN | SNES_PAD_Y);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_THRUST &&
+            snapshot.phase != SABER_PHASE_IDLE &&
+            saber_ice_clone_count() == 0,
+        "Down+Y in air without an air dash stays thrust");
+}
+
 static void saber_ice_clone_checks(const char *fixture) {
   const MmxSaberAttack *clone =
       MmxSaberAttackRecord(SABER_KIND_ICE_CLONE, 0);
@@ -14412,6 +14603,9 @@ static void saber_ice_clone_checks(const char *fixture) {
   check(snapshot.kind == SABER_KIND_DASH && saber_ice_clone_count() == 0,
         "special_moves off keeps Down+Y dash as dash slash");
   MmxSaberTuningLoad(NULL, NULL);
+
+  saber_ice_clone_air_thrust_case(fixture);
+  saber_ice_clone_air_dash_case(fixture);
 
   {
     const unsigned cost = 0x0100;
