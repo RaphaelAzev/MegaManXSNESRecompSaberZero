@@ -257,6 +257,44 @@ static void publish_ground_swing(uint8_t *ram, MmxSaberPadSaber saber) {
   ram[0x0bb9] = (ram[0x0bb9] & (uint8_t)~0x40) | facing;
 }
 
+enum {
+  SABER_NATIVE_WALK_SPEED = 0x0178,
+  SABER_UPPERCUT_HORIZONTAL_SPEED = SABER_NATIVE_WALK_SPEED / 2,
+};
+
+static void publish_uppercut_motion(uint8_t *ram, MmxSaberPadSaber saber) {
+  int16_t velocity = 0;
+  uint16_t speed;
+  const uint8_t direction = native_horizontal_direction(ram);
+  if (!ram || saber.kind != SABER_KIND_UPPERCUT ||
+      saber.phase == SABER_PHASE_IDLE)
+    return;
+  if (direction == 1)
+    velocity = SABER_UPPERCUT_HORIZONTAL_SPEED;
+  else if (direction == 2)
+    velocity = -SABER_UPPERCUT_HORIZONTAL_SPEED;
+
+  speed = (uint16_t)(velocity < 0 ? -velocity : velocity);
+  /* Native jump initialization restores the airborne speed magnitude in
+   * $0C04. Publish both native speed words before and after native motion. */
+  ram[0x0c04] = (uint8_t)speed;
+  ram[0x0c05] = (uint8_t)(speed >> 8);
+  ram[0x0bc2] = (uint8_t)velocity;
+  ram[0x0bc3] = (uint8_t)((uint16_t)velocity >> 8);
+}
+
+static void restore_uppercut_motion(uint8_t *ram,
+                                    MmxSaberPadSaber previous,
+                                    MmxSaberPadSaber current) {
+  const bool current_uppercut = current.kind == SABER_KIND_UPPERCUT &&
+      current.phase != SABER_PHASE_IDLE;
+  if (!ram || previous.kind != SABER_KIND_UPPERCUT ||
+      previous.phase == SABER_PHASE_IDLE || current_uppercut)
+    return;
+  ram[0x0c04] = (uint8_t)SABER_NATIVE_WALK_SPEED;
+  ram[0x0c05] = (uint8_t)(SABER_NATIVE_WALK_SPEED >> 8);
+}
+
 static bool zero_dead_or_reset(const uint8_t *ram) {
   /* The old branch treated native death/reset actions and an empty HP byte as
    * lifecycle cancellation, rather than as a fire/charge input frame. */
@@ -264,6 +302,8 @@ static bool zero_dead_or_reset(const uint8_t *ram) {
 }
 
 static void player_end(uint8_t *ram) {
+  MmxSaberPadSaber previous;
+  MmxSaberPadSaber current;
   if (ram) frame_ram = ram;
   MmxSaberHitboxDebugSetRam(ram);
   if (!ram) {
@@ -290,8 +330,12 @@ static void player_end(uint8_t *ram) {
   }
   MmxSaberPriorityObservePlayerEnd(
       ram, MmxZeroGetState().shot_mask, MmxZeroGetState().burst);
+  previous = MmxSaberAttackPadState(release_pending);
   MmxSaberComboPlayerEnd(ram);
   MmxSaberAttackPlayerEnd(ram);
+  current = MmxSaberAttackPadState(release_pending);
+  restore_uppercut_motion(ram, previous, current);
+  publish_uppercut_motion(ram, current);
 }
 
 static void pre_player(uint8_t *ram) {
@@ -437,6 +481,7 @@ static void pre_player(uint8_t *ram) {
       native_horizontal_direction(ram));
   MmxSaberAttackRuntimeTick(ram);
   saber = MmxSaberAttackPadState(release_pending);
+  restore_uppercut_motion(ram, pre_native_saber, saber);
   /* The attack tick advances the published donor phase before native runs.
    * Preserve the phase that was visible on entry for movement-edge masking,
    * so the last STARTUP frame cannot accept a jump/dash merely because its
@@ -447,6 +492,7 @@ static void pre_player(uint8_t *ram) {
   out = MmxSaberComputePad(physical, read_native_pad(ram), saber, zero);
   MmxSaberApplyUppercutJump(&out.native, saber, pad.y_held);
   publish_ground_swing(ram, saber);
+  publish_uppercut_motion(ram, saber);
 
   /* The computed view is the sole input write for this frame. There is no
    * restore step: the native player and the legacy callback consume it. */

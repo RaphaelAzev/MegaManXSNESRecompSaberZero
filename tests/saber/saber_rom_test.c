@@ -12237,6 +12237,11 @@ enum {
   SABER_UPPERCUT_TAKEOFF_TICK = 4,
   SABER_UPPERCUT_SCALED_VY = 0x0612,
   SABER_UPPERCUT_DASH_FRAMES = 10,
+  SABER_NATIVE_WALK_SPEED = 0x0178,
+  SABER_UPPERCUT_HORIZONTAL_SPEED = SABER_NATIVE_WALK_SPEED / 2,
+  SABER_UPPERCUT_MAX_X_STEP =
+      (SABER_UPPERCUT_HORIZONTAL_SPEED + 0xff) / 0x100,
+  SABER_NATIVE_DASH_SPEED = 0x0375,
 };
 
 typedef struct SaberUppercutArc {
@@ -12415,7 +12420,7 @@ static bool saber_uppercut_cancel_timing(MmxSaberAttackSnapshot snapshot) {
 }
 
 static unsigned saber_uppercut_dash_trace(
-    const char *path, bool uppercut, SaberDashSample samples[],
+    const char *path, bool uppercut, bool hold_right, SaberDashSample samples[],
     unsigned *start_x, int *travel) {
   bool all_airborne = true;
   saber_specials_uppercut_load(path, 2);
@@ -12424,7 +12429,7 @@ static unsigned saber_uppercut_dash_trace(
         "saber-uppercut native dash-jump route starts native action $14");
   *start_x = read_ram_word(g_ram, 0x0bad);
   for (unsigned i = 0; i < SABER_UPPERCUT_DASH_FRAMES; ++i) {
-    unsigned input = SNES_PAD_A | SNES_PAD_RIGHT;
+    unsigned input = SNES_PAD_A | (hold_right ? SNES_PAD_RIGHT : 0);
     if (uppercut)
       input |= SNES_PAD_Y | (i == 0 ? SNES_PAD_UP : 0);
     else
@@ -12451,19 +12456,94 @@ static unsigned saber_uppercut_dash_trace(
 }
 
 static unsigned saber_uppercut_standing_trace(
-    const char *path, SaberDashSample samples[], unsigned *start_x,
-    int *travel) {
+    const char *path, bool uppercut, unsigned direction,
+    SaberDashSample samples[], unsigned *start_x, int *travel) {
   bool all_airborne = true;
   saber_specials_uppercut_load(path, 2);
   *start_x = read_ram_word(g_ram, 0x0bad);
   for (unsigned i = 0; i < SABER_UPPERCUT_DASH_FRAMES; ++i) {
-    frame(SNES_PAD_B | SNES_PAD_RIGHT);
+    unsigned input = direction;
+    if (uppercut)
+      input |= SNES_PAD_Y | (i == 0 ? SNES_PAD_UP : 0);
+    else
+      input |= SNES_PAD_B;
+    frame(input);
     samples[i] = saber_dash_sample();
-    if (saber_test_grounded()) all_airborne = false;
+    if (uppercut) {
+      if (i >= SABER_UPPERCUT_TAKEOFF_TICK && saber_test_grounded())
+        all_airborne = false;
+    } else if (saber_test_grounded()) {
+      all_airborne = false;
+    }
   }
   *travel = (int)samples[SABER_UPPERCUT_DASH_FRAMES - 1].x -
       (int)*start_x;
   return all_airborne ? SABER_UPPERCUT_DASH_FRAMES : 0;
+}
+
+static bool saber_uppercut_motion_cap(const SaberDashSample samples[],
+                                      unsigned count, unsigned start_x,
+                                      int *travel) {
+  bool ok = true;
+  int previous_x = (int)start_x;
+  for (unsigned i = 0; i < count; ++i) {
+    const int dx = (int)samples[i].x - previous_x;
+    if (dx < -SABER_UPPERCUT_MAX_X_STEP ||
+        dx > SABER_UPPERCUT_MAX_X_STEP ||
+        samples[i].vx < -SABER_UPPERCUT_HORIZONTAL_SPEED ||
+        samples[i].vx > SABER_UPPERCUT_HORIZONTAL_SPEED)
+      ok = false;
+    previous_x = (int)samples[i].x;
+  }
+  if (travel) *travel = previous_x - (int)start_x;
+  return ok;
+}
+
+static void saber_uppercut_print_motion(
+    const char *label, const SaberDashSample samples[], unsigned count,
+    unsigned start_x) {
+  int previous_x = (int)start_x;
+  printf("reference: saber-uppercut %s start_x=%u cap_vx=0x%04X ",
+         label, start_x, (unsigned)SABER_UPPERCUT_HORIZONTAL_SPEED);
+  for (unsigned i = 0; i < count; ++i) {
+    const int dx = (int)samples[i].x - previous_x;
+    printf("tick%u(dx=%d,vx=%d)%s", i, dx, samples[i].vx,
+           i + 1 == count ? "" : " ");
+    previous_x = (int)samples[i].x;
+  }
+  putchar('\n');
+}
+
+static bool saber_uppercut_air_control_trace(
+    const char *path, SaberDashSample *last_active,
+    SaberDashSample *normal_air, unsigned *normal_frame) {
+  bool active_seen = false;
+  SaberDashSample sample = {0};
+
+  saber_specials_uppercut_load(path, 2);
+  for (unsigned i = 0; i < SABER_UPPERCUT_ARC_CAPACITY; ++i) {
+    const unsigned input = SNES_PAD_RIGHT | SNES_PAD_Y |
+        (i == 0 ? SNES_PAD_UP : 0);
+    frame(input);
+    sample = saber_dash_sample();
+    if (MmxSaberAttackSnapshotGet().kind == SABER_KIND_UPPERCUT) {
+      *last_active = sample;
+      active_seen = true;
+    } else if (active_seen) {
+      break;
+    }
+  }
+  if (!active_seen) return false;
+
+  for (unsigned i = 0; i < 8; ++i) {
+    frame(SNES_PAD_RIGHT);
+    *normal_air = saber_dash_sample();
+    if (normal_air->vx == SABER_NATIVE_WALK_SPEED) {
+      if (normal_frame) *normal_frame = i + 1;
+      return true;
+    }
+  }
+  return false;
 }
 
 static void saber_uppercut_set_height(const char *value, int expected) {
@@ -12487,13 +12567,22 @@ static void saber_uppercut_checks(const char *fixture_dir) {
   SaberUppercutArc height_100_short;
   SaberDashSample native_dash[SABER_UPPERCUT_DASH_FRAMES];
   SaberDashSample uppercut_dash[SABER_UPPERCUT_DASH_FRAMES];
+  SaberDashSample uppercut_dash_no_direction[SABER_UPPERCUT_DASH_FRAMES];
+  SaberDashSample uppercut_standing[SABER_UPPERCUT_DASH_FRAMES];
   SaberDashSample standing[SABER_UPPERCUT_DASH_FRAMES];
+  SaberDashSample uppercut_last_active = {0};
+  SaberDashSample uppercut_normal_air = {0};
   unsigned native_dash_start_x;
   unsigned uppercut_dash_start_x;
+  unsigned uppercut_dash_no_direction_start_x;
+  unsigned uppercut_standing_start_x;
   unsigned standing_start_x;
   int native_dash_travel;
   int uppercut_dash_travel;
+  int uppercut_dash_no_direction_travel;
+  int uppercut_standing_travel;
   int standing_travel;
+  unsigned normal_air_frame = 0;
 
   check(fixture_dir && fixture_dir[0],
         "saber-uppercut receives a fixture directory");
@@ -12618,37 +12707,86 @@ static void saber_uppercut_checks(const char *fixture_dir) {
             short_hop.release_exit == MMX_SABER_ATTACK_EXIT_RELEASE,
         "default uppercut exits with EXIT_RELEASE on the Y release frame");
 
-  /* Mutation red: clear $0BC2/$0BC3 at uppercut start and lose dash momentum. */
+  /* Mutation red: remove the uppercut horizontal cap or restore dash VX. */
   const unsigned native_dash_count = saber_uppercut_dash_trace(
-      capsule, false, native_dash, &native_dash_start_x, &native_dash_travel);
+      capsule, false, true, native_dash, &native_dash_start_x,
+      &native_dash_travel);
   const unsigned uppercut_dash_count = saber_uppercut_dash_trace(
-      capsule, true, uppercut_dash, &uppercut_dash_start_x,
+      capsule, true, true, uppercut_dash, &uppercut_dash_start_x,
       &uppercut_dash_travel);
-  /* Delayed take-off: the uppercut keeps the native dash VX on its grounded
-   * steps (ticks 0-3), stalls on the take-off tick like a native dash-jump's
-   * first frame, keeps the dash VX in the air, and travels as far as the
-   * native dash-jump over the same frames. */
-  const unsigned native_dash_vx = native_dash[1].vx;
-  bool dash_motion_equal = native_dash_vx != 0 &&
-      uppercut_dash_travel == native_dash_travel &&
-      uppercut_dash[SABER_UPPERCUT_TAKEOFF_TICK].vx == native_dash[0].vx;
-  for (unsigned i = 0; i + 1 < SABER_UPPERCUT_DASH_FRAMES; ++i) {
-    if (i == SABER_UPPERCUT_TAKEOFF_TICK) continue;
-    if (uppercut_dash[i].vx != native_dash_vx) dash_motion_equal = false;
-  }
+  const unsigned uppercut_dash_no_direction_count =
+      saber_uppercut_dash_trace(
+          capsule, true, false, uppercut_dash_no_direction,
+          &uppercut_dash_no_direction_start_x,
+          &uppercut_dash_no_direction_travel);
+  const unsigned uppercut_standing_count = saber_uppercut_standing_trace(
+      capsule, true, SNES_PAD_RIGHT, uppercut_standing,
+      &uppercut_standing_start_x, &uppercut_standing_travel);
   const unsigned standing_count = saber_uppercut_standing_trace(
-      capsule, standing, &standing_start_x, &standing_travel);
-  printf("reference: saber-uppercut dash first10 native_travel=%d "
-         "uppercut_travel=%d standing_travel=%d\n",
-         native_dash_travel, uppercut_dash_travel, standing_travel);
+      capsule, false, SNES_PAD_RIGHT, standing, &standing_start_x,
+      &standing_travel);
+  const bool uppercut_standing_cap = saber_uppercut_motion_cap(
+      uppercut_standing, uppercut_standing_count, uppercut_standing_start_x,
+      &uppercut_standing_travel);
+  const bool uppercut_dash_cap = saber_uppercut_motion_cap(
+      uppercut_dash, uppercut_dash_count, uppercut_dash_start_x,
+      &uppercut_dash_travel);
+  const bool uppercut_dash_no_direction_cap = saber_uppercut_motion_cap(
+      uppercut_dash_no_direction, uppercut_dash_no_direction_count,
+      uppercut_dash_no_direction_start_x, &uppercut_dash_no_direction_travel);
+  bool no_direction_constant = uppercut_dash_no_direction_count != 0;
+  for (unsigned i = 0; i < uppercut_dash_no_direction_count; ++i) {
+    if (uppercut_dash_no_direction[i].x !=
+            uppercut_dash_no_direction_start_x ||
+        uppercut_dash_no_direction[i].vx != 0)
+      no_direction_constant = false;
+  }
+  const bool air_control_restored = saber_uppercut_air_control_trace(
+      capsule, &uppercut_last_active, &uppercut_normal_air,
+      &normal_air_frame);
+  printf("reference: saber-uppercut native_walk_vx=0x%04X "
+         "uppercut_vx=0x%04X dash_vx=0x%04X native_dash_travel=%d "
+         "uppercut_dash_travel=%d uppercut_standing_travel=%d "
+         "native_walk_jump_travel=%d\n",
+         (unsigned)SABER_NATIVE_WALK_SPEED,
+         (unsigned)SABER_UPPERCUT_HORIZONTAL_SPEED,
+         (unsigned)SABER_NATIVE_DASH_SPEED, native_dash_travel,
+         uppercut_dash_travel,
+         uppercut_standing_travel, standing_travel);
+  saber_uppercut_print_motion("native-walk-jump-before", standing,
+                              standing_count, standing_start_x);
+  saber_uppercut_print_motion("uppercut-standing-after", uppercut_standing,
+                              uppercut_standing_count,
+                              uppercut_standing_start_x);
+  saber_uppercut_print_motion("native-dash-before", native_dash,
+                              native_dash_count, native_dash_start_x);
+  saber_uppercut_print_motion("uppercut-dash-after", uppercut_dash,
+                              uppercut_dash_count, uppercut_dash_start_x);
+  saber_uppercut_print_motion("uppercut-dash-no-direction",
+                              uppercut_dash_no_direction,
+                              uppercut_dash_no_direction_count,
+                              uppercut_dash_no_direction_start_x);
   check(native_dash_count == SABER_UPPERCUT_DASH_FRAMES &&
-            uppercut_dash_count == SABER_UPPERCUT_DASH_FRAMES &&
+            uppercut_standing_count == SABER_UPPERCUT_DASH_FRAMES &&
             standing_count == SABER_UPPERCUT_DASH_FRAMES &&
-            dash_motion_equal,
-        "dash uppercut preserves native dash VX and X through delayed takeoff");
-  check(native_dash_travel > standing_travel &&
-            uppercut_dash_travel > standing_travel,
-        "native and uppercut dash jumps travel farther than a standing Right jump");
+            uppercut_standing_cap &&
+            uppercut_standing_travel * 2 <= standing_travel + 1,
+        "standing uppercut holds Right at half native walk speed and half native jump travel");
+  check(uppercut_dash_count == SABER_UPPERCUT_DASH_FRAMES &&
+            uppercut_dash_cap &&
+            uppercut_dash[SABER_UPPERCUT_TAKEOFF_TICK].vx !=
+                SABER_NATIVE_DASH_SPEED,
+        "dash uppercut replaces dash VX with the horizontal cap before take-off");
+  check(uppercut_dash_no_direction_count == SABER_UPPERCUT_DASH_FRAMES &&
+            uppercut_dash_no_direction_cap && no_direction_constant,
+        "uppercut with no horizontal direction holds Zero X constant");
+  printf("reference: saber-uppercut after_end active_vx=%d normal_vx=%d "
+         "normal_frame=%u\n", uppercut_last_active.vx,
+         uppercut_normal_air.vx, normal_air_frame);
+  check(air_control_restored &&
+            uppercut_last_active.vx == SABER_UPPERCUT_HORIZONTAL_SPEED &&
+            uppercut_normal_air.vx == SABER_NATIVE_WALK_SPEED,
+        "uppercut releases horizontal cap at end and restores normal air speed");
 
   /* Mutation red: remove the apex exit at signed-negative $0BC4. */
   printf("reference: saber-uppercut held apex_frame=%u apex_y=%u "
