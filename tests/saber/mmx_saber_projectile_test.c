@@ -113,7 +113,7 @@ static bool test_spawn_publishes_slot(void) {
 static bool test_collision_records(void) {
   static const uint8_t expected[SABER_PROJECTILE_KIND_COUNT][4] = {
     [SABER_PROJECTILE_TORNADO] = {0, (uint8_t)-60, 10, 60},
-    [SABER_PROJECTILE_ICE_CLONE] = {47, (uint8_t)-19, 47, 19},
+    [SABER_PROJECTILE_ICE_CLONE] = {47, (uint8_t)-18, 47, 19},
     [SABER_PROJECTILE_THUNDER_ORB] = {0, 0, 16, 16},
     [SABER_PROJECTILE_CUTTER] = {0, 0, 16, 6},
     [SABER_PROJECTILE_CUTTER_AIR] = {0, 0, 13, 12},
@@ -405,6 +405,8 @@ static bool test_stage_and_view_retire(void) {
 
 static bool test_tornado_growth_and_rise(void) {
   MmxSaberProjectileSpawnInfo info = default_info();
+  const int takeoff_zero_y = 100;
+  const int floor_y = takeoff_zero_y + MMX_SABER_ZERO_FEET_BELOW_Y;
   const MmxSaberProjectile *projectile;
   unsigned index;
   unsigned slot;
@@ -415,7 +417,7 @@ static bool test_tornado_growth_and_rise(void) {
   memset(collision_rom, 0xff, sizeof(collision_rom));
   MmxSaberProjectileCollisionRom(collision_rom, sizeof(collision_rom));
   info.x = 140 * 256;
-  info.y = 100 * 256;
+  info.y = floor_y * 256;
   info.lifetime = 90;
   info.native_weapon_class = 0x09;
   info.damage_normal = 4;
@@ -453,7 +455,7 @@ static bool test_tornado_growth_and_rise(void) {
     MmxSaberProjectileTick(ram);
   projectile = MmxSaberProjectileGet(index);
   if (!check(projectile->age == MMX_SABER_TORNADO_GROWTH_TICKS &&
-                 projectile->y == 100 * 256 &&
+                 projectile->y == floor_y * 256 &&
                  MmxSaberProjectileVisibleHeight(ram, slot) ==
                      MMX_SABER_TORNADO_HEIGHT,
              "tornado reaches full height at growth age 10 before rising"))
@@ -461,7 +463,7 @@ static bool test_tornado_growth_and_rise(void) {
   MmxSaberProjectileTick(ram);
   projectile = MmxSaberProjectileGet(index);
   if (!check(projectile->age == MMX_SABER_TORNADO_GROWTH_TICKS + 1 &&
-                 projectile->y == 93 * 256,
+                 projectile->y == (floor_y - 7) * 256,
              "tornado bottom rises 7 pixels per tick after growth"))
     return false;
   MmxSaberProjectileSetTornadoUppercutLive(ram, index, false);

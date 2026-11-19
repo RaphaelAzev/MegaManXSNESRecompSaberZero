@@ -48,10 +48,10 @@ const uint16_t *MmxZeroBodyColors(const MmxZeroState *s) {
 }
 
 static const uint8_t kSaberManifestSha[32] = {
-  0x10, 0x7f, 0xb6, 0xae, 0xae, 0x37, 0x64, 0x7e,
-  0x9d, 0x4e, 0x5c, 0x46, 0x5c, 0x44, 0xb1, 0x6f,
-  0x6e, 0xfb, 0x8c, 0x6c, 0x82, 0x15, 0x9a, 0x30,
-  0x81, 0x22, 0x99, 0x92, 0x2c, 0x9b, 0xba, 0x1e,
+  0x3f, 0xf7, 0x50, 0x0c, 0x8a, 0x14, 0xb2, 0xd0,
+  0xf8, 0xf7, 0x71, 0x1c, 0x4c, 0x38, 0x6b, 0x46,
+  0x4b, 0xca, 0xd4, 0xd5, 0x8a, 0x2b, 0x8e, 0xa5,
+  0x0e, 0x77, 0xc4, 0xe6, 0x62, 0xa3, 0x9c, 0xfc,
 };
 
 static const uint8_t kRideManifestSha[32] = {
@@ -238,6 +238,97 @@ static bool compose_overlay_opaque_rect(
     }
   }
   return found;
+}
+
+static bool blade_palette_color(uint16_t color) {
+  const unsigned red = color & 31u;
+  const unsigned green = (color >> 5) & 31u;
+  const unsigned blue = (color >> 10) & 31u;
+  return green > red && green > blue;
+}
+
+static bool compose_overlay_blade_rect(const MmxRenderPlayerOverlay *overlay,
+                                       int zero_x, int zero_y,
+                                       TestOpaqueRect *rect) {
+  const MmxRenderPlayerOverlayPlane *planes[3];
+  const uint16_t *palettes[3];
+  unsigned palette_counts[3];
+  bool found = false;
+
+  if (!overlay || !rect) return false;
+  planes[0] = &overlay->body;
+  planes[1] = &overlay->blade;
+  planes[2] = &overlay->front;
+  palettes[0] = overlay->palette;
+  palettes[1] = overlay->palette;
+  palettes[2] = overlay->front_palette;
+  palette_counts[0] = overlay->palette_count;
+  palette_counts[1] = overlay->palette_count;
+  palette_counts[2] = overlay->front_palette_count;
+  for (unsigned plane_index = 0; plane_index < 3; ++plane_index) {
+    const MmxRenderPlayerOverlayPlane *plane = planes[plane_index];
+    const uint16_t *palette = palettes[plane_index];
+    const unsigned palette_count = palette_counts[plane_index];
+    if (!plane->pixels || !palette || !palette_count) continue;
+    for (unsigned row = 0; row < plane->height; ++row) {
+      for (unsigned col = 0; col < plane->width; ++col) {
+        const unsigned pixel = plane->pixels[row * plane->width + col];
+        int canvas_col;
+        int world_x;
+        int world_y;
+        if (!pixel || pixel >= palette_count ||
+            !blade_palette_color(palette[pixel]))
+          continue;
+        canvas_col = plane->origin_x + (int)col;
+        world_x = zero_x + (overlay->facing_left ?
+            63 - canvas_col : canvas_col - 64);
+        world_y = zero_y - 64 + plane->origin_y + (int)row;
+        include_opaque_pixel(rect, world_x, world_y, &found);
+      }
+    }
+  }
+  return found;
+}
+
+static int drawn_zero_feet_y(const MmxSaberAssets *assets, int zero_x,
+                             int zero_y, uint8_t facing) {
+  static const MmxSaberAttackSnapshot standing[] = {
+    {SABER_KIND_GROUND1, 0, SABER_PHASE_ACTIVE, 0, 1, 0, 0},
+    {SABER_KIND_GROUND2, 1, SABER_PHASE_ACTIVE, 0, 2, 0, 0},
+  };
+  int feet_y = -1;
+
+  for (unsigned i = 0; i < sizeof(standing) / sizeof(standing[0]); ++i) {
+    MmxSaberAttackSnapshot snapshot = standing[i];
+    MmxRenderPlayerOverlay overlay;
+    TestOpaqueRect rect;
+    snapshot.facing = facing;
+    check(MmxSaberRenderResolveSnapshot(assets, snapshot, &overlay) &&
+              compose_overlay_opaque_rect(
+                  &overlay.body, overlay.facing_left, zero_x, zero_y,
+                  overlay.palette_count, &rect),
+          "standing body composite exposes drawn Zero feet");
+    if (feet_y < 0) feet_y = rect.max_y;
+    check(rect.max_y == feet_y,
+          "ground standing frames share the drawn Zero feet line");
+  }
+  return feet_y;
+}
+
+static int drawn_ground_blade_center_y(const MmxSaberAssets *assets,
+                                       int zero_x, int zero_y,
+                                       uint8_t facing) {
+  const MmxSaberAttackSnapshot snapshot = {
+    SABER_KIND_GROUND2, 1, SABER_PHASE_ACTIVE, 6, 2, 3, 0};
+  MmxRenderPlayerOverlay overlay;
+  TestOpaqueRect rect;
+
+  MmxSaberAttackSnapshot oriented = snapshot;
+  oriented.facing = facing;
+  check(MmxSaberRenderResolveSnapshot(assets, oriented, &overlay) &&
+            compose_overlay_blade_rect(&overlay, zero_x, zero_y, &rect),
+        "slash-2 step-3 composite exposes drawn blade");
+  return (rect.min_y + rect.max_y + 1) / 2;
 }
 
 static MmxSaberAssets *make_flash_assets(bool include_new) {
@@ -1252,9 +1343,15 @@ static void tornado_asset_checks(const MmxSaberAssets *assets) {
   TestOpaqueRect rect;
   const uint16_t *palette = MmxSaberAssetsPalette(assets);
   const uint16_t palette_count = MmxSaberAssetsPaletteCount(assets);
+  const int takeoff_zero_y = 123;
+  const int floor_y = takeoff_zero_y + MMX_SABER_ZERO_FEET_BELOW_Y;
   uint8_t ram[0x20000] = {0};
   MmxSaberProjectileSpawnInfo info = {0};
   unsigned index;
+
+  test_zero_state = (MmxZeroState){0};
+  test_arms = false;
+  test_black_zero = false;
 
   check(animation && animation->step_count == 3 &&
             animation->total_ticks == 12,
@@ -1281,7 +1378,7 @@ static void tornado_asset_checks(const MmxSaberAssets *assets) {
                                    false, true, palette, palette_count);
   info.kind = SABER_PROJECTILE_TORNADO;
   info.x = 321 * 256;
-  info.y = 123 * 256;
+  info.y = floor_y * 256;
   info.lifetime = 20;
   check(MmxSaberProjectileSpawn(ram, &info, &index) &&
             MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
@@ -1291,16 +1388,18 @@ static void tornado_asset_checks(const MmxSaberAssets *assets) {
             actual[0].palette_count == palette_count,
         "loaded tornado strip registers frame zero with palette and origin");
   check(actual[0].facing_left && compose_world_opaque_rect(&actual[0], &rect) &&
-            rect.min_x == 308 && rect.max_x == 335 && rect.min_y == 3 &&
-            rect.max_y == 123,
+            rect.min_x == 308 && rect.max_x == 335 &&
+            rect.min_y == floor_y - 120 &&
+            rect.max_y == floor_y,
         "left tornado opaque rect is centred on spawn and ends at floor");
   MmxSaberProjectileReset(ram);
   info.facing = 0x40;
   check(MmxSaberProjectileSpawn(ram, &info, &index) &&
             MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
             !actual[0].facing_left && compose_world_opaque_rect(&actual[0], &rect) &&
-            rect.min_x == 307 && rect.max_x == 334 && rect.min_y == 3 &&
-            rect.max_y == 123,
+            rect.min_x == 307 && rect.max_x == 334 &&
+            rect.min_y == floor_y - 120 &&
+            rect.max_y == floor_y,
         "right tornado opaque rect is centred on spawn and ends at floor");
   for (unsigned i = 0; i < 4; ++i) MmxSaberProjectileTick(ram);
   check(MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
@@ -1311,23 +1410,84 @@ static void tornado_asset_checks(const MmxSaberAssets *assets) {
             actual[0].pixels == frames[0].pixels,
         "loaded tornado strip loops after three frames");
   MmxSaberProjectileReset(ram);
-  ram[MMX_SABER_PROJECTILE_PLAYER_Y] = 110;
+  put_u16(ram, MMX_SABER_PROJECTILE_PLAYER_Y, 110);
   info.tornado_uppercut_live = true;
   check(MmxSaberProjectileSpawn(ram, &info, &index) &&
             MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
             actual[0].pixels == frames[0].pixels + (120 - 70) * 28 &&
             actual[0].height == 70 && actual[0].origin_y == -120 &&
-            actual[0].world_y == 123 + 120 - 70 &&
-            actual[0].world_y + actual[0].origin_y + actual[0].height == 123,
+            actual[0].world_y == floor_y + 120 - 70 &&
+            actual[0].world_y + actual[0].origin_y + actual[0].height == floor_y,
         "growing tornado crops its top rows and keeps the bottom at the floor");
-  ram[MMX_SABER_PROJECTILE_PLAYER_Y] = 90;
+  put_u16(ram, MMX_SABER_PROJECTILE_PLAYER_Y, 90);
   MmxSaberProjectileTick(ram);
   check(MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
             actual[0].pixels == frames[0].pixels + (120 - 90) * 28 &&
             actual[0].height == 90 && actual[0].origin_y == -120 &&
-            actual[0].world_y == 123 + 120 - 90 &&
-            actual[0].world_y + actual[0].origin_y + actual[0].height == 123,
+            actual[0].world_y == floor_y + 120 - 90 &&
+            actual[0].world_y + actual[0].origin_y + actual[0].height == floor_y,
         "tornado crop grows with Zero and remains bottom-anchored");
+  {
+    static uint8_t collision_rom[0x40000];
+    const int zero_x = 321;
+    const int zero_y = 123;
+    for (unsigned facing = 0; facing < 2; ++facing) {
+      const uint8_t native_facing = facing ? 0x40 : 0;
+      const uint8_t direction = facing ? 1 : 2;
+      const int drawn_feet = drawn_zero_feet_y(
+          assets, zero_x, zero_y, native_facing);
+      MmxSaberProjectileLiveInfo live[1];
+      MmxRenderWorldSprite placed[1];
+      TestOpaqueRect placed_rect;
+      const MmxSaberProjectile *projectile;
+      const int expected_x = zero_x + (facing ? 45 : -45);
+
+      memset(ram, 0, sizeof(ram));
+      memset(collision_rom, 0xff, sizeof(collision_rom));
+      put_u16(ram, 0x0bad, (unsigned)zero_x);
+      put_u16(ram, 0x0bb0, (unsigned)zero_y);
+      ram[0x0bd3] = 4;
+      ram[0x1f90] = 0x40;
+      put_u16(ram, 0x1f8f, 0x4100);
+      MmxSaberProjectileReset(ram);
+      MmxSaberAttackResetRam(ram);
+      MmxSaberProjectileCollisionRom(collision_rom, sizeof(collision_rom));
+      MmxSaberAttackStepWithWallAndDash(
+          true, true, false, false, true, false, true, false, true, ram,
+          native_facing, direction);
+      for (unsigned tick = 1; tick <= 4; ++tick)
+        MmxSaberAttackStepWithWallAndDash(
+            false, true, false, false, true, false, true, false, true, ram,
+            native_facing, direction);
+      MmxSaberAttackObservePreNative(ram);
+      ram[0x0bd3] = 0;
+      ram[0x0baa] = 0x06;
+      MmxSaberAttackPlayerEnd(ram);
+      check(MmxSaberProjectileLive(live, 1) == 1 &&
+                live[0].kind == SABER_PROJECTILE_TORNADO &&
+                live[0].world_x == expected_x &&
+                live[0].world_y == drawn_feet,
+            "storm tornado attack uses drawn Zero feet and measured saber-tip x");
+      projectile = MmxSaberProjectileGet(0);
+      check(MmxSaberRenderProvideWorldSprites(placed, 1) == 1 &&
+                placed[0].world_x == expected_x &&
+                compose_world_opaque_rect(&placed[0], &placed_rect) &&
+                placed_rect.min_x == expected_x - (facing ? 14 : 13) &&
+                placed_rect.max_x == expected_x + (facing ? 13 : 14) &&
+                projectile &&
+                (ram[projectile->slot + 5] |
+                 ((unsigned)ram[projectile->slot + 6] << 8)) ==
+                    (unsigned)expected_x &&
+                (ram[projectile->slot + 8] |
+                 ((unsigned)ram[projectile->slot + 9] << 8)) ==
+                    (unsigned)drawn_feet &&
+                placed_rect.max_y == drawn_feet &&
+                collision_rom[MmxSaberProjectileCollisionOffset(0) + 2] == 10,
+            "storm tornado composite and ROM position follow arc front edge");
+      MmxSaberAttackResetRam(ram);
+      MmxSaberProjectileReset(ram);
+    }
+  }
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_TORNADO, NULL, 0, 0,
                                    false, false, NULL, 0);
   MmxSaberProjectileReset(ram);
@@ -1353,6 +1513,10 @@ static void cutter_asset_checks(const MmxSaberAssets *assets) {
   uint8_t ram[0x20000] = {0};
   MmxSaberProjectileSpawnInfo info = {0};
   unsigned index;
+
+  test_zero_state = (MmxZeroState){0};
+  test_arms = false;
+  test_black_zero = false;
 
   check(forward && forward->step_count == CUTTER_FRAME_COUNT &&
             forward->total_ticks == CUTTER_FRAME_COUNT * CUTTER_TICKS_PER_FRAME &&
@@ -1465,6 +1629,62 @@ static void cutter_asset_checks(const MmxSaberAssets *assets) {
             actual[0].pixels == forward_frames[0].pixels &&
             actual[1].pixels == diagonal_frames[0].pixels,
         "loaded cutter strips loop after four frames");
+  {
+    static uint8_t collision_rom[0x40000];
+    const int zero_x = 321;
+    const int zero_y = 123;
+    const int drawn_blade_center = drawn_ground_blade_center_y(
+        assets, zero_x, zero_y, 0x40);
+    check(drawn_blade_center == zero_y + 7,
+          "slash-2 step-3 blade centre maps to Zero y plus 7");
+    for (unsigned facing = 0; facing < 2; ++facing) {
+      const uint8_t native_facing = facing ? 0x40 : 0;
+      const uint8_t direction = facing ? 1 : 2;
+      MmxSaberProjectileLiveInfo live[1];
+      MmxRenderWorldSprite placed[1];
+      TestOpaqueRect placed_rect;
+      const MmxSaberProjectile *projectile;
+      const int expected_x = zero_x + (facing ? 30 : -30);
+      const int expected_y = drawn_ground_blade_center_y(
+          assets, zero_x, zero_y, native_facing);
+
+      memset(ram, 0, sizeof(ram));
+      memset(collision_rom, 0xff, sizeof(collision_rom));
+      put_u16(ram, 0x0bad, (unsigned)zero_x);
+      put_u16(ram, 0x0bb0, (unsigned)zero_y);
+      ram[0x0bd3] = 4;
+      MmxSaberProjectileReset(ram);
+      MmxSaberAttackResetRam(ram);
+      MmxSaberProjectileCollisionRom(collision_rom, sizeof(collision_rom));
+      MmxSaberAttackStepWithWallAndDashRequested(
+          true, SABER_KIND_GROUND2, true, false, false, false, false, true,
+          false, true, ram, native_facing, direction);
+      for (unsigned tick = 0; tick < 6; ++tick)
+        MmxSaberAttackStepWithWallAndDashRequested(
+            false, SABER_KIND_NONE, true, false, false, false, false, true,
+            false, true, ram, native_facing, direction);
+      check(MmxSaberProjectileLive(live, 1) == 1 &&
+                live[0].kind == SABER_PROJECTILE_CUTTER &&
+                live[0].world_x == expected_x && live[0].world_y == expected_y,
+            "ground cutter attack follows drawn blade centre for both facings");
+      projectile = MmxSaberProjectileGet(0);
+      check(MmxSaberRenderProvideWorldSprites(placed, 1) == 1 &&
+                placed[0].world_x == expected_x &&
+                compose_world_opaque_rect(&placed[0], &placed_rect) &&
+                placed_rect.min_y == expected_y - 6 &&
+                placed_rect.max_y == expected_y + 6 && projectile &&
+                (ram[projectile->slot + 8] |
+                 ((unsigned)ram[projectile->slot + 9] << 8)) ==
+                    (unsigned)expected_y &&
+                collision_rom[MmxSaberProjectileCollisionOffset(0)] == 0 &&
+                collision_rom[MmxSaberProjectileCollisionOffset(0) + 1] == 0 &&
+                collision_rom[MmxSaberProjectileCollisionOffset(0) + 2] == 16 &&
+                collision_rom[MmxSaberProjectileCollisionOffset(0) + 3] == 6,
+            "ground cutter composite and ROM box follow measured blade centre");
+      MmxSaberAttackResetRam(ram);
+      MmxSaberProjectileReset(ram);
+    }
+  }
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_CUTTER, NULL, 0, 0,
                                    false, false, NULL, 0);
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_CUTTER_AIR, NULL, 0, 0,
@@ -1480,7 +1700,7 @@ static void ice_clone_asset_checks(const MmxSaberAssets *assets) {
     ICE_CLONE_WIDTH = 94,
     ICE_CLONE_HEIGHT = 38,
     ICE_CLONE_ORIGIN_X = 94,
-    ICE_CLONE_ORIGIN_Y = 38,
+    ICE_CLONE_ORIGIN_Y = 37,
   };
   const MmxSaberAnimation *animation =
       MmxSaberAssetsAnimationById(assets, ICE_CLONE_ANIMATION_ID);
@@ -1541,32 +1761,95 @@ static void ice_clone_asset_checks(const MmxSaberAssets *assets) {
             actual[0].palette_count == palette_count,
         "loaded ice clone strip registers frame zero with palette and origin");
   check(actual[0].facing_left && compose_world_opaque_rect(&actual[0], &rect) &&
-            rect.min_x == 142 && rect.max_x == 221 && rect.min_y == 124 &&
-            rect.max_y == 160,
-        "left ice clone leading edge is at projectile point and feet stay aligned");
+            rect.min_x == 142 && rect.max_x == 221 && rect.min_y == 125 &&
+            rect.max_y == 161 && rect.max_y - 1 == 160,
+        "left ice clone leading edge is at projectile point and opaque bottom is on feet");
   MmxSaberProjectileReset(ram);
   info.facing = 0x40;
   check(MmxSaberProjectileSpawn(ram, &info, &index) &&
             MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
             !actual[0].facing_left && compose_world_opaque_rect(&actual[0], &rect) &&
-            rect.min_x == 63 && rect.max_x == 142 && rect.min_y == 124 &&
-            rect.max_y == 160,
-        "right ice clone leading edge is at projectile point and feet stay aligned");
+            rect.min_x == 63 && rect.max_x == 142 && rect.min_y == 125 &&
+            rect.max_y == 161 && rect.max_y - 1 == 160,
+        "right ice clone leading edge is at projectile point and opaque bottom is on feet");
   for (unsigned i = 0; i < ICE_CLONE_TICKS_PER_FRAME; ++i)
     MmxSaberProjectileTick(ram);
   check(MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
-            actual[0].pixels == frames[1].pixels,
-        "loaded ice clone strip advances after three ticks");
+            actual[0].pixels == frames[1].pixels &&
+            compose_world_opaque_rect(&actual[0], &rect) &&
+            rect.max_y - 1 == 160,
+        "ice clone frame two keeps its opaque bottom on feet");
   for (unsigned i = 0; i < ICE_CLONE_TICKS_PER_FRAME; ++i)
     MmxSaberProjectileTick(ram);
   check(MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
-            actual[0].pixels == frames[2].pixels,
-        "loaded ice clone strip selects frame three after six ticks");
+            actual[0].pixels == frames[2].pixels &&
+            compose_world_opaque_rect(&actual[0], &rect) &&
+            rect.max_y - 1 == 160,
+        "ice clone frame three keeps its opaque bottom on feet");
   for (unsigned i = 0; i < ICE_CLONE_TICKS_PER_FRAME; ++i)
     MmxSaberProjectileTick(ram);
   check(MmxSaberRenderProvideWorldSprites(actual, 1) == 1 &&
-            actual[0].pixels == frames[2].pixels,
-        "loaded ice clone strip holds frame three after nine ticks");
+            actual[0].pixels == frames[2].pixels &&
+            compose_world_opaque_rect(&actual[0], &rect) &&
+            rect.max_y - 1 == 160,
+        "ice clone held frame keeps its opaque bottom on feet");
+  {
+    static uint8_t collision_rom[0x40000];
+    const int zero_x = 321;
+    const int zero_y = 123;
+
+    test_zero_state = (MmxZeroState){0};
+    test_arms = false;
+    test_black_zero = false;
+    for (unsigned facing = 0; facing < 2; ++facing) {
+      const uint8_t native_facing = facing ? 0x40 : 0;
+      const uint8_t direction = facing ? 1 : 2;
+      const int drawn_feet = drawn_zero_feet_y(
+          assets, zero_x, zero_y, native_facing);
+      const int expected_x = zero_x + (facing ? 58 : -58);
+      MmxSaberProjectileLiveInfo live[1];
+      MmxRenderWorldSprite placed[1];
+      TestOpaqueRect placed_rect;
+      const MmxSaberProjectile *projectile;
+
+      memset(ram, 0, sizeof(ram));
+      memset(collision_rom, 0xff, sizeof(collision_rom));
+      put_u16(ram, 0x0bad, (unsigned)zero_x);
+      put_u16(ram, 0x0bb0, (unsigned)zero_y);
+      ram[0x1f96] = 0x40;
+      put_u16(ram, 0x1f95, 0x5c00);
+      MmxSaberProjectileReset(ram);
+      MmxSaberAttackResetRam(ram);
+      MmxSaberProjectileCollisionRom(collision_rom, sizeof(collision_rom));
+      MmxSaberAttackStepWithWallAndDash(
+          true, true, false, true, false, true, true, false, true, ram,
+          native_facing, direction);
+      MmxSaberAttackRuntimeTick(ram);
+      check(MmxSaberProjectileLive(live, 1) == 1 &&
+                live[0].kind == SABER_PROJECTILE_ICE_CLONE &&
+                live[0].world_x == expected_x &&
+                live[0].world_y == drawn_feet,
+            "ice clone attack uses drawn Zero feet for both facings");
+      projectile = MmxSaberProjectileGet(0);
+      check(MmxSaberRenderProvideWorldSprites(placed, 1) == 1 &&
+                placed[0].world_x == expected_x &&
+                compose_world_opaque_rect(&placed[0], &placed_rect) &&
+                (facing ? placed_rect.max_x == expected_x :
+                          placed_rect.min_x == expected_x) &&
+                placed_rect.max_y - 1 == drawn_feet && projectile &&
+                (ram[projectile->slot + 8] |
+                 ((unsigned)ram[projectile->slot + 9] << 8)) ==
+                    (unsigned)drawn_feet &&
+                collision_rom[MmxSaberProjectileCollisionOffset(0)] == 47 &&
+                collision_rom[MmxSaberProjectileCollisionOffset(0) + 1] ==
+                    (uint8_t)-18 &&
+                collision_rom[MmxSaberProjectileCollisionOffset(0) + 2] == 47 &&
+                collision_rom[MmxSaberProjectileCollisionOffset(0) + 3] == 19,
+            "ice clone composite and ROM box follow opaque art bottom at feet");
+      MmxSaberAttackResetRam(ram);
+      MmxSaberProjectileReset(ram);
+    }
+  }
   MmxSaberRenderSetProjectileStrip(SABER_PROJECTILE_ICE_CLONE, NULL, 0, 0,
                                    false, false, NULL, 0);
   MmxSaberProjectileReset(ram);

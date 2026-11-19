@@ -28,17 +28,22 @@ enum {
   MMX_SABER_PROJECTILE_CAMERA = 0x1e4d,
   MMX_SABER_PROJECTILE_COUNT = 0x0bdd,
   MMX_SABER_PROJECTILE_PLAYER_Y = 0x0bb0,
-  /* boomer() ground mock centres: Zero x + 30, floor y - 14. */
+  /* F1: RAM $0BB0 is canvas row 64; Zero frames end at row 88, so drawn
+   * feet/floor is 24 pixels below Zero y. */
+  MMX_SABER_ZERO_FEET_BELOW_Y = 24,
+  /* boomer() ground mock centre is Zero x + 30. */
   MMX_SABER_CUTTER_FRONT_X = 30,
   /* boomer() air step-3 blade bbox right edge is 108 on a 128 canvas;
    * Zero origin is x=64, so the front offset is 108 - 64. */
   MMX_SABER_AIR_CUTTER_FRONT_X = 108 - 64,
-  MMX_SABER_CUTTER_GROUND_Y_OFFSET = 14,
+  /* Slash-2 step-3 blade centre is canvas y=70.5; F1 maps it to Zero y+7. */
+  MMX_SABER_CUTTER_GROUND_Y_OFFSET = 7,
   MMX_SABER_CUTTER_LIFETIME = 60,
-  MMX_SABER_TORNADO_FRONT_X = 35,
-  /* The growing column reaches the top of the take-off arc: arc bbox top
-   * y=31 on the 128 canvas, Zero origin y=88 -> 57 px above Zero. */
-  MMX_SABER_TORNADO_TOP_ABOVE_ZERO = 57,
+  /* Storm uppercut step 2 arc front edge is x=51 from Zero; column centre
+   * stays six pixels behind that saber tip. */
+  MMX_SABER_TORNADO_FRONT_X = 45,
+  /* The growing column reaches the take-off arc top: 57 px above drawn feet. */
+  MMX_SABER_TORNADO_TOP_ABOVE_FEET = 57,
   MMX_SABER_TORNADO_HEIGHT = 120,
   MMX_SABER_TORNADO_GROWTH_TICKS = 10,
   MMX_SABER_TORNADO_RISE_VY = -7 * 256,

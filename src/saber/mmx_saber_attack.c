@@ -807,7 +807,7 @@ static bool spawn_tornado(uint8_t *ram) {
 
   info.kind = SABER_PROJECTILE_TORNADO;
   info.x = (int32_t)tornado_x * 256;
-  info.y = (int32_t)takeoff_y * 256;
+  info.y = (int32_t)(takeoff_y + MMX_SABER_ZERO_FEET_BELOW_Y) * 256;
   info.lifetime = 90;
   info.facing = state.facing;
   info.native_weapon_class = 0x09;
@@ -841,7 +841,7 @@ static void spawn_cutter_if_ready(uint8_t *ram) {
   state.cutter_spawn_attempted = true;
   info.kind = air ? SABER_PROJECTILE_CUTTER_AIR : SABER_PROJECTILE_CUTTER;
   info.x = (int32_t)(zero_x + direction * front_x) * 256;
-  info.y = (int32_t)(zero_y - (air ? 0 : MMX_SABER_CUTTER_GROUND_Y_OFFSET)) * 256;
+  info.y = (int32_t)(zero_y + (air ? 0 : MMX_SABER_CUTTER_GROUND_Y_OFFSET)) * 256;
   info.vx = (int16_t)(direction * (air ? 5 : 8) * 256);
   info.vy = (int16_t)(air ? 5 * 256 : 0);
   info.lifetime = MMX_SABER_CUTTER_LIFETIME;
@@ -1580,7 +1580,7 @@ static void spawn_ice_clone_if_ready(uint8_t *ram) {
   state.ice_clone_spawn_attempted = true;
   info.kind = SABER_PROJECTILE_ICE_CLONE;
   info.x = (int32_t)(zero_x + direction * MMX_SABER_ICE_CLONE_FRONT_X) * 256;
-  info.y = (int32_t)zero_y * 256;
+  info.y = (int32_t)(zero_y + MMX_SABER_ZERO_FEET_BELOW_Y) * 256;
   info.lifetime = MMX_SABER_ICE_CLONE_LIFETIME;
   info.facing = state.facing;
   info.damage_normal = (uint8_t)MmxSaberTuningNormalDamage(

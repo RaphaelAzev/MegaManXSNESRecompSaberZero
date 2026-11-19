@@ -112,10 +112,10 @@ static const char *const kMmxRomDigest =
     "b8f70a6e7fb93819f79693578887e2c11e196bdf1ac6ddc7cb924b1ad0be2d32";
 
 static const uint8_t kSaberManifestSha[32] = {
-  0x10, 0x7f, 0xb6, 0xae, 0xae, 0x37, 0x64, 0x7e,
-  0x9d, 0x4e, 0x5c, 0x46, 0x5c, 0x44, 0xb1, 0x6f,
-  0x6e, 0xfb, 0x8c, 0x6c, 0x82, 0x15, 0x9a, 0x30,
-  0x81, 0x22, 0x99, 0x92, 0x2c, 0x9b, 0xba, 0x1e,
+  0x3f, 0xf7, 0x50, 0x0c, 0x8a, 0x14, 0xb2, 0xd0,
+  0xf8, 0xf7, 0x71, 0x1c, 0x4c, 0x38, 0x6b, 0x46,
+  0x4b, 0xca, 0xd4, 0xd5, 0x8a, 0x2b, 0x8e, 0xa5,
+  0x0e, 0x77, 0xc4, 0xe6, 0x62, 0xa3, 0x9c, 0xfc,
 };
 
 static const uint8_t kRideManifestSha[32] = {
@@ -6243,14 +6243,14 @@ static void saber_cutter_ground_case(const char *fixture, bool right) {
   check(projectile->active && projectile->x ==
             (int32_t)(spawn_zero_x + direction * MMX_SABER_CUTTER_FRONT_X) * 256 &&
             projectile->y ==
-                (int32_t)(spawn_zero_y - MMX_SABER_CUTTER_GROUND_Y_OFFSET) * 256 &&
+                (int32_t)(spawn_zero_y + MMX_SABER_CUTTER_GROUND_Y_OFFSET) * 256 &&
             projectile->vx == (int16_t)(direction * 8 * 256) &&
             projectile->vy == 0 && projectile->lifetime ==
                 MMX_SABER_CUTTER_LIFETIME && !projectile->pass_through &&
             projectile->damage_normal == 4 && projectile->damage_boss == 2 &&
             (g_ram[slot + 0x11] & 0x40) == (right ? 0x40 : 0),
-        right ? "right ground cutter uses front, feet-minus-14, 8-pixel motion, and mirrored sprite" :
-                "left ground cutter uses mirrored front, feet-minus-14, 8-pixel motion, and mirrored sprite");
+        right ? "right ground cutter uses front, blade-centre y, 8-pixel motion, and mirrored sprite" :
+                "left ground cutter uses mirrored front, blade-centre y, 8-pixel motion, and mirrored sprite");
 
   frame(0);
   projectile = MmxSaberProjectileGet(index);
@@ -6258,7 +6258,7 @@ static void saber_cutter_ground_case(const char *fixture, bool right) {
             (int32_t)(spawn_zero_x + direction *
                       (MMX_SABER_CUTTER_FRONT_X + 8)) * 256 &&
             projectile->y ==
-                (int32_t)(spawn_zero_y - MMX_SABER_CUTTER_GROUND_Y_OFFSET) * 256,
+                (int32_t)(spawn_zero_y + MMX_SABER_CUTTER_GROUND_Y_OFFSET) * 256,
         right ? "right ground cutter advances 8 pixels and keeps floor height" :
                 "left ground cutter advances 8 pixels and keeps floor height");
 }
@@ -6306,7 +6306,7 @@ static void saber_cutter_ground_input_case(const char *fixture) {
     check(projectile->x ==
               (int32_t)(spawn_zero_x + MMX_SABER_CUTTER_FRONT_X) * 256 &&
               projectile->y ==
-                  (int32_t)(spawn_zero_y - MMX_SABER_CUTTER_GROUND_Y_OFFSET) * 256 &&
+                  (int32_t)(spawn_zero_y + MMX_SABER_CUTTER_GROUND_Y_OFFSET) * 256 &&
               projectile->vx > 0,
           "ground Down+Y Cutter technique sends cutter forward at floor height");
   }
@@ -12621,7 +12621,9 @@ static unsigned saber_tornado_start_loaded(bool right, unsigned *takeoff_x,
           "tornado stays absent before uppercut take-off tick");
   }
   if (takeoff_x) *takeoff_x = read_ram_word(g_ram, 0x0bad);
-  if (takeoff_floor_y) *takeoff_floor_y = read_ram_word(g_ram, 0x0bb0);
+  if (takeoff_floor_y)
+    *takeoff_floor_y = read_ram_word(g_ram, 0x0bb0) +
+        MMX_SABER_ZERO_FEET_BELOW_Y;
   frame(SNES_PAD_Y);
   return saber_tornado_slot();
 }
@@ -12675,7 +12677,7 @@ static void saber_tornado_checks(const char *fixture) {
             (g_ram[slot + 0x11] & 0x40) == 0x40 &&
             read_ram_word(g_ram, slot + 0x20) ==
                 MmxSaberProjectileCollisionPointer(index),
-        "right tornado uses Zero X plus 35 and take-off floor Y");
+        "right tornado uses Zero X plus 45 and drawn-feet floor Y");
   check(g_snes->cart->rom[MmxSaberProjectileCollisionOffset(index) +
                           2] == 10,
         "tornado collision record publishes 20-pixel centred width");
@@ -12727,7 +12729,7 @@ static void saber_tornado_checks(const char *fixture) {
                 (int16_t)takeoff_x - MMX_SABER_TORNADO_FRONT_X &&
             read_ram_word(g_ram, slot + 8) == takeoff_floor_y &&
             !(g_ram[slot + 0x11] & 0x40),
-        "left uppercut spawns one tornado at Zero X minus 35 and floor Y");
+        "left uppercut spawns one tornado at Zero X minus 45 and drawn-feet floor Y");
 
   {
     const unsigned cost = 0x0100;
@@ -14393,7 +14395,8 @@ static unsigned saber_ice_clone_launch_loaded(bool right) {
   const unsigned dash_start = saber_ice_clone_start_dash(right);
   const unsigned dash_action = g_ram[0x0baa];
   const int zero_x = (int16_t)read_ram_word(g_ram, 0x0bad);
-  const int feet_y = (int16_t)read_ram_word(g_ram, 0x0bb0);
+  const int zero_y = (int16_t)read_ram_word(g_ram, 0x0bb0);
+  const int feet_y = zero_y + MMX_SABER_ZERO_FEET_BELOW_Y;
   MmxSaberAttackSnapshot snapshot;
   unsigned slot;
 
@@ -14519,9 +14522,10 @@ static void saber_ice_clone_air_dash_case(const char *fixture) {
     const unsigned index = (slot - MMX_SABER_PROJECTILE_SLOT_FIRST) /
         MMX_SABER_PROJECTILE_SLOT_BYTES;
     const MmxSaberProjectile *projectile = MmxSaberProjectileGet(index);
+    const int clone_feet_y = spawn_zero_y + MMX_SABER_ZERO_FEET_BELOW_Y;
     check(projectile->x ==
               (int32_t)(spawn_zero_x + MMX_SABER_ICE_CLONE_FRONT_X) * 256 &&
-              projectile->y == (int32_t)spawn_zero_y * 256 &&
+              projectile->y == (int32_t)clone_feet_y * 256 &&
               projectile->facing == 0x40,
           "air ice clone spawns at Zero front and feet height");
     previous_clone_x = projectile->x;
@@ -14530,7 +14534,7 @@ static void saber_ice_clone_air_dash_case(const char *fixture) {
       snapshot = MmxSaberAttackSnapshotGet();
       zero = MmxZeroGetState();
       projectile = MmxSaberProjectileGet(index);
-      if (!projectile->active || projectile->y != (int32_t)spawn_zero_y * 256)
+      if (!projectile->active || projectile->y != (int32_t)clone_feet_y * 256)
         clone_height_ok = false;
       if (!projectile->active || projectile->x <= previous_clone_x)
         clone_slide_ok = false;

@@ -231,9 +231,10 @@ static unsigned tornado_visible_height(const uint8_t *ram,
   if (projectile->age >= MMX_SABER_TORNADO_GROWTH_TICKS ||
       !projectile->tornado_uppercut_live || !ram)
     return MMX_SABER_TORNADO_HEIGHT;
+  /* Feet shift moves the fixed floor and the take-off arc top together. */
   height = (int)native_coordinate(projectile->tornado_floor_y) -
-      ((int16_t)word(ram + MMX_SABER_PROJECTILE_PLAYER_Y) -
-       MMX_SABER_TORNADO_TOP_ABOVE_ZERO);
+      ((int16_t)word(ram + MMX_SABER_PROJECTILE_PLAYER_Y) +
+       MMX_SABER_ZERO_FEET_BELOW_Y - MMX_SABER_TORNADO_TOP_ABOVE_FEET);
   if (height < 16) height = 16;
   if (height > MMX_SABER_TORNADO_HEIGHT)
     height = MMX_SABER_TORNADO_HEIGHT;
@@ -271,9 +272,10 @@ static void update_collision_record(const uint8_t *ram,
       (tornado_visible_height(ram, projectile) + 1) / 2 :
       hitbox->half_height;
   next[0] = projectile->kind == SABER_PROJECTILE_ICE_CLONE ? 47 : 0;
+  /* Animation 18 anchor y=37 moves the 38-row clone box down one row. */
   next[1] = projectile->kind == SABER_PROJECTILE_TORNADO ?
       (uint8_t)(-(int)half_height) :
-      projectile->kind == SABER_PROJECTILE_ICE_CLONE ? (uint8_t)-19 : 0;
+      projectile->kind == SABER_PROJECTILE_ICE_CLONE ? (uint8_t)-18 : 0;
   next[2] = hitbox->half_width;
   next[3] = (uint8_t)half_height;
   memcpy(record, next, sizeof(next));

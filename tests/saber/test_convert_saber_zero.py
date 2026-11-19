@@ -397,7 +397,7 @@ class SaberConverterTests(unittest.TestCase):
                                        24 if animation_id == 17 else 38)
                         cell_y = 0 if animation_id in (16, 18) else 12
                         origin = ([16, 6] if animation_id == 16 else
-                                  [13, 12] if animation_id == 17 else [94, 38])
+                                  [13, 12] if animation_id == 17 else [94, 37])
                         self.assertEqual(
                             [x, y, width, height],
                             [cell_width * local_frame, cell_y,
