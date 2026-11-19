@@ -8,6 +8,7 @@
 #include "../mmx_zero.h"
 #include "mmx_saber_sfx.h"
 #include "mmx_saber_armor.h"
+#include "mmx_saber_frame.h"
 #include "mmx_saber_hitbox_debug.h"
 #include "mmx_saber_priority.h"
 #include "mmx_saber_projectile.h"
@@ -797,6 +798,10 @@ static bool spawn_tornado(uint8_t *ram) {
       (state.facing ? MMX_SABER_TORNADO_FRONT_X :
                      -MMX_SABER_TORNADO_FRONT_X);
 
+  if (!MmxSaberFrameWeaponHasUsableEnergy(
+          ram, MMX_SABER_WEAPON_STORM_TORNADO))
+    return false;
+
   info.kind = SABER_PROJECTILE_TORNADO;
   info.x = (int32_t)tornado_x * 256;
   info.y = (int32_t)takeoff_y * 256;
@@ -812,6 +817,8 @@ static bool spawn_tornado(uint8_t *ram) {
   if (!MmxSaberProjectileSpawn(ram, &info, &index)) return false;
   state.tornado_index = (uint8_t)index;
   state.tornado_spawned = true;
+  MmxSaberFrameDebitNormalWeaponEnergy(
+      ram, MMX_SABER_WEAPON_STORM_TORNADO, MMX_SABER_NORMAL_SHOT_COST);
   return true;
 }
 
@@ -1352,7 +1359,9 @@ void MmxSaberAttackStepWithWallAndDashRequested(
                  (grounded && up_held &&
                           special_unlocked(ram, SABER_SPECIAL_UPPERCUT) ? SABER_KIND_UPPERCUT :
                   (dash_active && down_held &&
-                           special_unlocked(ram, SABER_SPECIAL_ICE_CLONE) ?
+                           special_unlocked(ram, SABER_SPECIAL_ICE_CLONE) &&
+                           MmxSaberFrameWeaponHasUsableEnergy(
+                               ram, MMX_SABER_WEAPON_SHOTGUN_ICE) ?
                        SABER_KIND_ICE_CLONE :
                    (dash_active ? SABER_KIND_DASH : SABER_KIND_GROUND1))))));
       const uint8_t facing = wall_clinging ||
@@ -1364,6 +1373,9 @@ void MmxSaberAttackStepWithWallAndDashRequested(
       start_attack(MmxSaberAttackRecord(
                        kind, kind == SABER_KIND_GROUND2 ? 1 : 0),
                    facing, cutter_technique);
+      if (kind == SABER_KIND_ICE_CLONE)
+        MmxSaberFrameDebitNormalWeaponEnergy(
+            ram, MMX_SABER_WEAPON_SHOTGUN_ICE, MMX_SABER_NORMAL_SHOT_COST);
     }
     return;
   }

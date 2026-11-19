@@ -2414,8 +2414,10 @@ static void saber_attack_selection_case(
 
   MmxSaberAttackResetRam(g_ram);
   memset(g_ram + 0x1f88, 0, 16);
+  /* A cleared Maverick also means its weapon is owned; give it a full bar
+   * ($1C00) so energy-gated specials (ice clone) can be selected. */
   for (unsigned i = 0; i < 8; ++i)
-    if (clear_mask & (1u << i)) g_ram[0x1f88 + 2 * i] = 0x40;
+    if (clear_mask & (1u << i)) g_ram[0x1f88 + 2 * i] = 0x40 | 0x1c;
   MmxSaberAttackStepWithWallAndDash(
       true, grounded, wall_clinging, dash_active, up_held, down_held, true,
       false, true,
@@ -12504,10 +12506,23 @@ static unsigned saber_tornado_slot(void) {
   return 0;
 }
 
-static unsigned saber_tornado_start(const char *fixture, bool right,
-                                    unsigned *takeoff_x,
-                                    unsigned *takeoff_floor_y) {
-  saber_specials_uppercut_load(fixture, 0);
+static unsigned saber_park_projectiles(void) {
+  MmxSaberProjectileSpawnInfo info = {0};
+  unsigned parked = 0;
+
+  info.kind = SABER_PROJECTILE_CUTTER;
+  info.x = 200 * 256;
+  info.y = 60 * 256;
+  info.lifetime = 360;
+  info.facing = 0x40;
+  info.pass_through = true;
+  for (unsigned i = 0; i < MMX_SABER_PROJECTILE_SLOT_COUNT - 1; ++i)
+    parked += MmxSaberProjectileSpawn(g_ram, &info, NULL) ? 1u : 0u;
+  return parked;
+}
+
+static unsigned saber_tornado_start_loaded(bool right, unsigned *takeoff_x,
+                                            unsigned *takeoff_floor_y) {
   g_ram[0x0c11] = right ? 0x40 : 0;
   g_ram[0x0bb9] = (uint8_t)((g_ram[0x0bb9] & (uint8_t)~0x40) |
                             (right ? 0x40 : 0));
@@ -12521,6 +12536,29 @@ static unsigned saber_tornado_start(const char *fixture, bool right,
   if (takeoff_floor_y) *takeoff_floor_y = read_ram_word(g_ram, 0x0bb0);
   frame(SNES_PAD_Y);
   return saber_tornado_slot();
+}
+
+static unsigned saber_tornado_start(const char *fixture, bool right,
+                                    unsigned *takeoff_x,
+                                    unsigned *takeoff_floor_y) {
+  saber_specials_uppercut_load(fixture, 0);
+  g_ram[0x1f99] &= (uint8_t)~0x01;
+  saber_weapon_techniques_set_energy(5, 0x1c00);
+  return saber_tornado_start_loaded(right, takeoff_x, takeoff_floor_y);
+}
+
+static unsigned saber_tornado_use(const char *fixture, bool right,
+                                   unsigned usable, bool head,
+                                   unsigned *before, unsigned *after) {
+  unsigned slot;
+
+  saber_specials_uppercut_load(fixture, 0);
+  g_ram[0x1f99] = (uint8_t)((g_ram[0x1f99] & 0xf0) | (head ? 0x01 : 0));
+  saber_weapon_techniques_set_energy(5, usable);
+  *before = saber_weapon_ammo_word(5);
+  slot = saber_tornado_start_loaded(right, NULL, NULL);
+  *after = saber_weapon_ammo_word(5);
+  return slot;
 }
 
 static void saber_tornado_checks(const char *fixture) {
@@ -12603,6 +12641,42 @@ static void saber_tornado_checks(const char *fixture) {
             !(g_ram[slot + 0x11] & 0x40),
         "left uppercut spawns one tornado at Zero X minus 35 and floor Y");
 
+  {
+    const unsigned cost = 0x0100;
+    const unsigned expected_uses = 0x1c00 / cost;
+    unsigned remaining = 0x1c00;
+    unsigned completed = 0;
+    unsigned before;
+    unsigned after;
+
+    for (; completed < expected_uses; ++completed) {
+      slot = saber_tornado_use(fixture, true, remaining, false,
+                               &before, &after);
+      check(slot != 0 && before - after == cost,
+            "Storm Tornado uppercut spends one normal-shot cost without Head");
+      remaining = after;
+      if (!slot || after >= before) break;
+    }
+    check(completed == expected_uses && remaining == 0,
+          "repeated Storm Tornado uppercuts drain 0x1C00 in 0x0100 steps");
+
+    slot = saber_tornado_use(fixture, true, 0, false, &before, &after);
+    check(!slot && before == 0 && after == 0 &&
+              MmxSaberAttackSnapshotGet().kind == SABER_KIND_UPPERCUT &&
+              !saber_test_grounded(),
+          "empty Storm Tornado keeps the uppercut rising without a tornado");
+
+    slot = saber_tornado_use(fixture, true, 0x1c00, true, &before, &after);
+    check(slot != 0 && before - after == 0x0080,
+          "Head halves Storm Tornado uppercut cost to 0x0080");
+
+    slot = saber_tornado_use(fixture, true, 0x0040, false,
+                             &before, &after);
+    check(slot != 0 && before == 0x0040 && after == 0 &&
+              (read_ram_word(g_ram, 0x1f8f) & 0xc000) == 0xc000,
+          "Storm Tornado debit clamps at zero and preserves flag bits");
+  }
+
   saber_specials_uppercut_load(fixture, 0);
   g_ram[0x0c11] = 0x40;
   g_ram[0x0bb9] = (uint8_t)((g_ram[0x0bb9] & (uint8_t)~0x40) | 0x40);
@@ -12612,16 +12686,20 @@ static void saber_tornado_checks(const char *fixture) {
         "releasing Y in uppercut step 1 spawns no tornado");
 
   saber_specials_uppercut_load(fixture, 0);
-  /* The native object loop frees the filler slots, so refill them before
-   * every frame up to and including the take-off tick. */
-  saber_finisher_fill_free_slots();
+  g_ram[0x1f99] &= (uint8_t)~0x01;
+  saber_weapon_techniques_set_energy(5, 0x1c00);
+  check(saber_park_projectiles() == MMX_SABER_PROJECTILE_SLOT_COUNT - 1 &&
+            MmxSaberProjectileFreeCapacity(g_ram) == 0,
+        "parked Saber projectiles leave no tornado capacity");
+  const unsigned no_slot_before = saber_weapon_ammo_word(5);
   frame(SNES_PAD_UP | SNES_PAD_Y);
   for (unsigned tick = 1; tick <= SABER_UPPERCUT_TAKEOFF_TICK; ++tick) {
-    saber_finisher_fill_free_slots();
     frame(SNES_PAD_Y);
   }
-  check(!saber_tornado_slot() && !saber_test_grounded(),
-        "full projectile slots do not block the native uppercut jump or spawn tornado");
+  check(!saber_tornado_slot() && !saber_test_grounded() &&
+            saber_weapon_ammo_word(5) == no_slot_before,
+        "no tornado slot keeps the uppercut jump and leaves energy unchanged");
+  MmxSaberProjectileRetireAll(g_ram);
 
   {
     unsigned target;
@@ -12635,6 +12713,7 @@ static void saber_tornado_checks(const char *fixture) {
     check(target == 0xea8,
           "tornado forced-overlap contact reaches Highway enemy $0EA8");
     g_ram[0x1f90] |= 0x40;
+    saber_weapon_techniques_set_energy(5, 0x1c00);
     MmxSaberFrameReset();
     g_ram[0x0c11] = 0x40;
     g_ram[0x0bb9] = (uint8_t)((g_ram[0x0bb9] & (uint8_t)~0x40) | 0x40);
@@ -14221,16 +14300,6 @@ static unsigned saber_ice_clone_start_dash(bool right) {
   return 0;
 }
 
-static unsigned saber_ice_clone_start_dash_full(bool right) {
-  const unsigned direction = right ? SNES_PAD_RIGHT : SNES_PAD_LEFT;
-  for (unsigned i = 0; i < 40; ++i) {
-    saber_finisher_fill_free_slots();
-    frame(SNES_PAD_A | direction);
-    if (g_ram[0x0baa] == 0x14 && saber_test_grounded()) return i + 1;
-  }
-  return 0;
-}
-
 static unsigned saber_ice_clone_launch_loaded(bool right) {
   const unsigned direction = right ? SNES_PAD_RIGHT : SNES_PAD_LEFT;
   const unsigned dash_start = saber_ice_clone_start_dash(right);
@@ -14276,9 +14345,12 @@ static unsigned saber_ice_clone_launch_loaded(bool right) {
   return slot;
 }
 
-static unsigned saber_ice_clone_launch(const char *fixture, bool right) {
+static void saber_ice_clone_configure(const char *fixture, bool right,
+                                      unsigned usable, bool head) {
   saber_specials_unlock_load(fixture, 0);
   g_ram[0x1f96] |= 0x40;
+  g_ram[0x1f99] = (uint8_t)((g_ram[0x1f99] & 0xf0) | (head ? 0x01 : 0));
+  saber_weapon_techniques_set_energy(8, usable);
   if (!right) {
     /* The fixture starts at the left edge of the stage: walk right first so
      * a left dash has room. */
@@ -14289,7 +14361,23 @@ static unsigned saber_ice_clone_launch(const char *fixture, bool right) {
     for (unsigned i = 0; i < 4; ++i) frame(SNES_PAD_LEFT);
     for (unsigned i = 0; i < 4; ++i) frame(0);
   }
+}
+
+static unsigned saber_ice_clone_launch(const char *fixture, bool right) {
+  saber_ice_clone_configure(fixture, right, 0x1c00, false);
   return saber_ice_clone_launch_loaded(right);
+}
+
+static unsigned saber_ice_clone_use(const char *fixture, bool right,
+                                    unsigned usable, bool head,
+                                    unsigned *before, unsigned *after) {
+  unsigned slot;
+
+  saber_ice_clone_configure(fixture, right, usable, head);
+  *before = saber_weapon_ammo_word(8);
+  slot = saber_ice_clone_launch_loaded(right);
+  *after = saber_weapon_ammo_word(8);
+  return slot;
 }
 
 static void saber_ice_clone_checks(const char *fixture) {
@@ -14324,6 +14412,52 @@ static void saber_ice_clone_checks(const char *fixture) {
   check(snapshot.kind == SABER_KIND_DASH && saber_ice_clone_count() == 0,
         "special_moves off keeps Down+Y dash as dash slash");
   MmxSaberTuningLoad(NULL, NULL);
+
+  {
+    const unsigned cost = 0x0100;
+    const unsigned expected_uses = 0x1c00 / cost;
+    unsigned remaining = 0x1c00;
+    unsigned completed = 0;
+    unsigned before;
+    unsigned after;
+
+    slot = saber_ice_clone_use(fixture, true, remaining, false,
+                               &before, &after);
+    check(slot != 0 && before - after == cost,
+          "Shotgun Ice clone spends one normal-shot cost without Head");
+    remaining = after;
+    completed = 1;
+    for (; completed < expected_uses && remaining != 0; ++completed) {
+      slot = saber_ice_clone_use(fixture, true, remaining, false,
+                                 &before, &after);
+      check(slot != 0 && before - after == cost,
+            "repeated Shotgun Ice clones spend one normal-shot cost");
+      remaining = after;
+      if (!slot || after >= before) break;
+    }
+    check(completed == expected_uses && remaining == 0,
+          "repeated Shotgun Ice clones drain 0x1C00 in 0x0100 steps");
+
+    slot = saber_ice_clone_use(fixture, true, 0x1c00, true,
+                               &before, &after);
+    check(slot != 0 && before - after == 0x0080,
+          "Head halves Shotgun Ice clone cost to 0x0080");
+
+    slot = saber_ice_clone_use(fixture, true, 0x0040, false,
+                               &before, &after);
+    check(slot != 0 && before == 0x0040 && after == 0 &&
+              (read_ram_word(g_ram, 0x1f95) & 0xc000) == 0xc000,
+          "Shotgun Ice debit clamps at zero and preserves flag bits");
+
+    saber_ice_clone_configure(fixture, true, 0, false);
+    check(saber_ice_clone_start_dash(true) != 0,
+          "empty Shotgun Ice probe starts a grounded dash");
+    frame(SNES_PAD_A | SNES_PAD_RIGHT | SNES_PAD_DOWN | SNES_PAD_Y);
+    snapshot = MmxSaberAttackSnapshotGet();
+    check(snapshot.kind == SABER_KIND_DASH && saber_ice_clone_count() == 0 &&
+              saber_weapon_ammo_word(8) == 0,
+          "empty Shotgun Ice keeps Down+Y as dash slash with no clone");
+  }
 
   (void)saber_ice_clone_launch(fixture, false);
   MmxSaberProjectileRetireAll(g_ram);
@@ -14423,6 +14557,7 @@ static void saber_ice_clone_checks(const char *fixture) {
      * launch frame already lands the hit, so measure HP from before the
      * launch and prove the second contact is masked. */
     initial_hp = g_ram[target + 0x27] & 127;
+    saber_weapon_techniques_set_energy(8, 0x1c00);
     slot = saber_ice_clone_launch_loaded(true);
     index = (slot - MMX_SABER_PROJECTILE_SLOT_FIRST) /
         MMX_SABER_PROJECTILE_SLOT_BYTES;
@@ -14480,33 +14615,24 @@ static void saber_ice_clone_checks(const char *fixture) {
   MmxSaberProjectileRetireAll(g_ram);
 
   {
-    MmxSaberProjectileSpawnInfo info = {0};
     saber_specials_unlock_load(fixture, 0);
     g_ram[0x1f96] |= 0x40;
-    info.kind = SABER_PROJECTILE_CUTTER;
-    info.x = 200 * 256;
-    info.y = 60 * 256;
-    info.lifetime = 120;
-    for (unsigned i = 0; i < 6; ++i)
-      check(MmxSaberProjectileSpawn(g_ram, &info, NULL),
-            "ice clone capacity probe fills six Saber slots");
-    for (unsigned i = 0; i < 4; ++i) {
-      saber_finisher_fill_free_slots();
-      if (saber_finisher_free_slots() == 0) break;
-      frame(0);
-    }
-    saber_finisher_fill_free_slots();
+    g_ram[0x1f99] &= (uint8_t)~0x01;
+    saber_weapon_techniques_set_energy(8, 0x1c00);
+    check(saber_park_projectiles() == MMX_SABER_PROJECTILE_SLOT_COUNT - 1,
+          "ice clone capacity probe parks seven Saber projectiles");
     check(MmxSaberProjectileFreeCapacity(g_ram) == 0,
           "ice clone capacity probe leaves no free projectile slot");
-    check(saber_ice_clone_start_dash_full(true) != 0,
+    check(saber_ice_clone_start_dash(true) != 0,
           "full-capacity ice clone probe starts a grounded dash");
     const int stopped_x = (int16_t)read_ram_word(g_ram, 0x0bad);
-    saber_finisher_fill_free_slots();
+    const unsigned before = saber_weapon_ammo_word(8);
     frame(SNES_PAD_A | SNES_PAD_RIGHT | SNES_PAD_DOWN | SNES_PAD_Y);
     check(MmxSaberAttackSnapshotGet().kind == SABER_KIND_ICE_CLONE &&
               saber_ice_clone_count() == 0 &&
-              (int16_t)read_ram_word(g_ram, 0x0bad) == stopped_x,
-          "no free projectile slot keeps ice clone attack playing without clone");
+              (int16_t)read_ram_word(g_ram, 0x0bad) == stopped_x &&
+              saber_weapon_ammo_word(8) == before - 0x0100,
+          "no free projectile slot keeps ice clone playing, spends, and emits no clone");
     MmxSaberProjectileRetireAll(g_ram);
   }
   puts("ok: saber-ice-clone");

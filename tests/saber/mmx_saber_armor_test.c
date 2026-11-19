@@ -1,4 +1,5 @@
 #include "mmx_saber_armor.h"
+#include "mmx_saber_frame.h"
 
 #include <stdio.h>
 
@@ -96,6 +97,29 @@ static void check_damage_bonus(void) {
         "damage bonus is one with arms against bosses");
 }
 
+static void check_weapon_cost(void) {
+  check(MmxSaberNormalWeaponCost(MMX_SABER_WEAPON_STORM_TORNADO,
+                                 MMX_SABER_NORMAL_SHOT_COST, false) ==
+            0x0100,
+        "Storm Tornado normal shot cost is 0x0100 without Head");
+  check(MmxSaberNormalWeaponCost(MMX_SABER_WEAPON_SHOTGUN_ICE,
+                                 MMX_SABER_NORMAL_SHOT_COST, false) ==
+            0x0100,
+        "Shotgun Ice normal shot cost is 0x0100 without Head");
+  check(MmxSaberNormalWeaponCost(MMX_SABER_WEAPON_STORM_TORNADO,
+                                 MMX_SABER_NORMAL_SHOT_COST, true) ==
+            0x0080 &&
+            MmxSaberNormalWeaponCost(MMX_SABER_WEAPON_SHOTGUN_ICE,
+                                     MMX_SABER_NORMAL_SHOT_COST, true) ==
+            0x0080,
+        "Head halves Storm Tornado and Shotgun Ice normal shot cost");
+  check(MmxSaberNormalWeaponCost(MMX_SABER_WEAPON_STORM_TORNADO, 0, true) ==
+            0 &&
+            MmxSaberNormalWeaponCost(MMX_SABER_WEAPON_SHOTGUN_ICE, 1, true) ==
+            1,
+        "normal cost keeps zero free and clamps a halved unit to one");
+}
+
 static void check_stage_write(void) {
   uint8_t ram[0x20000] = {0};
 
@@ -127,6 +151,7 @@ int main(void) {
   check_low_nibble();
   check_live_accessor();
   check_damage_bonus();
+  check_weapon_cost();
   check_stage_write();
   if (failures != 0) return 1;
   puts("PASS: Saber armor decoder");

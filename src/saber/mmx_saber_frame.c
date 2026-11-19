@@ -39,11 +39,9 @@ static unsigned charge_rate(void) {
 }
 
 static unsigned weapon_cost(unsigned weapon_id, unsigned cost, bool charged) {
-  unsigned half;
   (void)charged;
-  if (weapon_id == 0 || !cost || !MmxSaberArmorCurrent().head) return cost;
-  half = cost >> 1;
-  return half ? half : 1;
+  return MmxSaberNormalWeaponCost(weapon_id, cost,
+                                  MmxSaberArmorCurrent().head);
 }
 
 static unsigned weapon_technique_cost(unsigned weapon_id, unsigned cost) {
@@ -54,9 +52,6 @@ static unsigned weapon_technique_cost(unsigned weapon_id, unsigned cost) {
 enum {
   SABER_WEAPON_SPARK = 0x0c,
   SABER_WEAPON_CUTTER = 0x0e,
-  SABER_WEAPON_ENERGY_BASE = 0x1f85,
-  SABER_WEAPON_ENERGY_MASK = 0x3fff,
-  SABER_WEAPON_OWNED_BIT = 0x40,
 };
 
 static bool weapon_technique_selected(unsigned weapon_id) {
@@ -64,25 +59,14 @@ static bool weapon_technique_selected(unsigned weapon_id) {
       weapon_id == SABER_WEAPON_CUTTER;
 }
 
-static unsigned weapon_energy_offset(unsigned weapon_id) {
-  return SABER_WEAPON_ENERGY_BASE + weapon_id;
-}
-
-static uint16_t weapon_energy_word(const uint8_t *ram, unsigned weapon_id) {
-  const unsigned offset = weapon_energy_offset(weapon_id);
-  return (uint16_t)(ram[offset] | (uint16_t)ram[offset + 1] << 8);
-}
-
 static bool weapon_owned(const uint8_t *ram, unsigned weapon_id) {
-  return (ram[weapon_energy_offset(weapon_id) + 1] &
-          SABER_WEAPON_OWNED_BIT) != 0;
+  const uint16_t word = MmxSaberFrameWeaponEnergyWord(ram, weapon_id);
+  return (word & (uint16_t)(MMX_SABER_WEAPON_OWNED_BYTE_BIT << 8)) != 0;
 }
 
 static bool weapon_owned_with_energy(const uint8_t *ram, unsigned weapon_id) {
-  const unsigned offset = weapon_energy_offset(weapon_id);
-  const uint16_t word = weapon_energy_word(ram, weapon_id);
   return weapon_owned(ram, weapon_id) &&
-      (word & SABER_WEAPON_ENERGY_MASK) != 0;
+      MmxSaberFrameWeaponHasUsableEnergy(ram, weapon_id);
 }
 
 static void clear_special_weapon_latches(uint8_t *ram) {
@@ -94,15 +78,18 @@ static void clear_special_weapon_latches(uint8_t *ram) {
 
 static void debit_weapon_energy(uint8_t *ram, unsigned weapon_id,
                                 unsigned cost, bool technique_round_up) {
-  const unsigned offset = weapon_energy_offset(weapon_id);
-  const uint16_t original = weapon_energy_word(ram, weapon_id);
-  const unsigned usable = original & SABER_WEAPON_ENERGY_MASK;
-  const unsigned spend = technique_round_up ?
-      weapon_technique_cost(weapon_id, cost) :
-      weapon_cost(weapon_id, cost, false);
+  if (!technique_round_up) {
+    MmxSaberFrameDebitNormalWeaponEnergy(ram, weapon_id, cost);
+    return;
+  }
+  const unsigned offset = MmxSaberFrameWeaponEnergyOffset(weapon_id);
+  const uint16_t original = MmxSaberFrameWeaponEnergyWord(ram, weapon_id);
+  const unsigned usable = original & MMX_SABER_WEAPON_ENERGY_MASK;
+  const unsigned spend = weapon_technique_cost(weapon_id, cost);
   const unsigned remaining = usable >= spend ? usable - spend : 0;
-  const uint16_t stored = (uint16_t)((remaining & SABER_WEAPON_ENERGY_MASK) |
-                                     (original & (uint16_t)~SABER_WEAPON_ENERGY_MASK));
+  const uint16_t stored = (uint16_t)(
+      (remaining & MMX_SABER_WEAPON_ENERGY_MASK) |
+      (original & (uint16_t)~MMX_SABER_WEAPON_ENERGY_MASK));
   ram[offset] = (uint8_t)stored;
   ram[offset + 1] = (uint8_t)(stored >> 8);
 }
