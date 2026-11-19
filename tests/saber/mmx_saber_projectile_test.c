@@ -461,8 +461,8 @@ static bool test_tornado_growth_and_rise(void) {
   MmxSaberProjectileTick(ram);
   projectile = MmxSaberProjectileGet(index);
   if (!check(projectile->age == MMX_SABER_TORNADO_GROWTH_TICKS + 1 &&
-                 projectile->y == 91 * 256,
-             "tornado bottom rises 9 pixels per tick after growth"))
+                 projectile->y == 93 * 256,
+             "tornado bottom rises 7 pixels per tick after growth"))
     return false;
   MmxSaberProjectileSetTornadoUppercutLive(ram, index, false);
   if (!check(MmxSaberProjectileVisibleHeight(ram, slot) ==

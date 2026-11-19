@@ -333,10 +333,9 @@ bool MmxSaberProjectileSpawn(uint8_t *ram,
     ++free_count;
   }
   if (first == MMX_SABER_PROJECTILE_SLOT_COUNT) return false;
-  /* Keep one free native slot for ordinary Saber objects, matching wave
-   * reservation. A thunder burst may consume every slot it was given. */
-  if (info->kind != SABER_PROJECTILE_THUNDER_ORB && free_count < 2)
-    return false;
+  /* Keep one free native slot for every Saber object, matching wave
+   * reservation. */
+  if (free_count < 2) return false;
 
   initialize_table();
   runtime_ram = ram;
