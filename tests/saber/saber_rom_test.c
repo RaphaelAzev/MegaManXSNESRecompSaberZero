@@ -14234,6 +14234,7 @@ static unsigned saber_ice_clone_start_dash_full(bool right) {
 static unsigned saber_ice_clone_launch_loaded(bool right) {
   const unsigned direction = right ? SNES_PAD_RIGHT : SNES_PAD_LEFT;
   const unsigned dash_start = saber_ice_clone_start_dash(right);
+  const unsigned dash_action = g_ram[0x0baa];
   const int zero_x = (int16_t)read_ram_word(g_ram, 0x0bad);
   const int feet_y = (int16_t)read_ram_word(g_ram, 0x0bb0);
   MmxSaberAttackSnapshot snapshot;
@@ -14247,10 +14248,14 @@ static unsigned saber_ice_clone_launch_loaded(bool right) {
   slot = saber_ice_clone_slot();
   check(snapshot.kind == SABER_KIND_ICE_CLONE &&
             snapshot.phase == SABER_PHASE_ACTIVE && snapshot.tick == 0 &&
-            snapshot.anim_id == 6 && snapshot.anim_step == 0 &&
+            snapshot.anim_id == 0 && snapshot.anim_step == 0 &&
+            dash_action == 0x14 && g_ram[0x0baa] == 0 &&
+            !MmxRendererPlayerOverlaySnapshot().active &&
             saber_ice_clone_count() == 1,
-        right ? "right Down+Y dash starts one ice clone at tick 0" :
-                "left Down+Y dash starts one ice clone at tick 0");
+        right ? "right Down+Y changes native $0BAA 0x14 to 0x00 at clone "
+                "tick 0 without Saber overlay" :
+                "left Down+Y changes native $0BAA 0x14 to 0x00 at clone "
+                "tick 0 without Saber overlay");
   check(slot != 0 && MmxSaberProjectileOwns(g_ram, slot) &&
             MmxSaberProjectileGet(
                 (slot - MMX_SABER_PROJECTILE_SLOT_FIRST) /
@@ -14294,11 +14299,11 @@ static void saber_ice_clone_checks(const char *fixture) {
   unsigned slot;
   unsigned index;
 
-  check(clone && clone->visual_animation == 6 &&
+  check(clone && clone->visual_animation == 0 &&
             clone->startup_ticks == 0 && clone->active_ticks == 16 &&
             clone->total_ticks == 16 && clone->bounds_segments == NULL &&
             clone->damage == 0,
-        "ice clone record is animation 6, 16 ticks, and melee-hitbox free");
+        "ice clone record has no player animation, 16 ticks, and no melee hitbox");
 
   saber_specials_unlock_load(fixture, 0);
   g_ram[0x1f96] &= (uint8_t)~0x40;
@@ -14327,13 +14332,45 @@ static void saber_ice_clone_checks(const char *fixture) {
   if (!slot) return;
   {
     const int stopped_x = (int16_t)read_ram_word(g_ram, 0x0bad);
-    bool stopped = true;
-    for (unsigned i = 0; i < 3; ++i) {
-      frame(SNES_PAD_A | SNES_PAD_RIGHT | SNES_PAD_DOWN);
-      if ((int16_t)read_ram_word(g_ram, 0x0bad) != stopped_x) stopped = false;
+    bool body_stopped = true;
+    bool position_stopped = true;
+    MmxSaberAttackSnapshot body_snapshot = MmxSaberAttackSnapshotGet();
+    check(g_ram[0x0baa] == 0 && body_snapshot.anim_id == 0 &&
+              !MmxRendererPlayerOverlaySnapshot().active,
+          "ice clone tick 0 keeps native $0BAA at 0x00 with no Saber overlay");
+    for (unsigned tick = 1; tick < 16; ++tick) {
+      frame(0);
+      body_snapshot = MmxSaberAttackSnapshotGet();
+      if (body_snapshot.kind != SABER_KIND_ICE_CLONE ||
+          body_snapshot.phase == SABER_PHASE_IDLE ||
+          body_snapshot.tick != tick || g_ram[0x0baa] != 0 ||
+          body_snapshot.anim_id != 0 ||
+          MmxRendererPlayerOverlaySnapshot().active)
+        body_stopped = false;
+      if ((int16_t)read_ram_word(g_ram, 0x0bad) != stopped_x)
+        position_stopped = false;
     }
-    check(stopped,
-          "ice clone publish_ground_swing writes zero VX before native dash movement");
+    check(body_stopped,
+          "ice clone ticks 1-15 keep native $0BAA at 0x00 with no Saber overlay");
+    for (unsigned i = 0; i < 10; ++i) {
+      frame(0);
+      body_snapshot = MmxSaberAttackSnapshotGet();
+      if ((int16_t)read_ram_word(g_ram, 0x0bad) != stopped_x ||
+          g_ram[0x0baa] != 0 ||
+          (i == 0 && body_snapshot.phase != SABER_PHASE_IDLE))
+        position_stopped = false;
+    }
+    check(position_stopped,
+          "ice clone keeps Zero X constant through 16 ticks and 10 post-move frames");
+    frame(SNES_PAD_Y);
+    body_snapshot = MmxSaberAttackSnapshotGet();
+    check(body_snapshot.kind == SABER_KIND_GROUND1 &&
+              body_snapshot.phase != SABER_PHASE_IDLE,
+          "after ice clone, Y starts a ground slash from standing");
+    idle(OLD_SABER_GROUND1_TOTAL + 2);
+    frame(SNES_PAD_A | SNES_PAD_RIGHT);
+    check(g_ram[0x0baa] == 0x14 && saber_test_grounded(),
+          "after ice clone, A starts a new grounded dash");
   }
 
   slot = saber_ice_clone_launch(fixture, true);

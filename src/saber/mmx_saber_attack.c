@@ -302,7 +302,7 @@ static const MmxSaberAttack kSaberAttacks[] = {
     {
         .kind = SABER_KIND_ICE_CLONE,
         .index = 0,
-        .visual_animation = 6,
+        .visual_animation = 0,
         .facing_xor = 1,
         .startup_ticks = 0,
         .active_ticks = 16,
@@ -890,11 +890,6 @@ static uint8_t animation_step_for_tick(uint8_t animation, uint8_t tick) {
 }
 
 static void update_animation(void) {
-  if (state.kind == SABER_KIND_ICE_CLONE) {
-    state.anim_id = state.tick < 4 ? 6 : 1;
-    state.anim_step = 0;
-    return;
-  }
   state.anim_step = state.anim_id ?
       animation_step_for_tick(state.anim_id, state.tick) : 0;
 }
@@ -1273,6 +1268,17 @@ static void start_attack(const MmxSaberAttack *attack, uint8_t facing,
   state.cue = attack_cue(attack);
   state.cue_pending = state.cue < MMX_SABER_SFX_ATTACK_COUNT;
   update_animation();
+}
+
+static void stop_native_ground_dash(uint8_t *ram) {
+  if (!ram || state.kind != SABER_KIND_ICE_CLONE || state.tick != 0 ||
+      (ram[0x0baa] != 0x14 && native_action != 0x14))
+    return;
+  /* Grounded native movement returns to its standing action through $0BAA/$0BAB.
+   * Run after native input consumption, so the activation dash edge cannot
+   * restart the action in the same frame. */
+  ram[0x0baa] = 0;
+  ram[0x0bab] = 0;
 }
 
 static bool special_unlocked(const uint8_t *ram, MmxSaberSpecialMove move) {
@@ -1714,6 +1720,7 @@ void MmxSaberAttackPlayerEnd(uint8_t *ram) {
   if (ram) runtime_ram = ram;
   if (!ram) return;
 
+  stop_native_ground_dash(ram);
   scale_uppercut_jump(ram);
 
   movement_accepted = native_movement_accepted(ram);
