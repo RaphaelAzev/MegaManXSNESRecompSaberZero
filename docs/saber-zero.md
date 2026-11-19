@@ -26,7 +26,7 @@ buster/special translation owns X. The other native controls remain available.
 
 | Button | Behavior |
 |--------|----------|
-| Y | Start/continue a Saber attack. On the ground it starts the 3-hit combo; in the air it is an air slash; on a wall it is a wall slash; during a grounded dash it is a dash slash. After they unlock, Up + Y starts the uppercut on the ground or during a dash, and the rolling slash in the air. Down + Y starts the downward thrust in the air or the ice clone during a grounded dash. A held Y produces one edge. |
+| Y | Start/continue a Saber attack. On the ground it starts the 3-hit combo; in the air it is an air slash; on a wall it is a wall slash; during a grounded dash it is a dash slash. After they unlock, Up + Y starts the uppercut on the ground or during a dash, and the rolling slash in the air. On the ground, not dashing, Down + Y starts the Boomerang Cutter slash when the Cutter is owned and has usable energy, regardless of selected weapon; otherwise it starts ground slash 1. During a grounded or air dash, Down + Y starts the ice clone when its unlock and usable Shotgun Ice energy gates pass; Down + Y in other airborne states starts the downward thrust. A held Y produces one edge. |
 | X | Charge and fire the buster when the buster is selected; otherwise fire the selected special weapon. With `weapon_techniques` on, X with Boomerang Cutter starts the cutter slash (ground slash 2 or air slash plus cutter); X with Electric Spark starts the thunder slam on the ground and does nothing in the air. These techniques require usable weapon energy. X is blocked from creating a new buster/special shot while a Saber slash, finisher, or wave-shooting animation owns the action. |
 | B | Native jump. |
 | A | Native dash. |
@@ -40,6 +40,10 @@ eligible frame after the slash. A hurt frame does not invent a buster press or
 throw away an existing release latch. While frozen by Chill Penguin, Saber
 Zero cannot slash or fire; mashing breaks the ice as it does for X, and attacks
 resume after he is free.
+
+When several contexts apply, selection order is wall, air-dash ice clone, thrust,
+rolling, air, uppercut, grounded-dash ice clone, ground cutter slash, dash, then
+ground slash 1.
 
 ## Special moves
 
@@ -60,15 +64,24 @@ stays disabled and Up/Down + Y keeps its previous Saber behavior. When
 `unlock_special_moves` is true, the six moves ignore their boss-clear flags for
 testing. Wall slash still wins while Zero clings to a wall.
 
+Weapon energy uses native full-bar state units. A full bar is `$1C00`.
+
+| Move | Energy per use |
+|------|----------------|
+| Thunder slam | `$04AB` Spark energy; `$0256` with the Head part |
+| Cutter slash, Storm Tornado, ice clone | One normal shot: `$0100`; `$0080` with the Head part |
+
 The Storm uppercut starts on ground or dash Up + Y. Its startup is 4 ticks, its
 active record is 26 ticks, and its total record is 30 ticks. Zero remains on the
 ground through tick 3; takeoff happens on tick 4, with `uppercut_height` defaulting
-to 130% of a normal jump. Y release ends it early, and it keeps dash-jump speed
-when started from a dash. On takeoff, one tornado spawns 35 px in front at the
+to 130% of a normal jump. Y release ends it early. During the uppercut, horizontal
+speed is capped at half native walk speed, and a dash start carries no dash
+momentum. On takeoff, one tornado spawns at the saber's front edge on the
 takeoff floor. It grows for 10 ticks to a visible 120 px column, capped during
-growth at 57 px above Zero, then rises 9 px per tick for up to 90 ticks. The
-tornado passes through enemies and hits each enemy once. No energy is spent; a
-full projectile pool can prevent the tornado while leaving the uppercut active.
+growth at 57 px above Zero, then rises 7 px per tick for up to 90 ticks. The
+tornado passes through enemies and hits each enemy once. It needs and spends
+Storm Tornado energy; an empty bar produces no tornado, and a full projectile
+pool can also prevent it while leaving the uppercut active.
 
 The rolling slash starts on airborne Up + Y after Armored Armadillo is defeated.
 It has 2 startup ticks, 16 active ticks, and an 18-tick total. It uses native air
@@ -85,33 +98,32 @@ bounces Zero by `thrust_bounce_height` (60% by default), refreshes aerial action
 and permits one hit per bounce. Release or landing ends it. It costs no weapon
 energy.
 
-The ice clone starts on a grounded dash with Down + Y after Chill Penguin is
-defeated. Zero's dash stops, the move state lasts 16 ticks, and the clone spawns
-on tick 0 with its leading edge 58 px in front of Zero at his feet. Its authored
-displacement table reaches 99 px, its lifetime is 21 ticks, and it passes through
-enemies while hitting each enemy at most once. It begins fading at age 12 or the
-tick after its first hit; fade level 12 disables its hitbox and level 16 retires
-it. The move costs no weapon energy, and it still plays if no projectile slot is
-available.
+The ice clone starts on a grounded or air dash with Down + Y after Chill Penguin
+is defeated. Zero stops; on the ground, the dash ends in the standing state, and
+in the air dash it ends in falling. The move state lasts 18 ticks and plays the
+dash attack's closing frames before Zero stands. The clone spawns on tick 0 with
+its leading edge 58 px in front of Zero on the floor. Its authored displacement
+table reaches 99 px, its lifetime is 21 ticks, and it passes through enemies
+while hitting each enemy at most once. It begins fading at age 12 or the tick
+after its first hit; fade level 12 disables its hitbox and level 16 retires it.
+It spends one normal Shotgun Ice shot; on a grounded dash with empty energy,
+Down + Y remains the dash slash.
 
 The thunder slam starts on the ground when Electric Spark is selected and
 `weapon_techniques` is enabled. Its animation is 42 ticks: animation 19 has 14
 frames at 3 ticks each, and Zero stays in place. At tick 21, seven orbs spawn
-from 5 px in front of Zero and 8 px above his feet. They travel through the
-upper half at 4.5 px per tick, live for 60 ticks, and retire on their first enemy
-hit or when offscreen. Each orb has 8 normal / 2 boss damage by default. The
-slam spends `$04AB` Spark energy, or `$0256` with the Head part, clamped at zero;
-no usable energy prevents the technique. The slam still plays and spends energy
-when no projectile slots are available.
+from the dome centre. They fill every free projectile slot, using middle-out
+order when fewer than seven slots are free. The slam is locked while any thunder
+orb remains: the X press neither requests the slam nor spends Spark energy.
+Orbs travel through the upper half at 4.5 px per tick, live for 60 ticks, and
+retire on their first enemy hit or when fully offscreen. Each orb has 8 normal /
+2 boss damage by default.
 
-The cutter slash starts on X with a usable Boomerang Cutter. On the ground it
-starts Saber ground slash 2; in the air it starts the air slash. At animation
-step 3, the ground cutter spawns 30 px forward and 14 px above Zero's feet,
-moving 8 px per tick. The air cutter spawns 44 px forward at Zero's height,
-moving 5 px forward and 5 px down per tick. Both live for 60 ticks, are not
-pass-through, and retire on their first enemy hit. The technique spends `$0100`
-of Cutter energy, or `$0080` with the Head part, clamped at zero. The slash still
-plays when no projectile slot is available.
+The cutter slash starts on X with a usable Boomerang Cutter, or on ground Down +
+Y when the Cutter is owned and has usable energy. On the ground it starts Saber
+ground slash 2; in the air it starts the air slash. The cutter flies at saber
+height, its hitbox matches the drawn cutter, and it is not pass-through. It
+retires at its first enemy hit. Both cutter forms live for 60 ticks.
 
 The special-move art is credited in
 [assets/saber-zero/CREDITS.md](../assets/saber-zero/CREDITS.md).
