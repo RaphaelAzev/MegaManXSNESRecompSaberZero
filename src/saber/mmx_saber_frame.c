@@ -382,7 +382,10 @@ static void pre_player(uint8_t *ram) {
     } else if (selected_weapon == SABER_WEAPON_SPARK) {
       suppress_technique_hold = true;
       weapon_technique_hold = true;
-      if (grounded && weapon_owned_with_energy(ram, selected_weapon)) {
+      /* A slam is locked while any of its orbs is still out: no request and
+       * no energy debit for that X press. */
+      if (grounded && weapon_owned_with_energy(ram, selected_weapon) &&
+          !MmxSaberProjectileKindLive(ram, SABER_PROJECTILE_THUNDER_ORB)) {
         requested_kind = SABER_KIND_THUNDER_SLAM;
         if (!finisher_claimed && saber.phase == SABER_PHASE_IDLE)
           debit_weapon_energy(ram, selected_weapon, 0x04ab, true);

@@ -1317,6 +1317,11 @@ static bool special_unlocked(const uint8_t *ram, MmxSaberSpecialMove move) {
   return MmxSaberSpecialBossDefeated(ram, move);
 }
 
+static bool thunder_orb_live(const uint8_t *ram) {
+  return MmxSaberProjectileKindLive(ram ? ram : runtime_ram,
+                                    SABER_PROJECTILE_THUNDER_ORB);
+}
+
 void MmxSaberAttackStep(bool saber_pressed, bool grounded, bool playable,
                         uint8_t native_facing,
                         uint8_t horizontal_direction) {
@@ -1411,6 +1416,8 @@ void MmxSaberAttackStepWithWallAndDashRequested(
           kind = dash_active ? SABER_KIND_DASH : SABER_KIND_GROUND1;
         }
       }
+      if (kind == SABER_KIND_THUNDER_SLAM && thunder_orb_live(runtime_ram))
+        return;
       cutter_technique = (explicit_kind &&
                           requested_kind != SABER_KIND_THUNDER_SLAM) ||
           (!explicit_kind && kind == SABER_KIND_GROUND2);
@@ -1608,7 +1615,7 @@ static void spawn_thunder_orbs_if_ready(uint8_t *ram) {
     MmxSaberProjectileSpawnInfo info = {0};
     info.kind = SABER_PROJECTILE_THUNDER_ORB;
     info.x = (int32_t)(zero_x + direction * 5) * 256;
-    info.y = (int32_t)(zero_y - 8) * 256;
+    info.y = (int32_t)(zero_y + MMX_SABER_ZERO_FEET_BELOW_Y - 8) * 256;
     info.vx = (int16_t)(direction * kThunderOrbVx[k]);
     info.vy = kThunderOrbVy[k];
     info.lifetime = 60;

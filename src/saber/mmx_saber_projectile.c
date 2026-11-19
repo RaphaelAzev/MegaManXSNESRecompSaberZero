@@ -301,6 +301,12 @@ static bool offscreen(const uint8_t *ram, unsigned slot) {
       x > camera + 256 + MMX_SABER_PROJECTILE_MAX_VIEW_MARGIN;
 }
 
+static bool thunder_orb_offscreen(const uint8_t *ram, unsigned slot) {
+  const int x = (int16_t)word(ram + slot + 5);
+  const int camera = (int16_t)word(ram + MMX_SABER_PROJECTILE_CAMERA);
+  return x < camera || x > camera + 256;
+}
+
 void MmxSaberProjectileCollisionRom(uint8_t *rom, size_t size) {
   if (collision_rom != rom || collision_rom_size != size) {
     for (unsigned i = 0; i < MMX_SABER_PROJECTILE_SLOT_COUNT; ++i)
@@ -335,9 +341,10 @@ bool MmxSaberProjectileSpawn(uint8_t *ram,
     ++free_count;
   }
   if (first == MMX_SABER_PROJECTILE_SLOT_COUNT) return false;
-  /* Keep one free native slot for every Saber object, matching wave
-   * reservation. */
-  if (free_count < 2) return false;
+  /* Keep one free native slot for non-orb Saber objects, matching wave
+   * reservation. A thunder burst may consume every slot it was given. */
+  if (info->kind != SABER_PROJECTILE_THUNDER_ORB && free_count < 2)
+    return false;
 
   initialize_table();
   runtime_ram = ram;
@@ -439,7 +446,8 @@ void MmxSaberProjectileTick(uint8_t *ram) {
     if (projectile->age >= projectile->lifetime ||
         (projectile->kind == SABER_PROJECTILE_ICE_CLONE &&
          projectile->fade_level >= MMX_SABER_ICE_CLONE_FADE_DONE_LEVEL) ||
-        offscreen(target, slot)) {
+        (projectile->kind == SABER_PROJECTILE_THUNDER_ORB ?
+             thunder_orb_offscreen(target, slot) : offscreen(target, slot))) {
       retire_slot(target, slot);
       clear_entry(i);
     }
@@ -595,4 +603,15 @@ const MmxSaberProjectile *MmxSaberProjectileGet(unsigned index) {
   initialize_table();
   if (index >= MMX_SABER_PROJECTILE_SLOT_COUNT) return NULL;
   return &projectiles[index];
+}
+
+bool MmxSaberProjectileKindLive(const uint8_t *ram, MmxSaberProjectileKind kind) {
+  if (!ram) return false;
+  for (unsigned i = 0; i < MMX_SABER_PROJECTILE_SLOT_COUNT; ++i) {
+    const MmxSaberProjectile *projectile = MmxSaberProjectileGet(i);
+    if (projectile && projectile->active && projectile->kind == kind &&
+        MmxSaberProjectileOwns(ram, projectile->slot))
+      return true;
+  }
+  return false;
 }

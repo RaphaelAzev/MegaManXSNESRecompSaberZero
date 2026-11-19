@@ -144,3 +144,5 @@ unsigned MmxSaberProjectileHitbox(const uint8_t *ram, unsigned enemy,
 void MmxSaberProjectileRetire(uint8_t *ram, unsigned index);
 void MmxSaberProjectileRetireAll(uint8_t *ram);
 const MmxSaberProjectile *MmxSaberProjectileGet(unsigned index);
+/* True while any live Saber projectile of this kind owns its native slot. */
+bool MmxSaberProjectileKindLive(const uint8_t *ram, MmxSaberProjectileKind kind);
