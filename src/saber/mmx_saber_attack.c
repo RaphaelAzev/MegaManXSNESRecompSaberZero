@@ -303,12 +303,12 @@ static const MmxSaberAttack kSaberAttacks[] = {
     {
         .kind = SABER_KIND_ICE_CLONE,
         .index = 0,
-        .visual_animation = 0,
+        .visual_animation = 6,
         .facing_xor = 1,
         .startup_ticks = 0,
-        .active_ticks = 16,
+        .active_ticks = 18,
         .recovery_ticks = 0,
-        .total_ticks = 16,
+        .total_ticks = 18,
         .chain_open_tick = MMX_SABER_NO_WINDOW,
         .chain_close_tick = MMX_SABER_NO_WINDOW,
         .buffer_open_tick = MMX_SABER_NO_WINDOW,
@@ -900,8 +900,11 @@ static uint8_t animation_step_for_tick(uint8_t animation, uint8_t tick) {
 }
 
 static void update_animation(void) {
+  /* Ice Clone starts at dash animation 6's closing step 6, skipping swing. */
+  const uint8_t animation_tick = (uint8_t)(state.tick +
+      (state.kind == SABER_KIND_ICE_CLONE ? 12 : 0));
   state.anim_step = state.anim_id ?
-      animation_step_for_tick(state.anim_id, state.tick) : 0;
+      animation_step_for_tick(state.anim_id, animation_tick) : 0;
 }
 
 static MmxSaberSfxAttackCue attack_cue(const MmxSaberAttack *attack) {

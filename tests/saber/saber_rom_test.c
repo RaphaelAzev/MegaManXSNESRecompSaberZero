@@ -14408,14 +14408,15 @@ static unsigned saber_ice_clone_launch_loaded(bool right) {
   slot = saber_ice_clone_slot();
   check(snapshot.kind == SABER_KIND_ICE_CLONE &&
             snapshot.phase == SABER_PHASE_ACTIVE && snapshot.tick == 0 &&
-            snapshot.anim_id == 0 && snapshot.anim_step == 0 &&
+            snapshot.anim_id == 6 && snapshot.anim_step == 6 &&
             dash_action == 0x14 && g_ram[0x0baa] == 0 &&
-            !MmxRendererPlayerOverlaySnapshot().active &&
+            MmxRendererPlayerOverlaySnapshot().active &&
+            MmxRendererPlayerOverlaySnapshot().facing_left == !right &&
             saber_ice_clone_count() == 1,
         right ? "right Down+Y changes native $0BAA 0x14 to 0x00 at clone "
-                "tick 0 without Saber overlay" :
+                "tick 0 with dash closing overlay" :
                 "left Down+Y changes native $0BAA 0x14 to 0x00 at clone "
-                "tick 0 without Saber overlay");
+                "tick 0 with dash closing overlay");
   check(slot != 0 && MmxSaberProjectileOwns(g_ram, slot) &&
             MmxSaberProjectileGet(
                 (slot - MMX_SABER_PROJECTILE_SLOT_FIRST) /
@@ -14457,6 +14458,37 @@ static void saber_ice_clone_configure(const char *fixture, bool right,
 static unsigned saber_ice_clone_launch(const char *fixture, bool right) {
   saber_ice_clone_configure(fixture, right, 0x1c00, false);
   return saber_ice_clone_launch_loaded(right);
+}
+
+static void saber_ice_clone_closing_animation_case(const char *fixture,
+                                                    bool right) {
+  bool sequence_ok = true;
+  unsigned slot = saber_ice_clone_launch(fixture, right);
+
+  if (!slot) return;
+  for (unsigned tick = 0; tick < 18; ++tick) {
+    const MmxSaberAttackSnapshot snapshot = MmxSaberAttackSnapshotGet();
+    const MmxRenderPlayerOverlay overlay =
+        MmxRendererPlayerOverlaySnapshot();
+    if (snapshot.kind != SABER_KIND_ICE_CLONE ||
+        snapshot.phase == SABER_PHASE_IDLE || snapshot.tick != tick ||
+        snapshot.anim_id != 6 ||
+        snapshot.anim_step != (uint8_t)(6 + tick / 2) || !overlay.active ||
+        !overlay.body.pixels || overlay.facing_left != !right)
+      sequence_ok = false;
+    if (tick + 1 < 18) frame(0);
+  }
+  check(sequence_ok,
+        right ? "right ice clone shows dash closing frames 1074-1082 in order" :
+                "left ice clone shows dash closing frames 1074-1082 in order");
+  frame(0);
+  check(g_ram[0x0baa] == 0 &&
+            MmxSaberAttackSnapshotGet().phase == SABER_PHASE_IDLE &&
+            MmxSaberAttackSnapshotGet().anim_id == 0 &&
+            !MmxRendererPlayerOverlaySnapshot().active,
+        right ? "right ice clone closes to standing with no Saber overlay" :
+                "left ice clone closes to standing with no Saber overlay");
+  MmxSaberProjectileRetireAll(g_ram);
 }
 
 static unsigned saber_ice_clone_use(const char *fixture, bool right,
@@ -14513,9 +14545,10 @@ static void saber_ice_clone_air_dash_case(const char *fixture) {
             snapshot.phase == SABER_PHASE_ACTIVE && snapshot.tick == 0 &&
             g_ram[0x0baa] == 0x08 && zero.modern.dash_ticks == 0 &&
             (int16_t)read_ram_word(g_ram, 0x0bc2) == 0 &&
-            !MmxRendererPlayerOverlaySnapshot().active && slot != 0 &&
+            snapshot.anim_id == 6 && snapshot.anim_step == 6 &&
+            MmxRendererPlayerOverlaySnapshot().active && slot != 0 &&
             before == 0x1c00 && after == before - 0x0100,
-        "air-dash Down+Y starts ice clone, ends at falling 0x08, stops Zero, and debits Shotgun Ice");
+        "air-dash Down+Y starts ice clone, shows dash closing step 6, ends at falling 0x08, stops Zero, and debits Shotgun Ice");
   if (!slot) return;
 
   {
@@ -14529,7 +14562,7 @@ static void saber_ice_clone_air_dash_case(const char *fixture) {
               projectile->facing == 0x40,
           "air ice clone spawns at Zero front and feet height");
     previous_clone_x = projectile->x;
-    for (unsigned tick = 1; tick < 16; ++tick) {
+    for (unsigned tick = 1; tick < 18; ++tick) {
       frame(0);
       snapshot = MmxSaberAttackSnapshotGet();
       zero = MmxZeroGetState();
@@ -14546,11 +14579,14 @@ static void saber_ice_clone_air_dash_case(const char *fixture) {
       previous_zero_y = (int16_t)read_ram_word(g_ram, 0x0bb0);
       if (snapshot.kind != SABER_KIND_ICE_CLONE ||
           snapshot.phase == SABER_PHASE_IDLE ||
-          MmxRendererPlayerOverlaySnapshot().active || zero.modern.dash_ticks)
+          snapshot.anim_id != 6 ||
+          snapshot.anim_step != (uint8_t)(6 + tick / 2) ||
+          !MmxRendererPlayerOverlaySnapshot().active ||
+          zero.modern.dash_ticks)
         body_ok = false;
     }
     check(body_ok && horizontal_ok && clone_height_ok,
-          "air ice clone keeps Saber body hidden, Zero horizontal speed zero, and clone height fixed");
+          "air ice clone shows dash closing overlay, keeps Zero horizontal speed zero, and keeps clone height fixed");
     check(clone_slide_ok && fall_seen,
           "air ice clone slides forward while Zero falls under gravity");
   }
@@ -14582,11 +14618,11 @@ static void saber_ice_clone_checks(const char *fixture) {
   unsigned slot;
   unsigned index;
 
-  check(clone && clone->visual_animation == 0 &&
-            clone->startup_ticks == 0 && clone->active_ticks == 16 &&
-            clone->total_ticks == 16 && clone->bounds_segments == NULL &&
+  check(clone && clone->visual_animation == 6 &&
+            clone->startup_ticks == 0 && clone->active_ticks == 18 &&
+            clone->total_ticks == 18 && clone->bounds_segments == NULL &&
             clone->damage == 0,
-        "ice clone record has no player animation, 16 ticks, and no melee hitbox");
+        "ice clone record uses dash closing animation, 18 ticks, and no melee hitbox");
 
   saber_specials_unlock_load(fixture, 0);
   g_ram[0x1f96] &= (uint8_t)~0x40;
@@ -14657,8 +14693,7 @@ static void saber_ice_clone_checks(const char *fixture) {
           "empty Shotgun Ice keeps Down+Y as dash slash with no clone");
   }
 
-  (void)saber_ice_clone_launch(fixture, false);
-  MmxSaberProjectileRetireAll(g_ram);
+  saber_ice_clone_closing_animation_case(fixture, false);
 
   slot = saber_ice_clone_launch(fixture, true);
   if (!slot) return;
@@ -14667,33 +14702,36 @@ static void saber_ice_clone_checks(const char *fixture) {
     bool body_stopped = true;
     bool position_stopped = true;
     MmxSaberAttackSnapshot body_snapshot = MmxSaberAttackSnapshotGet();
-    check(g_ram[0x0baa] == 0 && body_snapshot.anim_id == 0 &&
-              !MmxRendererPlayerOverlaySnapshot().active,
-          "ice clone tick 0 keeps native $0BAA at 0x00 with no Saber overlay");
-    for (unsigned tick = 1; tick < 16; ++tick) {
+    check(g_ram[0x0baa] == 0 && body_snapshot.anim_id == 6 &&
+              body_snapshot.anim_step == 6 &&
+              MmxRendererPlayerOverlaySnapshot().active,
+          "ice clone tick 0 keeps native $0BAA at 0x00 with dash closing overlay");
+    for (unsigned tick = 1; tick < 18; ++tick) {
       frame(0);
       body_snapshot = MmxSaberAttackSnapshotGet();
       if (body_snapshot.kind != SABER_KIND_ICE_CLONE ||
           body_snapshot.phase == SABER_PHASE_IDLE ||
           body_snapshot.tick != tick || g_ram[0x0baa] != 0 ||
-          body_snapshot.anim_id != 0 ||
-          MmxRendererPlayerOverlaySnapshot().active)
+          body_snapshot.anim_id != 6 ||
+          body_snapshot.anim_step != (uint8_t)(6 + tick / 2) ||
+          !MmxRendererPlayerOverlaySnapshot().active)
         body_stopped = false;
       if ((int16_t)read_ram_word(g_ram, 0x0bad) != stopped_x)
         position_stopped = false;
     }
     check(body_stopped,
-          "ice clone ticks 1-15 keep native $0BAA at 0x00 with no Saber overlay");
+          "ice clone ticks 1-17 keep native $0BAA at 0x00 with dash closing overlay");
     for (unsigned i = 0; i < 10; ++i) {
       frame(0);
       body_snapshot = MmxSaberAttackSnapshotGet();
       if ((int16_t)read_ram_word(g_ram, 0x0bad) != stopped_x ||
           g_ram[0x0baa] != 0 ||
-          (i == 0 && body_snapshot.phase != SABER_PHASE_IDLE))
+          body_snapshot.phase != SABER_PHASE_IDLE || body_snapshot.anim_id != 0 ||
+          MmxRendererPlayerOverlaySnapshot().active)
         position_stopped = false;
     }
     check(position_stopped,
-          "ice clone keeps Zero X constant through 16 ticks and 10 post-move frames");
+          "ice clone keeps Zero X constant through 18 ticks and 10 post-move frames");
     frame(SNES_PAD_Y);
     body_snapshot = MmxSaberAttackSnapshotGet();
     check(body_snapshot.kind == SABER_KIND_GROUND1 &&
