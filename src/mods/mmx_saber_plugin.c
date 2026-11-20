@@ -294,21 +294,25 @@ static int configure_saber_projectile_strip(
     const MmxSaberAssets *assets, MmxSaberProjectileKind kind,
     uint16_t animation_id, unsigned frame_count, uint16_t width,
     uint16_t height, int16_t origin_x, int16_t origin_y, bool hold_last,
-    MmxSaberProjectileFrame *frames) {
+    unsigned render_ticks_per_frame, MmxSaberProjectileFrame *frames) {
+  enum { ASSET_TICKS_PER_FRAME = 3 };
   const MmxSaberAnimation *animation =
       MmxSaberAssetsAnimationById(assets, animation_id);
 
+  /* Validate source-cell timing, then allow presentation timing to stretch a
+   * projectile strip without changing the authored player animation. */
   MmxSaberRenderSetProjectileStrip(kind, NULL, 0, 0, false, false, NULL, 0);
   memset(frames, 0, sizeof(*frames) * frame_count);
   if (!animation || animation->step_count != frame_count ||
-      animation->total_ticks != frame_count * 3)
+      animation->total_ticks != frame_count * ASSET_TICKS_PER_FRAME ||
+      !render_ticks_per_frame)
     return 0;
   for (unsigned i = 0; i < frame_count; ++i) {
     const MmxSaberStep *step =
         MmxSaberAssetsAnimationStep(assets, animation_id, (uint16_t)i);
     const MmxSaberFrame *frame =
         MmxSaberAssetsFrameForStep(assets, animation_id, (uint16_t)i);
-    if (!step || step->duration_ticks != 3 || !frame ||
+    if (!step || step->duration_ticks != ASSET_TICKS_PER_FRAME || !frame ||
         !frame->body.pixels || frame->body.width != width ||
         frame->body.height != height || frame->body.origin_x != origin_x ||
         frame->body.origin_y != origin_y || frame->blade.pixels ||
@@ -323,7 +327,8 @@ static int configure_saber_projectile_strip(
     };
   }
   MmxSaberRenderSetProjectileStrip(
-      kind, frames, frame_count, 3, hold_last, animation->facing_xor != 0,
+      kind, frames, frame_count, render_ticks_per_frame, hold_last,
+      animation->facing_xor != 0,
       MmxSaberAssetsPalette(assets),
       MmxSaberAssetsPaletteCount(assets));
   return 1;
@@ -333,13 +338,13 @@ static int configure_saber_cutter_strips(const MmxSaberAssets *assets) {
   clear_saber_cutter_strips();
   if (!configure_saber_projectile_strip(
           assets, SABER_PROJECTILE_CUTTER, 16, 4, 32, 12, 16, 6,
-          false, g_saber_cutter_forward_frames)) {
+          false, 3, g_saber_cutter_forward_frames)) {
     clear_saber_cutter_strips();
     return 0;
   }
   if (!configure_saber_projectile_strip(
           assets, SABER_PROJECTILE_CUTTER_AIR, 17, 4, 26, 24, 13, 12,
-          false, g_saber_cutter_diagonal_frames)) {
+          false, 3, g_saber_cutter_diagonal_frames)) {
     clear_saber_cutter_strips();
     return 0;
   }
@@ -348,9 +353,11 @@ static int configure_saber_cutter_strips(const MmxSaberAssets *assets) {
 
 static int configure_saber_ice_clone_strip(const MmxSaberAssets *assets) {
   clear_saber_ice_clone_strip();
+  /* The three authored cells need six runtime ticks each to read during the
+   * slide. */
   if (!configure_saber_projectile_strip(
           assets, SABER_PROJECTILE_ICE_CLONE, 18, 3, 94, 38, 94, 37,
-          true, g_saber_ice_clone_frames)) {
+          true, 6, g_saber_ice_clone_frames)) {
     clear_saber_ice_clone_strip();
     return 0;
   }
@@ -361,7 +368,7 @@ static int configure_saber_thunder_orb_strip(const MmxSaberAssets *assets) {
   clear_saber_thunder_orb_strip();
   if (!configure_saber_projectile_strip(
           assets, SABER_PROJECTILE_THUNDER_ORB, 20, 2, 32, 32, 16, 16,
-          false, g_saber_thunder_orb_frames)) {
+          false, 3, g_saber_thunder_orb_frames)) {
     clear_saber_thunder_orb_strip();
     return 0;
   }
