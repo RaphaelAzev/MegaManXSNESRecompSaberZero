@@ -308,11 +308,12 @@ static bool resolve_snapshot(const MmxSaberAssets *assets,
   animation = MmxSaberAssetsAnimationById(assets, snapshot.anim_id);
   if (!animation || !animation->total_ticks) return false;
 
-  /* Ice Clone publishes its donor step with the closing-frame offset already
-   * resolved by the attack owner. Do not restart animation 6 at step zero. */
+  /* Ice Clone and uppercut publish donor steps with attack-specific timing
+   * already resolved by the attack owner. Do not restart either animation. */
   /* Match oldsaber/saber-zero-variant:src/mmx_saber.c:1351-1355 for
    * manifest-timed attacks. Open-ended thrust uses its shared step helper. */
-  if (snapshot.kind == SABER_KIND_ICE_CLONE) {
+  if (snapshot.kind == SABER_KIND_ICE_CLONE ||
+      snapshot.kind == SABER_KIND_UPPERCUT) {
     step_index = snapshot.anim_step;
     if (step_index >= animation->step_count) return false;
     frame = MmxSaberAssetsFrameForStep(assets, snapshot.anim_id, step_index);

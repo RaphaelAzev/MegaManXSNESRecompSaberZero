@@ -259,7 +259,7 @@ static void publish_ground_swing(uint8_t *ram, MmxSaberPadSaber saber) {
 
 enum {
   SABER_NATIVE_WALK_SPEED = 0x0178,
-  SABER_UPPERCUT_HORIZONTAL_SPEED = SABER_NATIVE_WALK_SPEED / 2,
+  SABER_UPPERCUT_HORIZONTAL_SPEED = SABER_NATIVE_WALK_SPEED * 5 / 8,
 };
 
 static void publish_uppercut_motion(uint8_t *ram, MmxSaberPadSaber saber) {

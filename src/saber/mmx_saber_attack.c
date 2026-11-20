@@ -894,8 +894,9 @@ static uint8_t animation_step_for_tick(uint8_t animation, uint8_t tick) {
     return (uint8_t)(tick / 3);
   if (animation == 3 && tick >= 30)
     return (uint8_t)(15 + (tick - 30) / 3);
-  if (animation == 8 && tick >= 10)
-    return 5;
+  /* Uppercut step 3 is the first upright forward-saber rise pose. */
+  if (animation == 8 && tick >= 6)
+    return 3;
   return (uint8_t)(tick / 2);
 }
 
@@ -903,6 +904,9 @@ static void update_animation(void) {
   /* Ice Clone starts at dash animation 6's closing step 7, skipping swing. */
   const uint8_t animation_tick = (uint8_t)(state.tick +
       (state.kind == SABER_KIND_ICE_CLONE ? 14 : 0));
+  if (state.kind == SABER_KIND_UPPERCUT && state.tick >= 6 &&
+      state.anim_step == 5)
+    return;
   state.anim_step = state.anim_id ?
       animation_step_for_tick(state.anim_id, animation_tick) : 0;
 }
@@ -1797,6 +1801,11 @@ void MmxSaberAttackPlayerEnd(uint8_t *ram) {
 
   stop_native_dash(ram);
   scale_uppercut_jump(ram);
+  /* Native uppercut velocity reaches zero at apex before the existing
+   * negative-velocity natural exit. Keep final art selected through exit. */
+  if (state.kind == SABER_KIND_UPPERCUT && state.tick >= 6 &&
+      (int16_t)word(ram + 0x0bc4) <= 0)
+    state.anim_step = 5;
 
   movement_accepted = native_movement_accepted(ram);
   uppercut_jump_refused = native_observation_valid &&

@@ -1048,7 +1048,8 @@ static void special_render_checks(const MmxSaberAssets *assets) {
     const MmxSaberFrame *arc =
         MmxSaberAssetsFrameForStep(assets, 9, step);
     MmxSaberAttackSnapshot snapshot = {
-      SABER_KIND_UPPERCUT, 0, SABER_PHASE_ACTIVE, (uint8_t)tick, 8, 0, 0x40};
+      SABER_KIND_UPPERCUT, 0, SABER_PHASE_ACTIVE, (uint8_t)tick, 8,
+      (uint8_t)step, 0x40};
 
     check(timing && body && arc,
           "production asset exposes every uppercut body and arc step");
@@ -1078,7 +1079,38 @@ static void special_render_checks(const MmxSaberAssets *assets) {
               check_plane(&actual.body, &final_body->body) &&
               check_plane(&actual.blade, &final_arc->body) &&
               actual.blade_layer == 2,
-          "uppercut render holds body and arc step 5 after step 6 is removed");
+          "uppercut render draws published body and arc step 5 after the apex");
+  }
+
+  {
+    const MmxSaberFrame *rising_body =
+        MmxSaberAssetsFrameForStep(assets, 8, 3);
+    const MmxSaberFrame *rising_arc =
+        MmxSaberAssetsFrameForStep(assets, 9, 3);
+    const MmxSaberFrame *final_body =
+        MmxSaberAssetsFrameForStep(assets, 8, 5);
+    const MmxSaberFrame *final_arc =
+        MmxSaberAssetsFrameForStep(assets, 9, 5);
+    bool rising_hold = rising_body && rising_arc && final_body && final_arc;
+
+    for (uint16_t rising_tick = 6; rising_tick < 29 && rising_hold;
+         ++rising_tick) {
+      MmxSaberAttackSnapshot snapshot = {
+        SABER_KIND_UPPERCUT, 0, SABER_PHASE_ACTIVE, rising_tick, 8, 3, 0x40};
+      if (!MmxSaberRenderResolveSnapshot(assets, snapshot, &actual) ||
+          !check_plane(&actual.body, &rising_body->body) ||
+          !check_plane(&actual.blade, &rising_arc->body) ||
+          actual.blade_layer != 2)
+        rising_hold = false;
+    }
+    MmxSaberAttackSnapshot snapshot = {
+      SABER_KIND_UPPERCUT, 0, SABER_PHASE_ACTIVE, 29, 8, 5, 0x40};
+    check(rising_body && rising_arc && final_body && final_arc && rising_hold &&
+              MmxSaberRenderResolveSnapshot(assets, snapshot, &actual) &&
+              check_plane(&actual.body, &final_body->body) &&
+              check_plane(&actual.blade, &final_arc->body) &&
+              actual.blade_layer == 2,
+          "uppercut renderer holds step 3 through rising ticks, then pairs final step 5");
   }
 
   tick = 0;
@@ -2078,6 +2110,7 @@ static void uppercut_attack_checks(void) {
   uint8_t ram[0x20000] = {0};
   MmxSaberAttackSnapshot snapshot;
   bool steps_ok = true;
+  bool rising_step_ok = true;
   const MmxSaberAttack *attack =
       MmxSaberAttackRecord(SABER_KIND_UPPERCUT, 0);
 
@@ -2093,7 +2126,9 @@ static void uppercut_attack_checks(void) {
       true, true, false, false, true, false, true, false, true, ram, 0, 0);
   for (unsigned i = 0; i < attack->total_ticks; ++i) {
     snapshot = MmxSaberAttackSnapshotGet();
-    if (snapshot.kind != SABER_KIND_UPPERCUT || snapshot.anim_step > 5)
+    const uint8_t expected_step = i < 6 ? (uint8_t)(i / 2) : 3;
+    if (snapshot.kind != SABER_KIND_UPPERCUT ||
+        snapshot.anim_step != expected_step)
       steps_ok = false;
     if (i + 1 == attack->total_ticks) break;
     MmxSaberAttackStepWithWallAndDash(
@@ -2101,8 +2136,25 @@ static void uppercut_attack_checks(void) {
   }
   check(steps_ok && snapshot.kind == SABER_KIND_UPPERCUT &&
             snapshot.tick == 29 && snapshot.phase == SABER_PHASE_ACTIVE &&
-            snapshot.anim_step == 5,
-        "uppercut never shows animation 8 step 6 and holds step 5 through tick 29");
+            snapshot.anim_step == 3,
+        "uppercut holds animation 8 step 3 through the rising attack ticks");
+
+  MmxSaberAttackResetRam(ram);
+  MmxSaberAttackStepWithWallAndDash(
+      true, true, false, false, true, false, true, false, true, ram, 0, 0);
+  for (unsigned i = 0; i < 6; ++i)
+    MmxSaberAttackStepWithWallAndDash(
+        false, true, false, false, true, false, true, false, true, ram, 0, 0);
+  ram[0x0bd3] = 0;
+  ram[0x0baa] = 0x06;
+  ram[0x0bc4] = 0;
+  ram[0x0bc5] = 0;
+  MmxSaberAttackPlayerEnd(ram);
+  snapshot = MmxSaberAttackSnapshotGet();
+  if (snapshot.kind != SABER_KIND_UPPERCUT || snapshot.anim_step != 5)
+    rising_step_ok = false;
+  check(rising_step_ok && snapshot.phase == SABER_PHASE_ACTIVE,
+        "uppercut publishes animation 8 step 5 when native rise reaches apex");
 
   MmxSaberAttackResetRam(ram);
   MmxSaberAttackStepWithWallAndDash(

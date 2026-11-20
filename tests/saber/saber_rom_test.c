@@ -12238,7 +12238,7 @@ enum {
   SABER_UPPERCUT_SCALED_VY = 0x0612,
   SABER_UPPERCUT_DASH_FRAMES = 10,
   SABER_NATIVE_WALK_SPEED = 0x0178,
-  SABER_UPPERCUT_HORIZONTAL_SPEED = SABER_NATIVE_WALK_SPEED / 2,
+  SABER_UPPERCUT_HORIZONTAL_SPEED = SABER_NATIVE_WALK_SPEED * 5 / 8,
   SABER_UPPERCUT_MAX_X_STEP =
       (SABER_UPPERCUT_HORIZONTAL_SPEED + 0xff) / 0x100,
   SABER_NATIVE_DASH_SPEED = 0x0375,
@@ -12769,9 +12769,10 @@ static void saber_uppercut_checks(const char *fixture_dir) {
   check(native_dash_count == SABER_UPPERCUT_DASH_FRAMES &&
             uppercut_standing_count == SABER_UPPERCUT_DASH_FRAMES &&
             standing_count == SABER_UPPERCUT_DASH_FRAMES &&
-            uppercut_standing_cap &&
-            uppercut_standing_travel * 2 <= standing_travel + 1,
-        "standing uppercut holds Right at half native walk speed and half native jump travel");
+            SABER_UPPERCUT_HORIZONTAL_SPEED == 0x00EB &&
+            uppercut_standing_cap && uppercut_standing_travel > 6 &&
+            uppercut_standing_travel * 8 <= standing_travel * 5 + 1,
+        "standing uppercut holds Right at 5/8 native walk speed, travels more than 6 pixels, and stays within 5/8 native jump travel");
   check(uppercut_dash_count == SABER_UPPERCUT_DASH_FRAMES &&
             uppercut_dash_cap &&
             uppercut_dash[SABER_UPPERCUT_TAKEOFF_TICK].vx !=
