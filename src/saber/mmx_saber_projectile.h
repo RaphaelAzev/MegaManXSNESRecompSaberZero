@@ -36,8 +36,10 @@ enum {
   /* boomer() air step-3 blade bbox right edge is 108 on a 128 canvas;
    * Zero origin is x=64, so the front offset is 108 - 64. */
   MMX_SABER_AIR_CUTTER_FRONT_X = 108 - 64,
-  /* Slash-2 step-3 blade centre is canvas y=70.5; F1 maps it to Zero y+7. */
-  MMX_SABER_CUTTER_GROUND_Y_OFFSET = 7,
+  /* Standing renderer anchor is RAM Zero y - 8. Frame 1019's blade centre is
+   * canvas y=70.5, so its rounded world centre is RAM Zero y - 1. The
+   * forward cutter's opaque cell centre is its signed provider world y. */
+  MMX_SABER_CUTTER_GROUND_Y_OFFSET = -1,
   MMX_SABER_CUTTER_LIFETIME = 60,
   /* Storm uppercut step 2 arc front edge is x=51 from Zero; column centre
    * stays six pixels behind that saber tip. */

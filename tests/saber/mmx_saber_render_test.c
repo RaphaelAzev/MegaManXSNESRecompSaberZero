@@ -315,19 +315,56 @@ static int drawn_zero_feet_y(const MmxSaberAssets *assets, int zero_x,
   return feet_y;
 }
 
+static const MmxSaberFrame *manifest_frame_for_tick(
+    const MmxSaberAssets *assets, uint8_t animation_id, uint8_t tick) {
+  const MmxSaberAnimation *animation =
+      MmxSaberAssetsAnimationById(assets, animation_id);
+  uint16_t remaining;
+
+  if (!animation || !animation->total_ticks) return NULL;
+  remaining = tick < animation->total_ticks ? tick :
+      (uint16_t)(animation->total_ticks - 1);
+  for (uint16_t step_index = 0; step_index < animation->step_count;
+       ++step_index) {
+    const MmxSaberStep *step = MmxSaberAssetsAnimationStep(
+        assets, animation_id, step_index);
+    if (!step) return NULL;
+    if (remaining < step->duration_ticks) {
+      return MmxSaberAssetsFrameForStep(assets, animation_id, step_index);
+    }
+    remaining = (uint16_t)(remaining - step->duration_ticks);
+  }
+  return NULL;
+}
+
 static int drawn_ground_blade_center_y(const MmxSaberAssets *assets,
+                                       MmxSaberAttackSnapshot snapshot,
                                        int zero_x, int zero_y,
-                                       uint8_t facing) {
-  const MmxSaberAttackSnapshot snapshot = {
-    SABER_KIND_GROUND2, 1, SABER_PHASE_ACTIVE, 6, 2, 3, 0};
+                                       uint8_t facing,
+                                       uint16_t *source_frame_id_out) {
+  const MmxSaberFrame *drawn_frame = manifest_frame_for_tick(
+      assets, snapshot.anim_id, snapshot.tick);
   MmxRenderPlayerOverlay overlay;
   TestOpaqueRect rect;
 
   MmxSaberAttackSnapshot oriented = snapshot;
   oriented.facing = facing;
-  check(MmxSaberRenderResolveSnapshot(assets, oriented, &overlay) &&
+  if (source_frame_id_out) *source_frame_id_out = 0xffff;
+  check(drawn_frame && MmxSaberRenderResolveSnapshot(assets, oriented, &overlay) &&
+            overlay.body.pixels == drawn_frame->body.pixels &&
+            overlay.body.width == drawn_frame->body.width &&
+            overlay.body.height == drawn_frame->body.height &&
+            overlay.body.origin_x == drawn_frame->body.origin_x &&
+            overlay.body.origin_y == drawn_frame->body.origin_y &&
+            overlay.blade.pixels == drawn_frame->blade.pixels &&
+            overlay.blade.width == drawn_frame->blade.width &&
+            overlay.blade.height == drawn_frame->blade.height &&
+            overlay.blade.origin_x == drawn_frame->blade.origin_x &&
+            overlay.blade.origin_y == drawn_frame->blade.origin_y &&
+            overlay.blade_layer == drawn_frame->blade_layer &&
             compose_overlay_blade_rect(&overlay, zero_x, zero_y, &rect),
-        "slash-2 step-3 composite exposes drawn blade");
+        "spawn-tick renderer frame exposes drawn blade");
+  if (source_frame_id_out) *source_frame_id_out = drawn_frame->source_frame_id;
   return (rect.min_y + rect.max_y + 1) / 2;
 }
 
@@ -1665,20 +1702,21 @@ static void cutter_asset_checks(const MmxSaberAssets *assets) {
     static uint8_t collision_rom[0x40000];
     const int zero_x = 321;
     const int zero_y = 123;
-    const int drawn_blade_center = drawn_ground_blade_center_y(
-        assets, zero_x, zero_y, 0x40);
-    check(drawn_blade_center == zero_y + 7,
-          "slash-2 step-3 blade centre maps to Zero y plus 7");
+    /* MmxRenderer passes RAM Zero y plus MmxZeroPoseOffsetY(). The standing
+     * pose in this RAM is -8, so use the same anchor as player_overlay_row. */
+    const int render_zero_y = zero_y - 8;
     for (unsigned facing = 0; facing < 2; ++facing) {
       const uint8_t native_facing = facing ? 0x40 : 0;
       const uint8_t direction = facing ? 1 : 2;
       MmxSaberProjectileLiveInfo live[1];
       MmxRenderWorldSprite placed[1];
       TestOpaqueRect placed_rect;
+      MmxSaberAttackSnapshot snapshot;
       const MmxSaberProjectile *projectile;
+      uint16_t drawn_source_frame;
+      int drawn_blade_center;
       const int expected_x = zero_x + (facing ? 30 : -30);
-      const int expected_y = drawn_ground_blade_center_y(
-          assets, zero_x, zero_y, native_facing);
+      int expected_y;
 
       memset(ram, 0, sizeof(ram));
       memset(collision_rom, 0xff, sizeof(collision_rom));
@@ -1695,6 +1733,16 @@ static void cutter_asset_checks(const MmxSaberAssets *assets) {
         MmxSaberAttackStepWithWallAndDashRequested(
             false, SABER_KIND_NONE, true, false, false, false, false, true,
             false, true, ram, native_facing, direction);
+      snapshot = MmxSaberAttackSnapshotGet();
+      drawn_blade_center = drawn_ground_blade_center_y(
+          assets, snapshot, zero_x, render_zero_y, native_facing,
+          &drawn_source_frame);
+      expected_y = drawn_blade_center;
+      check(snapshot.kind == SABER_KIND_GROUND2 && snapshot.tick == 6 &&
+                snapshot.anim_id == 2 && snapshot.anim_step == 3 &&
+                drawn_source_frame == 3 && expected_y == zero_y - 1 &&
+                expected_y != zero_y + 7,
+            "spawn tick draws animation 2 frame 1019 at renderer Zero y - 8");
       check(MmxSaberProjectileLive(live, 1) == 1 &&
                 live[0].kind == SABER_PROJECTILE_CUTTER &&
                 live[0].world_x == expected_x && live[0].world_y == expected_y,
@@ -1703,6 +1751,8 @@ static void cutter_asset_checks(const MmxSaberAssets *assets) {
       check(MmxSaberRenderProvideWorldSprites(placed, 1) == 1 &&
                 placed[0].world_x == expected_x &&
                 compose_world_opaque_rect(&placed[0], &placed_rect) &&
+                (placed_rect.min_y + placed_rect.max_y + 1) / 2 ==
+                    drawn_blade_center &&
                 placed_rect.min_y == expected_y - 6 &&
                 placed_rect.max_y == expected_y + 6 && projectile &&
                 (ram[projectile->slot + 8] |
