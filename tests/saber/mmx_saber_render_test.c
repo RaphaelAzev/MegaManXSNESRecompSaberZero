@@ -48,10 +48,10 @@ const uint16_t *MmxZeroBodyColors(const MmxZeroState *s) {
 }
 
 static const uint8_t kSaberManifestSha[32] = {
-  0x3f, 0xf7, 0x50, 0x0c, 0x8a, 0x14, 0xb2, 0xd0,
-  0xf8, 0xf7, 0x71, 0x1c, 0x4c, 0x38, 0x6b, 0x46,
-  0x4b, 0xca, 0xd4, 0xd5, 0x8a, 0x2b, 0x8e, 0xa5,
-  0x0e, 0x77, 0xc4, 0xe6, 0x62, 0xa3, 0x9c, 0xfc,
+  0xca, 0xed, 0x42, 0xcb, 0x0b, 0xa6, 0xe3, 0xe2,
+ 0xa1, 0xc9, 0x67, 0x26, 0x4d, 0xd8, 0x11, 0x80,
+ 0xa6, 0x90, 0x5e, 0x2b, 0xf2, 0xac, 0x8e, 0x39,
+ 0x70, 0xb7, 0x8c, 0x78, 0x03, 0x02, 0x4b, 0xd8,
 };
 
 static const uint8_t kRideManifestSha[32] = {
@@ -366,6 +366,50 @@ static int drawn_ground_blade_center_y(const MmxSaberAssets *assets,
         "spawn-tick renderer frame exposes drawn blade");
   if (source_frame_id_out) *source_frame_id_out = drawn_frame->source_frame_id;
   return (rect.min_y + rect.max_y + 1) / 2;
+}
+
+static void thunder_slam_floor_checks(const MmxSaberAssets *assets) {
+  const int zero_x = 200;
+  const int zero_y = 160;
+  const int floor_row = 64 + MMX_SABER_ZERO_FEET_BELOW_Y;
+  const int standing_bottom = drawn_zero_feet_y(
+      assets, zero_x, zero_y, 0) - 1 - (zero_y - 64);
+  MmxSaberAttackSnapshot snapshot = {
+    .kind = SABER_KIND_THUNDER_SLAM,
+    .index = 0,
+    .phase = SABER_PHASE_ACTIVE,
+    .tick = 0,
+    .anim_id = 19,
+    .anim_step = 0,
+    .facing = 0x40,
+  };
+  bool body_floor_ok = true;
+  bool dome_floor_ok = true;
+
+  /* Animation 19 stores Zero and dome FX in one body plane. The plane's
+   * lowest drawn row is therefore the conservative lower edge for both. */
+  for (unsigned tick = 0; tick < 42; ++tick) {
+    MmxRenderPlayerOverlay overlay = {0};
+    TestOpaqueRect rect;
+    int lowest_row;
+    snapshot.tick = (uint8_t)tick;
+    snapshot.anim_step = (uint8_t)(tick / 3);
+    if (!MmxSaberRenderResolveSnapshot(assets, snapshot, &overlay) ||
+        !compose_overlay_opaque_rect(&overlay.body, overlay.facing_left,
+                                     zero_x, zero_y, overlay.palette_count,
+                                     &rect)) {
+      body_floor_ok = false;
+      dome_floor_ok = false;
+      continue;
+    }
+    lowest_row = rect.max_y - 1 - (zero_y - 64);
+    if (lowest_row != standing_bottom) body_floor_ok = false;
+    if (lowest_row > floor_row) dome_floor_ok = false;
+  }
+  check(body_floor_ok,
+        "every thunder slam tick keeps drawn body bottom at standing floor contact");
+  check(dome_floor_ok,
+        "every thunder slam tick keeps dome FX bottom on or above floor row");
 }
 
 static MmxSaberAssets *make_flash_assets(bool include_new) {
@@ -1981,6 +2025,7 @@ static void thunder_slam_asset_checks(const MmxSaberAssets *assets) {
             orb && orb->step_count == THUNDER_ORB_FRAME_COUNT &&
             orb->total_ticks == THUNDER_ORB_FRAME_COUNT * THUNDER_TICKS_PER_FRAME,
         "loaded asset exposes 14 three-tick thunder slam frames and two orb frames");
+  thunder_slam_floor_checks(assets);
   for (unsigned i = 0; i < THUNDER_SLAM_FRAME_COUNT; ++i) {
     const MmxSaberStep *step = MmxSaberAssetsAnimationStep(
         assets, THUNDER_SLAM_ANIMATION_ID, i);
@@ -1991,11 +2036,12 @@ static void thunder_slam_asset_checks(const MmxSaberAssets *assets) {
               frame->body.width == THUNDER_SLAM_WIDTH &&
               frame->body.height == THUNDER_SLAM_HEIGHT &&
               frame->body.origin_x == THUNDER_SLAM_ORIGIN_X &&
-              frame->body.origin_y == THUNDER_SLAM_ORIGIN_Y &&
+              frame->body.origin_y ==
+                  ((i >= 6 && i <= 9) ? -2 : THUNDER_SLAM_ORIGIN_Y) &&
               frame->source_id == 19 && frame->source_frame_id == i &&
               frame->blade.pixels == NULL && frame->blade.width == 0 &&
               frame->blade.height == 0 && frame->blade_layer == 0,
-          "thunder slam body frame keeps 128x128 full-cell crop origin and no blade");
+          "thunder slam body frame keeps 128x128 crop, grounded origin and no blade");
   }
   check(MmxSaberRenderResolveSnapshot(assets, snapshot, &overlay) &&
             !overlay.facing_left && overlay.body.origin_x == 0 &&

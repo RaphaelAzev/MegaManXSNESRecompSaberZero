@@ -112,10 +112,10 @@ static const char *const kMmxRomDigest =
     "b8f70a6e7fb93819f79693578887e2c11e196bdf1ac6ddc7cb924b1ad0be2d32";
 
 static const uint8_t kSaberManifestSha[32] = {
-  0x3f, 0xf7, 0x50, 0x0c, 0x8a, 0x14, 0xb2, 0xd0,
-  0xf8, 0xf7, 0x71, 0x1c, 0x4c, 0x38, 0x6b, 0x46,
-  0x4b, 0xca, 0xd4, 0xd5, 0x8a, 0x2b, 0x8e, 0xa5,
-  0x0e, 0x77, 0xc4, 0xe6, 0x62, 0xa3, 0x9c, 0xfc,
+  0xca, 0xed, 0x42, 0xcb, 0x0b, 0xa6, 0xe3, 0xe2,
+ 0xa1, 0xc9, 0x67, 0x26, 0x4d, 0xd8, 0x11, 0x80,
+ 0xa6, 0x90, 0x5e, 0x2b, 0xf2, 0xac, 0x8e, 0x39,
+ 0x70, 0xb7, 0x8c, 0x78, 0x03, 0x02, 0x4b, 0xd8,
 };
 
 static const uint8_t kRideManifestSha[32] = {
@@ -6743,6 +6743,66 @@ static void saber_thunder_orb_lock_checks(const char *fixture) {
   MmxSaberProjectileRetireAll(g_ram);
 }
 
+static void saber_thunder_quake_checks(const char *fixture) {
+  MmxSaberAttackSnapshot snapshot;
+
+  saber_thunder_prepare(fixture, true);
+  g_ram[0x1e7a] = 0;
+  g_ram[0x1e83] = 0;
+  g_ram[0x1e7f] = 0;
+  g_ram[0x1e81] = 0;
+  g_ram[0x1e85] = 0;
+  g_ram[0x1e78] &= (uint8_t)~0x02;
+  frame(SNES_PAD_X);
+  for (unsigned tick = 1; tick <= 20; ++tick) frame(0);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_THUNDER_SLAM && snapshot.tick == 20 &&
+            g_ram[0x1e7a] == 0 && g_ram[0x1e83] == 0 &&
+            g_ram[0x1e7f] == 0 && g_ram[0x1e81] == 0 &&
+            g_ram[0x1e85] == 0 && !(g_ram[0x1e78] & 0x02),
+        "thunder slam tick 20 has not started a camera quake");
+  frame(0);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_THUNDER_SLAM && snapshot.tick == 21 &&
+            /* The native camera quake already ran once this frame:
+             * duration 8 -> 7 and its phase byte $1E85 advanced. */
+            g_ram[0x1e7a] == 7 && g_ram[0x1e83] == 2 &&
+            g_ram[0x1e7f] == 1 && g_ram[0x1e81] == 1 &&
+            g_ram[0x1e85] != 0 && (g_ram[0x1e78] & 0x02),
+        "thunder slam orb burst starts the native duration-8 magnitude-2 quake");
+  MmxSaberProjectileRetireAll(g_ram);
+
+  saber_thunder_prepare(fixture, true);
+  frame(SNES_PAD_X);
+  for (unsigned tick = 1; tick <= 42; ++tick) frame(0);
+  if (saber_thunder_orb_count() == 0) {
+    MmxSaberProjectileSpawnInfo info = {0};
+    info.kind = SABER_PROJECTILE_THUNDER_ORB;
+    info.x = (int32_t)(int16_t)read_ram_word(g_ram, 0x0bad) * 256;
+    info.y = ((int32_t)(int16_t)read_ram_word(g_ram, 0x0bb0) - 48) * 256;
+    info.lifetime = 240;
+    info.facing = 0x40;
+    info.damage_normal = 1;
+    info.damage_boss = 1;
+    check(MmxSaberProjectileSpawn(g_ram, &info, NULL),
+          "thunder quake lock setup parks a live orb");
+  }
+  g_ram[0x1e7a] = 0;
+  g_ram[0x1e83] = 0;
+  g_ram[0x1e7f] = 0;
+  g_ram[0x1e81] = 0;
+  g_ram[0x1e85] = 0;
+  g_ram[0x1e78] &= (uint8_t)~0x02;
+  frame(SNES_PAD_X);
+  snapshot = MmxSaberAttackSnapshotGet();
+  check(snapshot.kind == SABER_KIND_NONE && snapshot.phase == SABER_PHASE_IDLE &&
+            g_ram[0x1e7a] == 0 && g_ram[0x1e83] == 0 &&
+            g_ram[0x1e7f] == 0 && g_ram[0x1e81] == 0 &&
+            g_ram[0x1e85] == 0 && !(g_ram[0x1e78] & 0x02),
+        "live thunder orb lock starts no quake without a new burst");
+  MmxSaberProjectileRetireAll(g_ram);
+}
+
 static void saber_thunder_geometry_case(const char *fixture, bool right) {
   const int direction = right ? 1 : -1;
   int center_x;
@@ -7013,6 +7073,7 @@ static void saber_thunder_slam_checks(const char *fixture) {
   saber_thunder_cost_checks(fixture);
   saber_thunder_attack_lock_checks(fixture);
   saber_thunder_orb_lock_checks(fixture);
+  saber_thunder_quake_checks(fixture);
   saber_thunder_geometry_case(fixture, true);
   saber_thunder_geometry_case(fixture, false);
   saber_thunder_capacity_checks(fixture);

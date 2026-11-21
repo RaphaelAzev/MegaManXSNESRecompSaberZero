@@ -1605,10 +1605,23 @@ static void spawn_ice_clone_if_ready(uint8_t *ram) {
   (void)MmxSaberProjectileSpawn(ram, &info, NULL);
 }
 
+static void start_thunder_slam_quake(uint8_t *ram) {
+  if (!ram) return;
+  /* Native X1 camera quake registers: $1E7A duration, $1E83 magnitude,
+   * $1E7F/$1E81 X/Y increments, $1E85 phase, and $1E78 flags bit $02. */
+  ram[0x1e7a] = 8;
+  ram[0x1e83] = 2;
+  ram[0x1e7f] = 1;
+  ram[0x1e81] = 1;
+  ram[0x1e85] = 0;
+  ram[0x1e78] |= 2;
+}
+
 static void spawn_thunder_orbs_if_ready(uint8_t *ram) {
   const int direction = state.facing ? 1 : -1;
   const int zero_x = (int16_t)word(ram + 0x0bad);
   const int zero_y = (int16_t)word(ram + 0x0bb0);
+  bool burst = false;
 
   if (state.kind != SABER_KIND_THUNDER_SLAM || state.tick != 21 ||
       state.thunder_orbs_spawn_attempted)
@@ -1631,7 +1644,9 @@ static void spawn_thunder_orbs_if_ready(uint8_t *ram) {
     info.pass_through = false;
     info.animation_tick = (uint8_t)(k * 3);
     if (!MmxSaberProjectileSpawn(ram, &info, NULL)) break;
+    burst = true;
   }
+  if (burst) start_thunder_slam_quake(ram);
 }
 
 void MmxSaberAttackRuntimeTick(uint8_t *ram) {

@@ -476,6 +476,38 @@ class SaberConverterTests(unittest.TestCase):
         )
         self.assertEqual([step["ticks"] for step in dash["steps"]], [2] * 15)
 
+        slam_origins = [
+            (frame["source_frame"], tuple(frame["body"]["origin"]))
+            for frame in manifest["frames"]
+            if frame["source"] == 19
+        ]
+        self.assertEqual(
+            slam_origins,
+            [
+                (0, (0, 0)),
+                (1, (0, 0)),
+                (2, (0, 0)),
+                (3, (0, 0)),
+                (4, (0, 0)),
+                (5, (0, 0)),
+                (6, (0, -2)),
+                (7, (0, -2)),
+                (8, (0, -2)),
+                (9, (0, -2)),
+                (10, (0, 0)),
+                (11, (0, 0)),
+                (12, (0, 0)),
+                (13, (0, 0)),
+            ],
+        )
+        slam = next(
+            animation for animation in manifest["animations"] if animation["id"] == 19
+        )
+        self.assertEqual(
+            [step["frame"] for step in slam["steps"]], list(range(1164, 1178))
+        )
+        self.assertEqual([step["ticks"] for step in slam["steps"]], [3] * 14)
+
         # DV1 uses the renderer's effective right-facing convention: donor
         # facing_xor=1 is unmirrored, while legacy pose 0 is mirrored around
         # canvas column 63. The nine most frequent donor colors are Zero's
