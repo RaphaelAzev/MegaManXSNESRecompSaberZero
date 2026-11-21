@@ -74,11 +74,13 @@ Weapon energy uses native full-bar state units. A full bar is `$1C00`.
 The Storm uppercut starts on ground or dash Up + Y. Its startup is 4 ticks, its
 active record is 26 ticks, and its total record is 30 ticks. Zero remains on the
 ground through tick 3; takeoff happens on tick 4, with `uppercut_height` defaulting
-to 130% of a normal jump. Y release ends it early. During the uppercut, horizontal
-speed is capped at half native walk speed, and a dash start carries no dash
-momentum. On takeoff, one tornado spawns at the saber's front edge on the
-takeoff floor. It grows for 10 ticks to a visible 120 px column, capped during
-growth at 57 px above Zero, then rises 7 px per tick for up to 90 ticks. The
+to 130% of a normal jump. Y release ends it early. During the rise, Zero holds
+the upright pose with the saber pointed forward and its matching arc until the
+jump reaches its apex; it then shows the final pose. Horizontal speed is capped
+at 5/8 of native walk speed, and a dash start carries no dash momentum. On
+takeoff, one tornado spawns at the saber's front edge on the takeoff floor. It
+grows for 10 ticks to a visible 120 px column, capped during growth at 57 px
+above Zero, then rises 7 px per tick for up to 90 ticks. The
 tornado passes through enemies and hits each enemy once. It needs and spends
 Storm Tornado energy; an empty bar produces no tornado, and a full projectile
 pool can also prevent it while leaving the uppercut active.
@@ -100,30 +102,35 @@ energy.
 
 The ice clone starts on a grounded or air dash with Down + Y after Chill Penguin
 is defeated. Zero stops; on the ground, the dash ends in the standing state, and
-in the air dash it ends in falling. The move state lasts 18 ticks and plays the
-dash attack's closing frames before Zero stands. The clone spawns on tick 0 with
-its leading edge 58 px in front of Zero on the floor. Its authored displacement
-table reaches 99 px, its lifetime is 21 ticks, and it passes through enemies
-while hitting each enemy at most once. It begins fading at age 12 or the tick
-after its first hit; fade level 12 disables its hitbox and level 16 retires it.
+in the air dash it ends in falling. The move state lasts 16 ticks. Zero plays
+only the dash attack's last 8 frames, putting the saber away, at 2 ticks each,
+then stands. The clone plays its three frames at 6 ticks each and holds the last
+frame until it fades. It spawns on tick 0 with its leading edge 58 px in front
+of Zero on the floor. Its authored displacement table reaches 99 px, its
+lifetime is 21 ticks, and it passes through enemies while hitting each enemy at
+most once. It begins fading at age 12 or the tick after its first hit; fade level
+12 disables its hitbox and level 16 retires it.
 It spends one normal Shotgun Ice shot; on a grounded dash with empty energy,
 Down + Y remains the dash slash.
 
 The thunder slam starts on the ground when Electric Spark is selected and
 `weapon_techniques` is enabled. Its animation is 42 ticks: animation 19 has 14
-frames at 3 ticks each, and Zero stays in place. At tick 21, seven orbs spawn
-from the dome centre. They fill every free projectile slot, using middle-out
-order when fewer than seven slots are free. The slam is locked while any thunder
-orb remains: the X press neither requests the slam nor spends Spark energy.
+frames at 3 ticks each, and Zero and the dome stay on the floor throughout. At
+tick 21, seven orbs spawn from the dome centre. The burst gives a short, light
+screen shake through X1's native camera quake: magnitude 2 for 8 frames. The orbs
+fill every free projectile slot, using middle-out order when fewer than seven
+slots are free. The slam is locked while any thunder orb remains: the X press
+neither requests the slam nor spends Spark energy.
 Orbs travel through the upper half at 4.5 px per tick, live for 60 ticks, and
 retire on their first enemy hit or when fully offscreen. Each orb has 8 normal /
 2 boss damage by default.
 
 The cutter slash starts on X with a usable Boomerang Cutter, or on ground Down +
 Y when the Cutter is owned and has usable energy. On the ground it starts Saber
-ground slash 2; in the air it starts the air slash. The cutter flies at saber
-height, its hitbox matches the drawn cutter, and it is not pass-through. It
-retires at its first enemy hit. Both cutter forms live for 60 ticks.
+ground slash 2; in the air it starts the air slash. The ground cutter launches
+level with the drawn centre of the saber blade. Its hitbox matches the drawn
+cutter, and it is not pass-through. It retires at its first enemy hit. Both
+cutter forms live for 60 ticks.
 
 The special-move art is credited in
 [assets/saber-zero/CREDITS.md](../assets/saber-zero/CREDITS.md).
